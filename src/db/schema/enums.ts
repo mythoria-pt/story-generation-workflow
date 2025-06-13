@@ -16,3 +16,7 @@ export const creditEventTypeEnum = pgEnum("credit_event_type", [
   'voucher',
   'promotion'
 ]);
+
+// Story generation workflow enums
+export const runStatusEnum = pgEnum("run_status", ['queued', 'running', 'failed', 'completed', 'cancelled']);
+export const stepStatusEnum = pgEnum("step_status", ['pending', 'running', 'failed', 'completed']);

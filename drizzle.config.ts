@@ -1,6 +1,6 @@
 import { defineConfig } from "drizzle-kit";
 import { config } from "dotenv";
-import { getDatabaseConfig } from "./src/config/database.js";
+import { getDatabaseConfig } from "./src/config/database";
 
 // Load environment variables
 config({ path: ".env.local" });

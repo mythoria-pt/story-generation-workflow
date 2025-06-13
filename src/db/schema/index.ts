@@ -15,4 +15,5 @@ export * from './stories';
 export * from './characters';
 export * from './credits';
 export * from './pricing';
+export * from './story-generation';
 export * from './relations';

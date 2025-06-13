@@ -15,16 +15,18 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx -r dotenv/config ./src/db/migrate.ts",
     "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio",    "docker:build": "docker build -t story-generation-workflow .",
+    "db:studio": "drizzle-kit studio",
+    "docker:build": "docker build -t story-generation-workflow .",
     "docker:run": "docker run -p 8080:8080 story-generation-workflow",
     "gcp:deploy": "powershell -ExecutionPolicy Bypass -File .\\scripts\\deploy.ps1",
+    "gcp:deploy:fast": "powershell -ExecutionPolicy Bypass -File .\\scripts\\deploy-simple.ps1",
     "gcp:setup-secrets": "powershell -ExecutionPolicy Bypass -File .\\scripts\\setup-secrets.ps1",
     "gcp:check-secrets": "powershell -ExecutionPolicy Bypass -File .\\scripts\\check-secrets.ps1",
     "gcp:verify": "powershell -ExecutionPolicy Bypass -File .\\scripts\\verify-setup.ps1",
-    "gcp:fix-encoding": "powershell -ExecutionPolicy Bypass -File .\\scripts\\fix-encoding.ps1",
     "env:validate": "tsx src/config/validate-env.ts",
     "clean": "rimraf dist"
-  },  "dependencies": {
+  },
+    "dependencies": {
     "@google-cloud/storage": "^7.14.0",
     "@google-cloud/vertexai": "^1.10.0",
     "@google-cloud/workflows": "^4.2.0",

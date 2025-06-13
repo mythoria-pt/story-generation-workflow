@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1749854188052,
+      "tag": "0000_add-story-generation-tables",
+      "breakpoints": true
+    }
+  ]
+}
