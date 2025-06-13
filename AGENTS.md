@@ -233,7 +233,7 @@ interface ChapterContent {
 
 ### Google Cloud Run
 - **Platform**: Managed
-- **Region**: us-central1 (default)
+- **Region**: europe-west9
 - **Container**: Built from Dockerfile
 - **Build**: Google Cloud Build pipeline
 

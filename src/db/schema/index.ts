@@ -1,13 +1,18 @@
 // -----------------------------------------------------------------------------
 // Shared database schema - imports from mythoria-webapp
 // This allows both applications to share the same database schema
-// For now, we'll create placeholder exports until the schemas are available
+// 
+// Note: These are individual imports to avoid TypeScript compilation issues
+// with cross-project references. Each schema is imported from the webapp.
 // -----------------------------------------------------------------------------
 
-// TODO: Import actual schema from mythoria-webapp when available
-// export * from '../../../mythoria-webapp/src/db/schema/index.js';
+// Re-export schemas from mythoria-webapp (temporarily copy approach)
+// TODO: Consider using a shared package or workspace setup for better maintainability
 
-// Placeholder exports for now
-export const stories = {};
-export const authors = {};
-export const characters = {};
+export * from './enums';
+export * from './authors';
+export * from './stories';
+export * from './characters';
+export * from './credits';
+export * from './pricing';
+export * from './relations';
