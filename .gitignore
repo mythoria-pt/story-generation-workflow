@@ -1,0 +1,73 @@
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Build output
+dist/
+build/
+
+# Environment files
+.env
+.env.*
+!.env.*.template
+!.env.*.example
+.env.local
+.env.production
+.env.staging
+
+# Deployment configurations with sensitive data
+*.deployment.yaml
+*.deployment.yml
+*-deployment.yaml
+*-deployment.yml
+cloud-run-config*.yaml
+cloud-run-config*.yml
+cloudbuild*.yaml
+cloudbuild*.yml
+docker-compose*.yaml
+docker-compose*.yml
+kubernetes/*.yaml
+kubernetes/*.yml
+k8s/*.yaml
+k8s/*.yml
+
+# Service account keys and configs
+service-account-key*.json
+gcp-key*.json
+aws-credentials*.json
+azure-credentials*.json
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Testing
+coverage/
+.nyc_output
+
+# Logs
+logs/
+*.log
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Google Cloud
+.gcloud/
+service-account-key.json
+
+# Temporary files
+tmp/
+temp/

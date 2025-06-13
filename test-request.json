@@ -1,0 +1,6 @@
+{
+    "storyId": "test-story-20250603",
+    "workflowId": "test-workflow-001",
+    "baseUrl": "https://story-generation-workflow-803421888801.us-central1.run.app",
+    "prompt": "A magical adventure about a young wizard discovering an ancient spellbook"
+}

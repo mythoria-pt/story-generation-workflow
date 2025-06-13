@@ -1,0 +1,99 @@
+# Story Generation Workflow
+# This Google Cloud Workflow orchestrates the complete story generation process
+
+main:
+  params: [storyRequest]
+  steps:
+    - init:
+        assign:
+          - storyId: ${storyRequest.storyId}
+          - workflowId: ${storyRequest.workflowId}
+          - baseUrl: ${storyRequest.baseUrl}
+        
+    - storyOutline:
+        call: http.post
+        args:
+          url: ${baseUrl + "/api/workflow/story-outline"}
+          headers:
+            Content-Type: "application/json"
+          body:
+            storyId: ${storyId}
+            workflowId: ${workflowId}
+            prompt: ${storyRequest.prompt}
+        result: outlineResult
+        
+    - chapterWriting:
+        call: http.post
+        args:
+          url: ${baseUrl + "/api/workflow/chapter-writing"}
+          headers:
+            Content-Type: "application/json"
+          body:
+            storyId: ${storyId}
+            workflowId: ${workflowId}
+            outline: ${outlineResult.body.outline}
+        result: chaptersResult
+        
+    - imageGeneration:
+        call: http.post
+        args:
+          url: ${baseUrl + "/api/workflow/image-generation"}
+          headers:
+            Content-Type: "application/json"
+          body:
+            storyId: ${storyId}
+            workflowId: ${workflowId}
+            chapters: ${chaptersResult.body.chapters}
+        result: imagesResult
+        
+    - finalProduction:
+        call: http.post
+        args:
+          url: ${baseUrl + "/api/workflow/final-production"}
+          headers:
+            Content-Type: "application/json"
+          body:
+            storyId: ${storyId}
+            workflowId: ${workflowId}
+            chapters: ${chaptersResult.body.chapters}
+            images: ${imagesResult.body.images}
+        result: productionResult
+        
+    - audioRecording:
+        try:
+          call: http.post
+          args:
+            url: ${baseUrl + "/api/workflow/audio-recording"}
+            headers:
+              Content-Type: "application/json"
+            body:
+              storyId: ${storyId}
+              workflowId: ${workflowId}
+              content: ${productionResult.body.content}
+          result: audioResult
+        except:
+          as: e
+          steps:
+            - logAudioError:
+                call: sys.log
+                args:
+                  text: '${"Audio recording failed: " + e.message}'
+                  severity: "WARNING"
+            - setAudioResult:
+                assign:
+                  - audioResult:
+                      body:
+                        audioUrl: null
+                        error: ${e.message}
+                        
+    - complete:
+        return:
+          storyId: ${storyId}
+          workflowId: ${workflowId}
+          status: "completed"
+          results:
+            outline: ${outlineResult.body}
+            chapters: ${chaptersResult.body}
+            images: ${imagesResult.body}
+            production: ${productionResult.body}
+            audio: ${audioResult.body}
