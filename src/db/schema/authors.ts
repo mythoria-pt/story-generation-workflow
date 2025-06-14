@@ -1,5 +1,5 @@
 import { pgTable, uuid, varchar, timestamp, jsonb } from "drizzle-orm/pg-core";
-import { addressTypeEnum } from './enums';
+import { addressTypeEnum } from './enums.js';
 
 // -----------------------------------------------------------------------------
 // Authors domain

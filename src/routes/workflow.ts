@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import { logger } from '@/config/logger.js';
+import { z } from 'zod';
+import { GoogleCloudWorkflowsAdapter } from '@/adapters/google-cloud/workflows-adapter.js';
 import {
   StoryOutlineHandler,
   ChapterWritingHandler,
@@ -16,6 +18,114 @@ const chapterWritingHandler = new ChapterWritingHandler();
 const imageGenerationHandler = new ImageGenerationHandler();
 const finalProductionHandler = new FinalProductionHandler();
 const audioRecordingHandler = new AudioRecordingHandler();
+
+// Initialize Google Cloud Workflows adapter
+const workflowsAdapter = new GoogleCloudWorkflowsAdapter();
+
+// Request schema for workflow trigger
+const WorkflowStartSchema = z.object({
+  storyId: z.string().uuid(),
+  runId: z.string().uuid(),
+  prompt: z.string().optional() // Optional prompt for initial story request
+});
+
+/**
+ * POST /workflow/start
+ * Trigger the complete story generation workflow for a given story and run ID
+ */
+router.post('/start', async (req, res) => {
+  try {
+    const { storyId, runId, prompt } = WorkflowStartSchema.parse(req.body);
+
+    logger.info('🚀 WORKFLOW TRIGGER: Starting complete story generation workflow', {
+      storyId,
+      runId,
+      prompt: prompt?.substring(0, 100) + (prompt && prompt.length > 100 ? '...' : '')
+    });
+
+    // Prepare workflow parameters (simulating Pub/Sub message format)
+    const workflowParameters = {
+      data: Buffer.from(JSON.stringify({ 
+        storyId, 
+        runId,
+        ...(prompt && { prompt })
+      })).toString('base64')
+    };
+
+    // Execute the Google Cloud Workflow
+    // Note: The workflow name should match what's deployed in Google Cloud
+    const workflowName = 'story-generation';
+    const executionId = await workflowsAdapter.executeWorkflow(workflowName, { event: workflowParameters });
+
+    logger.info('✅ WORKFLOW TRIGGER: Workflow execution started successfully', {
+      storyId,
+      runId,
+      executionId,
+      workflowName
+    });
+
+    res.status(202).json({
+      success: true,
+      message: 'Story generation workflow started successfully',
+      storyId,
+      runId,
+      executionId,
+      workflowName,
+      status: 'started'
+    });
+
+  } catch (error) {
+    logger.error('❌ WORKFLOW TRIGGER: Failed to start workflow', {
+      error: error instanceof Error ? error.message : String(error),
+      storyId: req.body.storyId,
+      runId: req.body.runId
+    });
+
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to start workflow',
+      storyId: req.body.storyId,
+      runId: req.body.runId
+    });
+  }
+});
+
+/**
+ * GET /workflow/status/:executionId
+ * Check the status of a workflow execution
+ */
+router.get('/status/:executionId', async (req, res) => {
+  try {
+    const { executionId } = req.params;
+
+    logger.info('📊 WORKFLOW STATUS: Checking workflow execution status', {
+      executionId
+    });
+
+    const executionResult = await workflowsAdapter.getWorkflowExecution(executionId);
+
+    logger.info('✅ WORKFLOW STATUS: Retrieved execution status', {
+      executionId,
+      status: executionResult.status
+    });    res.json({
+      success: true,
+      ...executionResult,
+      executionId
+    });
+
+  } catch (error) {
+    logger.error('❌ WORKFLOW STATUS: Failed to get execution status', {
+      error: error instanceof Error ? error.message : String(error),
+      executionId: req.params.executionId
+    });
+
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to get workflow status',
+      executionId: req.params.executionId
+    });
+  }
+});
 
 // Story Outline Generation
 router.post('/story-outline', async (req, res) => {

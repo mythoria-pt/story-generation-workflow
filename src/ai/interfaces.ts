@@ -10,6 +10,20 @@ export interface ITextGenerationService {
    * @param options Additional generation options
    */
   complete(prompt: string, options?: TextGenerationOptions): Promise<string>;
+  
+  /**
+   * Initialize or update context for a story generation session
+   * @param contextId Unique identifier for the context session
+   * @param systemPrompt The system prompt that defines the story context
+   * @param previousContent Previous conversation content to maintain context
+   */
+  initializeContext?(contextId: string, systemPrompt: string, previousContent?: string[]): Promise<void>;
+  
+  /**
+   * Clear context for a specific session
+   * @param contextId Unique identifier for the context session
+   */
+  clearContext?(contextId: string): Promise<void>;
 }
 
 export interface IImageGenerationService {
@@ -28,6 +42,7 @@ export interface TextGenerationOptions {
   topK?: number;
   stopSequences?: string[];
   model?: string;
+  contextId?: string; // For context preservation across requests
 }
 
 export interface ImageGenerationOptions {
@@ -41,15 +56,15 @@ export interface ImageGenerationOptions {
 
 export interface AIProviderConfig {
   textProvider: string;
-  imageProvider: string;
-  credentials: {
+  imageProvider: string;  credentials: {
     openaiApiKey?: string;
+    openaiUseResponsesAPI?: boolean;
     vertexProjectId?: string;
     vertexLocation?: string;
-    azureEndpoint?: string;
-    azureApiKey?: string;
+    vertexModel?: string;
+    vertexOutlineModel?: string;
   };
 }
 
-export type TextProvider = 'vertex' | 'openai' | 'azure-openai';
+export type TextProvider = 'vertex' | 'openai';
 export type ImageProvider = 'vertex' | 'stability' | 'openai' | 'dall-e';

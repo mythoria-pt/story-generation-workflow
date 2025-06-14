@@ -1,6 +1,6 @@
 import { pgTable, uuid, text, varchar, timestamp, jsonb, foreignKey, primaryKey } from "drizzle-orm/pg-core";
-import { runStatusEnum, stepStatusEnum } from "./enums";
-import { stories } from "./stories";
+import { runStatusEnum, stepStatusEnum } from "./enums.js";
+import { stories } from "./stories.js";
 
 // -----------------------------------------------------------------------------
 // Story Generation Tables

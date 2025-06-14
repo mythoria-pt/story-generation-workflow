@@ -1,9 +1,9 @@
 import { relations } from "drizzle-orm";
-import { authors, addresses, events } from './authors';
-import { stories, storyVersions } from './stories';
-import { characters, storyCharacters } from './characters';
-import { creditLedger, authorCreditBalances } from './credits';
-import { storyGenerationRuns, storyGenerationSteps } from './story-generation';
+import { authors, addresses, events } from './authors.js';
+import { stories, storyVersions } from './stories.js';
+import { characters, storyCharacters } from './characters.js';
+import { creditLedger, authorCreditBalances } from './credits.js';
+import { storyGenerationRuns, storyGenerationSteps } from './story-generation.js';
 
 // -----------------------------------------------------------------------------
 // Relations (for type safety with Drizzle ORM queries)

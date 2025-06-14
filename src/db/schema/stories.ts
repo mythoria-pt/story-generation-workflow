@@ -1,6 +1,6 @@
 import { pgTable, uuid, varchar, timestamp, text, jsonb, integer } from "drizzle-orm/pg-core";
-import { authors } from './authors';
-import { storyStatusEnum } from './enums';
+import { authors } from './authors.js';
+import { storyStatusEnum } from './enums.js';
 
 // -----------------------------------------------------------------------------
 // Stories domain
@@ -18,6 +18,7 @@ export const stories = pgTable("stories", {
   targetAudience: varchar("target_audience", { length: 120 }),
   novelStyle: varchar("novel_style", { length: 120 }), // e.g. "kids book", "adventure"
   graphicalStyle: varchar("graphical_style", { length: 120 }),
+  storyLanguage: varchar("story_language", { length: 5 }).default('en-US').notNull(),
   status: storyStatusEnum("status").default('draft'),
   features: jsonb("features"), // {"ebook":true,"printed":false,"audiobook":true}
   deliveryAddress: jsonb("delivery_address"), // Delivery address for printed books

@@ -1,4 +1,4 @@
-import { databaseConfig } from './environment';
+import { databaseConfig } from './environment.js';
 
 export interface DatabaseConfig {
   host: string;

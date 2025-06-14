@@ -9,11 +9,11 @@
 // Re-export schemas from mythoria-webapp (temporarily copy approach)
 // TODO: Consider using a shared package or workspace setup for better maintainability
 
-export * from './enums';
-export * from './authors';
-export * from './stories';
-export * from './characters';
-export * from './credits';
-export * from './pricing';
-export * from './story-generation';
-export * from './relations';
+export * from './enums.js';
+export * from './authors.js';
+export * from './stories.js';
+export * from './characters.js';
+export * from './credits.js';
+export * from './pricing.js';
+export * from './story-generation.js';
+export * from './relations.js';

@@ -9,17 +9,16 @@ The Story Generation Workflow (SGW) has been successfully implemented as a **pro
 **Provider-Agnostic AI Service Abstraction**
 
 - **Interfaces**: `ITextGenerationService`, `IImageGenerationService`
-- **Supported Text Providers**: Vertex AI, OpenAI, Azure OpenAI
+- **Supported Text Providers**: Vertex AI, OpenAI
 - **Supported Image Providers**: Vertex AI, OpenAI DALL-E, Stability AI
 - **Factory Pattern**: `AIGateway.fromEnvironment()` creates services based on ENV vars
 
 **Environment Variables**:
 ```bash
-TEXT_PROVIDER=vertex|openai|azure-openai
+TEXT_PROVIDER=vertex|openai
 IMAGE_PROVIDER=vertex|openai|stability
 OPENAI_API_KEY=...
 VERTEX_PROJECT_ID=...
-AZURE_OPENAI_ENDPOINT=...
 ```
 
 ### 2. Internal API Endpoints (`/src/routes/internal.ts`)

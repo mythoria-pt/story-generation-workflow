@@ -1,0 +1,16 @@
+{
+  "systemPrompt": "You are an award-winning book writer.",
+  "userPrompt": "Write the detailed structure of a book in the \"{{genre}}\" genre, using a {{storyTone}} writing tone, for readers aged {{averageAge}}.\nThe book must have exactly {{chapterCount}} chapters.\n\nThe characters in the book are (in JSON format):\n{{characters}}\n\nThe book is titled \"{{bookTitle}}.\" {{storyDescription}}\n\nThe story should be based on the following text:\n<userDescription>\n\"{{description}}\"\n</userDescription>\n\nGenerate a detailed prompt, in US English, to create an A5-vertical hardcover book cover illustration, using the \"{{graphicalStyle}}\" style.\nGenerate a detailed prompt, in US English, to create an A4-vertical hardcover back cover illustration, using the same style. It may continue the front-cover image.\n\nProduce the following JSON structure:\n```json\n{\n  \"bookTitle\": \"{{bookTitle}}\",\n  \"bookCoverPrompt\": \"{{bookCoverPrompt}}\",\n  \"bookBackCoverPrompt\": \"{{bookBackCoverPrompt}}\",\n  \"synopses\": \"{{synopses}}\",\n  \"chapters\": [\n    {\n      \"chapterNumber\": {{chapterNumber}},\n      \"chapterPhotoPrompt\": \"{{chapterPhotoPrompt}}\",\n      \"chapterTitle\": \"{{chapterTitle}}\",\n      \"chapterSynopses\": \"{{chapterSynopses}}\"\n    }\n  ]\n}\n```\n\nThe prompt output MUST be a json that will be used on the following step to, for example, generate each chapter or generate the images.",
+  "outputFormat": "json",
+  "templateVariables": {
+    "genre": "Story genre from database",
+    "storyTone": "Writing tone/style",
+    "averageAge": "Target audience age",
+    "chapterCount": "Number of chapters to generate",
+    "characters": "JSON formatted character information",
+    "bookTitle": "Story title",
+    "storyDescription": "Brief story description",
+    "description": "User's plot description",
+    "graphicalStyle": "Visual/illustration style"
+  }
+}

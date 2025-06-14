@@ -276,8 +276,7 @@ The AI Gateway supports multiple providers configured via environment variables:
 
 ### Text Providers
 - `TEXT_PROVIDER=vertex` (default) - Google Vertex AI
-- `TEXT_PROVIDER=openai` - OpenAI GPT models  
-- `TEXT_PROVIDER=azure-openai` - Azure OpenAI
+- `TEXT_PROVIDER=openai` - OpenAI GPT models
 
 ### Image Providers
 - `IMAGE_PROVIDER=vertex` (default) - Google Vertex AI Imagen
@@ -298,8 +297,6 @@ IMAGE_PROVIDER=vertex
 
 # Provider Credentials (as needed)
 OPENAI_API_KEY=sk-...
-AZURE_OPENAI_ENDPOINT=https://...
-AZURE_OPENAI_API_KEY=...
 STABILITY_API_KEY=sk-...
 ```
 

@@ -61,6 +61,48 @@ src/
    npm run env:validate
    ```
 
+## AI Model Configuration
+
+This service uses Google Vertex AI models for story generation. You can configure different models for different tasks.
+
+### Environment Variables
+
+```env
+# Primary model for general text generation
+VERTEX_AI_MODEL_ID=gemini-2.0-flash
+
+# Specific model for story outline generation (optional)
+VERTEX_AI_OUTLINE_MODEL=gemini-2.0-flash
+
+# Location for Vertex AI requests
+VERTEX_AI_LOCATION=europe-west9
+```
+
+### Available Models
+
+- **gemini-2.0-flash** - Latest Gemini 2.0 Flash model (recommended)
+- **gemini-2.0-flash-001** - Versioned Gemini 2.0 Flash model  
+- **gemini-1.5-pro** - Previous generation model (legacy)
+- **gemini-2.0-flash-lite** - Faster, more cost-effective variant
+
+### Model Selection Guidelines
+
+- **Story Outlines**: Use `gemini-2.0-flash` for complex creative tasks requiring structured JSON output
+- **Chapter Writing**: Use `gemini-2.0-flash` for high-quality narrative content
+- **General Tasks**: Consider `gemini-2.0-flash-lite` for cost optimization on simpler tasks
+
+### Configuration
+
+You can override the model for specific tasks by setting the appropriate environment variable:
+
+```bash
+# Use different models for different tasks
+VERTEX_AI_MODEL_ID=gemini-2.0-flash         # Default for all tasks
+VERTEX_AI_OUTLINE_MODEL=gemini-2.0-flash    # Specific for outline generation
+```
+
+The `/ai/text/outline` endpoint will use `VERTEX_AI_OUTLINE_MODEL` if set, otherwise falls back to `VERTEX_AI_MODEL_ID`.
+
 ## Development
 
 ```bash

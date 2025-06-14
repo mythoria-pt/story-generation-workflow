@@ -1,6 +1,6 @@
 import { pgTable, uuid, varchar, timestamp, text, primaryKey } from "drizzle-orm/pg-core";
-import { authors } from './authors';
-import { stories } from './stories';
+import { authors } from './authors.js';
+import { stories } from './stories.js';
 
 // -----------------------------------------------------------------------------
 // Characters domain

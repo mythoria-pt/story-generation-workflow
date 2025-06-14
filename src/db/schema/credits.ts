@@ -1,7 +1,7 @@
 import { pgTable, uuid, timestamp, integer } from "drizzle-orm/pg-core";
-import { authors } from './authors';
-import { stories } from './stories';
-import { creditEventTypeEnum } from './enums';
+import { authors } from './authors.js';
+import { stories } from './stories.js';
+import { creditEventTypeEnum } from './enums.js';
 
 // -----------------------------------------------------------------------------
 // Credits domain

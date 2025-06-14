@@ -2,6 +2,10 @@
 // Workflow Step Handlers - Individual step implementations
 // -----------------------------------------------------------------------------
 
+import { AIGateway } from '@/ai/gateway.js';
+import { StoryContextService } from '@/services/story-context.js';
+import { logger } from '@/config/logger.js';
+
 // Workflow step parameter types
 export interface StoryOutlineParams {
   storyId: string;
@@ -67,27 +71,139 @@ export interface WorkflowStepHandler<TParams = unknown, TResult = unknown> {
   execute(params: TParams): Promise<TResult>;
 }
 
-export class StoryOutlineHandler implements WorkflowStepHandler<StoryOutlineParams, StoryOutlineResult> {  async execute(params: StoryOutlineParams): Promise<StoryOutlineResult> {
-    // TODO: Implement story outline generation using Vertex AI
-    console.log(`Generating outline for story ${params.storyId} with prompt: ${params.prompt}`);
+export class StoryOutlineHandler implements WorkflowStepHandler<StoryOutlineParams, StoryOutlineResult> {
+  private storyContextService = new StoryContextService();
+
+  async execute(params: StoryOutlineParams): Promise<StoryOutlineResult> {
+    try {
+      // Create AI Gateway from environment
+      const aiGateway = AIGateway.fromEnvironment();
+      
+      // Initialize story session with context
+      const session = await this.storyContextService.initializeStorySession(
+        params.storyId,
+        params.workflowId,
+        aiGateway
+      );
+
+      // Generate outline with context
+      const outline = await this.storyContextService.generateOutline(session, params.prompt);
+
+      // Extract chapter titles from outline (simple implementation)
+      const chapters = this.extractChapterTitles(outline);
+
+      // Clean up session (optional - you might want to keep it for chapter generation)
+      // await this.storyContextService.cleanupSession(session);
+
+      logger.info('Story outline generation completed', {
+        storyId: params.storyId,
+        workflowId: params.workflowId,
+        chaptersCount: chapters.length
+      });
+
+      return {
+        outline,
+        chapters
+      };
+    } catch (error) {
+      logger.error('Story outline generation failed', {
+        error: error instanceof Error ? error.message : String(error),
+        storyId: params.storyId,
+        workflowId: params.workflowId
+      });
+      throw error;
+    }
+  }  private extractChapterTitles(outline: string): string[] {
+    // Simple regex to extract chapter titles from outline
+    // This is a basic implementation - you might want to improve this
+    const chapterMatches = outline.match(/Chapter \d+[:−]?\s*([^\n\r]+)/gi);
     
-    // Placeholder return
-    return {
-      outline: 'Generated story outline placeholder',
-      chapters: ['Chapter 1', 'Chapter 2', 'Chapter 3']
-    };
+    if (chapterMatches) {
+      return chapterMatches.map(match => {
+        // Extract the title part after "Chapter X:"
+        const titleMatch = match.match(/Chapter \d+[:−]?\s*(.+)/i);
+        return titleMatch?.[1]?.trim() || match.trim();
+      });
+    }
+
+    // Fallback: return generic chapter names
+    return ['Chapter 1', 'Chapter 2', 'Chapter 3'];
   }
 }
 
-export class ChapterWritingHandler implements WorkflowStepHandler<ChapterWritingParams, ChapterWritingResult> {  async execute(params: ChapterWritingParams): Promise<ChapterWritingResult> {
-    // TODO: Implement chapter writing using Vertex AI
-    console.log(`Writing chapter ${params.chapterIndex} for story ${params.storyId}`);
-    
-    // Placeholder return
-    return {
-      chapterContent: 'Chapter 1 content placeholder',
-      wordCount: 500
-    };
+export class ChapterWritingHandler implements WorkflowStepHandler<ChapterWritingParams, ChapterWritingResult> {
+  private storyContextService = new StoryContextService();
+
+  async execute(params: ChapterWritingParams): Promise<ChapterWritingResult> {
+    try {
+      // Create AI Gateway from environment
+      const aiGateway = AIGateway.fromEnvironment();
+      
+      // Create context ID from story and workflow ID
+      const contextId = `${params.storyId}-${params.workflowId}`;
+        // Try to get existing session or create new one
+      let session;
+      try {
+        // Check if we have an existing context for this story
+        const existingContext = await this.storyContextService.getContextManager().getContext(contextId);        if (existingContext) {
+          // Reuse existing session
+          const storyContext = await this.storyContextService.getStoryService().getStoryContext(params.storyId);
+          if (storyContext) {
+            session = {
+              contextId,
+              storyId: params.storyId,
+              storyContext,
+              currentStep: `chapter-${params.chapterIndex}`,
+              aiGateway
+            };
+          }
+        }      } catch {
+        logger.debug('No existing context found, creating new session', { contextId });
+      }
+
+      // If no existing session, create new one
+      if (!session) {
+        session = await this.storyContextService.initializeStorySession(
+          params.storyId,
+          params.workflowId,
+          aiGateway
+        );
+      }
+
+      // Generate chapter title from index (you might want to get this from the outline)
+      const chapterTitle = `Chapter ${params.chapterIndex}`;
+
+      // Generate chapter with context
+      const chapterContent = await this.storyContextService.generateChapter(
+        session,
+        params.chapterIndex,
+        chapterTitle,
+        params.outline
+      );
+
+      // Calculate word count (simple implementation)
+      const wordCount = chapterContent.split(/\s+/).length;
+
+      logger.info('Chapter generation completed', {
+        storyId: params.storyId,
+        workflowId: params.workflowId,
+        chapterIndex: params.chapterIndex,
+        wordCount
+      });
+
+      return {
+        chapterContent,
+        wordCount
+      };
+    } catch (error) {
+      logger.error('Chapter generation failed', {
+        error: error instanceof Error ? error.message : String(error),
+        storyId: params.storyId,
+        workflowId: params.workflowId,
+        chapterIndex: params.chapterIndex
+      });
+      throw error;
+    }
   }
 }
 

@@ -30,19 +30,16 @@ const envSchema = z.object({
   GOOGLE_CLOUD_PROJECT_ID: z.string(),
   GOOGLE_CLOUD_REGION: z.string(),
   GOOGLE_CLOUD_LOCATION: z.string().optional(), // For backward compatibility
-  STORAGE_BUCKET_NAME: z.string(),
-  VERTEX_AI_MODEL_ID: z.string(),
+  STORAGE_BUCKET_NAME: z.string(),  VERTEX_AI_MODEL_ID: z.string(),
+  VERTEX_AI_OUTLINE_MODEL: z.string().optional(), // Specific model for outline generation
   VERTEX_AI_LOCATION: z.string().optional(),
   WORKFLOWS_LOCATION: z.string(),
   IMAGE_GENERATION_MODEL: z.string().optional(),
   AUDIO_GENERATION_MODEL: z.string().optional(),
-  LOG_LEVEL: z.enum(['error', 'warn', 'info', 'debug']).optional().default('info'),
-  // AI Provider Configuration
-  TEXT_PROVIDER: z.enum(['vertex', 'openai', 'azure-openai']).optional().default('vertex'),
+  LOG_LEVEL: z.enum(['error', 'warn', 'info', 'debug']).optional().default('info'),  // AI Provider Configuration
+  TEXT_PROVIDER: z.enum(['vertex', 'openai']).optional().default('vertex'),
   IMAGE_PROVIDER: z.enum(['vertex', 'stability', 'openai', 'dall-e']).optional().default('vertex'),
   OPENAI_API_KEY: z.string().optional(),
-  AZURE_OPENAI_ENDPOINT: z.string().optional(),
-  AZURE_OPENAI_API_KEY: z.string().optional(),
   STABILITY_API_KEY: z.string().optional(),
 });
 
@@ -113,9 +110,9 @@ export const googleCloudConfig = {
     return {
       projectId: env.GOOGLE_CLOUD_PROJECT_ID,
       region: env.GOOGLE_CLOUD_REGION,
-      storageBucket: env.STORAGE_BUCKET_NAME,
-      vertexAi: {
+      storageBucket: env.STORAGE_BUCKET_NAME,      vertexAi: {
         modelId: env.VERTEX_AI_MODEL_ID,
+        outlineModel: env.VERTEX_AI_OUTLINE_MODEL || env.VERTEX_AI_MODEL_ID, // Use specific model for outlines or fall back to default
         location: env.VERTEX_AI_LOCATION || env.GOOGLE_CLOUD_REGION,
       },
       workflows: {

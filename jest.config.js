@@ -3,6 +3,7 @@ export default {
   testEnvironment: 'node',
   roots: ['<rootDir>/src'],
   testMatch: ['**/__tests__/**/*.ts', '**/?(*.)+(spec|test).ts'],
+  setupFilesAfterEnv: ['<rootDir>/src/tests/setup.ts'],
   transform: {
     '^.+\\.ts$': ['ts-jest', { 
       useESM: true
@@ -16,9 +17,9 @@ export default {
     '!src/index.ts',
   ],
   coverageDirectory: 'coverage',
-  coverageReporters: ['text', 'lcov', 'html'],
-  moduleNameMapper: {
+  coverageReporters: ['text', 'lcov', 'html'],  moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
+    '^@/(.*)\.js$': '<rootDir>/src/$1.ts',
   },
   extensionsToTreatAsEsm: ['.ts']
 };

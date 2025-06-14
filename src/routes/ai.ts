@@ -7,32 +7,36 @@ import { Router } from 'express';
 import { AIGateway } from '../ai/gateway.js';
 import { logger } from '@/config/logger.js';
 import { z } from 'zod';
+import { StoryService, type StoryContext } from '@/services/story.js';
+import { PromptService } from '@/services/prompt.js';
 
+// Initialize services
 const router = Router();
-
-// Initialize AI Gateway from environment
 const aiGateway = AIGateway.fromEnvironment();
+const storyService = new StoryService();
 
 // Request schemas
 const OutlineRequestSchema = z.object({
   storyId: z.string().uuid(),
   runId: z.string().uuid(),
-  prompt: z.string().min(1),
-  genre: z.string().optional(),
-  targetAudience: z.string().optional(),
-  length: z.enum(['short', 'medium', 'long']).optional()
+  chapterCount: z.number().int().positive().default(10),
+  averageAge: z.number().int().positive().optional(),
+  storyTone: z.string().optional()
 });
 
 const ChapterRequestSchema = z.object({
   storyId: z.string().uuid(),
   runId: z.string().uuid(),
   chapterNumber: z.number().int().positive(),
+  chapterTitle: z.string(),
+  chapterSynopses: z.string(),
+  chapterCount: z.number().int().positive().optional(),
   outline: z.object({
     title: z.string(),
     characters: z.array(z.string()),
     setting: z.string(),
     plotPoints: z.array(z.string())
-  }),
+  }).optional(),
   previousChapters: z.array(z.string()).optional()
 });
 
@@ -48,67 +52,68 @@ const ImageRequestSchema = z.object({
 
 /**
  * POST /ai/text/outline
- * Generate story outline using AI text generation
+ * Generate story outline using AI text generation with story context from database
  */
 router.post('/text/outline', async (req, res) => {
   try {
-    const { storyId, runId, prompt, genre, targetAudience, length } = OutlineRequestSchema.parse(req.body);
+    const { storyId, runId, chapterCount, averageAge, storyTone } = OutlineRequestSchema.parse(req.body);
 
-    logger.info('AI Gateway: Generating story outline', {
+    logger.info('AI Gateway: Generating story outline from database context', {
       storyId,
       runId,
-      promptLength: prompt.length,
-      genre,
-      targetAudience,
-      length
+      chapterCount,
+      averageAge,
+      storyTone
     });
 
-    // Construct detailed outline prompt
-    const detailedPrompt = `
-Generate a detailed story outline for the following request:
-
-Story Request: ${prompt}
-${genre ? `Genre: ${genre}` : ''}
-${targetAudience ? `Target Audience: ${targetAudience}` : ''}
-${length ? `Story Length: ${length}` : ''}
-
-Please provide a JSON response with the following structure:
-{
-  "title": "Story Title",
-  "genre": "Genre",
-  "targetAudience": "Target Audience",
-  "synopsis": "Brief story synopsis (2-3 sentences)",
-  "characters": [
-    {
-      "name": "Character Name",
-      "role": "protagonist/antagonist/supporting",
-      "description": "Brief character description"
+    // Load story context from database
+    const storyContext = await storyService.getStoryContext(storyId);
+    if (!storyContext) {
+      res.status(404).json({
+        success: false,
+        error: `Story not found: ${storyId}`
+      });
+      return;
     }
-  ],
-  "setting": {
-    "location": "Where the story takes place",
-    "timeframe": "When the story takes place",
-    "atmosphere": "Mood and tone"
-  },
-  "chapters": [
-    {
-      "number": 1,
-      "title": "Chapter Title",
-      "summary": "Chapter summary",
-      "keyEvents": ["Event 1", "Event 2"],
-      "imagePrompt": "Description for illustration"
-    }
-  ],
-  "themes": ["Theme 1", "Theme 2"],
-  "estimatedWordCount": 1000
-}
 
-Ensure the outline is engaging, age-appropriate, and follows good storytelling structure.
-`;
+    // Load prompt template
+    const promptTemplate = await PromptService.loadPrompt('en-US', 'text-outline');
 
-    const outline = await aiGateway.getTextService().complete(detailedPrompt, {
-      maxTokens: 4096,
-      temperature: 0.7
+    // Prepare template variables
+    const templateVars = {
+      genre: storyContext.story.novelStyle || 'general fiction',
+      storyTone: storyTone || 'engaging',
+      averageAge: averageAge || 12,
+      chapterCount,
+      characters: JSON.stringify(storyContext.characters, null, 2),
+      bookTitle: storyContext.story.title,
+      storyDescription: getStoryDescription(storyContext),
+      description: storyContext.story.plotDescription || 'No specific plot description provided.',
+      graphicalStyle: storyContext.story.graphicalStyle || 'colorful and vibrant illustration',
+      // Placeholder values for template completion
+      bookCoverPrompt: 'A book cover prompt will be generated',
+      bookBackCoverPrompt: 'A back cover prompt will be generated',
+      synopses: 'Story synopsis will be generated',
+      chapterNumber: '1',
+      chapterPhotoPrompt: 'Chapter illustration prompt will be generated',
+      chapterTitle: 'Chapter title will be generated',
+      chapterSynopses: 'Chapter synopsis will be generated'
+    };
+
+    // Build the complete prompt
+    const finalPrompt = PromptService.buildPrompt(promptTemplate, templateVars);
+
+    logger.debug('Generated prompt for story outline', {
+      storyId,
+      runId,
+      promptLength: finalPrompt.length,
+      templateVarsCount: Object.keys(templateVars).length
+    });    // Generate outline using AI with specific outline model
+    const outlineModel = process.env.VERTEX_AI_OUTLINE_MODEL || process.env.VERTEX_AI_MODEL_ID || 'gemini-2.0-flash';
+    const outline = await aiGateway.getTextService().complete(finalPrompt, {
+      maxTokens: 8192,
+      temperature: 1,
+      model: outlineModel
     });
 
     // Try to parse as JSON, fallback to text if needed
@@ -122,14 +127,20 @@ Ensure the outline is engaging, age-appropriate, and follows good storytelling s
     logger.info('AI Gateway: Story outline generated successfully', {
       storyId,
       runId,
-      outlineLength: outline.length
+      outlineLength: outline.length,
+      storyTitle: storyContext.story.title,
+      charactersCount: storyContext.characters.length
     });
 
     res.json({
       success: true,
       storyId,
       runId,
-      outline: outlineData
+      outline: outlineData,
+      storyContext: {
+        title: storyContext.story.title,
+        charactersCount: storyContext.characters.length
+      }
     });
 
   } catch (error) {
@@ -147,6 +158,30 @@ Ensure the outline is engaging, age-appropriate, and follows good storytelling s
 });
 
 /**
+ * Helper function to generate story description
+ */ 
+function getStoryDescription(storyContext: StoryContext): string {
+  const { story } = storyContext;
+  let description = '';
+  
+  if (story.synopsis) {
+    description += story.synopsis;
+  } else if (story.plotDescription) {
+    description += story.plotDescription;
+  }
+  
+  if (story.place) {
+    description += ` The story takes place in ${story.place}.`;
+  }
+  
+  if (story.additionalRequests) {
+    description += ` Additional requirements: ${story.additionalRequests}`;
+  }
+  
+  return description || 'A story about the adventures and relationships of the main characters.';
+}
+
+/**
  * POST /ai/text/chapter/:chapterNumber
  * Generate a specific chapter using AI text generation
  */
@@ -154,61 +189,56 @@ router.post('/text/chapter/:chapterNumber', async (req, res) => {
   try {
     const chapterNumber = parseInt(req.params.chapterNumber);
     const requestData = { ...req.body, chapterNumber };
-    const { storyId, runId, outline, previousChapters } = ChapterRequestSchema.parse(requestData);
+    const { storyId, runId, chapterTitle, chapterSynopses, chapterCount } = ChapterRequestSchema.parse(requestData);
 
     logger.info('AI Gateway: Generating chapter', {
       storyId,
       runId,
-      chapterNumber
-    });
+      chapterNumber,
+      chapterTitle
+    });    // Get story context from database
+    const storyContext = await storyService.getStoryContext(storyId);
+    if (!storyContext) {
+      res.status(404).json({
+        success: false,
+        error: 'Story not found'
+      });
+      return;
+    }
 
-    // Construct chapter writing prompt
-    const chapterPrompt = `
-Write Chapter ${chapterNumber} of a story based on the following outline:
+    // Load chapter prompt template
+    const promptTemplate = await PromptService.loadPrompt('en-US', 'text-chapter');    // Prepare template variables
+    const hookInstruction = chapterCount && chapterNumber < chapterCount 
+      ? 'If relevant, you may end with a hook for the next chapter.'
+      : '';
+      
+    const templateVariables = {
+      chapterNumber: chapterNumber.toString(),
+      chapterTitle: chapterTitle,
+      genre: storyContext.story.novelStyle || 'adventure',
+      storyTone: storyContext.story.novelStyle || 'engaging',
+      averageAge: storyContext.story.targetAudience || '12',
+      description: storyContext.story.plotDescription || storyContext.story.synopsis || '',
+      chapterSynopses: chapterSynopses,
+      language: 'English',
+      chapterCount: chapterCount?.toString() || '10',
+      hookInstruction: hookInstruction
+    };
 
-Title: ${outline.title}
-Characters: ${outline.characters.join(', ')}
-Setting: ${outline.setting}
-Plot Points for this chapter: ${outline.plotPoints.join(', ')}
+    // Build the complete prompt
+    const chapterPrompt = PromptService.buildPrompt(promptTemplate, templateVariables);
 
-${previousChapters && previousChapters.length > 0 ? `
-Previous chapters summary:
-${previousChapters.map((ch, i) => `Chapter ${i + 1}: ${ch.substring(0, 200)}...`).join('\n')}
-` : ''}
-
-Please write an engaging chapter that:
-1. Advances the story according to the outline
-2. Develops the characters naturally
-3. Maintains consistent tone and style
-4. Includes vivid descriptions and dialogue
-5. Ends with a natural transition or mild cliffhanger
-
-At the end, also provide 2-3 image prompts for illustrations that would enhance this chapter.
-
-Format your response as:
----CHAPTER---
-[Chapter content here]
-
----IMAGE_PROMPTS---
-1. [Image prompt 1]
-2. [Image prompt 2]
-3. [Image prompt 3]
-`;
-
+    // Generate chapter content
     const chapterText = await aiGateway.getTextService().complete(chapterPrompt, {
       maxTokens: 6000,
       temperature: 0.8
-    });    // Parse chapter and image prompts
-    const parts = chapterText.split('---IMAGE_PROMPTS---');
-    const chapter = (parts[0] || chapterText).replace('---CHAPTER---', '').trim();
-    const imagePrompts = parts[1] ? parts[1].trim().split('\n').filter(p => p.trim()) : [];
+    });
 
     logger.info('AI Gateway: Chapter generated successfully', {
       storyId,
       runId,
       chapterNumber,
-      chapterLength: chapter.length,
-      imagePromptsCount: imagePrompts.length
+      chapterLength: chapterText.length
     });
 
     res.json({
@@ -216,8 +246,7 @@ Format your response as:
       storyId,
       runId,
       chapterNumber,
-      chapter,
-      imagePrompts
+      chapter: chapterText.trim()
     });
 
   } catch (error) {

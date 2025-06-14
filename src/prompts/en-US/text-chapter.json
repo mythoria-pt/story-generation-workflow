@@ -1,0 +1,17 @@
+{
+  "systemPrompt": "You are an award-winning book writer helping to write chapter {{chapterNumber}}, titled \"{{chapterTitle}}.\"",
+  "userPrompt": "It's a {{genre}} book, using a {{storyTone}} writing tone, for readers aged {{averageAge}}.\n\nDo not repeat any information already included in the previous chapter.\nThe story should be based on the following user description. Extract only the details necessary for this chapter's context.\n<userDescription>\n\"{{description}}\"\n</userDescription>\n\nCompose chapter {{chapterNumber}}, titled \"{{chapterTitle}}.\"\nThis chapter should include:\n<chapterSynopses>\n{{chapterSynopses}}\n</chapterSynopses>\n\nWrite in {{language}}, in detailed multiple paragraphs, the full plot of the chapter. Describe each character, their traits, the settings, and every moment of the story thoroughly.\nWrite in a way that makes the reading engaging and captivating.\nUse vivid descriptions and gentle suspense. {{hookInstruction}}\nReturn only the chapter text in Markdown (no headings, except \"Chapter {{chapterNumber}}: {{chapterTitle}}\").",
+  "outputFormat": "markdown",
+  "templateVariables": {
+    "chapterNumber": "Current chapter number",
+    "chapterTitle": "Title of the current chapter",
+    "genre": "Story genre (from story.novelStyle or default)",
+    "storyTone": "Writing tone/style (from story.novelStyle)",
+    "averageAge": "Target audience age (from story.targetAudience)",
+    "description": "User's plot description (from story.plotDescription)",
+    "chapterSynopses": "Synopsis/plot points for this chapter",
+    "language": "Language for the story (default: English)",
+    "chapterCount": "Total number of chapters in the story",
+    "hookInstruction": "Hook instruction for chapter ending"
+  }
+}

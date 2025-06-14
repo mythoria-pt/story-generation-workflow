@@ -10,15 +10,8 @@ if (!process.env.NODE_ENV) {
   process.env.NODE_ENV = 'test';
 }
 
-// Mock logger to reduce noise in tests
-jest.mock('@/config/logger.js', () => ({
-  logger: {
-    info: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-    warn: jest.fn(),
-  },
-}));
+// Mock logger to reduce noise in tests  
+// Removed logger mocks since we're using console.log directly in the context manager
 
 // Mock Google Cloud services for tests
 jest.mock('@google-cloud/storage', () => ({
