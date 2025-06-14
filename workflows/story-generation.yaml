@@ -1,0 +1,217 @@
+# Mythoria – Story Generation Workflow (provider-agnostic)
+# Trigger: Pub/Sub topic mythoria.story.requests
+#
+# Pub/Sub message (base-64 JSON):
+#   { "storyId": "<uuid>", "runId": "<uuid>" }
+#
+# Cloud Run base URL (internal API + AI-Gateway):
+#   https://story-generation-workflow-803421888801.europe-west9.run.app
+#
+main:
+  params: [event]
+
+  steps:
+    # ───────────────────────────────────────────────
+    # 0. Parse event & constants
+    # ───────────────────────────────────────────────
+    - init:
+        assign:
+          - payload:  ${json.decode(base64.decode(event.data))}
+          - storyId:  ${payload.storyId}
+          - runId:    ${payload.runId}
+          - baseUrl:  "https://story-generation-workflow-803421888801.europe-west9.run.app"
+          - chapters: 5            # ❶ change if you need a different count
+          - now:      ${time.format(sys.now())}
+
+    # ───────────────────────────────────────────────
+    # 1-N. Pipeline wrapped in one try/except
+    # ───────────────────────────────────────────────
+    - runPipeline:
+        try:
+          steps:
+            # 1. Mark run → running / generate_outline
+            - markRunStarted:
+                call: http.request
+                args:
+                  url:    ${baseUrl + "/internal/runs/" + runId}
+                  method: PATCH
+                  auth:   { type: OIDC }
+                  body:
+                    status:       "running"
+                    current_step: "generate_outline"
+                    started_at:   ${time.format(sys.now())}
+
+            # 2. Generate outline (AI-Gateway)
+            - genOutline:
+                call: http.request
+                args:
+                  url:    ${baseUrl + "/ai/text/outline"}
+                  method: POST
+                  auth:   { type: OIDC }
+                  body:
+                    storyId: ${storyId}
+                result: outlineResp
+
+            - saveOutline:
+                call: http.request
+                args:
+                  url:    ${baseUrl + "/internal/runs/" + runId + "/outline"}
+                  method: POST
+                  auth:   { type: OIDC }
+                  body:
+                    outline: ${outlineResp.body}
+
+            - setChaptersStep:
+                call: http.request
+                args:
+                  url:    ${baseUrl + "/internal/runs/" + runId}
+                  method: PATCH
+                  auth:   { type: OIDC }
+                  body:
+                    current_step: "write_chapters"
+
+            # 3. Write chapters (parallel for-range loop)
+            - writeChaptersParallel:
+                parallel:
+                  for:
+                    range: ${[1, chapters]}   # ← native numeric range
+                    value: chapterNum
+                    steps:
+                      - genChapter:
+                          call: http.request
+                          args:
+                            url:    ${baseUrl + "/ai/text/chapter/" + string(chapterNum)}
+                            method: POST
+                            auth:   { type: OIDC }
+                            body:
+                              storyId: ${storyId}
+                              chapter: ${chapterNum}
+                              outline: ${outlineResp.body}
+                          result: chapterResp
+
+                      - saveChapter:
+                          call: http.request
+                          args:
+                            url:    ${baseUrl + "/internal/runs/" + runId + "/chapter/" + string(chapterNum)}
+                            method: POST
+                            auth:   { type: OIDC }
+                            body: ${chapterResp.body}
+
+            # 4. Generate images (parallel for-range loop)
+            - setImagesStep:
+                call: http.request
+                args:
+                  url:    ${baseUrl + "/internal/runs/" + runId}
+                  method: PATCH
+                  auth:   { type: OIDC }
+                  body:
+                    current_step: "generate_images"
+
+            - generateImagesParallel:
+                parallel:
+                  for:
+                    range: ${[1, chapters]}   # ← native numeric range
+                    value: chapterNum
+                    steps:
+                      - getPrompt:
+                          call: http.request
+                          args:
+                            url:    ${baseUrl + "/internal/prompts/" + runId + "/" + string(chapterNum)}
+                            method: GET
+                            auth:   { type: OIDC }
+                          result: promptResp
+
+                      - genImage:
+                          call: http.request
+                          args:
+                            url:    ${baseUrl + "/ai/image"}
+                            method: POST
+                            auth:   { type: OIDC }
+                            body:
+                              prompt: ${promptResp.body}
+                          result: imageResp   # { "gcsUri": "gs://..." }
+
+                      - saveImageUri:
+                          call: http.request
+                          args:
+                            url:    ${baseUrl + "/internal/runs/" + runId + "/chapter/" + string(chapterNum) + "/image"}
+                            method: POST
+                            auth:   { type: OIDC }
+                            body: ${imageResp.body}
+
+            # 5. Assemble HTML & PDF
+            - setAssembleStep:
+                call: http.request
+                args:
+                  url:    ${baseUrl + "/internal/runs/" + runId}
+                  method: PATCH
+                  auth:   { type: OIDC }
+                  body:
+                    current_step: "assemble"
+
+            - assemble:
+                call: http.request
+                args:
+                  url:    ${baseUrl + "/assemble/" + runId}
+                  method: POST
+                  auth:   { type: OIDC }
+                result: assembleResp
+
+            # 6. Optional TTS (best-effort)
+            - tryTTS:
+                try:
+                  steps:
+                    - callTTS:
+                        call: http.request
+                        args:
+                          url:    ${baseUrl + "/tts/" + runId}
+                          method: POST
+                          auth:   { type: OIDC }
+                except:
+                  as: ttsError
+                  steps:
+                    - logTtsFail:
+                        call: http.request
+                        args:
+                          url:    ${baseUrl + "/internal/runs/" + runId}
+                          method: PATCH
+                          auth:   { type: OIDC }
+                          body:
+                            current_step:  "tts_failed"
+                            error_message: ${string(ttsError)}
+
+            # 7. Mark run completed
+            - markCompleted:
+                call: http.request
+                args:
+                  url:    ${baseUrl + "/internal/runs/" + runId}
+                  method: PATCH
+                  auth:   { type: OIDC }
+                  body:
+                    status:       "completed"
+                    current_step: "done"
+                    ended_at:     ${time.format(sys.now())}
+
+            - return_result:
+                return:
+                  storyId: ${storyId}
+                  runId:   ${runId}
+                  status:  "completed"
+
+        except:
+          as: wfError
+          steps:
+            - markFailedRun:
+                call: http.request
+                args:
+                  url:    ${baseUrl + "/internal/runs/" + runId}
+                  method: PATCH
+                  auth:   { type: OIDC }
+                  body:
+                    status:        "failed"
+                    current_step:  ${wfError.step}
+                    error_message: ${string(wfError)}
+                    ended_at:      ${time.format(sys.now())}
+
+            - rethrow:
+                raise: ${wfError}

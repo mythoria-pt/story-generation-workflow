@@ -58,9 +58,14 @@ app.get('/', (_req, res) => {
   });
 });
 
-// Import and mount workflow API routes
+// Import and mount API routes
 import { router as workflowRoutes } from './routes/workflow.js';
+import { aiRouter } from './routes/ai.js';
+import { internalRouter } from './routes/internal.js';
+
 app.use('/api/workflow', workflowRoutes);
+app.use('/ai', aiRouter);
+app.use('/internal', internalRouter);
 
 // Error handling middleware
 app.use((error: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

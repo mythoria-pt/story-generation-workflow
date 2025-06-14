@@ -20,7 +20,7 @@ if (nodeEnv === 'production') {
 // Environment schema based on .env.schema.json
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'staging', 'production']),
-  PORT: z.string().transform(Number),
+  PORT: z.string().transform(Number).default('8080'),
   DB_HOST: z.string(),
   DB_PORT: z.string().transform(Number),
   DB_USER: z.string(),
@@ -37,6 +37,13 @@ const envSchema = z.object({
   IMAGE_GENERATION_MODEL: z.string().optional(),
   AUDIO_GENERATION_MODEL: z.string().optional(),
   LOG_LEVEL: z.enum(['error', 'warn', 'info', 'debug']).optional().default('info'),
+  // AI Provider Configuration
+  TEXT_PROVIDER: z.enum(['vertex', 'openai', 'azure-openai']).optional().default('vertex'),
+  IMAGE_PROVIDER: z.enum(['vertex', 'stability', 'openai', 'dall-e']).optional().default('vertex'),
+  OPENAI_API_KEY: z.string().optional(),
+  AZURE_OPENAI_ENDPOINT: z.string().optional(),
+  AZURE_OPENAI_API_KEY: z.string().optional(),
+  STABILITY_API_KEY: z.string().optional(),
 });
 
 export type Environment = z.infer<typeof envSchema>;
