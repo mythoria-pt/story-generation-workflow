@@ -1,16 +1,56 @@
 # Story Generation Workflow Service
 
-A Google Cloud Run microservice that orchestrates the complete story generation process using Google Cloud Workflows, Vertex AI, and Cloud Storage.
+## About Mythoria
 
-## Architecture Overview
+**Mythoria** is an AI-powered storytelling platform that creates personalized, illustrated stories for children and young adults. The platform combines advanced AI text generation with image creation to produce complete, engaging narratives with beautiful illustrations.
 
-This service implements a multi-step workflow for generating complete illustrated stories:
+### The Mythoria Ecosystem
 
-1. **Story Outline** - Generate story structure, synopsis, and chapter outlines
-2. **Chapter Writing** - Write detailed content for each chapter with image prompts
-3. **Image Generation** - Generate illustrations using Vertex AI Image Generation
-4. **Final Production** - Combine content and images into HTML and PDF formats
-5. **Audio Recording** - Optional narration generation using text-to-speech
+- **mythoria-webapp**: Main web application where users create and manage stories
+- **story-generation-workflow**: This microservice that orchestrates the AI-powered story creation process
+- **Shared Database**: PostgreSQL database shared between services for consistent data management
+
+## Service Overview
+
+The **Story Generation Workflow Service** is a Google Cloud Run microservice that orchestrates the complete story generation process using Google Cloud Workflows and multiple AI providers (Vertex AI, OpenAI, Stability AI).
+
+### Key Features
+
+- 🎨 **Multi-step Story Creation**: Automated outline → chapters → illustrations → final production
+- 🔄 **Provider-Agnostic AI**: Supports multiple AI providers with easy switching
+- 📊 **Observable Workflows**: Complete monitoring and logging throughout the process
+- 🏗️ **Clean Architecture**: Environment-agnostic business logic with swappable adapters
+- ⚡ **Parallel Processing**: Concurrent chapter writing and image generation
+- 🔒 **Production-Ready**: Security, error handling, and monitoring built-in
+
+## Quick Start
+
+```bash
+# Install dependencies
+npm install
+
+# Setup environment
+cp .env.example .env
+# Edit .env with your configuration
+
+# Start development server
+npm run dev
+
+# Run tests
+npm test
+```
+
+## Documentation
+
+### 📚 Detailed Documentation
+
+- **[Architecture Guide](./docs/ARCHITECTURE.md)** - System design, workflows, and component architecture with Mermaid diagrams
+- **[Deployment Guide](./docs/DEPLOYMENT.md)** - Google Cloud services setup, configuration, and deployment procedures  
+- **[Development Guide](./docs/DEVELOPMENT.md)** - Development environment, coding standards, testing, and contribution guidelines
+
+### 🤖 AI Agent Documentation
+
+- **[AGENTS.md](./AGENTS.md)** - Comprehensive context for AI coding agents including project structure, conventions, and best practices
 
 ## Project Structure
 
@@ -19,271 +59,57 @@ src/
 ├── config/           # Environment and configuration management
 ├── shared/           # Environment-agnostic business logic and interfaces
 ├── adapters/         # External service implementations (swappable with mocks)
-├── workflows/        # Google Cloud Workflows definitions and handlers
+├── ai/              # AI Gateway and provider implementations
+├── routes/          # Express route handlers (health, AI, internal APIs)
+├── workflows/       # Google Cloud Workflows handlers
 └── db/              # Database schema (shared with mythoria-webapp)
 ```
 
-## Architecture Principles
+## Technology Stack
 
-- **Single Dockerfile** per microservice with distroless base for security
-- **Environment-agnostic logic** in `shared/` for easy unit testing
-- **Interface-based adapters** for external services (database, Google Cloud)
-- **Reproducible builds** using npm ci and locked dependencies
+- **Runtime**: Node.js 20+ with TypeScript and ES Modules
+- **Framework**: Express.js with Helmet security middleware
+- **Database**: PostgreSQL with Drizzle ORM (shared schema)
+- **AI Providers**: Vertex AI, OpenAI, Stability AI
+- **Cloud Platform**: Google Cloud (Run, Workflows, Storage, Secret Manager)
+- **Testing**: Jest with comprehensive unit and integration tests
 
-## Prerequisites
+## Quick Examples
 
-- Node.js 20+
-- Google Cloud Project with enabled APIs:
-  - Cloud Run
-  - Cloud Workflows  
-  - Vertex AI
-  - Cloud Storage
-- PostgreSQL database (shared with mythoria-webapp)
+### Generate a Story Outline
+```bash
+curl -X POST http://localhost:3000/ai/text/outline \
+  -H "Content-Type: application/json" \
+  -d '{"storyId": "story-123", "prompt": "A magical dragon adventure"}'
+```
 
-## Environment Setup
+### Check Service Health
+```bash
+curl http://localhost:3000/health
+```
 
-1. Copy environment template:
-   ```bash
-   cp .env.example .env
-   ```
+## Environment Configuration
 
-2. Fill in required values in `.env`:
-   ```env
-   GOOGLE_CLOUD_PROJECT_ID=your-project-id
-   STORAGE_BUCKET_NAME=your-bucket-name
-   DB_HOST=your-db-host
-   DB_PASSWORD=your-db-password
-   # ... other required vars
-   ```
+Key environment variables for local development:```env
+# AI Provider Selection
+TEXT_PROVIDER=vertex         # vertex|openai  
+IMAGE_PROVIDER=vertex        # vertex|openai|stability
 
-3. Validate environment:
-   ```bash
-   npm run env:validate
-   ```
+# Database (shared with mythoria-webapp)
+DB_HOST=localhost
+DB_PASSWORD=your_password
 
-## AI Model Configuration
-
-This service uses Google Vertex AI models for story generation. You can configure different models for different tasks.
-
-### Environment Variables
-
-```env
-# Primary model for general text generation
-VERTEX_AI_MODEL_ID=gemini-2.0-flash
-
-# Specific model for story outline generation (optional)
-VERTEX_AI_OUTLINE_MODEL=gemini-2.0-flash
-
-# Location for Vertex AI requests
+# Google Cloud Configuration  
+GOOGLE_CLOUD_PROJECT_ID=your-project-id
 VERTEX_AI_LOCATION=europe-west9
+STORAGE_BUCKET_NAME=your-bucket-name
 ```
 
-### Available Models
+## License
 
-- **gemini-2.0-flash** - Latest Gemini 2.0 Flash model (recommended)
-- **gemini-2.0-flash-001** - Versioned Gemini 2.0 Flash model  
-- **gemini-1.5-pro** - Previous generation model (legacy)
-- **gemini-2.0-flash-lite** - Faster, more cost-effective variant
-
-### Model Selection Guidelines
-
-- **Story Outlines**: Use `gemini-2.0-flash` for complex creative tasks requiring structured JSON output
-- **Chapter Writing**: Use `gemini-2.0-flash` for high-quality narrative content
-- **General Tasks**: Consider `gemini-2.0-flash-lite` for cost optimization on simpler tasks
-
-### Configuration
-
-You can override the model for specific tasks by setting the appropriate environment variable:
-
-```bash
-# Use different models for different tasks
-VERTEX_AI_MODEL_ID=gemini-2.0-flash         # Default for all tasks
-VERTEX_AI_OUTLINE_MODEL=gemini-2.0-flash    # Specific for outline generation
-```
-
-The `/ai/text/outline` endpoint will use `VERTEX_AI_OUTLINE_MODEL` if set, otherwise falls back to `VERTEX_AI_MODEL_ID`.
-
-## Development
-
-```bash
-# Install dependencies
-npm install
-
-# Start development server
-npm run dev
-
-# Run tests
-npm test
-
-# Build for production
-npm run build
-```
-
-## Database
-
-This service shares the same Drizzle database schema and migrations with `mythoria-webapp`. The schema is imported from the parent application to maintain consistency.
-
-## Deployment
-
-### Prerequisites for Production
-
-1. **Set up Google Cloud Secrets** (first time only):
-   ```bash
-   # Set up secrets for the story generation workflow
-   npm run gcp:setup-secrets
-   ```
-
-2. **Verify setup**:
-   ```bash
-   npm run gcp:verify
-   ```
-
-### Production Deployment
-
-Deploy to Google Cloud using the automated build pipeline:
-
-```bash
-# Deploy using the updated cloudbuild.yaml with Google Secrets
-npm run gcp:deploy
-
-# Or manually using gcloud
-gcloud builds submit --config cloudbuild.yaml
-```
-
-The deployment will:
-- Build the Docker container
-- Deploy to Cloud Run in `europe-west9` region
-- Configure environment variables from Google Secrets
-- Deploy the associated workflow definition
-
-### Local Development
-
-For local development, use the standard environment files:
-
-```bash
-# Local Docker Build
-npm run docker:build
-npm run docker:run
-
-# Development mode
-npm run dev
-```
-
-### Environment Configuration
-
-This service is configured to work with Google Cloud Secrets in production while supporting local development:
-
-- **Production**: Uses Google Cloud Secret Manager for sensitive values
-- **Development**: Uses `.env` and `.env.local` files
-- **Shared Database**: Reuses the same PostgreSQL database as mythoria-webapp
-
-### Secrets Management
-
-The service reuses secrets from the mythoria-webapp project for shared resources:
-- Database credentials: `mythoria-db-host`, `mythoria-db-user`, `mythoria-db-password`
-
-And creates additional secrets for story-specific configuration:
-- Storage: `mythoria-storage-bucket`
-- AI Models: `mythoria-vertex-ai-model`, `mythoria-vertex-ai-location`
-- Workflows: `mythoria-workflows-location`
-
-## API Endpoints
-
-- `GET /health` - Health check endpoint
-- `POST /api/workflow/story-outline` - Generate story outline
-- `POST /api/workflow/chapter-writing` - Write chapter content
-- `POST /api/workflow/image-generation` - Generate images
-- `POST /api/workflow/final-production` - Create final output
-- `POST /api/workflow/audio-recording` - Generate narration (optional)
-
-## Testing
-
-The service includes comprehensive test setup with mocked Google Cloud services:
-
-```bash
-# Run all tests
-npm test
-
-# Watch mode
-npm run test:watch
-
-# Coverage report
-npm run test:coverage
-```
-
-## Monitoring and Logging
-
-- Structured JSON logging with Winston
-- Health check endpoint for monitoring
-- Error tracking and reporting
-- Performance metrics collection
-
-## Security
-
-- Helmet.js for security headers
-- Input validation with Zod
-- Distroless container images
-- Principle of least privilege for Google Cloud IAM
-
-## Google Cloud Workflows
-
-This service includes Google Cloud Workflows for orchestrating the story generation process.
-
-### Workflow Deployment
-
-The `story-generation` workflow is automatically deployed via Cloud Build, but you can also deploy it manually:
-
-```bash
-# Deploy the workflow
-gcloud workflows deploy story-generation \
-  --source=src/workflows/story-generation.yaml \
-  --location=europe-west9
-```
-
-### Workflow Execution
-
-Execute the workflow using the provided scripts:
-
-```powershell
-# Execute workflow with custom parameters
-.\scripts\execute-workflow.ps1 -StoryId "my-story-123" -Prompt "A magical adventure"
-
-# Run a test execution
-.\scripts\test-workflow.ps1
-```
-
-Or execute directly with gcloud:
-
-```bash
-# Create request data file
-echo '{
-  "storyId": "story-123",
-  "workflowId": "workflow-456", 
-  "baseUrl": "https://your-cloud-run-url",
-  "prompt": "Your story prompt"
-}' > request.json
-
-# Execute workflow
-gcloud workflows execute story-generation \
-  --location=europe-west9 \
-  --data-file=request.json
-```
-
-### Workflow Monitoring
-
-Monitor workflow executions:
-
-```bash
-# List recent executions
-gcloud workflows executions list --location=europe-west9 --workflow=story-generation
-
-# Get execution details
-gcloud workflows executions describe EXECUTION_ID \
-  --location=europe-west9 \
-  --workflow=story-generation
-```
+This project is part of the Mythoria platform. All rights reserved.
 
 ## Related Services
 
-- **mythoria-webapp** - Main web application sharing the database schema
-- **Google Cloud Workflows** - Orchestration engine for the story generation process
+- **[mythoria-webapp](../mythoria-webapp/)** - Main web application
+- **Shared Database Schema** - PostgreSQL database shared between services
