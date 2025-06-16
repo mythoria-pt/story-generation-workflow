@@ -39,7 +39,8 @@ const envSchema = z.object({
   LOG_LEVEL: z.enum(['error', 'warn', 'info', 'debug']).optional().default('info'),  // AI Provider Configuration
   TEXT_PROVIDER: z.enum(['vertex', 'openai']).optional().default('vertex'),
   IMAGE_PROVIDER: z.enum(['vertex', 'stability', 'openai', 'dall-e']).optional().default('vertex'),
-  OPENAI_API_KEY: z.string().optional(),
+  OPEN_AI_API_KEY: z.string().optional(),
+  OPENAI_IMAGE_MODEL: z.string().optional().default('dall-e-3'),
   STABILITY_API_KEY: z.string().optional(),
 });
 
@@ -75,14 +76,17 @@ export function validateEnvironment(): void {
   if (fs.existsSync(schemaPath)) {
     console.log('✅ Environment schema found');
   }
-  
-  try {
+    try {
     const env = getEnvironment();
     console.log('✅ Environment variables validated successfully');
     console.log(`📍 Running in ${env.NODE_ENV} mode`);
     console.log(`🔌 Server will start on port ${env.PORT}`);
     console.log(`🏢 Google Cloud Project: ${env.GOOGLE_CLOUD_PROJECT_ID}`);
     console.log(`📦 Storage Bucket: ${env.STORAGE_BUCKET_NAME}`);
+    console.log(`🎨 Image Provider: ${env.IMAGE_PROVIDER}`);
+    if (env.IMAGE_PROVIDER === 'openai') {
+      console.log(`🤖 OpenAI Image Model: ${env.OPENAI_IMAGE_MODEL}`);
+    }
   } catch (error) {
     console.error('❌ Environment validation failed');
     throw error;

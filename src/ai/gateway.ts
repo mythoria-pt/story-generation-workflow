@@ -58,14 +58,14 @@ export class AIGateway {
           projectId: this.config.credentials.vertexProjectId,
           location: this.config.credentials.vertexLocation || 'us-central1'
         });
-      
-      case 'openai':
+        case 'openai':
       case 'dall-e':
         if (!this.config.credentials.openaiApiKey) {
           throw new Error('OpenAI API Key is required for OpenAI image service');
         }
         return new OpenAIImageService({
-          apiKey: this.config.credentials.openaiApiKey
+          apiKey: this.config.credentials.openaiApiKey,
+          model: this.config.credentials.openaiImageModel || 'dall-e-3'
         });
       
       case 'stability':
@@ -101,11 +101,13 @@ export class AIGateway {
     const textProvider = process.env.TEXT_PROVIDER || 'vertex';
     const imageProvider = process.env.IMAGE_PROVIDER || 'vertex';    const config: AIProviderConfig = {
       textProvider,
-      imageProvider,      credentials: {
-        ...(process.env.OPENAI_API_KEY && { openaiApiKey: process.env.OPENAI_API_KEY }),
+      imageProvider,
+      credentials: {
+        ...(process.env.OPEN_AI_API_KEY && { openaiApiKey: process.env.OPEN_AI_API_KEY }),
         ...(process.env.OPENAI_USE_RESPONSES_API !== undefined && { 
           openaiUseResponsesAPI: process.env.OPENAI_USE_RESPONSES_API === 'true' 
         }),
+        ...(process.env.OPENAI_IMAGE_MODEL && { openaiImageModel: process.env.OPENAI_IMAGE_MODEL }),
         ...(process.env.GOOGLE_CLOUD_PROJECT_ID && { vertexProjectId: process.env.GOOGLE_CLOUD_PROJECT_ID }),
         ...(process.env.VERTEX_AI_LOCATION && { vertexLocation: process.env.VERTEX_AI_LOCATION }),
         ...(process.env.GOOGLE_CLOUD_REGION && !process.env.VERTEX_AI_LOCATION && { vertexLocation: process.env.GOOGLE_CLOUD_REGION }),

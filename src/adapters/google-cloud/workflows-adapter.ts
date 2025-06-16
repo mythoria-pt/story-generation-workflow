@@ -64,7 +64,7 @@ export class GoogleCloudWorkflowsAdapter implements IWorkflowService {
         name: executionName
       });      const result: WorkflowExecutionResult = {
         executionId,
-        status: this.mapExecutionState(execution.state as any),
+        status: this.mapExecutionState(execution.state),
         startTime: execution.startTime ? new Date(Number(execution.startTime.seconds) * 1000) : new Date(),
         ...(execution.endTime && { endTime: new Date(Number(execution.endTime.seconds) * 1000) }),
         ...(execution.result && { result: JSON.parse(execution.result) }),
@@ -87,17 +87,23 @@ export class GoogleCloudWorkflowsAdapter implements IWorkflowService {
       throw error;
     }
   }
-
-  private mapExecutionState(state?: string | null): 'pending' | 'running' | 'completed' | 'failed' {
-    switch (state) {
+  private mapExecutionState(state?: any): 'pending' | 'running' | 'completed' | 'failed' {
+    // Handle both string and enum values
+    const stateStr = typeof state === 'string' ? state : String(state);
+    switch (stateStr) {
       case 'QUEUED':
+      case '5': // QUEUED enum value
         return 'pending';
       case 'ACTIVE':
+      case '1': // ACTIVE enum value
         return 'running';
       case 'SUCCEEDED':
+      case '2': // SUCCEEDED enum value
         return 'completed';
       case 'FAILED':
+      case '3': // FAILED enum value
       case 'CANCELLED':
+      case '4': // CANCELLED enum value
         return 'failed';
       default:
         return 'pending';

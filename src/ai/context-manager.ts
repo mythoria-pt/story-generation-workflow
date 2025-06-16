@@ -7,10 +7,10 @@
 
 // Simple logging for now to avoid test issues
 const log = {
-  info: (msg: string, ...args: any[]) => console.log(`[INFO] ${msg}`, ...args),
-  error: (msg: string, ...args: any[]) => console.error(`[ERROR] ${msg}`, ...args),
-  debug: (msg: string, ...args: any[]) => console.log(`[DEBUG] ${msg}`, ...args),
-  warn: (msg: string, ...args: any[]) => console.warn(`[WARN] ${msg}`, ...args),
+  info: (msg: string, ...args: unknown[]) => console.log(`[INFO] ${msg}`, ...args),
+  error: (msg: string, ...args: unknown[]) => console.error(`[ERROR] ${msg}`, ...args),
+  debug: (msg: string, ...args: unknown[]) => console.log(`[DEBUG] ${msg}`, ...args),
+  warn: (msg: string, ...args: unknown[]) => console.warn(`[WARN] ${msg}`, ...args),
 };
 
 export interface ContextData {

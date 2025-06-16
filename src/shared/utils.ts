@@ -67,3 +67,164 @@ export async function retry<T>(
   // This should never be reached, but TypeScript requires it
   throw lastError;
 }
+
+// -----------------------------------------------------------------------------
+// Story Generation Utilities
+// ----------------------------------------------------------------------------->
+
+export interface StoryCharacter {
+  name: string;
+  type: string;
+  role: string;
+  passions: string;
+  superpowers: string;
+  physicalDescription: string;
+}
+
+export interface StoryContext {
+  story: {
+    title: string;
+    targetAudience?: string;
+    novelStyle?: string;
+    place?: string;
+    storyLanguage: string;
+    plotDescription?: string;
+    synopsis?: string;
+    additionalRequests?: string;
+    graphicalStyle?: string;
+  };
+  characters: StoryCharacter[];
+}
+
+/**
+ * Determines appropriate chapter count based on target audience
+ */
+export function getChapterCountForAudience(targetAudience?: string): number {
+  if (!targetAudience) return 10;
+  
+  const chapterMap: Record<string, number> = {
+    'children_0-2': 5,      // Very short for toddlers
+    'children_3-6': 6,      // Short chapters for preschoolers
+    'children_7-10': 10,    // Standard for early elementary
+    'children_11-14': 12,   // Longer for middle grade
+    'young_adult_15-17': 15, // More complex for YA
+    'adult_18+': 15,        // Full-length for adults
+    'all_ages': 10          // Balanced for all ages
+  };
+  
+  return chapterMap[targetAudience] || 10;
+}
+
+/**
+ * Converts language code to human-readable name
+ */
+export function getLanguageName(languageCode: string): string {
+  const languageMap: Record<string, string> = {
+    'en-US': 'English',
+    'pt-PT': 'Portuguese',
+    'pt-BR': 'Portuguese (Brazilian)',
+    'es-ES': 'Spanish',
+    'fr-FR': 'French',
+    'de-DE': 'German',
+    'it-IT': 'Italian',
+    'nl-NL': 'Dutch'
+  };
+  
+  return languageMap[languageCode] || 'English';
+}
+
+/**
+ * Prepares characters for prompt (removing IDs to reduce tokens)
+ */
+export function prepareCharactersForPrompt(characters: StoryCharacter[]): string {
+  const charactersWithoutIds = characters.map(char => ({
+    name: char.name,
+    type: char.type,
+    role: char.role,
+    passions: char.passions,
+    superpowers: char.superpowers,
+    physicalDescription: char.physicalDescription
+  }));
+  
+  return JSON.stringify(charactersWithoutIds, null, 2);
+}
+
+/**
+ * Formats target audience for better prompting
+ */
+export function formatTargetAudience(targetAudience?: string): string {
+  if (!targetAudience) return 'children ages 7-10';
+  
+  const audienceMap: Record<string, string> = {
+    'children_0-2': 'babies and toddlers (0-2 years)',
+    'children_3-6': 'preschoolers (3-6 years)',
+    'children_7-10': 'early elementary children (7-10 years)',
+    'children_11-14': 'middle grade children (11-14 years)',
+    'young_adult_15-17': 'young adults (15-17 years)',
+    'adult_18+': 'adults (18+ years)',
+    'all_ages': 'readers of all ages'
+  };
+  
+  return audienceMap[targetAudience] || 'children ages 7-10';
+}
+
+/**
+ * Generates story description from story context
+ */
+export function getStoryDescription(storyContext: StoryContext): string {
+  const { story } = storyContext;
+  let description = '';
+  
+  if (story.synopsis) {
+    description += story.synopsis;
+  } else if (story.plotDescription) {
+    description += story.plotDescription;
+  }
+  
+  if (story.place) {
+    description += ` The story takes place in ${story.place}.`;
+  }
+  
+  if (story.additionalRequests) {
+    description += ` Additional requirements: ${story.additionalRequests}`;
+  }
+  
+  return description || 'A story about the adventures and relationships of the main characters.';
+}
+
+/**
+ * Parses AI response, handling various formats including markdown code blocks
+ */
+export function parseAIResponse(response: string): any {
+  let cleanedResponse = response.trim();
+  
+  // Handle markdown code blocks
+  if (response.includes('```json')) {
+    const jsonMatch = response.match(/```json\s*([\s\S]*?)\s*```/);
+    if (jsonMatch && jsonMatch[1]) {
+      cleanedResponse = jsonMatch[1].trim();
+    }
+  } else if (response.includes('```')) {
+    // Remove any code blocks that aren't JSON and try to extract JSON content
+    const withoutCodeBlocks = response.replace(/```[^`]*```/g, '').trim();
+    const startIndex = withoutCodeBlocks.indexOf('{');
+    const lastIndex = withoutCodeBlocks.lastIndexOf('}');
+    if (startIndex !== -1 && lastIndex !== -1 && lastIndex > startIndex) {
+      cleanedResponse = withoutCodeBlocks.substring(startIndex, lastIndex + 1);
+    }
+  } else if (response.trim().startsWith('```') && response.trim().endsWith('```')) {
+    // Handle case where entire response is wrapped in code blocks without language
+    cleanedResponse = response.replace(/^```[\s\S]*?```$/, '').trim();
+  }
+  
+  // Extract JSON if response contains other text
+  if (!cleanedResponse.startsWith('{') && !cleanedResponse.startsWith('[')) {
+    const startIndex = cleanedResponse.indexOf('{');
+    const lastIndex = cleanedResponse.lastIndexOf('}');
+    if (startIndex !== -1 && lastIndex !== -1 && lastIndex > startIndex) {
+      cleanedResponse = cleanedResponse.substring(startIndex, lastIndex + 1);
+    }
+  }
+  
+  return JSON.parse(cleanedResponse);
+}

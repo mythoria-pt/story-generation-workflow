@@ -24,7 +24,7 @@ const UpdateRunRequestSchema = z.object({
   status: z.enum(['queued', 'running', 'completed', 'failed', 'cancelled']).optional(),
   currentStep: z.string().optional(),
   errorMessage: z.string().optional(),
-  metadata: z.record(z.unknown()).optional()
+  metadata: z.record(z.unknown()).optional(),
 });
 
 const StoreOutlineRequestSchema = z.object({
@@ -39,6 +39,13 @@ const StoreChapterRequestSchema = z.object({
 
 const StoreImageRequestSchema = z.object({
   chapterNumber: z.number().int().positive(),
+  imageData: z.string(), // base64 encoded
+  imageUrl: z.string().optional(),
+  prompt: z.string().optional()
+});
+
+const StoreBookCoverRequestSchema = z.object({
+  coverType: z.enum(['front', 'back']),
   imageData: z.string(), // base64 encoded
   imageUrl: z.string().optional(),
   prompt: z.string().optional()
@@ -115,6 +122,79 @@ router.get('/runs/:runId', async (req, res) => {
     logger.error('Internal API: Failed to get run', {
       error: error instanceof Error ? error.message : String(error),
       runId: req.params.runId
+    });
+
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+/**
+ * GET /internal/prompts/:runId/:chapterNumber
+ * Get chapter photo prompt from stored outline
+ */
+router.get('/prompts/:runId/:chapterNumber', async (req, res) => {
+  try {
+    const runId = req.params.runId;
+    const chapterNumber = parseInt(req.params.chapterNumber);
+
+    logger.debug('Internal API: Getting chapter prompt', { runId, chapterNumber });    // Get the outline step result to access chapter photo prompts
+    const steps = await runsService.getRunSteps(runId);
+    const outlineStep = steps.find(step => step.stepName === 'generate_outline');
+    
+    if (!outlineStep || !outlineStep.detailJson) {
+      res.status(404).json({
+        success: false,
+        error: 'Outline not found for this run'
+      });
+      return;
+    }
+
+    const outline = outlineStep.detailJson as any;
+    
+    if (!outline.chapters || !Array.isArray(outline.chapters)) {
+      res.status(400).json({
+        success: false,
+        error: 'Invalid outline structure - chapters not found'
+      });
+      return;
+    }
+
+    // Find the specific chapter
+    const chapter = outline.chapters.find((ch: any) => ch.chapterNumber === chapterNumber);
+    
+    if (!chapter) {
+      res.status(404).json({
+        success: false,
+        error: `Chapter ${chapterNumber} not found in outline`
+      });
+      return;
+    }
+
+    if (!chapter.chapterPhotoPrompt) {
+      res.status(404).json({
+        success: false,
+        error: `No photo prompt found for chapter ${chapterNumber}`
+      });
+      return;
+    }
+
+    logger.debug('Internal API: Chapter prompt retrieved successfully', {
+      runId,
+      chapterNumber,
+      promptLength: chapter.chapterPhotoPrompt.length
+    });
+
+    // Return the prompt in the format expected by the workflow
+    res.json(chapter.chapterPhotoPrompt);
+
+  } catch (error) {
+    logger.error('Internal API: Failed to get chapter prompt', {
+      error: error instanceof Error ? error.message : String(error),
+      runId: req.params.runId,
+      chapterNumber: req.params.chapterNumber
     });
 
     res.status(500).json({
@@ -262,6 +342,128 @@ router.post('/runs/:runId/chapter/:chapterNumber/image', async (req, res) => {
       error: error instanceof Error ? error.message : String(error),
       runId: req.params.runId,
       chapterNumber: req.params.chapterNumber
+    });
+
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+/**
+ * POST /internal/runs/:runId/book-cover
+ * Store generated book cover image (front or back)
+ */
+router.post('/runs/:runId/book-cover', async (req, res) => {
+  try {
+    const runId = req.params.runId;
+    const { coverType, imageData, imageUrl, prompt } = StoreBookCoverRequestSchema.parse(req.body);
+
+    logger.info('Internal API: Storing book cover image', {
+      runId,
+      coverType,
+      hasImageData: !!imageData,
+      hasImageUrl: !!imageUrl
+    });
+
+    // Upload image to storage if we have image data
+    let finalImageUrl = imageUrl;
+    if (imageData && !imageUrl) {
+      const imageBuffer = Buffer.from(imageData, 'base64');
+      const filename = `stories/${runId}/book-${coverType}-cover.png`;
+      finalImageUrl = await storageService.uploadFile(filename, imageBuffer, 'image/png');
+    }
+
+    await runsService.storeStepResult(runId, `generate_book_${coverType}_cover`, {
+      status: 'completed',
+      result: {
+        coverType,
+        imageUrl: finalImageUrl,
+        prompt
+      }
+    });
+
+    res.json({
+      success: true,
+      runId,
+      coverType,
+      imageUrl: finalImageUrl,
+      step: `generate_book_${coverType}_cover`
+    });
+
+  } catch (error) {
+    logger.error('Internal API: Failed to store book cover image', {
+      error: error instanceof Error ? error.message : String(error),
+      runId: req.params.runId,
+      coverType: req.body.coverType
+    });
+
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+/**
+ * GET /internal/prompts/:runId/book-cover/:coverType
+ * Get book cover prompt from outline
+ */
+router.get('/prompts/:runId/book-cover/:coverType', async (req, res) => {
+  try {
+    const runId = req.params.runId;
+    const coverType = req.params.coverType;
+
+    if (!['front', 'back'].includes(coverType)) {
+      res.status(400).json({
+        success: false,
+        error: 'Cover type must be either "front" or "back"'
+      });
+      return;
+    }
+
+    logger.debug('Internal API: Getting book cover prompt', {
+      runId,
+      coverType
+    });
+
+    // Get the outline step result
+    const outlineStep = await runsService.getStepResult(runId, 'generate_outline');
+
+    if (!outlineStep?.detailJson) {
+      res.status(404).json({
+        success: false,
+        error: 'Outline not found for this run'
+      });
+      return;
+    }
+
+    const outline = outlineStep.detailJson as any;
+    const promptField = coverType === 'front' ? 'bookCoverPrompt' : 'bookBackCoverPrompt';
+    
+    if (!outline[promptField]) {
+      res.status(404).json({
+        success: false,
+        error: `No ${coverType} cover prompt found in outline`
+      });
+      return;
+    }
+
+    logger.debug('Internal API: Book cover prompt retrieved successfully', {
+      runId,
+      coverType,
+      promptLength: outline[promptField].length
+    });
+
+    // Return the prompt in the format expected by the workflow
+    res.json(outline[promptField]);
+
+  } catch (error) {
+    logger.error('Internal API: Failed to get book cover prompt', {
+      error: error instanceof Error ? error.message : String(error),
+      runId: req.params.runId,
+      coverType: req.params.coverType
     });
 
     res.status(500).json({

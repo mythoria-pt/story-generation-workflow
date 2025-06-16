@@ -123,100 +123,17 @@ try {
 }
 
 # Create story-generation-workflow specific secrets
-Write-Host "Creating storage bucket name secret..." -ForegroundColor Blue
-try {
-    $secretExists = gcloud secrets describe mythoria-storage-bucket --format="value(name)" 2>$null
-    if ($LASTEXITCODE -eq 0 -and $secretExists) {
-        Write-Info "Secret mythoria-storage-bucket already exists, updating..."
-        $StorageBucketName.Trim() | Set-Content -Path temp_secret.txt -NoNewline; gcloud secrets versions add mythoria-storage-bucket --data-file=temp_secret.txt; Remove-Item temp_secret.txt
-    } else {
-        Write-Info "Creating new secret mythoria-storage-bucket..."
-        $StorageBucketName.Trim() | Set-Content -Path temp_secret.txt -NoNewline; gcloud secrets create mythoria-storage-bucket --data-file=temp_secret.txt --replication-policy='automatic'; Remove-Item temp_secret.txt
-    }
-} catch {
-    Write-Info "Creating new secret mythoria-storage-bucket..."
-    $StorageBucketName.Trim() | Set-Content -Path temp_secret.txt -NoNewline; gcloud secrets create mythoria-storage-bucket --data-file=temp_secret.txt --replication-policy='automatic'; Remove-Item temp_secret.txt
-}
+# Note: The following variables have been moved to environment variables in cloudbuild.yaml:
+# - mythoria-generated-stories-bucket (now STORAGE_BUCKET_NAME)
+# - mythoria-audio-generation-model (now AUDIO_GENERATION_MODEL)
+# - mythoria-image-generation-model (now IMAGE_GENERATION_MODEL)
+# - mythoria-workflows-location (now WORKFLOWS_LOCATION)  
+# - mythoria-vertex-ai-location (now VERTEX_AI_LOCATION)
+# - mythoria-vertex-ai-model (now VERTEX_AI_MODEL_ID)
+# - mythoria-storage-bucket (now STORAGE_BUCKET_NAME)
 
-Write-Host "Creating Vertex AI model ID secret..." -ForegroundColor Blue
-try {
-    $secretExists = gcloud secrets describe mythoria-vertex-ai-model --format="value(name)" 2>$null
-    if ($LASTEXITCODE -eq 0 -and $secretExists) {
-        Write-Info "Secret mythoria-vertex-ai-model already exists, updating..."
-        $VertexAiModelId.Trim() | Set-Content -Path temp_secret.txt -NoNewline; gcloud secrets versions add mythoria-vertex-ai-model --data-file=temp_secret.txt; Remove-Item temp_secret.txt
-    } else {
-        Write-Info "Creating new secret mythoria-vertex-ai-model..."
-        $VertexAiModelId.Trim() | Set-Content -Path temp_secret.txt -NoNewline; gcloud secrets create mythoria-vertex-ai-model --data-file=temp_secret.txt --replication-policy='automatic'; Remove-Item temp_secret.txt
-    }
-} catch {
-    Write-Info "Creating new secret mythoria-vertex-ai-model..."
-    $VertexAiModelId.Trim() | Set-Content -Path temp_secret.txt -NoNewline; gcloud secrets create mythoria-vertex-ai-model --data-file=temp_secret.txt --replication-policy='automatic'; Remove-Item temp_secret.txt
-}
-
-Write-Host "Creating Vertex AI location secret..." -ForegroundColor Blue
-try {
-    $secretExists = gcloud secrets describe mythoria-vertex-ai-location --format="value(name)" 2>$null
-    if ($LASTEXITCODE -eq 0 -and $secretExists) {
-        Write-Info "Secret mythoria-vertex-ai-location already exists, updating..."
-        $VertexAiLocation.Trim() | Set-Content -Path temp_secret.txt -NoNewline; gcloud secrets versions add mythoria-vertex-ai-location --data-file=temp_secret.txt; Remove-Item temp_secret.txt
-    } else {
-        Write-Info "Creating new secret mythoria-vertex-ai-location..."
-        $VertexAiLocation.Trim() | Set-Content -Path temp_secret.txt -NoNewline; gcloud secrets create mythoria-vertex-ai-location --data-file=temp_secret.txt --replication-policy='automatic'; Remove-Item temp_secret.txt
-    }
-} catch {
-    Write-Info "Creating new secret mythoria-vertex-ai-location..."
-    $VertexAiLocation.Trim() | Set-Content -Path temp_secret.txt -NoNewline; gcloud secrets create mythoria-vertex-ai-location --data-file=temp_secret.txt --replication-policy='automatic'; Remove-Item temp_secret.txt
-}
-
-Write-Host "Creating workflows location secret..." -ForegroundColor Blue
-try {
-    $secretExists = gcloud secrets describe mythoria-workflows-location --format="value(name)" 2>$null
-    if ($LASTEXITCODE -eq 0 -and $secretExists) {
-        Write-Info "Secret mythoria-workflows-location already exists, updating..."
-        $WorkflowsLocation.Trim() | Set-Content -Path temp_secret.txt -NoNewline; gcloud secrets versions add mythoria-workflows-location --data-file=temp_secret.txt; Remove-Item temp_secret.txt
-    } else {
-        Write-Info "Creating new secret mythoria-workflows-location..."
-        $WorkflowsLocation.Trim() | Set-Content -Path temp_secret.txt -NoNewline; gcloud secrets create mythoria-workflows-location --data-file=temp_secret.txt --replication-policy='automatic'; Remove-Item temp_secret.txt
-    }
-} catch {
-    Write-Info "Creating new secret mythoria-workflows-location..."
-    $WorkflowsLocation.Trim() | Set-Content -Path temp_secret.txt -NoNewline; gcloud secrets create mythoria-workflows-location --data-file=temp_secret.txt --replication-policy='automatic'; Remove-Item temp_secret.txt
-}
-
-# Create optional model secrets if they exist
-if ($ImageGenerationModel) {
-    Write-Host "Creating image generation model secret..." -ForegroundColor Blue
-    try {
-        $secretExists = gcloud secrets describe mythoria-image-generation-model --format="value(name)" 2>$null
-        if ($LASTEXITCODE -eq 0 -and $secretExists) {
-            Write-Info "Secret mythoria-image-generation-model already exists, updating..."
-            $ImageGenerationModel.Trim() | Set-Content -Path temp_secret.txt -NoNewline; gcloud secrets versions add mythoria-image-generation-model --data-file=temp_secret.txt; Remove-Item temp_secret.txt
-        } else {
-            Write-Info "Creating new secret mythoria-image-generation-model..."
-            $ImageGenerationModel.Trim() | Set-Content -Path temp_secret.txt -NoNewline; gcloud secrets create mythoria-image-generation-model --data-file=temp_secret.txt --replication-policy='automatic'; Remove-Item temp_secret.txt
-        }
-    } catch {
-        Write-Info "Creating new secret mythoria-image-generation-model..."
-        $ImageGenerationModel.Trim() | Set-Content -Path temp_secret.txt -NoNewline; gcloud secrets create mythoria-image-generation-model --data-file=temp_secret.txt --replication-policy='automatic'; Remove-Item temp_secret.txt
-    }
-}
-
-if ($AudioGenerationModel) {
-    Write-Host "Creating audio generation model secret..." -ForegroundColor Blue
-    try {
-        $secretExists = gcloud secrets describe mythoria-audio-generation-model --format="value(name)" 2>$null
-        if ($LASTEXITCODE -eq 0 -and $secretExists) {
-            Write-Info "Secret mythoria-audio-generation-model already exists, updating..."
-            $AudioGenerationModel.Trim() | Set-Content -Path temp_secret.txt -NoNewline; gcloud secrets versions add mythoria-audio-generation-model --data-file=temp_secret.txt; Remove-Item temp_secret.txt
-        } else {
-            Write-Info "Creating new secret mythoria-audio-generation-model..."
-            $AudioGenerationModel.Trim() | Set-Content -Path temp_secret.txt -NoNewline; gcloud secrets create mythoria-audio-generation-model --data-file=temp_secret.txt --replication-policy='automatic'; Remove-Item temp_secret.txt
-        }
-    } catch {
-        Write-Info "Creating new secret mythoria-audio-generation-model..."
-        $AudioGenerationModel.Trim() | Set-Content -Path temp_secret.txt -NoNewline; gcloud secrets create mythoria-audio-generation-model --data-file=temp_secret.txt --replication-policy='automatic'; Remove-Item temp_secret.txt
-    }
-}
+Write-Info "All story-generation-workflow configuration is now handled via environment variables in cloudbuild.yaml"
+Write-Info "Only sensitive database and API key secrets remain in Secret Manager"
 
 # Grant permissions to Cloud Build service account for new secrets
 Write-Host "Granting permissions to Cloud Build service account..." -ForegroundColor Blue

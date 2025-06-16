@@ -1,7 +1,6 @@
-import { describe, it, expect, beforeEach } from '@jest/globals';
+import { describe, it, expect } from '@jest/globals';
 
-describe('Workflow Integration', () => {
-  describe('Google Cloud Workflows Structure', () => {
+describe('Workflow Integration', () => {  describe('Google Cloud Workflows Structure', () => {
     it('should validate workflow step sequence', () => {
       const workflowSequence = [
         { step: 'init', description: 'Parse event and initialize variables' },
@@ -9,42 +8,45 @@ describe('Workflow Integration', () => {
         { step: 'genOutline', description: 'Generate story outline via AI' },
         { step: 'saveOutline', description: 'Save outline to database' },
         { step: 'setChaptersStep', description: 'Update status to write_chapters' },
-        { step: 'writeChaptersParallel', description: 'Generate all chapters in parallel' },
-        { step: 'generateImagesParallel', description: 'Generate all images in parallel' },
+        { step: 'writeChaptersSequential', description: 'Generate all chapters sequentially' },
+        { step: 'generateBookFrontCover', description: 'Generate book front cover' },
+        { step: 'generateBookBackCover', description: 'Generate book back cover' },
+        { step: 'generateImagesSequential', description: 'Generate all chapter images sequentially' },
         { step: 'assembleStory', description: 'Create final HTML/PDF output' },
-        { step: 'optionalTTS', description: 'Generate audio narration if enabled' },
+        { step: 'generateAudiobook', description: 'Generate audio narration' },
         { step: 'markCompleted', description: 'Update run status to completed' }
       ];
 
-      expect(workflowSequence).toHaveLength(10);
+      expect(workflowSequence).toHaveLength(12);
       
       // Verify critical steps are present
       const stepNames = workflowSequence.map(s => s.step);
       expect(stepNames).toContain('genOutline');
-      expect(stepNames).toContain('writeChaptersParallel');
-      expect(stepNames).toContain('generateImagesParallel');
+      expect(stepNames).toContain('writeChaptersSequential');
+      expect(stepNames).toContain('generateBookFrontCover');
+      expect(stepNames).toContain('generateBookBackCover');
+      expect(stepNames).toContain('generateImagesSequential');
       expect(stepNames).toContain('assembleStory');
+      expect(stepNames).toContain('generateAudiobook');
     });
 
-    it('should validate parallel execution structure', () => {
-      const parallelSteps = {
-        writeChaptersParallel: {
-          type: 'parallel',
+    it('should validate sequential execution structure', () => {
+      const sequentialSteps = {
+        writeChaptersSequential: {
+          type: 'sequential',
           range: [1, 5], // chapters 1-5
           steps: ['genChapter', 'saveChapter']
         },
-        generateImagesParallel: {
-          type: 'parallel',
+        generateImagesSequential: {
+          type: 'sequential',
           range: [1, 5], // images for chapters 1-5
           steps: ['genImage', 'uploadToGCS', 'saveImageURI']
         }
-      };
-
-      expect(parallelSteps.writeChaptersParallel.type).toBe('parallel');
-      expect(parallelSteps.generateImagesParallel.type).toBe('parallel');
+      };      expect(sequentialSteps.writeChaptersSequential.type).toBe('sequential');
+      expect(sequentialSteps.generateImagesSequential.type).toBe('sequential');
       
-      expect(parallelSteps.writeChaptersParallel.range).toEqual([1, 5]);
-      expect(parallelSteps.generateImagesParallel.range).toEqual([1, 5]);
+      expect(sequentialSteps.writeChaptersSequential.range).toEqual([1, 5]);
+      expect(sequentialSteps.generateImagesSequential.range).toEqual([1, 5]);
     });
   });
 
@@ -63,23 +65,24 @@ describe('Workflow Integration', () => {
         expect(endpoint.method).toBe('POST');
         expect(endpoint.purpose).toBeDefined();
       });
-    });
-
-    it('should validate internal workflow endpoints', () => {
+    });    it('should validate internal workflow endpoints', () => {
       const internalEndpoints = [
         { path: '/internal/runs/:runId', method: 'PATCH', purpose: 'Update run status/step' },
+        { path: '/internal/runs/:runId', method: 'GET', purpose: 'Get run details with steps' },
+        { path: '/internal/prompts/:runId/:chapterNum', method: 'GET', purpose: 'Get chapter photo prompt' },
+        { path: '/internal/prompts/:runId/book-cover/:coverType', method: 'GET', purpose: 'Get book cover prompt' },
         { path: '/internal/runs/:runId/outline', method: 'POST', purpose: 'Save story outline' },
         { path: '/internal/runs/:runId/chapter/:chapterNum', method: 'POST', purpose: 'Save chapter content' },
         { path: '/internal/runs/:runId/chapter/:chapterNum/image', method: 'POST', purpose: 'Save image URI' },
+        { path: '/internal/runs/:runId/book-cover', method: 'POST', purpose: 'Save book cover image' },
         { path: '/internal/assemble/:runId', method: 'POST', purpose: 'Assemble final story' },
         { path: '/internal/tts/:runId', method: 'POST', purpose: 'Generate audio narration' }
       ];
 
-      expect(internalEndpoints).toHaveLength(6);
-      
+      expect(internalEndpoints).toHaveLength(10);
       internalEndpoints.forEach(endpoint => {
         expect(endpoint.path).toMatch(/^\/internal\//);
-        expect(['POST', 'PATCH']).toContain(endpoint.method);
+        expect(['GET', 'POST', 'PATCH']).toContain(endpoint.method);
         expect(endpoint.purpose).toBeDefined();
       });
     });

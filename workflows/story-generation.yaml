@@ -19,8 +19,7 @@ main:
           - payload:  ${json.decode(base64.decode(event.data))}
           - storyId:  ${payload.storyId}
           - runId:    ${payload.runId}
-          - baseUrl:  "https://story-generation-workflow-803421888801.europe-west9.run.app"
-          - chapters: 5            # ❶ change if you need a different count
+          - baseUrl:  "https://097a-2001-818-de82-dd00-d993-94dc-2153-facd.ngrok-free.app"
           - now:      ${time.format(sys.now())}
 
     # ───────────────────────────────────────────────
@@ -38,8 +37,8 @@ main:
                   auth:   { type: OIDC }
                   body:
                     status:       "running"
-                    current_step: "generate_outline"
-                    started_at:   ${time.format(sys.now())}
+                    currentStep: "generate_outline"
+                    startedAt:   ${time.format(sys.now())}
 
             # 2. Generate outline (AI-Gateway)
             - genOutline:
@@ -50,8 +49,8 @@ main:
                   auth:   { type: OIDC }
                   body:
                     storyId: ${storyId}
+                    runId: ${runId}
                 result: outlineResp
-
             - saveOutline:
                 call: http.request
                 args:
@@ -59,7 +58,12 @@ main:
                   method: POST
                   auth:   { type: OIDC }
                   body:
-                    outline: ${outlineResp.body}
+                    outline: ${outlineResp.body.outline}
+
+            # Extract chapter count from outline
+            - extractChapterCount:
+                assign:
+                  - chapters: ${len(outlineResp.body.outline.chapters)}
 
             - setChaptersStep:
                 call: http.request
@@ -68,36 +72,127 @@ main:
                   method: PATCH
                   auth:   { type: OIDC }
                   body:
-                    current_step: "write_chapters"
+                    currentStep: "write_chapters"
 
-            # 3. Write chapters (parallel for-range loop)
-            - writeChaptersParallel:
-                parallel:
-                  for:
-                    range: ${[1, chapters]}   # ← native numeric range
-                    value: chapterNum
-                    steps:
-                      - genChapter:
-                          call: http.request
-                          args:
-                            url:    ${baseUrl + "/ai/text/chapter/" + string(chapterNum)}
-                            method: POST
-                            auth:   { type: OIDC }
-                            body:
-                              storyId: ${storyId}
-                              chapter: ${chapterNum}
-                              outline: ${outlineResp.body}
-                          result: chapterResp
+            # 3. Write chapters sequentially
+            - writeChaptersSequential:
+                for:
+                  range: ${[1, chapters]}   # ← native numeric range
+                  value: chapterNum
+                  steps:
+                    - extractChapterInfo:
+                        assign:
+                          - currentChapter: ${outlineResp.body.outline.chapters[chapterNum - 1]}
+                          - chapterTitle: ${currentChapter.chapterTitle}
+                          - chapterSynopses: ${currentChapter.chapterSynopses}
 
-                      - saveChapter:
-                          call: http.request
-                          args:
-                            url:    ${baseUrl + "/internal/runs/" + runId + "/chapter/" + string(chapterNum)}
-                            method: POST
-                            auth:   { type: OIDC }
-                            body: ${chapterResp.body}
+                    - genChapter:
+                        call: http.request
+                        args:
+                          url:    ${baseUrl + "/ai/text/chapter/" + string(chapterNum)}
+                          method: POST
+                          auth:   { type: OIDC }
+                          body:
+                            storyId: ${storyId}
+                            runId: ${runId}
+                            chapterNumber: ${chapterNum}
+                            chapterTitle: ${chapterTitle}
+                            chapterSynopses: ${chapterSynopses}
+                            chapterCount: ${chapters}
+                            outline: ${outlineResp.body.outline}
+                        result: chapterResp
 
-            # 4. Generate images (parallel for-range loop)
+                    - saveChapter:
+                        call: http.request
+                        args:
+                          url:    ${baseUrl + "/internal/runs/" + runId + "/chapter/" + string(chapterNum)}
+                          method: POST
+                          auth:   { type: OIDC }
+                          body: ${chapterResp.body}
+
+            # 4. Generate book front cover
+            - setFrontCoverStep:
+                call: http.request
+                args:
+                  url:    ${baseUrl + "/internal/runs/" + runId}
+                  method: PATCH
+                  auth:   { type: OIDC }
+                  body:
+                    currentStep: "generate_front_cover"
+
+            - getFrontCoverPrompt:
+                call: http.request
+                args:
+                  url:    ${baseUrl + "/internal/prompts/" + runId + "/book-cover/front"}
+                  method: GET
+                  auth:   { type: OIDC }
+                result: frontCoverPromptResp
+
+            - genFrontCover:
+                call: http.request
+                args:
+                  url:    ${baseUrl + "/ai/image"}
+                  method: POST
+                  auth:   { type: OIDC }
+                  body:
+                    storyId: ${storyId}
+                    runId: ${runId}
+                    prompt: ${frontCoverPromptResp.body}
+                result: frontCoverResp
+
+            - saveFrontCover:
+                call: http.request
+                args:
+                  url:    ${baseUrl + "/internal/runs/" + runId + "/book-cover"}
+                  method: POST
+                  auth:   { type: OIDC }
+                  body:
+                    coverType: "front"
+                    imageData: ${frontCoverResp.body.imageData}
+                    prompt: ${frontCoverPromptResp.body}
+
+            # 5. Generate book back cover
+            - setBackCoverStep:
+                call: http.request
+                args:
+                  url:    ${baseUrl + "/internal/runs/" + runId}
+                  method: PATCH
+                  auth:   { type: OIDC }
+                  body:
+                    currentStep: "generate_back_cover"
+
+            - getBackCoverPrompt:
+                call: http.request
+                args:
+                  url:    ${baseUrl + "/internal/prompts/" + runId + "/book-cover/back"}
+                  method: GET
+                  auth:   { type: OIDC }
+                result: backCoverPromptResp
+
+            - genBackCover:
+                call: http.request
+                args:
+                  url:    ${baseUrl + "/ai/image"}
+                  method: POST
+                  auth:   { type: OIDC }
+                  body:
+                    storyId: ${storyId}
+                    runId: ${runId}
+                    prompt: ${backCoverPromptResp.body}
+                result: backCoverResp
+
+            - saveBackCover:
+                call: http.request
+                args:
+                  url:    ${baseUrl + "/internal/runs/" + runId + "/book-cover"}
+                  method: POST
+                  auth:   { type: OIDC }
+                  body:
+                    coverType: "back"
+                    imageData: ${backCoverResp.body.imageData}
+                    prompt: ${backCoverPromptResp.body}
+
+            # 6. Generate chapter images sequentially
             - setImagesStep:
                 call: http.request
                 args:
@@ -105,41 +200,42 @@ main:
                   method: PATCH
                   auth:   { type: OIDC }
                   body:
-                    current_step: "generate_images"
+                    currentStep: "generate_images"
 
-            - generateImagesParallel:
-                parallel:
-                  for:
-                    range: ${[1, chapters]}   # ← native numeric range
-                    value: chapterNum
-                    steps:
-                      - getPrompt:
-                          call: http.request
-                          args:
-                            url:    ${baseUrl + "/internal/prompts/" + runId + "/" + string(chapterNum)}
-                            method: GET
-                            auth:   { type: OIDC }
-                          result: promptResp
+            - generateImagesSequential:
+                for:
+                  range: ${[1, chapters]}   # ← native numeric range
+                  value: chapterNum
+                  steps:
+                    - getPrompt:
+                        call: http.request
+                        args:
+                          url:    ${baseUrl + "/internal/prompts/" + runId + "/" + string(chapterNum)}
+                          method: GET
+                          auth:   { type: OIDC }
+                        result: promptResp
 
-                      - genImage:
-                          call: http.request
-                          args:
-                            url:    ${baseUrl + "/ai/image"}
-                            method: POST
-                            auth:   { type: OIDC }
-                            body:
-                              prompt: ${promptResp.body}
-                          result: imageResp   # { "gcsUri": "gs://..." }
+                    - genImage:
+                        call: http.request
+                        args:
+                          url:    ${baseUrl + "/ai/image"}
+                          method: POST
+                          auth:   { type: OIDC }
+                          body:
+                            storyId: ${storyId}
+                            runId: ${runId}
+                            prompt: ${promptResp.body}
+                        result: imageResp   # { "gcsUri": "gs://..." }
 
-                      - saveImageUri:
-                          call: http.request
-                          args:
-                            url:    ${baseUrl + "/internal/runs/" + runId + "/chapter/" + string(chapterNum) + "/image"}
-                            method: POST
-                            auth:   { type: OIDC }
-                            body: ${imageResp.body}
+                    - saveImageUri:
+                        call: http.request
+                        args:
+                          url:    ${baseUrl + "/internal/runs/" + runId + "/chapter/" + string(chapterNum) + "/image"}
+                          method: POST
+                          auth:   { type: OIDC }
+                          body: ${imageResp.body}
 
-            # 5. Assemble HTML & PDF
+            # 7. Assemble HTML & PDF
             - setAssembleStep:
                 call: http.request
                 args:
@@ -147,7 +243,7 @@ main:
                   method: PATCH
                   auth:   { type: OIDC }
                   body:
-                    current_step: "assemble"
+                    currentStep: "assemble"
 
             - assemble:
                 call: http.request
@@ -155,32 +251,25 @@ main:
                   url:    ${baseUrl + "/assemble/" + runId}
                   method: POST
                   auth:   { type: OIDC }
-                result: assembleResp
+                result: assembleResp            # 8. Generate audio book
+            - setTTSStep:
+                call: http.request
+                args:
+                  url:    ${baseUrl + "/internal/runs/" + runId}
+                  method: PATCH
+                  auth:   { type: OIDC }
+                  body:
+                    currentStep: "generate_audiobook"
 
-            # 6. Optional TTS (best-effort)
-            - tryTTS:
-                try:
-                  steps:
-                    - callTTS:
-                        call: http.request
-                        args:
-                          url:    ${baseUrl + "/tts/" + runId}
-                          method: POST
-                          auth:   { type: OIDC }
-                except:
-                  as: ttsError
-                  steps:
-                    - logTtsFail:
-                        call: http.request
-                        args:
-                          url:    ${baseUrl + "/internal/runs/" + runId}
-                          method: PATCH
-                          auth:   { type: OIDC }
-                          body:
-                            current_step:  "tts_failed"
-                            error_message: ${string(ttsError)}
+            - generateAudiobook:
+                call: http.request
+                args:
+                  url:    ${baseUrl + "/tts/" + runId}
+                  method: POST
+                  auth:   { type: OIDC }
+                result: audiobookResp
 
-            # 7. Mark run completed
+            # 9. Mark run completed
             - markCompleted:
                 call: http.request
                 args:
@@ -188,9 +277,9 @@ main:
                   method: PATCH
                   auth:   { type: OIDC }
                   body:
-                    status:       "completed"
-                    current_step: "done"
-                    ended_at:     ${time.format(sys.now())}
+                    status:      "completed"
+                    currentStep: "done"
+                    endedAt:     ${time.format(sys.now())}
 
             - return_result:
                 return:
@@ -208,10 +297,10 @@ main:
                   method: PATCH
                   auth:   { type: OIDC }
                   body:
-                    status:        "failed"
-                    current_step:  ${wfError.step}
-                    error_message: ${string(wfError)}
-                    ended_at:      ${time.format(sys.now())}
+                    status:       "failed"
+                    currentStep:  ${default(wfError.step, "unknown")}
+                    errorMessage: ${string(wfError)}
+                    endedAt:      ${time.format(sys.now())}
 
             - rethrow:
                 raise: ${wfError}

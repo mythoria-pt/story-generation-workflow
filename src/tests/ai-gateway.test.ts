@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, jest } from '@jest/globals';
+import { describe, it, expect } from '@jest/globals';
 
 describe('AI Gateway Workflow', () => {
   describe('Story Generation Process', () => {
@@ -120,7 +120,7 @@ The adventure was about to begin.`;
       const validStatuses = ['queued', 'running', 'completed', 'failed', 'cancelled'];
       expect(validStatuses).toContain(mockRun.status);
 
-      const validSteps = ['generate_outline', 'write_chapters', 'generate_images', 'assemble', 'tts'];
+      const validSteps = ['generate_outline', 'write_chapters', 'generate_front_cover', 'generate_back_cover', 'generate_images', 'assemble', 'generate_audiobook'];
       expect(validSteps).toContain(mockRun.currentStep);
     });
   });

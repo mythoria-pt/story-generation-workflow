@@ -1,5 +1,6 @@
 import express from 'express';
 import helmet from 'helmet';
+import { Server } from 'http';
 import { getEnvironment } from '@/config/environment.js';
 import { logger } from '@/config/logger.js';
 import { closeDatabaseConnection } from '@/db/connection.js';
@@ -84,28 +85,77 @@ app.use((req: express.Request, res: express.Response) => {
   });
 });
 
-// Graceful shutdown
-const server = app.listen(env.PORT, () => {
-  logger.info(`🚀 Story Generation Workflow Service started`);
-  logger.info(`📍 Environment: ${env.NODE_ENV}`);
-  logger.info(`🔌 Port: ${env.PORT}`);
-  logger.info(`🏢 Project: ${env.GOOGLE_CLOUD_PROJECT_ID}`);
-});
+// Graceful server startup with port conflict handling
+async function startServer() {
+  const port = env.PORT;    const tryStartServer = (portToTry: number): Promise<Server> => {
+    return new Promise<Server>((resolve, reject) => {
+      const server = app.listen(portToTry, () => {
+        logger.info(`🚀 Story Generation Workflow Service started`);
+        logger.info(`📍 Environment: ${env.NODE_ENV}`);
+        logger.info(`🔌 Port: ${portToTry}`);
+        logger.info(`🏢 Project: ${env.GOOGLE_CLOUD_PROJECT_ID}`);
+        resolve(server);
+      });      server.on('error', (err: NodeJS.ErrnoException) => {
+        if (err.code === 'EADDRINUSE') {
+          reject(err);
+        } else {
+          logger.error('Server failed to start:', err);
+          process.exit(1);
+        }
+      });
+    });
+  };
 
-process.on('SIGTERM', async () => {
-  logger.info('SIGTERM received, shutting down gracefully');
-  server.close(async () => {
-    await closeDatabaseConnection();
-    process.exit(0);
-  });
-});
+  let currentPort = port;  let server: Server | undefined;
+  
+  // Try to start server, handling port conflicts
+  while (!server && currentPort < port + 10) {
+    try {
+      server = await tryStartServer(currentPort);
+      if (currentPort !== port) {
+        logger.info(`Port ${port} was in use, successfully started on port ${currentPort}`);
+      }
+      break;
+    } catch (err: unknown) {
+      const error = err as NodeJS.ErrnoException;
+      if (error.code === 'EADDRINUSE' && !process.env.PORT) {
+        // Only auto-retry with different port if PORT wasn't explicitly set
+        logger.warn(`Port ${currentPort} is already in use, trying port ${currentPort + 1}...`);
+        currentPort++;
+      } else {
+        logger.error('Server failed to start:', err);
+        process.exit(1);
+      }
+    }
+  }
 
-process.on('SIGINT', async () => {
-  logger.info('SIGINT received, shutting down gracefully');
-  server.close(async () => {
-    await closeDatabaseConnection();
-    process.exit(0);
+  if (!server) {
+    logger.error(`Failed to find available port after trying ports ${port} to ${currentPort - 1}`);
+    process.exit(1);
+  }
+
+  setupGracefulShutdown(server);
+}
+
+function setupGracefulShutdown(server: Server) {
+  process.on('SIGTERM', async () => {
+    logger.info('SIGTERM received, shutting down gracefully');
+    server.close(async () => {
+      await closeDatabaseConnection();
+      process.exit(0);
+    });
   });
-});
+
+  process.on('SIGINT', async () => {
+    logger.info('SIGINT received, shutting down gracefully');
+    server.close(async () => {
+      await closeDatabaseConnection();
+      process.exit(0);
+    });
+  });
+}
+
+// Start the server
+startServer();
 
 export default app;

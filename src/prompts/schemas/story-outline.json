@@ -1,0 +1,82 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "title": "Story Outline Schema",
+  "description": "JSON schema for story outline generation response",
+  "required": [
+    "bookTitle",
+    "bookCoverPrompt",
+    "bookBackCoverPrompt",
+    "synopses",
+    "chapters"
+  ],
+  "properties": {
+    "bookTitle": {
+      "type": "string",
+      "description": "The title of the book",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "bookCoverPrompt": {
+      "type": "string",
+      "description": "Detailed prompt for generating the book cover illustration",
+      "minLength": 10,
+      "maxLength": 1000
+    },
+    "bookBackCoverPrompt": {
+      "type": "string",
+      "description": "Detailed prompt for generating the book back cover illustration",
+      "minLength": 10,
+      "maxLength": 1000
+    },
+    "synopses": {
+      "type": "string",
+      "description": "Brief synopsis of the entire book",
+      "minLength": 10,
+      "maxLength": 500
+    },
+    "chapters": {
+      "type": "array",
+      "description": "Array of chapter details",
+      "minItems": 1,
+      "maxItems": 50,
+      "items": {
+        "type": "object",
+        "required": [
+          "chapterNumber",
+          "chapterTitle",
+          "chapterSynopses",
+          "chapterPhotoPrompt"
+        ],
+        "properties": {
+          "chapterNumber": {
+            "type": "integer",
+            "description": "Chapter number (1-based)",
+            "minimum": 1,
+            "maximum": 50
+          },
+          "chapterTitle": {
+            "type": "string",
+            "description": "Title of the chapter",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "chapterSynopses": {
+            "type": "string",  
+            "description": "Brief synopsis of what happens in this chapter",
+            "minLength": 10,
+            "maxLength": 300
+          },
+          "chapterPhotoPrompt": {
+            "type": "string",
+            "description": "Detailed prompt for generating an illustration for this chapter",
+            "minLength": 10,
+            "maxLength": 500
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

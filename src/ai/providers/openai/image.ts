@@ -2,6 +2,7 @@
  * OpenAI Image Generation Service (DALL-E)
  */
 
+import OpenAI from 'openai';
 import { IImageGenerationService, ImageGenerationOptions } from '../../interfaces.js';
 import { logger } from '@/config/logger.js';
 
@@ -12,47 +13,39 @@ export interface OpenAIImageConfig {
 }
 
 export class OpenAIImageService implements IImageGenerationService {
-  private apiKey: string;
+  private client: OpenAI;
   private model: string;
-  private baseURL: string;
 
   constructor(config: OpenAIImageConfig) {
-    this.apiKey = config.apiKey;
+    this.client = new OpenAI({
+      apiKey: config.apiKey,
+      baseURL: config.baseURL
+    });
     this.model = config.model || 'dall-e-3';
-    this.baseURL = config.baseURL || 'https://api.openai.com/v1';
     
     logger.info('OpenAI Image Service initialized', {
       model: this.model,
-      baseURL: this.baseURL
+      baseURL: config.baseURL || 'https://api.openai.com/v1'
     });
   }
 
   async generate(prompt: string, options?: ImageGenerationOptions): Promise<Buffer> {
     try {
-      const response = await fetch(`${this.baseURL}/images/generations`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${this.apiKey}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          model: options?.model || this.model,
-          prompt: prompt,
-          n: 1,
-          size: this.getSizeString(options?.width, options?.height),
-          quality: options?.quality || 'standard',
-          style: options?.style || 'vivid',
-          response_format: 'b64_json'
-        })
+      logger.info('OpenAI: Generating image', {
+        model: options?.model || this.model,
+        promptLength: prompt.length,
+        dimensions: this.getSizeString(options?.width, options?.height)
       });
 
-      if (!response.ok) {
-        const errorData = await response.text();
-        throw new Error(`OpenAI Image API error: ${response.status} - ${errorData}`);
-      }
-
-      const data = await response.json();
-      const imageData = data.data?.[0]?.b64_json;
+      const response = await this.client.images.generate({
+        model: options?.model || this.model,
+        prompt: prompt,
+        n: 1,
+        size: this.getSizeString(options?.width, options?.height) as '1024x1024' | '1792x1024' | '1024x1792',
+        quality: (options?.quality as 'standard' | 'hd') || 'standard',
+        style: (options?.style as 'vivid' | 'natural') || 'vivid',
+        response_format: 'b64_json'
+      });      const imageData = response.data?.[0]?.b64_json;
 
       if (!imageData) {
         throw new Error('No image generated from OpenAI');
@@ -60,15 +53,18 @@ export class OpenAIImageService implements IImageGenerationService {
 
       const buffer = Buffer.from(imageData, 'base64');
 
-      logger.debug('OpenAI image generation completed', {
+      logger.info('OpenAI: Image generated successfully', {
+        model: options?.model || this.model,
         promptLength: prompt.length,
-        imageSize: buffer.length
+        imageSize: buffer.length,
+        dimensions: this.getSizeString(options?.width, options?.height)
       });
 
       return buffer;
     } catch (error) {
-      logger.error('OpenAI image generation failed', {
+      logger.error('OpenAI: Image generation failed', {
         error: error instanceof Error ? error.message : String(error),
+        model: options?.model || this.model,
         promptLength: prompt.length
       });
       throw error;

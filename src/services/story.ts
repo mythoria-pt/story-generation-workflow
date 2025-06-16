@@ -20,6 +20,7 @@ export interface StoryContext {
     targetAudience?: string | undefined;
     novelStyle?: string | undefined;
     graphicalStyle?: string | undefined;
+    storyLanguage: string;
   };
   characters: Array<{
     characterId: string;
@@ -70,9 +71,7 @@ export class StoryService {
         storyId,
         title: story.title,
         charactersCount: storyCharactersData.length
-      });
-
-      return {
+      });      return {
         story: {
           storyId: story.storyId,
           title: story.title,
@@ -83,6 +82,7 @@ export class StoryService {
           targetAudience: story.targetAudience || undefined,
           novelStyle: story.novelStyle || undefined,
           graphicalStyle: story.graphicalStyle || undefined,
+          storyLanguage: story.storyLanguage,
         },
         characters: storyCharactersData.map(char => ({
           characterId: char.characterId,

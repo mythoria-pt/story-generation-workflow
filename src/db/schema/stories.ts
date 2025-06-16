@@ -1,6 +1,6 @@
-import { pgTable, uuid, varchar, timestamp, text, jsonb, integer } from "drizzle-orm/pg-core";
+import { pgTable, uuid, varchar, timestamp, text, jsonb, integer, foreignKey } from "drizzle-orm/pg-core";
 import { authors } from './authors.js';
-import { storyStatusEnum } from './enums.js';
+import { storyStatusEnum, targetAudienceEnum, novelStyleEnum, graphicalStyleEnum, runStatusEnum } from './enums.js';
 
 // -----------------------------------------------------------------------------
 // Stories domain
@@ -8,34 +8,48 @@ import { storyStatusEnum } from './enums.js';
 
 // Stories
 export const stories = pgTable("stories", {
-  storyId: uuid("story_id").primaryKey().defaultRandom(),
-  authorId: uuid("author_id").notNull().references(() => authors.authorId, { onDelete: 'cascade' }),
-  title: varchar("title", { length: 255 }).notNull(),
+  storyId: uuid("story_id").defaultRandom().primaryKey().notNull(),
+  authorId: uuid("author_id").notNull(),
+  title: varchar({ length: 255 }).notNull(),
   plotDescription: text("plot_description"),
-  synopsis: text("synopsis"),
-  place: text("place"), // Setting of the story (real or imaginary)
-  additionalRequests: text("additionalRequests"), // Optional text area for mentioning products, companies, or specific details to include.
-  targetAudience: varchar("target_audience", { length: 120 }),
-  novelStyle: varchar("novel_style", { length: 120 }), // e.g. "kids book", "adventure"
-  graphicalStyle: varchar("graphical_style", { length: 120 }),
   storyLanguage: varchar("story_language", { length: 5 }).default('en-US').notNull(),
-  status: storyStatusEnum("status").default('draft'),
-  features: jsonb("features"), // {"ebook":true,"printed":false,"audiobook":true}
-  deliveryAddress: jsonb("delivery_address"), // Delivery address for printed books
-  dedicationMessage: text("dedication_message"), // Personalized dedication message
-  mediaLinks: jsonb("media_links"), // {"cover":"...","pdf":"...","audio":"..."}
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
-});
+  synopsis: text(),
+  place: text(),
+  additionalRequests: text(),
+  targetAudience: targetAudienceEnum("target_audience"),
+  novelStyle: novelStyleEnum("novel_style"),
+  graphicalStyle: graphicalStyleEnum("graphical_style"),
+  status: storyStatusEnum().default('draft'),
+  features: jsonb(),
+  deliveryAddress: jsonb("delivery_address"),
+  dedicationMessage: text("dedication_message"),
+  mediaLinks: jsonb("media_links"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+  storyGenerationStatus: runStatusEnum("story_generation_status"),
+  storyGenerationCompletedPercentage: integer("story_generation_completed_percentage").default(0),
+}, (table) => [
+  foreignKey({
+    columns: [table.authorId],
+    foreignColumns: [authors.authorId],
+    name: "stories_author_id_authors_author_id_fk"
+  }).onDelete("cascade"),
+]);
 
 // Story versions
 export const storyVersions = pgTable("story_versions", {
-  storyVersionId: uuid("story_version_id").primaryKey().defaultRandom(),
-  storyId: uuid("story_id").notNull().references(() => stories.storyId, { onDelete: 'cascade' }),
+  storyVersionId: uuid("story_version_id").defaultRandom().primaryKey().notNull(),
+  storyId: uuid("story_id").notNull(),
   versionNumber: integer("version_number").notNull(),
-  textJsonb: jsonb("text_jsonb").notNull(), // Store story content snapshot
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-});
+  textJsonb: jsonb("text_jsonb").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+  foreignKey({
+    columns: [table.storyId],
+    foreignColumns: [stories.storyId],
+    name: "story_versions_story_id_stories_story_id_fk"
+  }).onDelete("cascade"),
+]);
 
 // -----------------------------------------------------------------------------
 // Types

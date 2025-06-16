@@ -43,6 +43,7 @@ export interface TextGenerationOptions {
   stopSequences?: string[];
   model?: string;
   contextId?: string; // For context preservation across requests
+  jsonSchema?: object; // JSON schema for structured output
 }
 
 export interface ImageGenerationOptions {
@@ -59,6 +60,7 @@ export interface AIProviderConfig {
   imageProvider: string;  credentials: {
     openaiApiKey?: string;
     openaiUseResponsesAPI?: boolean;
+    openaiImageModel?: string;
     vertexProjectId?: string;
     vertexLocation?: string;
     vertexModel?: string;

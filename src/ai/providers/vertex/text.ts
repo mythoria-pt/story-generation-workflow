@@ -97,9 +97,7 @@ export class VertexTextService implements ITextGenerationService {
         temperature: options?.temperature || 0.7,
         topP: options?.topP || 0.9,
         topK: options?.topK || 40
-      };
-
-      // Only add stopSequences if provided
+      };      // Only add stopSequences if provided
       if (options?.stopSequences) {
         generationConfig.stopSequences = options.stopSequences;
       }
@@ -125,24 +123,94 @@ export class VertexTextService implements ITextGenerationService {
             options.contextId // Use contextId as step identifier
           );
         }
-      }
-
-      // Combine context history with current prompt
+      }      // Combine context history with current prompt
       if (contextHistory.length > 0) {
         finalPrompt = `${contextHistory.join('\n\n')}\n\nuser: ${prompt}`;
       }
 
+      // Configure JSON schema if provided
+      if (options?.jsonSchema) {
+        // For Vertex AI, we'll add instructions to the prompt for JSON output
+        if (!finalPrompt.includes('JSON')) {
+          finalPrompt += '\n\nIMPORTANT: Respond with valid JSON only, following the provided schema structure.';
+        }
+      }
       const generativeModel = this.vertexAI.getGenerativeModel({
         model: options?.model || this.model,
-        generationConfig
+        generationConfig,
+        ...(options?.jsonSchema && {
+          responseFormat: {
+            type: 'json_object'
+          }
+        })
       });
 
+      // DEBUG: Log the exact request being sent to Vertex AI
+      logger.info('Vertex AI Debug - Request Details', {
+        model: options?.model || this.model,
+        generationConfig,
+        promptLength: finalPrompt.length,
+        promptPreview: finalPrompt.substring(0, 300) + '...',
+        hasJsonSchema: !!options?.jsonSchema,
+        contextId: options?.contextId,
+        contextHistoryLength: contextHistory.length
+      });
+
+      // For full debugging, log the complete prompt
+      if (process.env.DEBUG_AI_FULL_PROMPTS === 'true') {
+        logger.debug('Vertex AI Debug - Full Request', {
+          model: options?.model || this.model,
+          generationConfig,
+          fullPrompt: finalPrompt,
+          jsonSchema: options?.jsonSchema,
+          contextHistory
+        });
+      }
+
       const response = await generativeModel.generateContent(finalPrompt);
+      
+      // DEBUG: Log the raw response from Vertex AI
+      logger.info('Vertex AI Debug - Response Details', {
+        model: options?.model || this.model,
+        responseStructure: {
+          hasCandidates: !!response.response.candidates,
+          candidatesCount: response.response.candidates?.length || 0,
+          hasContent: !!response.response.candidates?.[0]?.content,
+          hasText: !!response.response.candidates?.[0]?.content?.parts?.[0]?.text
+        },
+        finishReason: response.response.candidates?.[0]?.finishReason,
+        contextId: options?.contextId
+      });
+
+      // For full debugging, log the complete response
+      if (process.env.DEBUG_AI_FULL_RESPONSES === 'true') {
+        logger.debug('Vertex AI Debug - Full Response', {
+          fullResponse: response.response,
+          candidates: response.response.candidates
+        });
+      }
+
       const result = response.response.candidates?.[0]?.content?.parts?.[0]?.text;
 
       if (!result) {
+        logger.error('Vertex AI Debug - No text in response', {
+          response: response.response,
+          candidates: response.response.candidates,
+          model: options?.model || this.model
+        });
         throw new Error('No text generated from Vertex AI');
       }
+
+      // DEBUG: Log the extracted result
+      logger.info('Vertex AI Debug - Extracted Result', {
+        resultLength: result.length,
+        resultPreview: result.substring(0, 300) + '...',
+        startsWithBackticks: result.startsWith('```'),
+        containsJsonMarkers: result.includes('```json') || result.includes('```'),
+        firstChar: result.charAt(0),
+        lastChar: result.charAt(result.length - 1),
+        contextId: options?.contextId
+      });
 
       // Add assistant response to context history
       if (options?.contextId) {

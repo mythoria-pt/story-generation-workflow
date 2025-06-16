@@ -3,9 +3,9 @@
 ## Google Cloud Services Configuration
 
 ### Project Information
-- **Project ID**: `mythoria-441816`
+- **Project ID**: `oceanic-beach-460916-n5`
 - **Region**: `europe-west9` (Paris)
-- **Service Account**: `story-generation-workflow@mythoria-441816.iam.gserviceaccount.com`
+- **Service Account**: `wf-story-gen-sa@oceanic-beach-460916-n5.iam.gserviceaccount.com`
 
 ### Required Google Cloud APIs
 ```bash
@@ -36,7 +36,7 @@ DB_NAME: mythoria
 DB_PORT: 5432
 
 # Google Cloud Project
-GOOGLE_CLOUD_PROJECT_ID: mythoria-441816
+GOOGLE_CLOUD_PROJECT_ID: oceanic-beach-460916-n5
 
 # AI Configuration
 TEXT_PROVIDER: vertex

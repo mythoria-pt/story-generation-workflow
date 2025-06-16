@@ -44,19 +44,23 @@ describe('Environment Configuration', () => {
   });
 });
 
-describe('Application Constants', () => {
-  it('should have consistent workflow steps', () => {
+describe('Application Constants', () => {  it('should have consistent workflow steps', () => {
     const workflowSteps = [
       'generate_outline',
       'write_chapters', 
+      'generate_front_cover',
+      'generate_back_cover',
       'generate_images',
       'assemble',
-      'tts'
+      'generate_audiobook'
     ];
 
-    expect(workflowSteps).toHaveLength(5);
+    expect(workflowSteps).toHaveLength(7);
     expect(workflowSteps).toContain('generate_outline');
     expect(workflowSteps).toContain('write_chapters');
+    expect(workflowSteps).toContain('generate_front_cover');
+    expect(workflowSteps).toContain('generate_back_cover');
+    expect(workflowSteps).toContain('generate_audiobook');
   });
 
   it('should define supported AI providers', () => {

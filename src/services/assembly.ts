@@ -46,12 +46,13 @@ export class AssemblyService {
       const outlineStep = await this.runsService.getStepResult(runId, 'generate_outline');
       if (!outlineStep?.detailJson) {
         throw new Error('Outline not found');
-      }
-
-      // Get all chapters
+      }      // Get all chapters and images
       const steps = await this.runsService.getRunSteps(runId);
       const chapterSteps = steps.filter(step => step.stepName.startsWith('write_chapter_'));
-      const imageSteps = steps.filter(step => step.stepName.startsWith('generate_image_'));      // Sort chapters by number
+      const imageSteps = steps.filter(step => step.stepName.startsWith('generate_image_'));
+      const coverSteps = steps.filter(step => step.stepName.startsWith('generate_book_'));
+
+      // Sort chapters by number
       const chapters = chapterSteps
         .map(step => ({
           number: parseInt(step.stepName.replace('write_chapter_', '')),
@@ -68,17 +69,33 @@ export class AssemblyService {
         if (imageUrl) {
           chapterImages.set(chapterNum, imageUrl);
         }
-      }      // Create HTML content
+      }
+
+      // Map book cover images
+      const bookCoverImages = new Map<string, string>();
+      for (const coverStep of coverSteps) {
+        const coverType = coverStep.stepName.replace('generate_book_', '').replace('_cover', '');
+        const imageUrl = (coverStep.detailJson as Record<string, unknown>)?.imageUrl as string;
+        if (imageUrl) {
+          bookCoverImages.set(coverType, imageUrl);
+        }
+      }
+
+      // Create HTML content
       const outlineData = (outlineStep.detailJson as Record<string, unknown>) || ({} as Record<string, unknown>);
       const htmlContent = this.createHTML(
         outlineData,
         chapters,
-        chapterImages
-      );      // Create PDF content (simplified - would need proper PDF library)
+        chapterImages,
+        bookCoverImages
+      );
+
+      // Create PDF content (simplified - would need proper PDF library)
       const pdfContent = this.createPDF(
         outlineData,
         chapters,
-        chapterImages
+        chapterImages,
+        bookCoverImages
       );
 
       // Upload files to storage
@@ -94,7 +111,8 @@ export class AssemblyService {
         files: {
           html: htmlUrl,
           pdf: pdfUrl
-        },        metadata: {
+        },
+        metadata: {
           title: (outlineStep.detailJson as Record<string, unknown>)?.title as string || 'Untitled Story',
           wordCount: this.countWords(chapters.map(c => c.content).join(' ')),
           pageCount: Math.ceil(chapters.length / 2), // Rough estimate
@@ -116,10 +134,10 @@ export class AssemblyService {
       });
       throw error;
     }
-  }  private createHTML(outline: Record<string, unknown>, chapters: Array<{number: number, content: string, title: string}>, chapterImages: Map<number, string>): string {
+  }  private createHTML(outline: Record<string, unknown>, chapters: Array<{ number: number, content: string, title: string }>, chapterImages: Map<number, string>, bookCoverImages: Map<string, string>): string {
     const title = outline.title as string || 'Untitled Story';
     const author = outline.author as string || 'Mythoria AI';
-    
+
     const html = `
 <!DOCTYPE html>
 <html lang="en">
@@ -133,14 +151,21 @@ export class AssemblyService {
         .title { text-align: center; font-size: 2.5em; margin-bottom: 0.5em; }
         .author { text-align: center; font-size: 1.2em; color: #666; margin-bottom: 2em; }
         .chapter { margin-bottom: 3em; page-break-before: always; }
-        .chapter-title { font-size: 1.8em; margin-bottom: 1em; border-bottom: 2px solid #333; }
-        .chapter-image { text-align: center; margin: 2em 0; }
+        .chapter-title { font-size: 1.8em; margin-bottom: 1em; border-bottom: 2px solid #333; }        .chapter-image { text-align: center; margin: 2em 0; }
         .chapter-image img { max-width: 100%; height: auto; border-radius: 8px; }
+        .book-cover { text-align: center; margin: 2em 0; }
+        .book-cover img { max-width: 400px; height: auto; border-radius: 8px; }
         .synopsis { font-style: italic; margin-bottom: 2em; padding: 1em; background: #f5f5f5; }
     </style>
 </head>
-<body>
-    <div class="container">
+<body>    <div class="container">
+        ${bookCoverImages.has('front') ? 
+          `<div class="book-cover">
+            <img src="${bookCoverImages.get('front')}" alt="Book Front Cover" />
+          </div>` : 
+          ''
+        }
+        
         <h1 class="title">${title}</h1>
         <p class="author">by ${author}</p>
         
@@ -149,21 +174,28 @@ export class AssemblyService {
         ${chapters.map(chapter => `
             <div class="chapter">
                 <h2 class="chapter-title">${chapter.title}</h2>
-                ${chapterImages.has(chapter.number) ? 
-                  `<div class="chapter-image"><img src="${chapterImages.get(chapter.number)}" alt="Chapter ${chapter.number} illustration" /></div>` : 
-                  ''
-                }                <div class="chapter-content">
+                ${chapterImages.has(chapter.number) ?
+        `<div class="chapter-image"><img src="${chapterImages.get(chapter.number)}" alt="Chapter ${chapter.number} illustration" /></div>` :
+        ''
+      }                <div class="chapter-content">
                     ${chapter.content.split('\n').map((p: string) => p.trim() ? `<p>${p}</p>` : '').join('')}
                 </div>
             </div>
         `).join('')}
+        
+        ${bookCoverImages.has('back') ? 
+          `<div class="book-cover">
+            <img src="${bookCoverImages.get('back')}" alt="Book Back Cover" />
+          </div>` : 
+          ''
+        }
     </div>
 </body>
 </html>`;
 
     return html;
   }
-  private createPDF(outline: Record<string, unknown>, chapters: Array<{number: number, content: string, title: string}>, _chapterImages: Map<number, string>): Buffer {
+  private createPDF(outline: Record<string, unknown>, chapters: Array<{ number: number, content: string, title: string }>, _chapterImages: Map<number, string>, _bookCoverImages: Map<string, string>): Buffer {
     // This is a placeholder implementation
     // In production, you'd use a library like puppeteer or jsPDF
     const content = `
