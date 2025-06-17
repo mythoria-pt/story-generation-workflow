@@ -55,7 +55,7 @@ describe('AI Gateway Service', () => {
       process.env.IMAGE_PROVIDER = 'vertex';
       process.env.GOOGLE_CLOUD_PROJECT_ID = 'env-project-id';
       process.env.VERTEX_AI_LOCATION = 'us-east1';
-      process.env.VERTEX_AI_MODEL_ID = 'gemini-pro';
+      process.env.VERTEX_AI_MODEL_ID = 'gemini-2.5-flash';
 
       expect(process.env.TEXT_PROVIDER).toBe('vertex');
       expect(process.env.GOOGLE_CLOUD_PROJECT_ID).toBe('env-project-id');

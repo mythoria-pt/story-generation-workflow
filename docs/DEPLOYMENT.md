@@ -164,7 +164,7 @@ gcloud secrets create mythoria-db-password --data-file=<(echo "your-db-password"
 gcloud secrets create mythoria-storage-bucket --data-file=<(echo "mythoria-story-assets-europe-west9")
 
 # AI model configuration
-gcloud secrets create mythoria-vertex-ai-model --data-file=<(echo "gemini-2.0-flash")
+gcloud secrets create mythoria-vertex-ai-model --data-file=<(echo "gemini-2.5-flash")
 
 # Optional: OpenAI API key for multi-provider support
 gcloud secrets create mythoria-openai-api-key --data-file=<(echo "your-openai-api-key")
@@ -217,14 +217,14 @@ npm run db:migrate
 ## Vertex AI Configuration
 
 ### Model Configuration
-- **Primary Model**: `gemini-2.0-flash`
+- **Primary Model**: `gemini-2.5-flash`
 - **Location**: `europe-west9`
-- **Backup Model**: `gemini-1.5-pro`
+- **Backup Model**: `gemini-2.0-flash`
 
 ### Model Endpoints
 ```bash
 # Text Generation
-projects/mythoria-441816/locations/europe-west9/publishers/google/models/gemini-2.0-flash
+projects/mythoria-441816/locations/europe-west9/publishers/google/models/gemini-2.5-flash
 
 # Image Generation
 projects/mythoria-441816/locations/europe-west9/publishers/google/models/imagegeneration@001

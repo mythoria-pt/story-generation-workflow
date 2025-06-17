@@ -13,7 +13,7 @@ The following secrets have been converted to environment variables in `cloudbuil
 | `mythoria-image-generation-model` | `IMAGE_GENERATION_MODEL` | `dall-e-3` |
 | `mythoria-workflows-location` | `WORKFLOWS_LOCATION` | `europe-west9` |
 | `mythoria-vertex-ai-location` | `VERTEX_AI_LOCATION` | `europe-west9` |
-| `mythoria-vertex-ai-model` | `VERTEX_AI_MODEL_ID` | `gemini-1.5-flash-002` |
+| `mythoria-vertex-ai-model` | `VERTEX_AI_MODEL_ID` | `gemini-2.5-flash` |
 | `mythoria-storage-bucket` | `STORAGE_BUCKET_NAME` | `mythoria-generated-stories` |
 
 ## What Remains as Secrets
