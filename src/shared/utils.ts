@@ -42,6 +42,10 @@ export function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+export function countWords(text: string): number {
+  return text.split(/\s+/).filter(word => word.length > 0).length;
+}
+
 export async function retry<T>(
   fn: () => Promise<T>,
   maxRetries: number = 3,
