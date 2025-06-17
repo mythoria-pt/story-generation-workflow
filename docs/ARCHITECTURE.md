@@ -221,9 +221,9 @@ src/
 │   ├── environment.ts # Environment validation
 │   └── logger.ts     # Winston logging configuration
 ├── shared/           # Environment-agnostic business logic
-│   ├── interfaces/   # TypeScript interfaces and types
-│   ├── models/       # Data models and schemas
-│   └── utils/        # Pure utility functions
+│   ├── interfaces.ts # Core service interfaces
+│   ├── types.ts      # Shared data models
+│   └── utils.ts      # Utility helpers
 ├── adapters/         # External service implementations
 │   ├── database/     # Database adapters (Drizzle ORM)
 │   ├── storage/      # Cloud Storage adapters

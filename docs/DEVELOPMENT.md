@@ -117,16 +117,12 @@ src/
 │   ├── environment.ts     # Environment validation with Zod
 │   └── logger.ts          # Winston logging configuration
 ├── shared/                # Environment-agnostic business logic
-│   ├── interfaces/        # TypeScript interfaces
-│   │   ├── ai.ts         # AI service interfaces
-│   │   ├── database.ts   # Database interfaces
-│   │   └── workflow.ts   # Workflow interfaces
-│   ├── models/           # Data models and schemas
-│   │   ├── story.ts      # Story-related schemas
-│   │   └── workflow.ts   # Workflow state schemas
-│   └── utils/            # Pure utility functions
-│       ├── validation.ts # Input validation helpers
-│       └── formatting.ts # Data formatting utilities
+│   ├── interfaces.ts     # Core service interfaces
+│   ├── types.ts          # Shared data models and workflow types
+│   ├── utils.ts          # Utility helpers
+│   ├── ai-utils.ts       # Prompt utilities
+│   ├── health.ts         # Health check helpers
+│   └── index.ts          # Barrel exports
 ├── adapters/             # External service implementations
 │   ├── database/         # Database adapters
 │   │   └── drizzle.ts   # Drizzle ORM adapter
