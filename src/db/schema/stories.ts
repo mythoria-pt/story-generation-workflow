@@ -24,6 +24,9 @@ export const stories = pgTable("stories", {
   deliveryAddress: jsonb("delivery_address"),
   dedicationMessage: text("dedication_message"),
   mediaLinks: jsonb("media_links"),
+  htmlUri: text("html_uri"), // Internal Google Storage link to access the HTML file
+  pdfUri: text("pdf_uri"), // Internal Google Storage link to access the PDF file
+  audiobookUri: jsonb("audiobook_uri"), // JSON object with internal GS links to each chapter audio file
   createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
   storyGenerationStatus: runStatusEnum("story_generation_status"),

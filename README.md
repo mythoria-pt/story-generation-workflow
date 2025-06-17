@@ -47,6 +47,8 @@ npm test
 - **[Architecture Guide](./docs/ARCHITECTURE.md)** - System design, workflows, and component architecture with Mermaid diagrams
 - **[Deployment Guide](./docs/DEPLOYMENT.md)** - Google Cloud services setup, configuration, and deployment procedures  
 - **[Development Guide](./docs/DEVELOPMENT.md)** - Development environment, coding standards, testing, and contribution guidelines
+- **[TTS Implementation](./docs/TTS_IMPLEMENTATION.md)** - Text-to-Speech audiobook generation with OpenAI and Vertex AI
+- **[Progress Tracking](./docs/PROGRESS_TRACKING_IMPLEMENTATION.md)** - Real-time story generation progress updates and completion percentage calculation
 
 ### 🤖 AI Agent Documentation
 

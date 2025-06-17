@@ -38,7 +38,7 @@ const envSchema = z.object({
   AUDIO_GENERATION_MODEL: z.string().optional(),
   LOG_LEVEL: z.enum(['error', 'warn', 'info', 'debug']).optional().default('info'),  // AI Provider Configuration
   TEXT_PROVIDER: z.enum(['vertex', 'openai']).optional().default('vertex'),
-  IMAGE_PROVIDER: z.enum(['vertex', 'openai']).optional().default('vertex'),  OPEN_AI_API_KEY: z.string().optional(),
+  IMAGE_PROVIDER: z.enum(['vertex', 'openai']).optional().default('vertex'),  OPENAI_API_KEY: z.string().optional(),
   OPENAI_IMAGE_MODEL: z.string().optional().default('dall-e-3'),
   OPENAI_IMAGE_QUALITY: z.enum(['low', 'standard', 'high']).optional().default('low'),
 });

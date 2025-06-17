@@ -65,12 +65,12 @@ describe('AI Gateway Service', () => {
     it('should handle environment variable mapping for OpenAI', () => {
       process.env.TEXT_PROVIDER = 'openai';
       process.env.IMAGE_PROVIDER = 'openai';
-      process.env.OPEN_AI_API_KEY = 'env-openai-key';
+      process.env.OPENAI_API_KEY = 'env-openai-key';
       process.env.OPENAI_USE_RESPONSES_API = 'false';
       process.env.OPENAI_IMAGE_MODEL = 'dall-e-2';
 
       expect(process.env.TEXT_PROVIDER).toBe('openai');
-      expect(process.env.OPEN_AI_API_KEY).toBe('env-openai-key');
+      expect(process.env.OPENAI_API_KEY).toBe('env-openai-key');
       expect(process.env.OPENAI_USE_RESPONSES_API).toBe('false');
     });
 

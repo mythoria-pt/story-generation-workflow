@@ -44,6 +44,14 @@ IMAGE_PROVIDER: vertex
 VERTEX_AI_LOCATION: europe-west9
 VERTEX_AI_MODEL_ID: ${SECRET:mythoria-vertex-ai-model}
 
+# TTS Configuration
+TTS_PROVIDER: openai
+TTS_MODEL: tts-1
+TTS_VOICE: nova
+TTS_SPEED: 0.9
+TTS_LANGUAGE: en-US
+OPENAI_API_KEY: ${SECRET:mythoria-openai-api-key}
+
 # Storage
 STORAGE_BUCKET_NAME: ${SECRET:mythoria-storage-bucket}
 
@@ -132,17 +140,20 @@ gsutil iam ch serviceAccount:story-generation-workflow@mythoria-441816.iam.gserv
 ### Storage Structure
 ```
 gs://mythoria-story-assets-europe-west9/
-├── stories/
-│   └── {storyId}/
-│       ├── chapters/
-│       │   ├── chapter-1.png
-│       │   ├── chapter-2.png
-│       │   └── ...
-│       ├── final/
-│       │   ├── story.html
-│       │   ├── story.pdf
-│       │   └── story.mp3 (optional)
-│       └── metadata.json
+├── {storyId}/
+│   ├── chapters/
+│   │   ├── chapter_1.png
+│   │   ├── chapter_2.png
+│   │   └── ...
+│   ├── audio/
+│   │   ├── chapter_1.mp3
+│   │   ├── chapter_2.mp3
+│   │   └── ...
+│   ├── final/
+│   │   ├── story.html
+│   │   ├── story.pdf
+│   │   └── story.mp3 (optional)
+│   └── metadata.json
 └── temp/
     └── {runId}/
         └── temporary-files/
@@ -166,7 +177,7 @@ gcloud secrets create mythoria-storage-bucket --data-file=<(echo "mythoria-story
 # AI model configuration
 gcloud secrets create mythoria-vertex-ai-model --data-file=<(echo "gemini-2.5-flash")
 
-# Optional: OpenAI API key for multi-provider support
+# Optional: OpenAI API key for multi-provider support and TTS
 gcloud secrets create mythoria-openai-api-key --data-file=<(echo "your-openai-api-key")
 
 # Optional: Stability AI API key

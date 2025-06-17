@@ -10,6 +10,7 @@ import { RunsService } from '@/services/runs.js';
 import { AssemblyService } from '@/services/assembly.js';
 import { TTSService } from '@/services/tts.js';
 import { StorageService } from '@/services/storage.js';
+import { ProgressTrackerService } from '@/services/progress-tracker.js';
 
 const router = Router();
 
@@ -18,6 +19,7 @@ const runsService = new RunsService();
 const assemblyService = new AssemblyService();
 const ttsService = new TTSService();
 const storageService = new StorageService();
+const progressTracker = new ProgressTrackerService();
 
 // Request schemas
 const UpdateRunRequestSchema = z.object({
@@ -37,6 +39,14 @@ const StoreChapterRequestSchema = z.object({
   imagePrompts: z.array(z.string()).optional()
 });
 
+const StoreImageRequestSchema = z.object({
+  chapterNumber: z.number().int().positive().optional(),
+  imageType: z.enum(['front_cover', 'back_cover', 'chapter']),
+  imageUrl: z.string().url(),
+  filename: z.string(),
+  metadata: z.record(z.unknown()).optional()
+});
+
 
 
 /**
@@ -54,6 +64,18 @@ router.patch('/runs/:runId', async (req, res) => {
     });
 
     const updatedRun = await runsService.updateRun(runId, updates);
+
+    // Update progress percentage whenever a run is updated
+    try {
+      await progressTracker.updateStoryProgress(runId);
+      logger.debug('Progress percentage updated', { runId });
+    } catch (progressError) {
+      // Don't fail the entire request if progress update fails
+      logger.warn('Failed to update progress percentage', {
+        runId,
+        error: progressError instanceof Error ? progressError.message : String(progressError)
+      });
+    }
 
     logger.info('Internal API: Run updated successfully', {
       runId,
@@ -211,6 +233,17 @@ router.post('/runs/:runId/outline', async (req, res) => {
       result: outline
     });
 
+    // Update progress percentage after storing outline
+    try {
+      await progressTracker.updateStoryProgress(runId);
+      logger.debug('Progress percentage updated after outline storage', { runId });
+    } catch (progressError) {
+      logger.warn('Failed to update progress percentage after outline storage', {
+        runId,
+        error: progressError instanceof Error ? progressError.message : String(progressError)
+      });
+    }
+
     res.json({
       success: true,
       runId,
@@ -248,9 +281,7 @@ router.post('/runs/:runId/chapter/:chapterNumber', async (req, res) => {
       chapterNumber,
       chapterLength: chapter.length,
       imagePromptsCount: imagePrompts?.length || 0
-    });
-
-    await runsService.storeStepResult(runId, `write_chapter_${chapterNumber}`, {
+    });    await runsService.storeStepResult(runId, `write_chapter_${chapterNumber}`, {
       status: 'completed',
       result: {
         chapterNumber,
@@ -258,6 +289,18 @@ router.post('/runs/:runId/chapter/:chapterNumber', async (req, res) => {
         imagePrompts
       }
     });
+
+    // Update progress percentage after storing chapter
+    try {
+      await progressTracker.updateStoryProgress(runId);
+      logger.debug('Progress percentage updated after chapter storage', { runId, chapterNumber });
+    } catch (progressError) {
+      logger.warn('Failed to update progress percentage after chapter storage', {
+        runId,
+        chapterNumber,
+        error: progressError instanceof Error ? progressError.message : String(progressError)
+      });
+    }
 
     res.json({
       success: true,
@@ -279,7 +322,6 @@ router.post('/runs/:runId/chapter/:chapterNumber', async (req, res) => {
     });
   }
 });
-
 
 
 
@@ -394,7 +436,7 @@ router.post('/assemble/:runId', async (req, res) => {
 
 /**
  * POST /internal/tts/:runId
- * Generate audio narration for story
+ * Generate audio narration for story (per chapter)
  */
 router.post('/tts/:runId', async (req, res) => {
   try {
@@ -411,7 +453,8 @@ router.post('/tts/:runId', async (req, res) => {
 
     logger.info('Internal API: TTS generated successfully', {
       runId,
-      audioUrl: result.audioUrl
+      audioUrls: result.audioUrls,
+      chaptersProcessed: result.metadata.chaptersProcessed
     });
 
     res.json({
@@ -534,5 +577,83 @@ router.get('/storage/info', async (_req, res) => {
     });
   }
 });
+
+/**
+ * POST /internal/runs/:runId/image
+ * Store generated image result
+ */
+router.post('/runs/:runId/image', async (req, res) => {
+  try {
+    const runId = req.params.runId;
+    const { chapterNumber, imageType, imageUrl, filename, metadata } = StoreImageRequestSchema.parse(req.body);
+
+    logger.info('Internal API: Storing image result', {
+      runId,
+      chapterNumber,
+      imageType,
+      filename
+    });
+
+    // Determine step name based on image type
+    let stepName: string;
+    if (imageType === 'front_cover') {
+      stepName = 'generate_front_cover';
+    } else if (imageType === 'back_cover') {
+      stepName = 'generate_back_cover';
+    } else if (imageType === 'chapter' && chapterNumber) {
+      stepName = `generate_image_chapter_${chapterNumber}`;
+    } else {
+      res.status(400).json({
+        success: false,
+        error: 'Invalid image type or missing chapter number for chapter image'
+      });
+      return;
+    }
+
+    await runsService.storeStepResult(runId, stepName, {
+      status: 'completed',
+      result: {
+        chapterNumber,
+        imageType,
+        imageUrl,
+        filename,
+        metadata
+      }
+    });
+
+    // Update progress percentage after storing image result
+    try {
+      await progressTracker.updateStoryProgress(runId);
+      logger.debug('Progress percentage updated after image storage', { runId, stepName });
+    } catch (progressError) {
+      logger.warn('Failed to update progress percentage after image storage', {
+        runId,
+        stepName,
+        error: progressError instanceof Error ? progressError.message : String(progressError)
+      });
+    }
+
+    res.json({
+      success: true,
+      runId,
+      step: stepName,
+      imageType,
+      chapterNumber
+    });
+
+  } catch (error) {
+    logger.error('Internal API: Failed to store image result', {
+      error: error instanceof Error ? error.message : String(error),
+      runId: req.params.runId
+    });
+
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+
 
 export { router as internalRouter };

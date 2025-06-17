@@ -91,7 +91,7 @@ export class AIGateway {
       textProvider,
       imageProvider,
       credentials: {
-        ...(process.env.OPEN_AI_API_KEY && { openaiApiKey: process.env.OPEN_AI_API_KEY }),
+        ...(process.env.OPENAI_API_KEY && { openaiApiKey: process.env.OPENAI_API_KEY }),
         ...(process.env.OPENAI_USE_RESPONSES_API !== undefined && { 
           openaiUseResponsesAPI: process.env.OPENAI_USE_RESPONSES_API === 'true' 
         }),

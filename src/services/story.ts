@@ -122,4 +122,74 @@ export class StoryService {
       throw error;
     }
   }
+  /**
+   * Update story with URI fields
+   */
+  async updateStoryUris(storyId: string, updates: {
+    htmlUri?: string;
+    pdfUri?: string;
+    audiobookUri?: object;
+  }) {
+    try {
+      const updateData: Record<string, any> = {};
+      
+      if (updates.htmlUri !== undefined) {
+        updateData.htmlUri = updates.htmlUri;
+      }
+      if (updates.pdfUri !== undefined) {
+        updateData.pdfUri = updates.pdfUri;
+      }
+      if (updates.audiobookUri !== undefined) {
+        updateData.audiobookUri = updates.audiobookUri;
+      }
+      
+      await this.db
+        .update(stories)
+        .set(updateData)
+        .where(eq(stories.storyId, storyId));
+
+      logger.info('Story URIs updated successfully', {
+        storyId,
+        updates: Object.keys(updateData)
+      });
+
+      return true;
+    } catch (error) {
+      logger.error('Failed to update story URIs', {
+        error: error instanceof Error ? error.message : String(error),
+        storyId,
+        updates
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Update story completion percentage
+   */
+  async updateStoryCompletionPercentage(storyId: string, completionPercentage: number) {
+    try {
+      await this.db
+        .update(stories)
+        .set({ 
+          storyGenerationCompletedPercentage: completionPercentage,
+          updatedAt: new Date().toISOString()
+        })
+        .where(eq(stories.storyId, storyId));
+
+      logger.info('Story completion percentage updated', {
+        storyId,
+        completionPercentage
+      });
+
+      return true;
+    } catch (error) {
+      logger.error('Failed to update story completion percentage', {
+        error: error instanceof Error ? error.message : String(error),
+        storyId,
+        completionPercentage
+      });
+      throw error;
+    }
+  }
 }

@@ -11,23 +11,20 @@ import { getEnvironment } from '../src/config/environment.js';
 async function testOpenAIIntegration() {
   try {
     const env = getEnvironment();
-    
-    if (!env.OPEN_AI_API_KEY) {
-      console.log('❌ OPEN_AI_API_KEY not configured. Please set it in your environment.');
+      if (!env.OPENAI_API_KEY) {
+      console.log('❌ OPENAI_API_KEY not configured. Please set it in your environment.');
       return;
     }
 
-    console.log('🤖 Testing OpenAI Responses API Integration...');
-
-    // Initialize OpenAI services
+    console.log('🤖 Testing OpenAI Responses API Integration...');    // Initialize OpenAI services
     const textService = new OpenAITextService({
-      apiKey: env.OPEN_AI_API_KEY,
+      apiKey: env.OPENAI_API_KEY,
       model: 'gpt-4.1',
       useResponsesAPI: true
     });
 
     const imageService = new OpenAIImageService({
-      apiKey: env.OPEN_AI_API_KEY,
+      apiKey: env.OPENAI_API_KEY,
       model: 'dall-e-3'
     });
 

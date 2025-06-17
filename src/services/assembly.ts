@@ -7,6 +7,7 @@ import { RunsService } from './runs.js';
 import { StorageService } from './storage.js';
 import { StoryService } from './story.js';
 import { MessageService } from './message.js';
+import { PDFService } from './pdf.js';
 import { logger } from '@/config/logger.js';
 
 export interface AssemblyResult {
@@ -26,11 +27,13 @@ export class AssemblyService {
   private runsService: RunsService;
   private storageService: StorageService;
   private storyService: StoryService;
+  private pdfService: PDFService;
 
   constructor() {
     this.runsService = new RunsService();
     this.storageService = new StorageService();
     this.storyService = new StoryService();
+    this.pdfService = new PDFService();
   }
 
   /**
@@ -106,9 +109,7 @@ export class AssemblyService {
         chapters,
         chapterImages,
         bookCoverImages
-      );
-
-      // Upload files to storage with correct bucket structure
+      );      // Upload files to storage with correct bucket structure
       const htmlFilename = `${run.storyId}/story.html`;
       const pdfFilename = `${run.storyId}/story.pdf`;
 
@@ -116,6 +117,12 @@ export class AssemblyService {
         this.storageService.uploadFile(htmlFilename, Buffer.from(htmlContent), 'text/html'),
         this.storageService.uploadFile(pdfFilename, pdfContent, 'application/pdf')
       ]);
+
+      // Update story with the HTML and PDF URIs in the database
+      await this.storyService.updateStoryUris(run.storyId, {
+        htmlUri: htmlUrl,
+        pdfUri: pdfUrl
+      });
 
       const result: AssemblyResult = {
         files: {
@@ -132,7 +139,9 @@ export class AssemblyService {
       logger.info('Story assembly completed', {
         runId,
         wordCount: result.metadata.wordCount,
-        pageCount: result.metadata.pageCount
+        pageCount: result.metadata.pageCount,
+        htmlUri: htmlUrl,
+        pdfUri: pdfUrl
       });
 
       return result;
@@ -210,107 +219,196 @@ export class AssemblyService {
     const locale = story.storyLanguage || 'en-US';
 
     // Get localized credits message
-    const creditsMessage = await MessageService.getCreditsMessage(locale, author);
+    const creditsMessage = await MessageService.getCreditsMessage(locale, author);    // Generate table of contents
+    const tableOfContents = chapters.map((chapter) => 
+      `<li class="mythoria-toc-item"><a href="#chapter-${chapter.number}" class="mythoria-toc-link">${chapter.title}</a></li>`
+    ).join('');
 
+    // Generate the HTML body content only (without body tag)
     const html = `
-<!DOCTYPE html>
-<html lang="${locale.split('-')[0]}">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${title}</title>
-    <style>
-        body { font-family: Georgia, serif; line-height: 1.6; margin: 0; padding: 20px; }
-        .container { max-width: 800px; margin: 0 auto; }
-        .title { text-align: center; font-size: 2.5em; margin-bottom: 0.5em; }
-        .dedication { text-align: center; font-style: italic; font-size: 1.1em; color: #555; margin-bottom: 1em; }
-        .author { text-align: center; font-size: 1.2em; color: #666; margin-bottom: 2em; }
-        .chapter { margin-bottom: 3em; page-break-before: always; }
-        .chapter-title { font-size: 1.8em; margin-bottom: 1em; border-bottom: 2px solid #333; }        .chapter-image { text-align: center; margin: 2em 0; }
-        .chapter-image img { max-width: 100%; height: auto; border-radius: 8px; }
-        .book-cover { text-align: center; margin: 2em 0; }
-        .book-cover img { max-width: 400px; height: auto; border-radius: 8px; }
-        .synopsis { font-style: italic; margin-bottom: 2em; padding: 1em; background: #f5f5f5; }
-        .credits { text-align: center; font-size: 0.9em; color: #777; margin-top: 3em; padding-top: 2em; border-top: 1px solid #ddd; }
-        .credits a { color: #007bff; text-decoration: none; }
-        .credits a:hover { text-decoration: underline; }
-    </style>
-</head>
-<body>    <div class="container">
-        ${bookCoverImages.has('front') ? 
-          `<div class="book-cover">
-            <img src="${bookCoverImages.get('front')}" alt="Book Front Cover" />
-          </div>` : 
-          ''
-        }
-        
-        <h1 class="title">${title}</h1>
-        ${dedication ? `<p class="dedication">${dedication}</p>` : ''}
-        <p class="author">by ${author}</p>
-        
-        ${outline.synopsis ? `<div class="synopsis">${outline.synopsis}</div>` : ''}
-        
-        ${chapters.map(chapter => `
-            <div class="chapter">
-                <h2 class="chapter-title">${chapter.title}</h2>
-                ${chapterImages.has(chapter.number) ?
-        `<div class="chapter-image"><img src="${chapterImages.get(chapter.number)}" alt="Chapter ${chapter.number} illustration" /></div>` :
-        ''
-      }                <div class="chapter-content">
-                    ${chapter.content.split('\n').map((p: string) => p.trim() ? `<p>${p}</p>` : '').join('')}
-                </div>
-            </div>
-        `).join('')}
-        
-        ${bookCoverImages.has('back') ? 
-          `<div class="book-cover">
-            <img src="${bookCoverImages.get('back')}" alt="Book Back Cover" />
-          </div>` : 
-          ''
-        }
-        
-        <div class="credits">
-            <p>${creditsMessage}</p>
-        </div>
+    <!-- Story Title -->
+    <h1 class="mythoria-story-title">${title}</h1>
+
+    <!-- Front Cover -->
+    ${bookCoverImages.has('front') ? 
+      `<div class="mythoria-front-cover">
+        <img src="${bookCoverImages.get('front')}" alt="Book Front Cover" class="mythoria-cover-image" />
+      </div>` : 
+      ''
+    }
+
+    <!-- Page Break -->
+    <div class="mythoria-page-break"></div>
+
+    <!-- Author Dedicatory -->
+    ${dedication ? `<div class="mythoria-dedicatory">${dedication}</div>` : ''}
+
+    <!-- Author Name -->
+    <div class="mythoria-author-name">by ${author}</div>
+
+    <!-- Mythoria Message -->
+    <div class="mythoria-message">
+      <p class="mythoria-message-text">This story was imagined by <i class="mythoria-author-emphasis">${author}</i>.</p>
+      <p class="mythoria-message-text">Crafted with:</p>
+      <img src="Mythoria-logo-white-512x336.jpg" alt="Mythoria Logo" class="mythoria-logo" />
     </div>
-</body>
-</html>`;
+
+    <!-- Page Break -->
+    <div class="mythoria-page-break"></div>
+
+    <!-- Table of Contents -->
+    <div class="mythoria-table-of-contents">
+      <h2 class="mythoria-toc-title">Table of Contents</h2>
+      <ul class="mythoria-toc-list">
+        ${tableOfContents}
+      </ul>
+    </div>
+
+    <!-- Page Break -->
+    <div class="mythoria-page-break"></div>
+
+    <!-- Chapters -->
+    ${chapters.map(chapter => `
+      <div class="mythoria-chapter" id="chapter-${chapter.number}">
+        <h2 class="mythoria-chapter-title">${chapter.title}</h2>
+        ${chapterImages.has(chapter.number) ?
+          `<div class="mythoria-chapter-image">
+            <img src="${chapterImages.get(chapter.number)}" alt="Chapter ${chapter.number} illustration" class="mythoria-chapter-img" />
+          </div>` :
+          ''
+        }
+        <div class="mythoria-chapter-content">
+          ${chapter.content.split('\n').map((p: string) => p.trim() ? `<p class="mythoria-chapter-paragraph">${p}</p>` : '').join('')}
+        </div>
+      </div>
+      <div class="mythoria-page-break"></div>
+    `).join('')}
+
+    <!-- Back Cover (if available) -->
+    ${bookCoverImages.has('back') ? 
+      `<div class="mythoria-back-cover">
+        <img src="${bookCoverImages.get('back')}" alt="Book Back Cover" class="mythoria-cover-image" />
+      </div>` : 
+      ''
+    }
+
+    <!-- Credits -->
+    <div class="mythoria-credits">
+      <p class="mythoria-credits-text">${creditsMessage}</p>
+    </div>`;
 
     return html;
   }  private async createPDF(
     story: { title: string; description?: string; author?: string; dedicationMessage?: string | null; storyLanguage?: string }, 
     outline: Record<string, unknown>, 
     chapters: Array<{ number: number, content: string, title: string }>, 
-    _chapterImages: Map<number, string>, 
-    _bookCoverImages: Map<string, string>
-  ): Promise<Buffer> {    // This is a placeholder implementation
-    // In production, you'd use a library like puppeteer or jsPDF
-    const author = story.author || outline.author as string || 'Mythoria AI';
-    const dedication = story.dedicationMessage || null;
-    const locale = story.storyLanguage || 'en-US';
+    chapterImages: Map<number, string>, 
+    bookCoverImages: Map<string, string>
+  ): Promise<Buffer> {
+    try {
+      // Create the story HTML content using the same structure as createHTML
+      const title = story.title;
+      const author = story.author || outline.author as string || 'Mythoria AI';
+      const dedication = story.dedicationMessage || null;
+      const locale = story.storyLanguage || 'en-US';
 
-    // Get localized credits message
-    const creditsMessage = await MessageService.getCreditsMessage(locale, author);
+      // Get localized credits message
+      const creditsMessage = await MessageService.getCreditsMessage(locale, author);
 
-    const content = `
-${story.title}
-${dedication ? `\n${dedication}\n` : ''}
-by ${author}
+      // Generate table of contents
+      const tableOfContents = chapters.map((chapter) => 
+        `<li class="mythoria-toc-item"><a href="#chapter-${chapter.number}" class="mythoria-toc-link">${chapter.title}</a></li>`
+      ).join('');
 
-${story.description || outline.synopsis as string || ''}
+      // Generate the HTML body content for PDF
+      const storyContent = `
+        <!-- Story Title -->
+        <h1 class="mythoria-story-title">${title}</h1>
 
-${chapters.map(chapter => `
-${chapter.title}
+        <!-- Front Cover -->
+        ${bookCoverImages.has('front') ? 
+          `<div class="mythoria-front-cover">
+            <img src="${bookCoverImages.get('front')}" alt="Book Front Cover" class="mythoria-cover-image" />
+          </div>` : 
+          ''
+        }
 
-${chapter.content}
-`).join('\n')}
+        <!-- Page Break -->
+        <div class="mythoria-page-break"></div>
 
----
+        <!-- Author Dedicatory -->
+        ${dedication ? `<div class="mythoria-dedicatory">${dedication}</div>` : ''}
 
-${creditsMessage}
-`;
+        <!-- Author Name -->
+        <div class="mythoria-author-name">by ${author}</div>
 
-    return Buffer.from(content, 'utf-8');
+        <!-- Mythoria Message -->
+        <div class="mythoria-message">
+          <p class="mythoria-message-text">This story was imagined by <i class="mythoria-author-emphasis">${author}</i>.</p>
+          <p class="mythoria-message-text">Crafted with:</p>
+          <img src="Mythoria-logo-white-512x336.jpg" alt="Mythoria Logo" class="mythoria-logo" />
+        </div>
+
+        <!-- Page Break -->
+        <div class="mythoria-page-break"></div>
+
+        <!-- Table of Contents -->
+        <div class="mythoria-table-of-contents">
+          <h2 class="mythoria-toc-title">Table of Contents</h2>
+          <ul class="mythoria-toc-list">
+            ${tableOfContents}
+          </ul>
+        </div>
+
+        <!-- Page Break -->
+        <div class="mythoria-page-break"></div>
+
+        <!-- Chapters -->
+        ${chapters.map(chapter => `
+          <div class="mythoria-chapter" id="chapter-${chapter.number}">
+            <h2 class="mythoria-chapter-title">${chapter.title}</h2>
+            ${chapterImages.has(chapter.number) ?
+              `<div class="mythoria-chapter-image">
+                <img src="${chapterImages.get(chapter.number)}" alt="Chapter ${chapter.number} illustration" class="mythoria-chapter-img" />
+              </div>` :
+              ''
+            }
+            <div class="mythoria-chapter-content">
+              ${chapter.content.split('\n').map((p: string) => p.trim() ? `<p class="mythoria-chapter-paragraph">${p}</p>` : '').join('')}
+            </div>
+          </div>
+          <div class="mythoria-page-break"></div>
+        `).join('')}
+
+        <!-- Back Cover (if available) -->
+        ${bookCoverImages.has('back') ? 
+          `<div class="mythoria-back-cover">
+            <img src="${bookCoverImages.get('back')}" alt="Book Back Cover" class="mythoria-cover-image" />
+          </div>` : 
+          ''
+        }
+
+        <!-- Credits -->
+        <div class="mythoria-credits">
+          <p class="mythoria-credits-text">${creditsMessage}</p>
+        </div>`;
+
+      // Use the PDF service to generate the PDF with the proper template
+      const pdfBuffer = await this.pdfService.generateStoryPDF(
+        storyContent,
+        title,
+        locale.split('-')[0] // Convert 'en-US' to 'en'
+      );
+
+      return pdfBuffer;
+
+    } catch (error) {
+      logger.error('PDF creation failed', {
+        error: error instanceof Error ? error.message : String(error),
+        storyTitle: story.title
+      });
+      throw error;
+    }
   }
 
   private countWords(text: string): number {

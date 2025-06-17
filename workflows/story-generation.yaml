@@ -141,6 +141,20 @@ main:
                     prompt: ${frontCoverPromptResp.body}
                 result: frontCoverResp
 
+            - storeFrontCoverResult:
+                call: http.request
+                args:
+                  url:    ${baseUrl + "/internal/runs/" + runId + "/image"}
+                  method: POST
+                  auth:   { type: OIDC }
+                  body:
+                    imageType: "front_cover"
+                    imageUrl: ${frontCoverResp.body.image.url}
+                    filename: ${frontCoverResp.body.image.filename}
+                    metadata:
+                      format: ${frontCoverResp.body.image.format}
+                      size: ${frontCoverResp.body.image.size}
+
             # 5. Generate book back cover
             - setBackCoverStep:
                 call: http.request
@@ -172,7 +186,19 @@ main:
                     prompt: ${backCoverPromptResp.body}
                 result: backCoverResp
 
-            # 6. Generate chapter images sequentially
+            - storeBackCoverResult:
+                call: http.request
+                args:
+                  url:    ${baseUrl + "/internal/runs/" + runId + "/image"}
+                  method: POST
+                  auth:   { type: OIDC }
+                  body:
+                    imageType: "back_cover"
+                    imageUrl: ${backCoverResp.body.image.url}
+                    filename: ${backCoverResp.body.image.filename}
+                    metadata:
+                      format: ${backCoverResp.body.image.format}
+                      size: ${backCoverResp.body.image.size}# 6. Generate chapter images sequentially
             - setImagesStep:
                 call: http.request
                 args:
@@ -207,6 +233,20 @@ main:
                             imageType: "chapter"
                             prompt: ${promptResp.body}
                         result: imageResp
+                    - storeImageResult:
+                        call: http.request
+                        args:
+                          url:    ${baseUrl + "/internal/runs/" + runId + "/image"}
+                          method: POST
+                          auth:   { type: OIDC }
+                          body:
+                            chapterNumber: ${chapterNum}
+                            imageType: "chapter"
+                            imageUrl: ${imageResp.body.image.url}
+                            filename: ${imageResp.body.image.filename}
+                            metadata:
+                              format: ${imageResp.body.image.format}
+                              size: ${imageResp.body.image.size}
 
             # 7. Assemble HTML & PDF
             - setAssembleStep:
