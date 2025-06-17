@@ -13,16 +13,37 @@ export interface OpenAITextConfig {
   useResponsesAPI?: boolean; // Flag to enable new Responses API
 }
 
-interface OpenAIRequestBody {
+interface OpenAIResponsesRequestBody {
   model: string;
-  input: string;
-  modalities: string[];
-  instructions: string;
+  input: Array<{
+    role: string;
+    content: Array<{
+      type: string;
+      text: string;
+    }>;
+  }>;
+  text: {
+    format: {
+      type: string;
+    };
+  };
+  reasoning: Record<string, unknown>;
   temperature: number;
   max_output_tokens: number;
+  top_p: number;
+  store: boolean;
+  tools?: Array<{
+    type: string;
+    size?: string;
+    quality?: string;
+    output_format?: string;
+    background?: string;
+    moderation?: string;
+    partial_images?: number;
+  }>;
   response_format?: {
     type: string;
-    json_schema: {
+    json_schema?: {
       name: string;
       description?: string;
       schema: Record<string, unknown>;
@@ -30,7 +51,6 @@ interface OpenAIRequestBody {
   };
   previous_response_id?: string;
   stop?: string[];
-  [key: string]: unknown; // Allow additional properties
 }
 
 interface OpenAIChatRequestBody {
@@ -157,22 +177,29 @@ export class OpenAITextService implements ITextGenerationService {
       });
       throw error;
     }
-  }
-
-  /**
+  }  /**
    * Complete using the new Responses API
    */
   private async completeWithResponsesAPI(prompt: string, options?: TextGenerationOptions): Promise<string> {
-    let input = prompt;
+    // Build input messages array similar to the example
+    const input = [];
     let previousResponseId: string | undefined;
-
+    
     // Build input with system context if contextId is provided
     if (options?.contextId) {
       const context = await contextManager.getContext(options.contextId);
       if (context) {
-        // Combine system prompt with user input
-        input = context.systemPrompt + '\n\nUser: ' + prompt;
-        
+        // Add system message
+        input.push({
+          "role": "system",
+          "content": [
+            {
+              "type": "input_text",
+              "text": context.systemPrompt
+            }
+          ]
+        });
+
         // Get previous response_id for conversation continuity
         previousResponseId = context.providerSpecificData.openai?.responseId;
 
@@ -184,14 +211,33 @@ export class OpenAITextService implements ITextGenerationService {
           options.contextId
         );
       }
-    }    const requestBody: OpenAIRequestBody = {
+    }
+
+    // Add user message
+    input.push({
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": prompt
+        }
+      ]
+    });
+
+    const requestBody: OpenAIResponsesRequestBody = {
       model: options?.model || this.model,
       input,
-      modalities: ['text'],
-      instructions: 'Please assist the user with their request.',
-      temperature: options?.temperature || 0.7,
-      max_output_tokens: options?.maxTokens || 4096
-    };    // Configure JSON schema if provided
+      text: {
+        "format": {
+          "type": "text"
+        }
+      },
+      reasoning: {},
+      temperature: options?.temperature || 1,
+      max_output_tokens: options?.maxTokens || 2048,
+      top_p: 1,
+      store: true
+    };// Configure JSON schema if provided
     if (options?.jsonSchema) {
       requestBody.response_format = {
         type: 'json_schema',
@@ -209,13 +255,11 @@ export class OpenAITextService implements ITextGenerationService {
     }// Add stop sequences if provided
     if (options?.stopSequences) {
       requestBody.stop = options.stopSequences;
-    }
-
-    // DEBUG: Log the exact request being sent to OpenAI Responses API
+    }    // DEBUG: Log the exact request being sent to OpenAI Responses API
     logger.info('OpenAI Responses API Debug - Request Details', {
       model: requestBody.model,
       inputLength: requestBody.input.length,
-      inputPreview: requestBody.input.substring(0, 300) + '...',
+      inputPreview: JSON.stringify(requestBody.input).substring(0, 300) + '...',
       temperature: requestBody.temperature,
       maxOutputTokens: requestBody.max_output_tokens,
       hasJsonSchema: !!requestBody.response_format,

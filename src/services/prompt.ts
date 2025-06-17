@@ -14,6 +14,15 @@ export interface PromptTemplate {
   templateVariables?: Record<string, string>;
 }
 
+export interface ImageStyleTemplate {
+  systemPrompt: string;
+  style: string;
+}
+
+export interface ImageStylesCollection {
+  [styleName: string]: ImageStyleTemplate;
+}
+
 export class PromptService {
   private static readonly PROMPTS_BASE_PATH = join(process.cwd(), 'src', 'prompts');
 
@@ -75,5 +84,53 @@ export class PromptService {
     }
     
     return userPrompt;
+  }
+
+  /**
+   * Load image styles configuration
+   */
+  static async loadImageStyles(): Promise<ImageStylesCollection> {
+    try {
+      const stylesPath = join(this.PROMPTS_BASE_PATH, 'imageStyles.json');
+      const stylesContent = await readFile(stylesPath, 'utf-8');
+      const imageStyles = JSON.parse(stylesContent) as ImageStylesCollection;
+
+      logger.debug('Image styles loaded successfully', {
+        stylesCount: Object.keys(imageStyles).length,
+        stylesPath
+      });
+
+      return imageStyles;
+    } catch (error) {
+      logger.error('Failed to load image styles', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+      throw new Error('Failed to load image styles configuration');
+    }
+  }
+
+  /**
+   * Get image style prompt for a specific style
+   */
+  static async getImageStylePrompt(styleName: string): Promise<ImageStyleTemplate> {
+    const imageStyles = await this.loadImageStyles();
+      if (!imageStyles[styleName]) {
+      logger.warn('Image style not found, using default', { styleName });
+      // Return a default style if the requested one doesn't exist
+      return {
+        systemPrompt: "Create a high-quality image with attention to detail and composition.",
+        style: "high quality, detailed, well-composed"
+      };
+    }
+
+    return imageStyles[styleName];
+  }
+
+  /**
+   * Get all available image style names
+   */
+  static async getAvailableImageStyles(): Promise<string[]> {
+    const imageStyles = await this.loadImageStyles();
+    return Object.keys(imageStyles);
   }
 }

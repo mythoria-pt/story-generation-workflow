@@ -69,4 +69,4 @@ export interface AIProviderConfig {
 }
 
 export type TextProvider = 'vertex' | 'openai';
-export type ImageProvider = 'vertex' | 'stability' | 'openai' | 'dall-e';
+export type ImageProvider = 'vertex' | 'openai';

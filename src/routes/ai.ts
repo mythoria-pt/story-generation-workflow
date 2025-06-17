@@ -11,10 +11,10 @@ import { StoryService } from '@/services/story.js';
 import { PromptService } from '@/services/prompt.js';
 import { SchemaService } from '@/services/schema.js';
 import { StorageService } from '@/services/storage.js';
-import { 
-  getChapterCountForAudience, 
-  formatTargetAudience, 
-  getLanguageName, 
+import {
+  getChapterCountForAudience,
+  formatTargetAudience,
+  getLanguageName,
   getStoryDescription,
   parseAIResponse
 } from '@/shared/utils.js';
@@ -37,7 +37,7 @@ const ChapterRequestSchema = z.object({
   chapterNumber: z.number().int().positive(),
   chapterTitle: z.string(),
   chapterSynopses: z.string(),
-  chapterCount: z.number().int().positive().optional(),  outline: z.object({
+  chapterCount: z.number().int().positive().optional(), outline: z.object({
     bookTitle: z.string(),
     bookCoverPrompt: z.string(),
     bookBackCoverPrompt: z.string(),
@@ -57,6 +57,7 @@ const ImageRequestSchema = z.object({
   storyId: z.string().uuid(),
   runId: z.string().uuid(),
   chapterNumber: z.number().int().positive().optional(),
+  imageType: z.enum(['front_cover', 'back_cover', 'chapter']).optional(),
   width: z.number().int().positive().optional(),
   height: z.number().int().positive().optional(),
   style: z.enum(['vivid', 'natural']).optional()
@@ -74,7 +75,7 @@ router.post('/text/outline', async (req, res) => {
       storyId,
       runId
     });
-    
+
     // Load story context from database
     const storyContext = await storyService.getStoryContext(storyId);
     if (!storyContext) {
@@ -85,17 +86,17 @@ router.post('/text/outline', async (req, res) => {
       return;
     }    // Load prompt template and prepare variables
     const promptTemplate = await PromptService.loadPrompt('en-US', 'text-outline');
-    
+
     // Determine chapter count based on target audience
     const chapterCount = getChapterCountForAudience(storyContext.story.targetAudience);
-    
+
     // Prepare template variables
     const templateVars = {
       novelStyle: storyContext.story.novelStyle || 'adventure',
       targetAudience: formatTargetAudience(storyContext.story.targetAudience),
       place: storyContext.story.place || 'a magical land',
       language: getLanguageName(storyContext.story.storyLanguage),
-      chapterCount,      characters: JSON.stringify(
+      chapterCount, characters: JSON.stringify(
         storyContext.characters.map(char => ({
           name: char.name,
           type: char.type || '',
@@ -103,8 +104,8 @@ router.post('/text/outline', async (req, res) => {
           passions: char.passions || '',
           superpowers: char.superpowers || '',
           physicalDescription: char.physicalDescription || ''
-        })), 
-        null, 
+        })),
+        null,
         2
       ),
       bookTitle: storyContext.story.title,
@@ -120,9 +121,9 @@ router.post('/text/outline', async (req, res) => {
       chapterTitle: 'Chapter title will be generated',
       chapterSynopses: 'Chapter synopsis will be generated'
     };
-    
+
     const finalPrompt = PromptService.buildPrompt(promptTemplate, templateVars);
-    
+
     // Load JSON schema for structured output
     const storyOutlineSchema = await SchemaService.loadSchema('story-outline');
 
@@ -139,7 +140,7 @@ router.post('/text/outline', async (req, res) => {
 
     // Parse and validate the AI response
     const outlineData = parseAIResponse(outline);
-    
+
     // Validate that the response matches our expected structure
     if (!outlineData.bookTitle || !outlineData.chapters || !Array.isArray(outlineData.chapters)) {
       throw new Error('Invalid outline structure received');
@@ -198,14 +199,14 @@ router.post('/text/chapter/:chapterNumber', async (req, res) => {
         return;
       }
     }
-    
+
     logger.info('AI Gateway: Generating chapter', {
       storyId,
       runId: runId || 'N/A',
       chapterNumber,
       chapterTitle
     });
-    
+
     // Get story context from database
     const storyContext = await storyService.getStoryContext(storyId);
     if (!storyContext) {
@@ -216,12 +217,12 @@ router.post('/text/chapter/:chapterNumber', async (req, res) => {
       return;
     }    // Load chapter prompt template and prepare variables
     const promptTemplate = await PromptService.loadPrompt('en-US', 'text-chapter');
-    
+
     // Prepare template variables
-    const hookInstruction = chapterCount && chapterNumber < chapterCount 
+    const hookInstruction = chapterCount && chapterNumber < chapterCount
       ? 'If relevant, you may end with a hook for the next chapter.'
       : '';
-      
+
     const templateVariables = {
       chapterNumber: chapterNumber.toString(),
       chapterTitle: chapterTitle,
@@ -242,7 +243,7 @@ router.post('/text/chapter/:chapterNumber', async (req, res) => {
       maxTokens: 6000,
       temperature: 0.8
     });
-    
+
     logger.info('AI Gateway: Chapter generated successfully', {
       storyId,
       runId: runId || 'N/A',
@@ -278,17 +279,18 @@ router.post('/text/chapter/:chapterNumber', async (req, res) => {
  * Generate an image using AI image generation and store it in Google Cloud Storage
  */
 router.post('/image', async (req, res) => {
+  let currentStep = 'parsing_request';
   try {
-    const { prompt, storyId, runId, chapterNumber, width, height, style } = ImageRequestSchema.parse(req.body);
-
-    logger.info('AI Gateway: Generating image', {
+    const { prompt, storyId, runId, chapterNumber, imageType, width, height, style } = ImageRequestSchema.parse(req.body); logger.info('AI Gateway: Generating image', {
       storyId,
       runId,
       chapterNumber,
+      imageType,
       promptLength: prompt.length,
       dimensions: width && height ? `${width}x${height}` : 'default'
     });
-    
+
+    currentStep = 'generating_image';
     const imageBuffer = await aiGateway.getImageService().generate(prompt, {
       ...(width && { width }),
       ...(height && { height }),
@@ -301,14 +303,25 @@ router.post('/image', async (req, res) => {
       chapterNumber,
       imageSize: imageBuffer.length
     });
-
+    
     // Create filename with story folder organization
-    // Format: {storyId}/images/chapter_{chapterNumber}_{timestamp}.png
+    // Format: {storyId}/images/chapter_{chapterNumber}_{timestamp}.png OR frontcover_{timestamp}.png OR backcover_{timestamp}.png
+    currentStep = 'preparing_upload';
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const chapterSuffix = chapterNumber ? `chapter_${chapterNumber}_` : '';
-    const filename = `${storyId}/images/${chapterSuffix}${timestamp}.png`;
+    let filename: string;
+    if (imageType === 'front_cover') {
+      filename = `${storyId}/images/frontcover_${timestamp}.png`;
+    } else if (imageType === 'back_cover') {
+      filename = `${storyId}/images/backcover_${timestamp}.png`;
+    } else if (chapterNumber) {
+      filename = `${storyId}/images/chapter_${chapterNumber}_${timestamp}.png`;
+    } else {
+      // Fallback for when imageType is not specified but chapterNumber is not provided
+      filename = `${storyId}/images/image_${timestamp}.png`;
+    }
 
     // Upload image to Google Cloud Storage
+    currentStep = 'uploading_to_storage';
     const imageUrl = await storageService.uploadFile(filename, imageBuffer, 'image/png');
 
     logger.info('AI Gateway: Image uploaded to storage', {
@@ -332,17 +345,35 @@ router.post('/image', async (req, res) => {
         size: imageBuffer.length
       }
     });
-
   } catch (error) {
-    logger.error('AI Gateway: Image generation or upload failed', {
-      error: error instanceof Error ? error.message : String(error),
+    // Enhanced error logging with detailed context
+    const errorDetails = {
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      name: error instanceof Error ? error.name : undefined,
       storyId: req.body.storyId,
-      runId: req.body.runId
-    });
+      runId: req.body.runId,
+      chapterNumber: req.body.chapterNumber,
+      timestamp: new Date().toISOString(),
+      currentStep, // Track which step failed
+      requestDetails: {
+        promptLength: req.body.prompt?.length,
+        dimensions: req.body.width && req.body.height ? `${req.body.width}x${req.body.height}` : 'default',
+        style: req.body.style
+      }
+    };
+
+    logger.error('AI Gateway: Image generation or upload failed', errorDetails);
+
+    // Return a more informative error response
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
 
     res.status(500).json({
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: errorMessage,
+      failedAt: currentStep,
+      timestamp: new Date().toISOString(),
+      requestId: req.body.runId || 'unknown'
     });
   }
 });

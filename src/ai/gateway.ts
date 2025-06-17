@@ -8,7 +8,6 @@ import { VertexTextService } from './providers/vertex/text.js';
 import { VertexImageService } from './providers/vertex/image.js';
 import { OpenAITextService } from './providers/openai/text.js';
 import { OpenAIImageService } from './providers/openai/image.js';
-import { StabilityImageService } from './providers/stability/image.js';
 import { logger } from '@/config/logger.js';
 
 export class AIGateway {
@@ -47,8 +46,7 @@ export class AIGateway {
       default:
         throw new Error(`Unsupported text provider: ${this.config.textProvider}`);
     }
-  }
-  private createImageService(): IImageGenerationService {
+  }  private createImageService(): IImageGenerationService {
     switch (this.config.imageProvider.toLowerCase()) {
       case 'vertex':
         if (!this.config.credentials.vertexProjectId) {
@@ -57,23 +55,13 @@ export class AIGateway {
         return new VertexImageService({
           projectId: this.config.credentials.vertexProjectId,
           location: this.config.credentials.vertexLocation || 'us-central1'
-        });
-        case 'openai':
-      case 'dall-e':
+        });      case 'openai':
         if (!this.config.credentials.openaiApiKey) {
           throw new Error('OpenAI API Key is required for OpenAI image service');
         }
         return new OpenAIImageService({
           apiKey: this.config.credentials.openaiApiKey,
           model: this.config.credentials.openaiImageModel || 'dall-e-3'
-        });
-      
-      case 'stability':
-        if (!this.config.credentials.openaiApiKey) {
-          throw new Error('API Key is required for Stability AI service');
-        }
-        return new StabilityImageService({
-          apiKey: this.config.credentials.openaiApiKey // Reusing for now, should be separate
         });
       
       default:

@@ -37,19 +37,7 @@ const StoreChapterRequestSchema = z.object({
   imagePrompts: z.array(z.string()).optional()
 });
 
-const StoreImageRequestSchema = z.object({
-  chapterNumber: z.number().int().positive(),
-  imageData: z.string(), // base64 encoded
-  imageUrl: z.string().optional(),
-  prompt: z.string().optional()
-});
 
-const StoreBookCoverRequestSchema = z.object({
-  coverType: z.enum(['front', 'back']),
-  imageData: z.string(), // base64 encoded
-  imageUrl: z.string().optional(),
-  prompt: z.string().optional()
-});
 
 /**
  * PATCH /internal/runs/:runId
@@ -292,119 +280,8 @@ router.post('/runs/:runId/chapter/:chapterNumber', async (req, res) => {
   }
 });
 
-/**
- * POST /internal/runs/:runId/chapter/:chapterNumber/image
- * Store generated image for chapter
- */
-router.post('/runs/:runId/chapter/:chapterNumber/image', async (req, res) => {
-  try {
-    const runId = req.params.runId;
-    const chapterNumber = parseInt(req.params.chapterNumber);
-    const { imageData, imageUrl, prompt } = StoreImageRequestSchema.parse({
-      ...req.body,
-      chapterNumber
-    });
 
-    logger.info('Internal API: Storing chapter image', {
-      runId,
-      chapterNumber,
-      hasImageData: !!imageData,
-      hasImageUrl: !!imageUrl
-    });
 
-    // Upload image to storage if we have image data
-    let finalImageUrl = imageUrl;
-    if (imageData && !imageUrl) {
-      const imageBuffer = Buffer.from(imageData, 'base64');
-      const filename = `stories/${runId}/chapter-${chapterNumber}-image.png`;
-      finalImageUrl = await storageService.uploadFile(filename, imageBuffer, 'image/png');
-    }
-
-    await runsService.storeStepResult(runId, `generate_image_${chapterNumber}`, {
-      status: 'completed',
-      result: {
-        chapterNumber,
-        imageUrl: finalImageUrl,
-        prompt
-      }
-    });
-
-    res.json({
-      success: true,
-      runId,
-      chapterNumber,
-      imageUrl: finalImageUrl,
-      step: `generate_image_${chapterNumber}`
-    });
-
-  } catch (error) {
-    logger.error('Internal API: Failed to store chapter image', {
-      error: error instanceof Error ? error.message : String(error),
-      runId: req.params.runId,
-      chapterNumber: req.params.chapterNumber
-    });
-
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
-    });
-  }
-});
-
-/**
- * POST /internal/runs/:runId/book-cover
- * Store generated book cover image (front or back)
- */
-router.post('/runs/:runId/book-cover', async (req, res) => {
-  try {
-    const runId = req.params.runId;
-    const { coverType, imageData, imageUrl, prompt } = StoreBookCoverRequestSchema.parse(req.body);
-
-    logger.info('Internal API: Storing book cover image', {
-      runId,
-      coverType,
-      hasImageData: !!imageData,
-      hasImageUrl: !!imageUrl
-    });
-
-    // Upload image to storage if we have image data
-    let finalImageUrl = imageUrl;
-    if (imageData && !imageUrl) {
-      const imageBuffer = Buffer.from(imageData, 'base64');
-      const filename = `stories/${runId}/book-${coverType}-cover.png`;
-      finalImageUrl = await storageService.uploadFile(filename, imageBuffer, 'image/png');
-    }
-
-    await runsService.storeStepResult(runId, `generate_book_${coverType}_cover`, {
-      status: 'completed',
-      result: {
-        coverType,
-        imageUrl: finalImageUrl,
-        prompt
-      }
-    });
-
-    res.json({
-      success: true,
-      runId,
-      coverType,
-      imageUrl: finalImageUrl,
-      step: `generate_book_${coverType}_cover`
-    });
-
-  } catch (error) {
-    logger.error('Internal API: Failed to store book cover image', {
-      error: error instanceof Error ? error.message : String(error),
-      runId: req.params.runId,
-      coverType: req.body.coverType
-    });
-
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
-    });
-  }
-});
 
 /**
  * GET /internal/prompts/:runId/book-cover/:coverType
@@ -553,6 +430,107 @@ router.post('/tts/:runId', async (req, res) => {
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+/**
+ * GET /internal/diagnostics/storage
+ * Test storage connection and configuration
+ */
+router.get('/diagnostics/storage', async (_req, res) => {
+  try {
+    logger.info('Running storage diagnostics');
+    
+    const result = await storageService.testConnection();
+    
+    if (result.success) {
+      res.json({
+        success: true,
+        message: 'Storage connection test passed',
+        ...result.details
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        message: 'Storage connection test failed',
+        error: result.details
+      });
+    }
+  } catch (error) {
+    logger.error('Storage diagnostics failed', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+    
+    res.status(500).json({
+      success: false,
+      message: 'Storage diagnostics failed',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+/**
+ * GET /storage/test
+ * Test storage connection and configuration
+ */
+router.get('/storage/test', async (_req, res) => {
+  try {
+    logger.info('Testing storage connection');
+    
+    const testResult = await storageService.testConnection();
+    
+    if (testResult.success) {
+      logger.info('Storage test successful', testResult.details);
+      res.json({
+        success: true,
+        message: 'Storage connection test passed',
+        details: testResult.details
+      });
+    } else {
+      logger.warn('Storage test failed', testResult.details);
+      res.status(500).json({
+        success: false,
+        message: 'Storage connection test failed',
+        details: testResult.details
+      });
+    }
+  } catch (error) {
+    logger.error('Storage test endpoint error', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+    
+    res.status(500).json({
+      success: false,
+      message: 'Storage test failed with exception',
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+/**
+ * GET /storage/info
+ * Get bucket configuration and setup recommendations
+ */
+router.get('/storage/info', async (_req, res) => {
+  try {
+    logger.info('Getting storage bucket info');
+    
+    const bucketInfo = await storageService.getBucketInfo();
+    
+    res.json({
+      success: true,
+      ...bucketInfo
+    });
+  } catch (error) {
+    logger.error('Storage info endpoint error', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+    
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get storage info',
+      error: error instanceof Error ? error.message : String(error)
     });
   }
 });

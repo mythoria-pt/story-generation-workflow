@@ -137,19 +137,9 @@ main:
                   body:
                     storyId: ${storyId}
                     runId: ${runId}
+                    imageType: "front_cover"
                     prompt: ${frontCoverPromptResp.body}
                 result: frontCoverResp
-
-            - saveFrontCover:
-                call: http.request
-                args:
-                  url:    ${baseUrl + "/internal/runs/" + runId + "/book-cover"}
-                  method: POST
-                  auth:   { type: OIDC }
-                  body:
-                    coverType: "front"
-                    imageData: ${frontCoverResp.body.imageData}
-                    prompt: ${frontCoverPromptResp.body}
 
             # 5. Generate book back cover
             - setBackCoverStep:
@@ -178,19 +168,9 @@ main:
                   body:
                     storyId: ${storyId}
                     runId: ${runId}
+                    imageType: "back_cover"
                     prompt: ${backCoverPromptResp.body}
                 result: backCoverResp
-
-            - saveBackCover:
-                call: http.request
-                args:
-                  url:    ${baseUrl + "/internal/runs/" + runId + "/book-cover"}
-                  method: POST
-                  auth:   { type: OIDC }
-                  body:
-                    coverType: "back"
-                    imageData: ${backCoverResp.body.imageData}
-                    prompt: ${backCoverPromptResp.body}
 
             # 6. Generate chapter images sequentially
             - setImagesStep:
@@ -214,7 +194,6 @@ main:
                           method: GET
                           auth:   { type: OIDC }
                         result: promptResp
-
                     - genImage:
                         call: http.request
                         args:
@@ -224,16 +203,10 @@ main:
                           body:
                             storyId: ${storyId}
                             runId: ${runId}
+                            chapterNumber: ${chapterNum}
+                            imageType: "chapter"
                             prompt: ${promptResp.body}
-                        result: imageResp   # { "gcsUri": "gs://..." }
-
-                    - saveImageUri:
-                        call: http.request
-                        args:
-                          url:    ${baseUrl + "/internal/runs/" + runId + "/chapter/" + string(chapterNum) + "/image"}
-                          method: POST
-                          auth:   { type: OIDC }
-                          body: ${imageResp.body}
+                        result: imageResp
 
             # 7. Assemble HTML & PDF
             - setAssembleStep:
@@ -248,10 +221,12 @@ main:
             - assemble:
                 call: http.request
                 args:
-                  url:    ${baseUrl + "/assemble/" + runId}
+                  url:    ${baseUrl + "/internal/assemble/" + runId}
                   method: POST
                   auth:   { type: OIDC }
-                result: assembleResp            # 8. Generate audio book
+                result: assembleResp
+            
+            # 8. Generate audio book
             - setTTSStep:
                 call: http.request
                 args:
@@ -264,7 +239,7 @@ main:
             - generateAudiobook:
                 call: http.request
                 args:
-                  url:    ${baseUrl + "/tts/" + runId}
+                  url:    ${baseUrl + "/internal/tts/" + runId}
                   method: POST
                   auth:   { type: OIDC }
                 result: audiobookResp

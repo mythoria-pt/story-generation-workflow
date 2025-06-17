@@ -22,13 +22,14 @@ describe('AI Gateway Workflow', () => {
 
     it('should define proper AI provider types', () => {
       const textProviders = ['vertex', 'openai'];
-      const imageProviders = ['vertex', 'openai', 'stability', 'dall-e'];
+      const imageProviders = ['vertex', 'openai'];
 
       expect(textProviders).toContain('vertex');
       expect(textProviders).toContain('openai');
       expect(imageProviders).toContain('vertex');
       expect(imageProviders).toContain('openai');
-      expect(imageProviders).toContain('stability');
+      expect(imageProviders).toContain('vertex');
+      expect(imageProviders).toContain('openai');
     });
   });
 

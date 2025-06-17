@@ -1,0 +1,58 @@
+{
+    "cartoon": {
+        "systemPrompt": "Create vibrant, stylized cartoon illustrations with exaggerated features, bold colors, and simplified forms. Use clear outlines, bright saturated colors, and expressive character poses. Emphasize visual storytelling through dynamic compositions and cheerful, engaging aesthetics. Focus on clean lineart, rounded shapes, and family-friendly content.",
+        "style": "cartoon style, animated, colorful, simple shapes, bold outlines, expressive characters, vibrant colors"
+    },
+    "realistic": {
+        "systemPrompt": "Generate highly detailed, photorealistic images with accurate proportions, natural lighting, and lifelike textures. Focus on precise anatomical details, realistic materials, natural color palettes, and authentic environments. Capture subtle lighting effects, natural shadows, and realistic surface materials.",
+        "style": "photorealistic, highly detailed, natural lighting, accurate proportions, lifelike textures, professional photography quality"
+    },
+    "watercolor": {
+        "systemPrompt": "Create soft, flowing watercolor paintings with translucent colors, organic brush strokes, and gentle color bleeding effects. Use soft edges, delicate color transitions, and paper texture visible through the paint. Emphasize fluid, spontaneous brushwork with areas of transparency and color mixing. Include white spaces and paint drips for authentic watercolor aesthetics.",
+        "style": "watercolor painting, soft brushstrokes, translucent colors, paper texture, color bleeding, delicate, flowing, artistic"
+    },
+    "digital_art": {
+        "systemPrompt": "Create modern digital artwork with clean lines, vibrant colors, and sophisticated digital techniques. Use digital brushes, layering effects, and contemporary artistic styles. Emphasize precision, smooth gradients, and polished finish typical of professional digital illustrations. Include modern color palettes and contemporary artistic approaches.",
+        "style": "digital art, modern illustration, clean lines, vibrant colors, polished finish, contemporary, digital painting techniques"
+    },
+    "hand_drawn": {
+        "systemPrompt": "Create authentic hand-drawn illustrations with visible pencil strokes, natural imperfections, and organic line variations. Emphasize the human touch through slight irregularities, sketch marks, and traditional drawing techniques. Use crosshatching, stippling, and other manual drawing methods for shading and texture.",
+        "style": "hand drawn, pencil sketch, organic lines, traditional drawing, crosshatching, natural imperfections, sketch marks"
+    },
+    "minimalist": {
+        "systemPrompt": "Design clean, simple compositions with minimal elements, abundant white space, and focus on essential forms. Use limited color palettes, geometric shapes, and reduce details to their most fundamental elements. Emphasize negative space, clean typography if needed, and sophisticated simplicity.",
+        "style": "minimalist design, clean lines, simple composition, limited colors, geometric shapes, negative space, modern"
+    },
+    "vintage": {
+        "systemPrompt": "Create nostalgic artwork with aged textures, sepia tones, and historical aesthetic elements. Include worn textures, faded colors, retro typography, and period-appropriate styling. Emphasize the patina of age, vintage color palettes, and classic design elements from past eras.",
+        "style": "vintage style, aged textures, sepia tones, retro aesthetic, worn textures, nostalgic, classic design, historical"
+    },
+    "comic_book": {
+        "systemPrompt": "Generate dynamic comic book style illustrations with bold outlines, dramatic lighting, and action-oriented compositions. Use halftone patterns, speech bubbles if appropriate, dynamic angles, and superhero-style proportions. Emphasize high contrast, dramatic poses, and comic book color aesthetics.",
+        "style": "comic book style, bold outlines, dramatic lighting, dynamic poses, halftone patterns, action-oriented, high contrast"
+    },
+    "anime": {
+        "systemPrompt": "Create Japanese anime-style artwork with large expressive eyes, distinctive character proportions, and stylized features. Use soft shading techniques, vibrant hair colors, and characteristic anime facial features. Emphasize emotional expressions, dynamic poses, and the distinctive aesthetic of Japanese animation.",
+        "style": "anime style, manga, large eyes, stylized proportions, soft shading, vibrant colors, Japanese animation aesthetic"
+    },
+    "pixar_style": {
+        "systemPrompt": "Generate 3D animated characters and scenes in the distinctive Pixar animation style. Use rounded, appealing character designs with exaggerated but believable proportions. Emphasize warm lighting, rich textures, and the polished 3D aesthetic characteristic of Pixar films. Focus on emotional expressiveness and family-friendly appeal.",
+        "style": "Pixar style, 3D animation, rounded characters, warm lighting, polished textures, family-friendly, emotional expressions"
+    },
+    "disney_style": {
+        "systemPrompt": "Create classic Disney animation style artwork with graceful character designs, flowing movements, and timeless appeal. Use the distinctive Disney character proportions, expressive facial features, and the classic hand-drawn animation aesthetic. Emphasize storytelling through character design and emotional expressiveness.",
+        "style": "Disney animation style, classic cartoon, graceful characters, flowing lines, timeless design, expressive faces, hand-drawn aesthetic"
+    },
+    "sketch": {
+        "systemPrompt": "Create loose, expressive sketches with visible construction lines, gestural marks, and unfinished quality that captures the essence and energy of the subject. Use quick, confident strokes and emphasize the spontaneous nature of sketching. Include light guidelines and construction marks.",
+        "style": "pencil sketch, loose lines, gestural drawing, construction lines, unfinished quality, spontaneous, expressive marks"
+    },
+    "oil_painting": {
+        "systemPrompt": "Generate rich oil painting artwork with visible brushstrokes, layered paint texture, and traditional painting techniques. Use warm color palettes, impasto effects, and the characteristic look of oil on canvas. Emphasize the tactile quality of paint and traditional artistic methods.",
+        "style": "oil painting, visible brushstrokes, impasto, traditional painting, rich textures, warm colors, canvas texture, artistic"
+    },
+    "colored_pencil": {
+        "systemPrompt": "Create artwork using colored pencil techniques with layered colors, visible pencil texture, and traditional drawing methods. Use crosshatching, layering, and blending techniques characteristic of colored pencil artwork. Emphasize the organic texture and traditional medium appearance.",
+        "style": "colored pencil drawing, layered colors, pencil texture, crosshatching, traditional medium, organic texture, hand-drawn"
+    }
+}

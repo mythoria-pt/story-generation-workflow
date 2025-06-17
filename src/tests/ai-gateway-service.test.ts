@@ -36,21 +36,7 @@ describe('AI Gateway Service', () => {
       expect(openAIConfig.textProvider).toBe('openai');
       expect(openAIConfig.credentials.openaiApiKey).toBe('test-api-key');
       expect(openAIConfig.credentials.openaiUseResponsesAPI).toBe(true);
-    });
-
-    it('should validate Stability AI provider configuration requirements', () => {
-      const stabilityConfig = {
-        textProvider: 'openai',
-        imageProvider: 'stability',
-        credentials: {
-          openaiApiKey: 'test-api-key' // Currently reusing OpenAI key for Stability
-        }
-      };
-
-      expect(stabilityConfig.imageProvider).toBe('stability');
-      expect(stabilityConfig.credentials.openaiApiKey).toBeTruthy();
-    });
-  });
+    });  });
 
   describe('Environment Configuration Tests', () => {
     let originalEnv: NodeJS.ProcessEnv;
@@ -120,19 +106,10 @@ describe('AI Gateway Service', () => {
     it('should validate required credentials for different provider combinations', () => {
       const testCases = [
         {
-          name: 'Vertex text + OpenAI image',
-          config: {
+          name: 'Vertex text + OpenAI image',          config: {
             textProvider: 'vertex',
             imageProvider: 'openai',
             requiredCredentials: ['vertexProjectId', 'openaiApiKey']
-          }
-        },
-        {
-          name: 'OpenAI text + Stability image',
-          config: {
-            textProvider: 'openai',
-            imageProvider: 'stability',
-            requiredCredentials: ['openaiApiKey']
           }
         },
         {
@@ -152,33 +129,30 @@ describe('AI Gateway Service', () => {
       });
     });
 
-    it('should handle case-insensitive provider names', () => {
-      const providers = ['VERTEX', 'OPENAI', 'STABILITY', 'DALL-E'];
+    it('should handle case-insensitive provider names', () => {      const providers = ['VERTEX', 'OPENAI'];
       const normalizedProviders = providers.map(p => p.toLowerCase());
-
-      expect(normalizedProviders).toEqual(['vertex', 'openai', 'stability', 'dall-e']);
+      expect(normalizedProviders).toEqual(['vertex', 'openai']);
     });
 
     it('should validate supported provider combinations', () => {
       const supportedTextProviders = ['vertex', 'openai'];
-      const supportedImageProviders = ['vertex', 'openai', 'dall-e', 'stability'];
+      const supportedImageProviders = ['vertex', 'openai'];
 
       expect(supportedTextProviders).toContain('vertex');
       expect(supportedTextProviders).toContain('openai');
       expect(supportedImageProviders).toContain('vertex');
       expect(supportedImageProviders).toContain('openai');
-      expect(supportedImageProviders).toContain('stability');
+      expect(supportedImageProviders).toContain('vertex');
+      expect(supportedImageProviders).toContain('openai');
     });
   });
 
   describe('Error Handling Tests', () => {
-    it('should define expected error messages for missing credentials', () => {
-      const expectedErrors = {
+    it('should define expected error messages for missing credentials', () => {      const expectedErrors = {
         vertexTextMissingProject: 'Vertex Project ID is required for Vertex AI text service',
         vertexImageMissingProject: 'Vertex Project ID is required for Vertex AI image service',
         openaiTextMissingKey: 'OpenAI API Key is required for OpenAI text service',
         openaiImageMissingKey: 'OpenAI API Key is required for OpenAI image service',
-        stabilityMissingKey: 'API Key is required for Stability AI service',
         unsupportedTextProvider: 'Unsupported text provider:',
         unsupportedImageProvider: 'Unsupported image provider:'
       };
@@ -307,10 +281,9 @@ describe('AI Gateway Service', () => {
           text: 'openai',
           image: 'stability',
           valid: true
-        },
-        {
+        },        {
           text: 'vertex',
-          image: 'stability',
+          image: 'openai',
           valid: true
         }
       ];
@@ -340,12 +313,11 @@ describe('AI Gateway Service', () => {
       expect(workflowSteps).toContain('service_method_access');
     });
 
-    it('should validate provider switching capabilities', () => {
-      const switchingScenarios = [
+    it('should validate provider switching capabilities', () => {      const switchingScenarios = [
         { from: 'vertex', to: 'openai', service: 'text' },
         { from: 'openai', to: 'vertex', service: 'text' },
-        { from: 'vertex', to: 'stability', service: 'image' },
-        { from: 'openai', to: 'dall-e', service: 'image' }
+        { from: 'vertex', to: 'openai', service: 'image' },
+        { from: 'openai', to: 'vertex', service: 'image' }
       ];
 
       switchingScenarios.forEach(scenario => {

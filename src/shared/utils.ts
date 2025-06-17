@@ -112,8 +112,8 @@ export function getChapterCountForAudience(targetAudience?: string): number {
     'all_ages': 10          // Balanced for all ages
   };
   
-  // return chapterMap[targetAudience] || 10;
-  return 2; // Default to 2 chapters to reduce token usage in prompts
+  return chapterMap[targetAudience] || 10;
+  //return 2; // Default to 2 chapters to reduce token usage in prompts
 }
 
 /**

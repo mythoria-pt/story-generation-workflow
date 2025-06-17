@@ -6,6 +6,7 @@
 import { Storage } from '@google-cloud/storage';
 import { getEnvironment } from '@/config/environment.js';
 import { logger } from '@/config/logger.js';
+import { handleGCSError } from '@/utils/errorHandling.js';
 
 export class StorageService {
   private storage: Storage;
@@ -17,7 +18,7 @@ export class StorageService {
       projectId: env.GOOGLE_CLOUD_PROJECT_ID
     });
     this.bucketName = env.STORAGE_BUCKET_NAME;
-    
+
     logger.info('Storage Service initialized', {
       projectId: env.GOOGLE_CLOUD_PROJECT_ID,
       bucketName: this.bucketName
@@ -36,13 +37,12 @@ export class StorageService {
         filename,
         size: buffer.length,
         contentType
-      });
-
-      await file.save(buffer, {
+      });      await file.save(buffer, {
         metadata: {
           contentType
-        },
-        public: true // Make files publicly accessible
+        }
+        // Removed 'public: true' to avoid ACL conflicts with uniform bucket-level access
+        // Public access should be configured at the bucket level via IAM policies
       });
 
       // Return public URL
@@ -56,21 +56,25 @@ export class StorageService {
 
       return publicUrl;
     } catch (error) {
-      logger.error('Failed to upload file', {
-        error: error instanceof Error ? error.message : String(error),
+      // Enhanced error logging with GCS-specific handling
+      const errorDetails = handleGCSError(error, {
         filename,
-        size: buffer.length
+        size: buffer.length,
+        contentType,
+        bucketName: this.bucketName,
+        operation: 'uploadFile'
       });
+
+      logger.error('Failed to upload file', errorDetails);
       throw error;
     }
   }
-
   /**
    * Upload multiple files
    */
   async uploadFiles(files: Array<{ filename: string; buffer: Buffer; contentType: string }>): Promise<string[]> {
     try {
-      const uploadPromises = files.map(file => 
+      const uploadPromises = files.map(file =>
         this.uploadFile(file.filename, file.buffer, file.contentType)
       );
 
@@ -83,12 +87,47 @@ export class StorageService {
 
       return urls;
     } catch (error) {
-      logger.error('Failed to upload multiple files', {
-        error: error instanceof Error ? error.message : String(error),
-        fileCount: files.length
+      const errorDetails = handleGCSError(error, {
+        fileCount: files.length,
+        filenames: files.map(f => f.filename),
+        totalSize: files.reduce((sum, f) => sum + f.buffer.length, 0),
+        operation: 'uploadFiles'
       });
+
+      logger.error('Failed to upload multiple files', errorDetails);
       throw error;
     }
+  }  /**
+   * List files in a directory/prefix in the bucket
+   */
+  async listFiles(prefix?: string): Promise<Array<{ name: string; timeCreated?: string; size?: number }>> {
+    try {
+      const bucket = this.storage.bucket(this.bucketName);
+      const options = prefix ? { prefix } : {};
+      const [files] = await bucket.getFiles(options);      return files.map(file => {
+        const result: { name: string; timeCreated?: string; size?: number } = { name: file.name };
+        if (file.metadata.timeCreated) result.timeCreated = file.metadata.timeCreated;
+        if (file.metadata.size) {
+          result.size = typeof file.metadata.size === 'string' ? parseInt(file.metadata.size) : file.metadata.size;
+        }
+        return result;
+      });
+    } catch (error) {
+      const errorDetails = handleGCSError(error, {
+        prefix,
+        operation: 'listFiles'
+      });
+
+      logger.error('Failed to list files', errorDetails);
+      throw error;
+    }
+  }
+
+  /**
+   * Get public URL for a file
+   */
+  async getPublicUrl(filename: string): Promise<string> {
+    return `https://storage.googleapis.com/${this.bucketName}/${filename}`;
   }
 
   /**
@@ -103,10 +142,12 @@ export class StorageService {
 
       logger.info('File deleted successfully', { filename });
     } catch (error) {
-      logger.error('Failed to delete file', {
-        error: error instanceof Error ? error.message : String(error),
-        filename
+      const errorDetails = handleGCSError(error, {
+        filename,
+        operation: 'deleteFile'
       });
+
+      logger.error('Failed to delete file', errorDetails);
       throw error;
     }
   }
@@ -122,11 +163,165 @@ export class StorageService {
       const [exists] = await file.exists();
       return exists;
     } catch (error) {
-      logger.error('Failed to check file existence', {
-        error: error instanceof Error ? error.message : String(error),
-        filename
+      const errorDetails = handleGCSError(error, {
+        filename,
+        operation: 'fileExists'
       });
+
+      logger.error('Failed to check file existence', errorDetails);
       return false;
+    }
+  }
+
+  /**
+   * Test storage configuration and permissions
+   */
+  async testConnection(): Promise<{ success: boolean; details: any }> {
+    try {
+      logger.info('Testing Google Cloud Storage connection', {
+        bucketName: this.bucketName,
+        projectId: this.storage.projectId
+      });
+
+      const bucket = this.storage.bucket(this.bucketName);
+
+      // Test 1: Check if bucket exists
+      const [bucketExists] = await bucket.exists();
+      if (!bucketExists) {
+        return {
+          success: false,
+          details: {
+            error: 'Bucket does not exist',
+            bucketName: this.bucketName,
+            suggestions: [
+              'Verify STORAGE_BUCKET_NAME environment variable',
+              'Ensure bucket exists in Google Cloud Console',
+              'Check if bucket is in the correct project'
+            ]
+          }
+        };
+      }
+
+      // Test 2: Try to get bucket metadata
+      const [metadata] = await bucket.getMetadata();
+
+      // Test 3: Try to upload a test file
+      const testFileName = `test-connection-${Date.now()}.txt`;
+      const testContent = Buffer.from('test connection file');
+
+      await this.uploadFile(testFileName, testContent, 'text/plain');
+
+      // Test 4: Try to delete the test file
+      await this.deleteFile(testFileName);
+
+      logger.info('Storage connection test successful', {
+        bucketName: this.bucketName,
+        location: metadata.location,
+        storageClass: metadata.storageClass
+      });
+
+      return {
+        success: true,
+        details: {
+          bucketName: this.bucketName,
+          projectId: this.storage.projectId,
+          location: metadata.location,
+          storageClass: metadata.storageClass,
+          timeClass: metadata.timeCreated
+        }
+      };
+
+    } catch (error) {
+      const errorDetails = handleGCSError(error, {
+        bucketName: this.bucketName,
+        operation: 'testConnection'
+      });
+
+      logger.error('Storage connection test failed', errorDetails);
+
+      return {
+        success: false,
+        details: errorDetails
+      };
+    }
+  }
+
+  /**
+   * Make a file publicly accessible (works with uniform bucket-level access)
+   */
+  async makeFilePublic(filename: string): Promise<void> {
+    try {
+      const bucket = this.storage.bucket(this.bucketName);
+      const file = bucket.file(filename);
+
+      // With uniform bucket-level access enabled, we use IAM policies instead of ACLs
+      await file.makePublic();
+
+      logger.debug('File made public via IAM policy', { filename });
+    } catch (error) {
+      const errorDetails = handleGCSError(error, {
+        filename,
+        operation: 'makeFilePublic'
+      });
+
+      logger.error('Failed to make file public', errorDetails);
+      throw error;
+    }
+  }
+
+  /**
+   * Get bucket configuration and provide setup recommendations
+   */
+  async getBucketInfo(): Promise<{ config: any; recommendations: string[] }> {
+    try {
+      const bucket = this.storage.bucket(this.bucketName);
+      const [metadata] = await bucket.getMetadata();
+      const [iam] = await bucket.iam.getPolicy();
+
+      const recommendations: string[] = [];      // Check if uniform bucket-level access is enabled
+      if ((metadata.uniformBucketLevelAccess as any)?.enabled) {
+        recommendations.push('✅ Uniform bucket-level access is enabled (recommended for security)');
+        recommendations.push('ℹ️  To make files publicly accessible, configure IAM policy at bucket level:');
+        recommendations.push('   - Add "allUsers" member with "Storage Object Viewer" role');
+        recommendations.push('   - Or use gsutil: gsutil iam ch allUsers:objectViewer gs://' + this.bucketName);
+      } else {
+        recommendations.push('⚠️  Legacy ACL access is enabled');
+        recommendations.push('💡 Consider enabling uniform bucket-level access for better security');
+      }
+
+      // Check public access
+      const hasPublicAccess = iam.bindings?.some(binding => 
+        binding.members?.includes('allUsers') && 
+        binding.role === 'roles/storage.objectViewer'
+      );
+
+      if (hasPublicAccess) {
+        recommendations.push('✅ Bucket is configured for public read access');
+      } else {
+        recommendations.push('⚠️  Bucket is not configured for public access');
+        recommendations.push('💡 To allow public access to uploaded images:');
+        recommendations.push('   gcloud storage buckets add-iam-policy-binding gs://' + this.bucketName + ' --member=allUsers --role=roles/storage.objectViewer');
+      }
+
+      return {
+        config: {
+          name: metadata.name,
+          location: metadata.location,
+          storageClass: metadata.storageClass,
+          uniformBucketLevelAccess: metadata.uniformBucketLevelAccess,
+          publicAccessPrevention: metadata.publicAccessPrevention,
+          hasPublicAccess
+        },
+        recommendations
+      };
+
+    } catch (error) {
+      const errorDetails = handleGCSError(error, {        bucketName: this.bucketName,
+        operation: 'getBucketInfo'
+      });
+
+      logger.error('Failed to get bucket info', errorDetails);
+      throw error;
     }
   }
 }
