@@ -198,7 +198,9 @@ main:
                     filename: ${backCoverResp.body.image.filename}
                     metadata:
                       format: ${backCoverResp.body.image.format}
-                      size: ${backCoverResp.body.image.size}# 6. Generate chapter images sequentially
+                      size: ${backCoverResp.body.image.size}
+
+            # 6. Generate chapter images sequentially
             - setImagesStep:
                 call: http.request
                 args:
@@ -210,7 +212,7 @@ main:
 
             - generateImagesSequential:
                 for:
-                  range: ${[1, chapters]}   # ← native numeric range
+                  range: ${[1, chapters]}
                   value: chapterNum
                   steps:
                     - getPrompt:
