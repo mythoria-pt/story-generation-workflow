@@ -6,6 +6,7 @@
 import { RunsService } from './runs.js';
 import { StorageService } from './storage.js';
 import { logger } from '@/config/logger.js';
+import { countWords } from '@/shared/utils.js';
 
 export interface TTSResult {
   audioUrl: string;
@@ -75,7 +76,7 @@ export class TTSService {
         duration: this.estimateDuration(fullText),
         format: 'mp3',
         metadata: {
-          totalWords: this.countWords(fullText),
+          totalWords: countWords(fullText),
           generatedAt: new Date().toISOString()
         }
       };
@@ -139,12 +140,9 @@ export class TTSService {
 
   private estimateDuration(text: string): number {
     // Rough estimation: average speaking rate is ~150 words per minute
-    const wordCount = this.countWords(text);
+    const wordCount = countWords(text);
     const wordsPerMinute = 150;
     return Math.ceil((wordCount / wordsPerMinute) * 60); // return seconds
   }
 
-  private countWords(text: string): number {
-    return text.split(/\s+/).filter(word => word.length > 0).length;
-  }
 }
