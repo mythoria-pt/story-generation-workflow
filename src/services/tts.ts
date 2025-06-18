@@ -157,7 +157,7 @@ export class TTSService {
         provider: config.provider,
         voice: actualVoice,
         metadata: {
-          totalWords: this.countWords(chapterText),
+          totalWords: countWords(chapterText),
           generatedAt: new Date().toISOString(),
           model: actualModel,
           speed: config.speed

@@ -304,7 +304,11 @@ router.post('/image', async (req, res) => {
     });
 
     currentStep = 'preparing_upload';
-    const filename = generateImageFilename({ storyId, imageType, chapterNumber });
+    const filename = generateImageFilename({
+      storyId,
+      ...(imageType ? { imageType } : {}),
+      ...(chapterNumber !== undefined ? { chapterNumber } : {})
+    });
 
     currentStep = 'uploading_to_storage';
     const imageUrl = await storageService.uploadFile(filename, imageBuffer, 'image/png');
