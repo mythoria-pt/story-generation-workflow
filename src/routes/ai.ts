@@ -7,6 +7,11 @@ import { Router } from 'express';
 import { AIGateway } from '../ai/gateway.js';
 import { logger } from '@/config/logger.js';
 import { z } from 'zod';
+import {
+  validateImageRequest,
+  generateImageFilename,
+  formatImageError
+} from './ai-image-utils.js';
 import { StoryService } from '@/services/story.js';
 import { PromptService } from '@/services/prompt.js';
 import { SchemaService } from '@/services/schema.js';
@@ -52,16 +57,6 @@ const ChapterRequestSchema = z.object({
   previousChapters: z.array(z.string()).optional()
 });
 
-const ImageRequestSchema = z.object({
-  prompt: z.string().min(1),
-  storyId: z.string().uuid(),
-  runId: z.string().uuid(),
-  chapterNumber: z.number().int().positive().optional(),
-  imageType: z.enum(['front_cover', 'back_cover', 'chapter']).optional(),
-  width: z.number().int().positive().optional(),
-  height: z.number().int().positive().optional(),
-  style: z.enum(['vivid', 'natural']).optional()
-});
 
 /**
  * POST /ai/text/outline
@@ -282,7 +277,10 @@ router.post('/text/chapter/:chapterNumber', async (req, res) => {
 router.post('/image', async (req, res) => {
   let currentStep = 'parsing_request';
   try {
-    const { prompt, storyId, runId, chapterNumber, imageType, width, height, style } = ImageRequestSchema.parse(req.body); logger.info('AI Gateway: Generating image', {
+    const { prompt, storyId, runId, chapterNumber, imageType, width, height, style } =
+      validateImageRequest(req.body);
+
+    logger.info('AI Gateway: Generating image', {
       storyId,
       runId,
       chapterNumber,
@@ -304,24 +302,10 @@ router.post('/image', async (req, res) => {
       chapterNumber,
       imageSize: imageBuffer.length
     });
-    
-    // Create filename with story folder organization
-    // Format: {storyId}/images/chapter_{chapterNumber}_{timestamp}.png OR frontcover_{timestamp}.png OR backcover_{timestamp}.png
-    currentStep = 'preparing_upload';
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    let filename: string;
-    if (imageType === 'front_cover') {
-      filename = `${storyId}/images/frontcover_${timestamp}.png`;
-    } else if (imageType === 'back_cover') {
-      filename = `${storyId}/images/backcover_${timestamp}.png`;
-    } else if (chapterNumber) {
-      filename = `${storyId}/images/chapter_${chapterNumber}_${timestamp}.png`;
-    } else {
-      // Fallback for when imageType is not specified but chapterNumber is not provided
-      filename = `${storyId}/images/image_${timestamp}.png`;
-    }
 
-    // Upload image to Google Cloud Storage
+    currentStep = 'preparing_upload';
+    const filename = generateImageFilename({ storyId, imageType, chapterNumber });
+
     currentStep = 'uploading_to_storage';
     const imageUrl = await storageService.uploadFile(filename, imageBuffer, 'image/png');
 
@@ -347,33 +331,14 @@ router.post('/image', async (req, res) => {
       }
     });
   } catch (error) {
-    // Enhanced error logging with detailed context
-    const errorDetails = {
-      message: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
-      name: error instanceof Error ? error.name : undefined,
-      storyId: req.body.storyId,
-      runId: req.body.runId,
-      chapterNumber: req.body.chapterNumber,
-      timestamp: new Date().toISOString(),
-      currentStep, // Track which step failed
-      requestDetails: {
-        promptLength: req.body.prompt?.length,
-        dimensions: req.body.width && req.body.height ? `${req.body.width}x${req.body.height}` : 'default',
-        style: req.body.style
-      }
-    };
-
+    const errorDetails = formatImageError(error, req.body, currentStep);
     logger.error('AI Gateway: Image generation or upload failed', errorDetails);
-
-    // Return a more informative error response
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
 
     res.status(500).json({
       success: false,
-      error: errorMessage,
+      error: errorDetails.message,
       failedAt: currentStep,
-      timestamp: new Date().toISOString(),
+      timestamp: errorDetails.timestamp,
       requestId: req.body.runId || 'unknown'
     });
   }

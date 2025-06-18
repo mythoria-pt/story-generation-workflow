@@ -9,6 +9,7 @@ import { StoryService } from './story.js';
 import { StorageService } from './storage.js';
 import { logger } from '@/config/logger.js';
 import OpenAI from 'openai';
+import { countWords } from '@/shared/utils.js';
 
 export interface TTSChapterResult {
   chapterNumber: number;
@@ -452,12 +453,9 @@ export class TTSService {
 
   private estimateDuration(text: string): number {
     // Rough estimation: average speaking rate is ~150 words per minute
-    const wordCount = this.countWords(text);
+    const wordCount = countWords(text);
     const wordsPerMinute = 150;
     return Math.ceil((wordCount / wordsPerMinute) * 60); // return seconds
   }
 
-  private countWords(text: string): number {
-    return text.split(/\s+/).filter(word => word.length > 0).length;
-  }
 }

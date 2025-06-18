@@ -477,41 +477,6 @@ router.post('/tts/:runId', async (req, res) => {
   }
 });
 
-/**
- * GET /internal/diagnostics/storage
- * Test storage connection and configuration
- */
-router.get('/diagnostics/storage', async (_req, res) => {
-  try {
-    logger.info('Running storage diagnostics');
-    
-    const result = await storageService.testConnection();
-    
-    if (result.success) {
-      res.json({
-        success: true,
-        message: 'Storage connection test passed',
-        ...result.details
-      });
-    } else {
-      res.status(500).json({
-        success: false,
-        message: 'Storage connection test failed',
-        error: result.details
-      });
-    }
-  } catch (error) {
-    logger.error('Storage diagnostics failed', {
-      error: error instanceof Error ? error.message : String(error)
-    });
-    
-    res.status(500).json({
-      success: false,
-      message: 'Storage diagnostics failed',
-      error: error instanceof Error ? error.message : 'Unknown error'
-    });
-  }
-});
 
 /**
  * GET /storage/test

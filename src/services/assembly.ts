@@ -9,6 +9,7 @@ import { StoryService } from './story.js';
 import { MessageService } from './message.js';
 import { PDFService } from './pdf.js';
 import { logger } from '@/config/logger.js';
+import { countWords } from '@/shared/utils.js';
 
 export interface AssemblyResult {
   files: {
@@ -130,7 +131,7 @@ export class AssemblyService {
           pdf: pdfUrl
         },        metadata: {
           title: story.title, // Use title from database
-          wordCount: this.countWords(chapters.map(c => c.content).join(' ')),
+          wordCount: countWords(chapters.map(c => c.content).join(' ')),
           pageCount: Math.ceil(chapters.length / 2), // Rough estimate
           generatedAt: new Date().toISOString()
         }
@@ -411,7 +412,4 @@ export class AssemblyService {
     }
   }
 
-  private countWords(text: string): number {
-    return text.split(/\s+/).filter(word => word.length > 0).length;
-  }
 }
