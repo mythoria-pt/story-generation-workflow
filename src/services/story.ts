@@ -12,6 +12,7 @@ import { logger } from '@/config/logger.js';
 export interface StoryContext {
   story: {
     storyId: string;
+    authorId: string;
     title: string;
     plotDescription?: string | undefined;
     synopsis?: string | undefined;
@@ -75,6 +76,7 @@ export class StoryService {
       });      return {
         story: {
           storyId: story.storyId,
+          authorId: story.authorId,
           title: story.title,
           plotDescription: story.plotDescription || undefined,
           synopsis: story.synopsis || undefined,

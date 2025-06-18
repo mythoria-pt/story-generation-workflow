@@ -4,7 +4,6 @@
  */
 
 import { Router } from 'express';
-import { AIGateway } from '../ai/gateway.js';
 import { logger } from '@/config/logger.js';
 import { z } from 'zod';
 import {
@@ -16,6 +15,7 @@ import { StoryService } from '@/services/story.js';
 import { PromptService } from '@/services/prompt.js';
 import { SchemaService } from '@/services/schema.js';
 import { StorageService } from '@/services/storage.js';
+import { AIGatewayWithTokenTracking } from '@/ai/gateway-with-tracking-v2.js';
 import {
   getChapterCountForAudience,
   formatTargetAudience,
@@ -26,7 +26,7 @@ import {
 
 // Initialize services
 const router = Router();
-const aiGateway = AIGateway.fromEnvironment();
+const aiGateway = AIGatewayWithTokenTracking.fromEnvironment();
 const storyService = new StoryService();
 const storageService = new StorageService();
 
@@ -121,18 +121,21 @@ router.post('/text/outline', async (req, res) => {
     const finalPrompt = PromptService.buildPrompt(promptTemplate, templateVars);
 
     // Load JSON schema for structured output
-    const storyOutlineSchema = await SchemaService.loadSchema('story-outline');
-
-    // Generate outline using AI with specific outline model and JSON schema
+    const storyOutlineSchema = await SchemaService.loadSchema('story-outline');    // Generate outline using AI with specific outline model and JSON schema
     const outlineModel = process.env.VERTEX_AI_OUTLINE_MODEL || process.env.VERTEX_AI_MODEL_ID || 'gemini-2.0-flash';
     const requestOptions = {
       maxTokens: 8192,
       temperature: 1,
       model: outlineModel,
       jsonSchema: storyOutlineSchema
+    };    // Create context for token tracking
+    const aiContext = {
+      authorId: storyContext.story.authorId,
+      storyId: storyId,
+      action: 'story_outline' as const
     };
 
-    const outline = await aiGateway.getTextService().complete(finalPrompt, requestOptions);
+    const outline = await aiGateway.getTextService(aiContext).complete(finalPrompt, requestOptions);
 
     // Parse and validate the AI response
     const outlineData = parseAIResponse(outline);
@@ -229,13 +232,18 @@ router.post('/text/chapter/:chapterNumber', async (req, res) => {
       language: getLanguageName(storyContext.story.storyLanguage),
       chapterCount: chapterCount?.toString() || '10',
       hookInstruction: hookInstruction
-    };
-
-    // Build the complete prompt
+    };    // Build the complete prompt
     const chapterPrompt = PromptService.buildPrompt(promptTemplate, templateVariables);
 
+    // Create context for token tracking
+    const chapterContext = {
+      authorId: storyContext.story.authorId,
+      storyId: storyId,
+      action: 'chapter_writing' as const
+    };
+
     // Generate chapter content
-    const chapterText = await aiGateway.getTextService().complete(chapterPrompt, {
+    const chapterText = await aiGateway.getTextService(chapterContext).complete(chapterPrompt, {
       maxTokens: 6000,
       temperature: 0.8
     });
@@ -278,9 +286,7 @@ router.post('/image', async (req, res) => {
   let currentStep = 'parsing_request';
   try {
     const { prompt, storyId, runId, chapterNumber, imageType, width, height, style } =
-      validateImageRequest(req.body);
-
-    logger.info('AI Gateway: Generating image', {
+      validateImageRequest(req.body);    logger.info('AI Gateway: Generating image', {
       storyId,
       runId,
       chapterNumber,
@@ -289,8 +295,25 @@ router.post('/image', async (req, res) => {
       dimensions: width && height ? `${width}x${height}` : 'default'
     });
 
+    // Get story context to extract authorId for token tracking
+    const storyContext = await storyService.getStoryContext(storyId);
+    if (!storyContext) {
+      res.status(404).json({
+        success: false,
+        error: 'Story not found'
+      });
+      return;
+    }
+
+    // Create context for token tracking
+    const imageContext = {
+      authorId: storyContext.story.authorId,
+      storyId: storyId,
+      action: 'image_generation' as const
+    };
+
     currentStep = 'generating_image';
-    const imageBuffer = await aiGateway.getImageService().generate(prompt, {
+    const imageBuffer = await aiGateway.getImageService(imageContext).generate(prompt, {
       ...(width && { width }),
       ...(height && { height }),
       ...(style && { style })

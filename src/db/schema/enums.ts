@@ -66,3 +66,15 @@ export const graphicalStyleEnum = pgEnum("graphical_style", [
   'oil_painting',
   'colored_pencil'
 ]);
+
+export const aiActionTypeEnum = pgEnum("ai_action_type", [
+  'story_structure',
+  'story_outline',
+  'chapter_writing',
+  'image_generation',
+  'story_review',
+  'character_generation',
+  'story_enhancement',
+  'audio_generation',
+  'content_validation'
+]);
