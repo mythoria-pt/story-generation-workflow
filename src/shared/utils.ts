@@ -99,10 +99,14 @@ export interface StoryContext {
 /**
  * Determines appropriate chapter count based on target audience
  */
-export function getChapterCountForAudience(targetAudience?: string): number {
-  if (!targetAudience) return 10;
+export function getChapterCountForAudience(targetAudience?: string, overrideChapterCount?: number): number {
+  // Use override chapter count if provided
+  if (overrideChapterCount && overrideChapterCount > 0) {
+    return overrideChapterCount;
+  }
   
-  const chapterMap: Record<string, number> = {
+  if (!targetAudience) return 10;
+    const chapterMap: Record<string, number> = {
     'children_0-2': 5,      // Very short for toddlers
     'children_3-6': 6,      // Short chapters for preschoolers
     'children_7-10': 10,    // Standard for early elementary

@@ -19,6 +19,7 @@ export const stories = pgTable("stories", {
   targetAudience: targetAudienceEnum("target_audience"),
   novelStyle: novelStyleEnum("novel_style"),
   graphicalStyle: graphicalStyleEnum("graphical_style"),
+  chapterCount: integer("chapter_count").default(6).notNull(),
   status: storyStatusEnum().default('draft'),
   features: jsonb(),
   deliveryAddress: jsonb("delivery_address"),

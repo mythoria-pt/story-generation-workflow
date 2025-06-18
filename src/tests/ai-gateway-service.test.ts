@@ -3,6 +3,8 @@
  * Tests for AI Gateway factory creation, configuration validation, and service methods
  */
 
+/// <reference types="node" />
+
 describe('AI Gateway Service', () => {
   describe('Provider Configuration Tests', () => {
     it('should validate Vertex AI provider configuration requirements', () => {
@@ -37,9 +39,8 @@ describe('AI Gateway Service', () => {
       expect(openAIConfig.credentials.openaiApiKey).toBe('test-api-key');
       expect(openAIConfig.credentials.openaiUseResponsesAPI).toBe(true);
     });  });
-
   describe('Environment Configuration Tests', () => {
-    let originalEnv: NodeJS.ProcessEnv;
+    let originalEnv: typeof process.env;
 
     beforeEach(() => {
       originalEnv = process.env;
@@ -120,9 +121,7 @@ describe('AI Gateway Service', () => {
             requiredCredentials: ['vertexProjectId']
           }
         }
-      ];
-
-      testCases.forEach(({ name, config }) => {
+      ];      testCases.forEach(({ name: _name, config }) => {
         expect(config.textProvider).toBeTruthy();
         expect(config.imageProvider).toBeTruthy();
         expect(config.requiredCredentials.length).toBeGreaterThan(0);
@@ -181,9 +180,7 @@ describe('AI Gateway Service', () => {
           provider: 'unsupported-provider',
           missingCredential: null
         }
-      ];
-
-      errorScenarios.forEach(({ scenario, provider, missingCredential }) => {
+      ];      errorScenarios.forEach(({ scenario, provider, missingCredential: _missingCredential }) => {
         expect(scenario).toBeTruthy();
         expect(provider).toBeTruthy();
         // missingCredential can be null for unsupported provider scenarios

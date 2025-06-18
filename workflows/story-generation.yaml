@@ -1,5 +1,5 @@
 # Mythoria – Story Generation Workflow (provider-agnostic)
-# Trigger: Pub/Sub topic mythoria.story.requests
+# Trigger: Pub/Sub topic mythoria-story-requests
 #
 # Pub/Sub message (base-64 JSON):
 #   { "storyId": "<uuid>", "runId": "<uuid>" }

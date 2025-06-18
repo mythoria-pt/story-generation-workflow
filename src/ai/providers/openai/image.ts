@@ -16,8 +16,8 @@ export interface OpenAIConfig {
 
 export class OpenAIImageService implements IImageGenerationService {
   private client: OpenAI;
-  private model: string;  // @ts-ignore - maxRetries will be used in future retry logic
-  // private maxRetries: number;
+  private model: string;
+  // private maxRetries: number; // Will be used in future retry logic
   constructor(config: OpenAIConfig) {
     this.client = new OpenAI({
       apiKey: config.apiKey,

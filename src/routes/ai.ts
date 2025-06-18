@@ -85,10 +85,11 @@ router.post('/text/outline', async (req, res) => {
       });
       return;
     }    // Load prompt template and prepare variables
-    const promptTemplate = await PromptService.loadPrompt('en-US', 'text-outline');
-
-    // Determine chapter count based on target audience
-    const chapterCount = getChapterCountForAudience(storyContext.story.targetAudience);
+    const promptTemplate = await PromptService.loadPrompt('en-US', 'text-outline');    // Determine chapter count - use story's chapterCount if available, otherwise use audience-based default
+    const chapterCount = getChapterCountForAudience(
+      storyContext.story.targetAudience, 
+      storyContext.story.chapterCount
+    );
 
     // Prepare template variables
     const templateVars = {

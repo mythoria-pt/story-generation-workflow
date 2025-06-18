@@ -21,6 +21,7 @@ export interface StoryContext {
     novelStyle?: string | undefined;
     graphicalStyle?: string | undefined;
     storyLanguage: string;
+    chapterCount?: number | undefined;
   };
   characters: Array<{
     characterId: string;
@@ -83,6 +84,7 @@ export class StoryService {
           novelStyle: story.novelStyle || undefined,
           graphicalStyle: story.graphicalStyle || undefined,
           storyLanguage: story.storyLanguage,
+          chapterCount: story.chapterCount || undefined,
         },
         characters: storyCharactersData.map(char => ({
           characterId: char.characterId,

@@ -88,7 +88,7 @@ gcloud projects add-iam-policy-binding mythoria-441816 \
 ### Workflow Configuration
 - **Workflow Name**: `story-generation`
 - **Location**: `europe-west9`
-- **Trigger**: Pub/Sub topic `mythoria.story.requests`
+- **Trigger**: Pub/Sub topic `mythoria-story-requests`
 - **Definition File**: `workflows/story-generation.yaml`
 
 ### Workflow Deployment
@@ -103,11 +103,11 @@ gcloud workflows deploy story-generation \
 ### Pub/Sub Configuration
 ```bash
 # Create topic for story requests
-gcloud pubsub topics create mythoria.story.requests
+gcloud pubsub topics create mythoria-story-requests
 
 # Create subscription for workflows
 gcloud pubsub subscriptions create story-generation-workflow-sub \
-    --topic=mythoria.story.requests
+    --topic=mythoria-story-requests
 
 # Set up Eventarc trigger
 gcloud eventarc triggers create story-generation-trigger \
@@ -115,7 +115,7 @@ gcloud eventarc triggers create story-generation-trigger \
     --destination-workflow=story-generation \
     --destination-workflow-location=europe-west9 \
     --event-filters="type=google.cloud.pubsub.topic.v1.messagePublished" \
-    --event-filters="topic=projects/mythoria-441816/topics/mythoria.story.requests" \
+    --event-filters="topic=projects/mythoria-441816/topics/mythoria-story-requests" \
     --service-account=story-generation-workflow@mythoria-441816.iam.gserviceaccount.com
 ```
 
