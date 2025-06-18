@@ -7,6 +7,7 @@ import { eq } from 'drizzle-orm';
 import { getDatabase } from '@/db/connection.js';
 import { stories, storyCharacters } from '@/db/schema/index.js';
 import { characters } from '@/db/schema/characters.js';
+import { authors } from '@/db/schema/authors.js';
 import { logger } from '@/config/logger.js';
 
 export interface StoryContext {
@@ -106,15 +107,41 @@ export class StoryService {
       throw error;
     }
   }
-
   /**
    * Get basic story information
    */
   async getStory(storyId: string) {
     try {
       const [story] = await this.db
-        .select()
+        .select({
+          storyId: stories.storyId,
+          authorId: stories.authorId,
+          title: stories.title,
+          plotDescription: stories.plotDescription,
+          storyLanguage: stories.storyLanguage,
+          synopsis: stories.synopsis,
+          place: stories.place,
+          additionalRequests: stories.additionalRequests,
+          targetAudience: stories.targetAudience,
+          novelStyle: stories.novelStyle,
+          graphicalStyle: stories.graphicalStyle,
+          chapterCount: stories.chapterCount,
+          status: stories.status,
+          features: stories.features,
+          deliveryAddress: stories.deliveryAddress,
+          dedicationMessage: stories.dedicationMessage,
+          mediaLinks: stories.mediaLinks,
+          htmlUri: stories.htmlUri,
+          pdfUri: stories.pdfUri,
+          audiobookUri: stories.audiobookUri,
+          createdAt: stories.createdAt,
+          updatedAt: stories.updatedAt,
+          storyGenerationStatus: stories.storyGenerationStatus,
+          storyGenerationCompletedPercentage: stories.storyGenerationCompletedPercentage,
+          author: authors.displayName, // Join to get author's display name
+        })
         .from(stories)
+        .innerJoin(authors, eq(stories.authorId, authors.authorId))
         .where(eq(stories.storyId, storyId));
 
       return story || null;

@@ -6,7 +6,6 @@
 import { logger } from '@/config/logger.js';
 import { 
   StoryContext, 
-  getChapterCountForAudience, 
   formatTargetAudience, 
   getLanguageName, 
   prepareCharactersForPrompt, 
@@ -50,7 +49,8 @@ export interface ChapterTemplateVars {
  * Prepares template variables for story outline generation
  */
 export function prepareOutlineTemplateVars(storyContext: StoryContext): OutlineTemplateVars {
-  const chapterCount = getChapterCountForAudience(storyContext.story.targetAudience);
+  // Use the chapterCount from the database, fallback to 6 if not available
+  const chapterCount = storyContext.story.chapterCount || 6;
   
   return {
     novelStyle: storyContext.story.novelStyle || 'adventure',

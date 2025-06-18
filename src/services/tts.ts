@@ -7,6 +7,7 @@
 import { RunsService } from './runs.js';
 import { StoryService } from './story.js';
 import { StorageService } from './storage.js';
+import { tokenUsageTrackingService } from './token-usage-tracking.js';
 import { logger } from '@/config/logger.js';
 import OpenAI from 'openai';
 import { countWords } from '@/shared/utils.js';
@@ -134,11 +135,48 @@ export class TTSService {
         actualVoice = result.voice;
         actualModel = result.model;
       } else {
-        const result = await this.synthesizeSpeechVertex(chapterText, config, storyLanguage);
-        audioBuffer = result.buffer;
+        const result = await this.synthesizeSpeechVertex(chapterText, config, storyLanguage);        audioBuffer = result.buffer;
         actualVoice = result.voice;
         actualModel = result.model;
-      }      // Upload chapter audio to storage
+      }
+
+      // Record token usage for TTS generation
+      try {
+        await tokenUsageTrackingService.recordUsage({
+          authorId: story.authorId,
+          storyId: run.storyId,
+          action: 'audio_generation',
+          aiModel: actualModel,
+          inputTokens: chapterText.length, // Characters in the input text
+          outputTokens: 0, // TTS doesn't have traditional output tokens
+          inputPromptJson: {
+            chapterNumber,
+            chapterText: chapterText.substring(0, 500) + '...', // Store first 500 chars for reference
+            voice: actualVoice,
+            speed: config.speed,
+            provider: config.provider,
+            model: actualModel,
+            storyLanguage: story.storyLanguage || 'en-US'
+          }
+        });
+
+        logger.info('TTS token usage recorded', {
+          runId,
+          chapterNumber,
+          characters: chapterText.length,
+          model: actualModel,
+          authorId: story.authorId
+        });
+      } catch (error) {
+        logger.error('Failed to record TTS token usage', {
+          error: error instanceof Error ? error.message : String(error),
+          runId,
+          chapterNumber
+        });
+        // Don't throw - we don't want to break TTS generation due to tracking failures
+      }
+
+      // Upload chapter audio to storage
       const audioFilename = `${run.storyId}/audio/chapter_${chapterNumber}.mp3`;
       const audioUrl = await this.storageService.uploadFile(
         audioFilename,

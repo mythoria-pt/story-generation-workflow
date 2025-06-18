@@ -24,7 +24,7 @@ gcloud services enable pubsub.googleapis.com
 ### Service Configuration
 - **Service Name**: `story-generation-workflow`
 - **Full URL**: `https://story-generation-workflow-803421888801.europe-west9.run.app`
-- **Container Registry**: `europe-west9-docker.pkg.dev/mythoria-441816/mythoria/story-generation-workflow`
+- **Container Registry**: `europe-west9-docker.pkg.dev/oceanic-beach-460916-n816/mythoria/story-generation-workflow`
 
 ### Environment Variables (Production)
 ```yaml
@@ -66,20 +66,20 @@ PORT: 8080
 ### Service Account Permissions
 ```bash
 # Cloud Run service account roles
-gcloud projects add-iam-policy-binding mythoria-441816 \
-    --member="serviceAccount:story-generation-workflow@mythoria-441816.iam.gserviceaccount.com" \
+gcloud projects add-iam-policy-binding oceanic-beach-460916-n816 \
+    --member="serviceAccount:story-generation-workflow@oceanic-beach-460916-n816.iam.gserviceaccount.com" \
     --role="roles/aiplatform.user"
 
-gcloud projects add-iam-policy-binding mythoria-441816 \
-    --member="serviceAccount:story-generation-workflow@mythoria-441816.iam.gserviceaccount.com" \
+gcloud projects add-iam-policy-binding oceanic-beach-460916-n816 \
+    --member="serviceAccount:story-generation-workflow@oceanic-beach-460916-n816.iam.gserviceaccount.com" \
     --role="roles/storage.objectAdmin"
 
-gcloud projects add-iam-policy-binding mythoria-441816 \
-    --member="serviceAccount:story-generation-workflow@mythoria-441816.iam.gserviceaccount.com" \
+gcloud projects add-iam-policy-binding oceanic-beach-460916-n816 \
+    --member="serviceAccount:story-generation-workflow@oceanic-beach-460916-n816.iam.gserviceaccount.com" \
     --role="roles/secretmanager.secretAccessor"
 
-gcloud projects add-iam-policy-binding mythoria-441816 \
-    --member="serviceAccount:story-generation-workflow@mythoria-441816.iam.gserviceaccount.com" \
+gcloud projects add-iam-policy-binding oceanic-beach-460916-n816 \
+    --member="serviceAccount:story-generation-workflow@oceanic-beach-460916-n816.iam.gserviceaccount.com" \
     --role="roles/workflows.invoker"
 ```
 
@@ -97,7 +97,7 @@ gcloud projects add-iam-policy-binding mythoria-441816 \
 gcloud workflows deploy story-generation \
     --source=workflows/story-generation.yaml \
     --location=europe-west9 \
-    --service-account=story-generation-workflow@mythoria-441816.iam.gserviceaccount.com
+    --service-account=story-generation-workflow@oceanic-beach-460916-n816.iam.gserviceaccount.com
 ```
 
 ### Pub/Sub Configuration
@@ -115,8 +115,8 @@ gcloud eventarc triggers create story-generation-trigger \
     --destination-workflow=story-generation \
     --destination-workflow-location=europe-west9 \
     --event-filters="type=google.cloud.pubsub.topic.v1.messagePublished" \
-    --event-filters="topic=projects/mythoria-441816/topics/mythoria-story-requests" \
-    --service-account=story-generation-workflow@mythoria-441816.iam.gserviceaccount.com
+    --event-filters="topic=projects/oceanic-beach-460916-n816/topics/mythoria-story-requests" \
+    --service-account=story-generation-workflow@oceanic-beach-460916-n816.iam.gserviceaccount.com
 ```
 
 ## Google Cloud Storage
@@ -128,13 +128,13 @@ gcloud eventarc triggers create story-generation-trigger \
 ### Bucket Configuration
 ```bash
 # Create primary storage bucket
-gsutil mb -p mythoria-441816 -c STANDARD -l europe-west9 gs://mythoria-story-assets-europe-west9
+gsutil mb -p oceanic-beach-460916-n816 -c STANDARD -l europe-west9 gs://mythoria-story-assets-europe-west9
 
 # Create backup bucket
-gsutil mb -p mythoria-441816 -c COLDLINE -l europe-west9 gs://mythoria-story-assets-backup-europe-west9
+gsutil mb -p oceanic-beach-460916-n816 -c COLDLINE -l europe-west9 gs://mythoria-story-assets-backup-europe-west9
 
 # Set bucket permissions
-gsutil iam ch serviceAccount:story-generation-workflow@mythoria-441816.iam.gserviceaccount.com:objectAdmin gs://mythoria-story-assets-europe-west9
+gsutil iam ch serviceAccount:story-generation-workflow@oceanic-beach-460916-n816.iam.gserviceaccount.com:objectAdmin gs://mythoria-story-assets-europe-west9
 ```
 
 ### Storage Structure
@@ -188,11 +188,11 @@ gcloud secrets create mythoria-stability-api-key --data-file=<(echo "your-stabil
 ```bash
 # Grant access to secrets
 gcloud secrets add-iam-policy-binding mythoria-storage-bucket \
-    --member="serviceAccount:story-generation-workflow@mythoria-441816.iam.gserviceaccount.com" \
+    --member="serviceAccount:story-generation-workflow@oceanic-beach-460916-n816.iam.gserviceaccount.com" \
     --role="roles/secretmanager.secretAccessor"
 
 gcloud secrets add-iam-policy-binding mythoria-vertex-ai-model \
-    --member="serviceAccount:story-generation-workflow@mythoria-441816.iam.gserviceaccount.com" \
+    --member="serviceAccount:story-generation-workflow@oceanic-beach-460916-n816.iam.gserviceaccount.com" \
     --role="roles/secretmanager.secretAccessor"
 ```
 
@@ -235,10 +235,10 @@ npm run db:migrate
 ### Model Endpoints
 ```bash
 # Text Generation
-projects/mythoria-441816/locations/europe-west9/publishers/google/models/gemini-2.5-flash
+projects/oceanic-beach-460916-n816/locations/europe-west9/publishers/google/models/gemini-2.5-flash
 
 # Image Generation
-projects/mythoria-441816/locations/europe-west9/publishers/google/models/imagegeneration@001
+projects/oceanic-beach-460916-n816/locations/europe-west9/publishers/google/models/imagegeneration@001
 ```
 
 ### Quota Requirements
@@ -254,25 +254,25 @@ steps:
   - name: 'gcr.io/cloud-builders/docker'
     args: [
       'build', 
-      '-t', 'europe-west9-docker.pkg.dev/mythoria-441816/mythoria/story-generation-workflow:${COMMIT_SHA}',
-      '-t', 'europe-west9-docker.pkg.dev/mythoria-441816/mythoria/story-generation-workflow:latest',
+      '-t', 'europe-west9-docker.pkg.dev/oceanic-beach-460916-n816/mythoria/story-generation-workflow:${COMMIT_SHA}',
+      '-t', 'europe-west9-docker.pkg.dev/oceanic-beach-460916-n816/mythoria/story-generation-workflow:latest',
       '.'
     ]
   
   # Push to Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', '--all-tags', 'europe-west9-docker.pkg.dev/mythoria-441816/mythoria/story-generation-workflow']
+    args: ['push', '--all-tags', 'europe-west9-docker.pkg.dev/oceanic-beach-460916-n816/mythoria/story-generation-workflow']
   
   # Deploy to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: 'gcloud'
     args: [
       'run', 'deploy', 'story-generation-workflow',
-      '--image', 'europe-west9-docker.pkg.dev/mythoria-441816/mythoria/story-generation-workflow:${COMMIT_SHA}',
+      '--image', 'europe-west9-docker.pkg.dev/oceanic-beach-460916-n816/mythoria/story-generation-workflow:${COMMIT_SHA}',
       '--region', 'europe-west9',
       '--platform', 'managed',
-      '--service-account', 'story-generation-workflow@mythoria-441816.iam.gserviceaccount.com',
-      '--set-env-vars', 'GOOGLE_CLOUD_PROJECT_ID=mythoria-441816,NODE_ENV=production',
+      '--service-account', 'story-generation-workflow@oceanic-beach-460916-n816.iam.gserviceaccount.com',
+      '--set-env-vars', 'GOOGLE_CLOUD_PROJECT_ID=oceanic-beach-460916-n816,NODE_ENV=production',
       '--set-secrets', '/etc/secrets/db-host=mythoria-db-host:latest,/etc/secrets/db-password=mythoria-db-password:latest'
     ]
   
@@ -313,15 +313,15 @@ npm run gcp:deploy
 ### Manual Deployment
 ```bash
 # 1. Build and push container
-docker build -t europe-west9-docker.pkg.dev/mythoria-441816/mythoria/story-generation-workflow:latest .
-docker push europe-west9-docker.pkg.dev/mythoria-441816/mythoria/story-generation-workflow:latest
+docker build -t europe-west9-docker.pkg.dev/oceanic-beach-460916-n816/mythoria/story-generation-workflow:latest .
+docker push europe-west9-docker.pkg.dev/oceanic-beach-460916-n816/mythoria/story-generation-workflow:latest
 
 # 2. Deploy to Cloud Run
 gcloud run deploy story-generation-workflow \
-    --image europe-west9-docker.pkg.dev/mythoria-441816/mythoria/story-generation-workflow:latest \
+    --image europe-west9-docker.pkg.dev/oceanic-beach-460916-n816/mythoria/story-generation-workflow:latest \
     --region europe-west9 \
     --platform managed \
-    --service-account story-generation-workflow@mythoria-441816.iam.gserviceaccount.com
+    --service-account story-generation-workflow@oceanic-beach-460916-n816.iam.gserviceaccount.com
 
 # 3. Deploy workflow
 gcloud workflows deploy story-generation \
@@ -377,8 +377,8 @@ gcloud alpha monitoring policies create \
 ### Service Account Security
 ```bash
 # Principle of least privilege - only required permissions
-gcloud projects add-iam-policy-binding mythoria-441816 \
-    --member="serviceAccount:story-generation-workflow@mythoria-441816.iam.gserviceaccount.com" \
+gcloud projects add-iam-policy-binding oceanic-beach-460916-n816 \
+    --member="serviceAccount:story-generation-workflow@oceanic-beach-460916-n816.iam.gserviceaccount.com" \
     --role="roles/aiplatform.user"
     
 # No broad admin roles
@@ -409,7 +409,7 @@ gsutil -m cp -r gs://mythoria-story-assets-backup-europe-west9/* gs://mythoria-s
 
 # 2. Redeploy service
 gcloud run deploy story-generation-workflow \
-    --image europe-west9-docker.pkg.dev/mythoria-441816/mythoria/story-generation-workflow:latest \
+    --image europe-west9-docker.pkg.dev/oceanic-beach-460916-n816/mythoria/story-generation-workflow:latest \
     --region europe-west9
 
 # 3. Redeploy workflow
@@ -442,10 +442,10 @@ gcloud billing budgets create \
 #### 1. Service Account Permissions
 ```bash
 # Check service account roles
-gcloud projects get-iam-policy mythoria-441816 \
+gcloud projects get-iam-policy oceanic-beach-460916-n816 \
     --flatten="bindings[].members" \
     --format="table(bindings.role)" \
-    --filter="bindings.members:story-generation-workflow@mythoria-441816.iam.gserviceaccount.com"
+    --filter="bindings.members:story-generation-workflow@oceanic-beach-460916-n.iam.gserviceaccount.com"
 ```
 
 #### 2. Secret Access Issues

@@ -105,8 +105,7 @@ export class TokenUsageTrackingService {
       } else if (estimation.model.includes('gpt-3.5')) {
         // GPT-3.5 Turbo pricing
         inputCostPer1KTokens = 0.0005;    // $0.0005 per 1K input tokens
-        outputCostPer1KTokens = 0.0015;   // $0.0015 per 1K output tokens
-      } else if (estimation.model.includes('dall-e')) {
+        outputCostPer1KTokens = 0.0015;   // $0.0015 per 1K output tokens      } else if (estimation.model.includes('dall-e')) {
         // DALL-E pricing is per image, not per token
         // Estimating based on typical token usage for image prompts
         const imagesGenerated = Math.max(1, Math.floor(estimation.outputTokens / 100));
@@ -119,6 +118,15 @@ export class TokenUsageTrackingService {
           estimation.estimatedCostInEuros = (imagesGenerated * costPerImage * 0.92); // Convert USD to EUR (approximate)
           return estimation;
         }
+      } else if (estimation.model.includes('tts-')) {
+        // TTS pricing is per character, not per token
+        // For TTS, inputTokens represents the number of characters in the input text
+        // outputTokens can be used to represent audio duration or set to 0
+        const charactersProcessed = estimation.inputTokens; // Characters in the input text
+        const costPer1KCharacters = 0.015; // $0.015 per 1K characters ($15.00 per million characters)
+        const totalCostUSD = (charactersProcessed / 1000) * costPer1KCharacters;
+        estimation.estimatedCostInEuros = totalCostUSD * 0.92; // Convert USD to EUR (approximate)
+        return estimation;
       }
     } else if (estimation.provider === 'vertex') {
       if (estimation.model.includes('gemini')) {
@@ -154,12 +162,11 @@ export class TokenUsageTrackingService {
 
     return estimation;
   }
-
   /**
    * Determine provider from model name
    */
   private getProviderFromModel(model: string): 'openai' | 'vertex' | 'unknown' {
-    if (model.includes('gpt') || model.includes('dall-e')) {
+    if (model.includes('gpt') || model.includes('dall-e') || model.includes('tts-')) {
       return 'openai';
     } else if (model.includes('gemini') || model.includes('imagen')) {
       return 'vertex';

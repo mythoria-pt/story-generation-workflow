@@ -68,12 +68,11 @@ export class EnhancedOpenAITextService extends OpenAITextService implements IEnh
       finishReason: 'stop'
     };
   }
-
   /**
    * Estimate token usage when actual usage is not available
    * This is a fallback method - ideally we'd get actual usage from the API
    */
-  private async estimateTokenUsage(prompt: string, content: string, options?: TextGenerationOptions): Promise<TokenUsageInfo> {
+  private async estimateTokenUsage(prompt: string, content: string, _options?: TextGenerationOptions): Promise<TokenUsageInfo> {
     // Use OpenAI's tiktoken library estimation if available, otherwise rough estimation
     const inputTokens = Math.ceil(prompt.length / 4);
     const outputTokens = Math.ceil(content.length / 4);
@@ -88,13 +87,14 @@ export class EnhancedOpenAITextService extends OpenAITextService implements IEnh
       inputTokens,
       outputTokens,
       totalTokens: inputTokens + outputTokens
-    };
-  }
-
-  /**
+    };  }
+  
+  /*
    * Make a direct API call to get actual token usage
    * This method bypasses the parent class to get raw API response with usage data
+   * Currently unused but kept for future implementation
    */
+  /*
   private async makeDirectAPICallForUsage(prompt: string, options?: TextGenerationOptions): Promise<{
     content: string;
     usage: TokenUsageInfo;
@@ -144,6 +144,7 @@ export class EnhancedOpenAITextService extends OpenAITextService implements IEnh
       finishReason: data.choices?.[0]?.finish_reason
     };
   }
+  */
 }
 
 export { EnhancedOpenAITextService as OpenAITextServiceWithUsage };

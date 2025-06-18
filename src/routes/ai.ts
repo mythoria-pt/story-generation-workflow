@@ -17,7 +17,6 @@ import { SchemaService } from '@/services/schema.js';
 import { StorageService } from '@/services/storage.js';
 import { AIGatewayWithTokenTracking } from '@/ai/gateway-with-tracking-v2.js';
 import {
-  getChapterCountForAudience,
   formatTargetAudience,
   getLanguageName,
   getStoryDescription,
@@ -80,11 +79,8 @@ router.post('/text/outline', async (req, res) => {
       });
       return;
     }    // Load prompt template and prepare variables
-    const promptTemplate = await PromptService.loadPrompt('en-US', 'text-outline');    // Determine chapter count - use story's chapterCount if available, otherwise use audience-based default
-    const chapterCount = getChapterCountForAudience(
-      storyContext.story.targetAudience, 
-      storyContext.story.chapterCount
-    );
+    const promptTemplate = await PromptService.loadPrompt('en-US', 'text-outline');    // Use the chapterCount from the database, fallback to 6 if not available
+    const chapterCount = storyContext.story.chapterCount || 6;
 
     // Prepare template variables
     const templateVars = {
@@ -92,7 +88,7 @@ router.post('/text/outline', async (req, res) => {
       targetAudience: formatTargetAudience(storyContext.story.targetAudience),
       place: storyContext.story.place || 'a magical land',
       language: getLanguageName(storyContext.story.storyLanguage),
-      chapterCount, characters: JSON.stringify(
+      chapterCount,characters: JSON.stringify(
         storyContext.characters.map(char => ({
           name: char.name,
           type: char.type || '',

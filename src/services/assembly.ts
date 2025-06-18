@@ -251,7 +251,7 @@ export class AssemblyService {
     <div class="mythoria-message">
       <p class="mythoria-message-text">This story was imagined by <i class="mythoria-author-emphasis">${author}</i>.</p>
       <p class="mythoria-message-text">Crafted with:</p>
-      <img src="Mythoria-logo-white-512x336.jpg" alt="Mythoria Logo" class="mythoria-logo" />
+      <img src="https://storage.googleapis.com/mythoria-generated-stories/Mythoria-logo-white-512x336.jpg" alt="Mythoria Logo" class="mythoria-logo" />
     </div>
 
     <!-- Page Break -->
@@ -299,7 +299,9 @@ export class AssemblyService {
     </div>`;
 
     return html;
-  }  private async createPDF(
+  }
+  
+  private async createPDF(
     story: { title: string; description?: string; author?: string; dedicationMessage?: string | null; storyLanguage?: string }, 
     outline: Record<string, unknown>, 
     chapters: Array<{ number: number, content: string, title: string }>, 

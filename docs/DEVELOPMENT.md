@@ -33,7 +33,7 @@ DB_PORT=5432
 DB_SSL_MODE=disable
 
 # Google Cloud (for local testing)
-GOOGLE_CLOUD_PROJECT_ID=mythoria-441816
+GOOGLE_CLOUD_PROJECT_ID=oceanic-beach-460916-n816
 GOOGLE_APPLICATION_CREDENTIALS=./service-account-key.json
 
 # AI Provider Selection

@@ -96,47 +96,36 @@ export interface StoryContext {
     synopsis?: string;
     additionalRequests?: string;
     graphicalStyle?: string;
+    chapterCount?: number;
   };
   characters: StoryCharacter[];
 }
 
-/**
- * Determines appropriate chapter count based on target audience
- */
-export function getChapterCountForAudience(targetAudience?: string, overrideChapterCount?: number): number {
-  // Use override chapter count if provided
-  if (overrideChapterCount && overrideChapterCount > 0) {
-    return overrideChapterCount;
-  }
-  
-  if (!targetAudience) return 10;
-    const chapterMap: Record<string, number> = {
-    'children_0-2': 5,      // Very short for toddlers
-    'children_3-6': 6,      // Short chapters for preschoolers
-    'children_7-10': 10,    // Standard for early elementary
-    'children_11-14': 12,   // Longer for middle grade
-    'young_adult_15-17': 15, // More complex for YA
-    'adult_18+': 15,        // Full-length for adults
-    'all_ages': 10          // Balanced for all ages
-  };
-  
-  return chapterMap[targetAudience] || 10;
-  //return 2; // Default to 2 chapters to reduce token usage in prompts
-}
+
 
 /**
  * Converts language code to human-readable name
  */
 export function getLanguageName(languageCode: string): string {
   const languageMap: Record<string, string> = {
-    'en-US': 'English',
-    'pt-PT': 'Portuguese',
-    'pt-BR': 'Portuguese (Brazilian)',
-    'es-ES': 'Spanish',
-    'fr-FR': 'French',
-    'de-DE': 'German',
-    'it-IT': 'Italian',
-    'nl-NL': 'Dutch'
+    'en-US': 'English (American)',
+    'en-GB': 'English (British)',
+    'pt-PT': 'Portuguese from Portugal',
+    'pt-BR': 'Portuguese from Brazil',
+    'es-ES': 'Spanish from Spain',
+    'es-MX': 'Spanish from Mexico',
+    'fr-FR': 'French from France',
+    'fr-CA': 'French from Canada',
+    'de-DE': 'German from Germany',
+    'de-AT': 'German from Austria',
+    'it-IT': 'Italian from Italy',
+    'nl-NL': 'Dutch from Netherlands',
+    'zh-CN': 'Chinese (Simplified)',
+    'zh-TW': 'Chinese (Traditional)',
+    'ja-JP': 'Japanese from Japan',
+    'ko-KR': 'Korean from South Korea',
+    'ru-RU': 'Russian from Russia',
+    'ar-SA': 'Arabic from Saudi Arabia'
   };
   
   return languageMap[languageCode] || 'English';
