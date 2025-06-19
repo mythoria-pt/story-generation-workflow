@@ -1,5 +1,9 @@
 {
   "Story": {
-    "credits": "História imaginada por {author}, criada com a [app Mythoria](https://mythoria.pt)."
+    "credits": "Mythoria - Crie a sua própria história.",
+    "tableOfContents": "Índice",
+    "storyImaginedBy": "Esta história foi imaginada por",
+    "craftedWith": "Criada com:",
+    "byAuthor": "por {author}"
   }
 }

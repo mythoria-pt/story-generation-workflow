@@ -53,23 +53,34 @@ export class AssemblyService {
       if (!story) {
         throw new Error(`Story not found: ${run.storyId}`);
       }
-
+      
       // Get outline
       const outlineStep = await this.runsService.getStepResult(runId, 'generate_outline');
       if (!outlineStep?.detailJson) {
         throw new Error('Outline not found');
       }
       
-      // Get all chapters and images
+      // Extract outline data
+      const outlineData = (outlineStep.detailJson as Record<string, unknown>) || ({} as Record<string, unknown>);
+        // Get all chapter steps to retrieve content
       const steps = await this.runsService.getRunSteps(runId);
       const chapterSteps = steps.filter(step => step.stepName.startsWith('write_chapter_'));
 
-      // Sort chapters by number
-      const chapters = chapterSteps
-        .map(step => ({
-          number: parseInt(step.stepName.replace('write_chapter_', '')),
-          content: (step.detailJson as Record<string, unknown>)?.chapter as string || '',
-          title: `Chapter ${step.stepName.replace('write_chapter_', '')}`
+      // Create a map of chapter content by chapter number
+      const chapterContentMap = new Map<number, string>();
+      chapterSteps.forEach(step => {
+        const chapterNumber = parseInt(step.stepName.replace('write_chapter_', ''));
+        const content = (step.detailJson as Record<string, unknown>)?.chapter as string || '';
+        chapterContentMap.set(chapterNumber, content);
+      });
+
+      // Extract chapters from outline data (this contains the actual chapter titles)
+      const outlineChapters = (outlineData.chapters as Array<{ chapterNumber: number; chapterTitle: string }>) || [];
+      const chapters = outlineChapters
+        .map(outlineChapter => ({
+          number: outlineChapter.chapterNumber,
+          content: chapterContentMap.get(outlineChapter.chapterNumber) || '',
+          title: outlineChapter.chapterTitle || `Chapter ${outlineChapter.chapterNumber}`
         }))
         .sort((a, b) => a.number - b.number);
 
@@ -93,8 +104,8 @@ export class AssemblyService {
       if (imageUrls.backCover) {
         bookCoverImages.set('back', imageUrls.backCover);
       }
-        // Create HTML content
-      const outlineData = (outlineStep.detailJson as Record<string, unknown>) || ({} as Record<string, unknown>);
+        
+      // Create HTML content
       const htmlContent = await this.createHTML(
         story, // Use story from database
         outlineData,
@@ -110,7 +121,9 @@ export class AssemblyService {
         chapters,
         chapterImages,
         bookCoverImages
-      );      // Upload files to storage with correct bucket structure
+      );
+      
+      // Upload files to storage with correct bucket structure
       const htmlFilename = `${run.storyId}/story.html`;
       const pdfFilename = `${run.storyId}/story.pdf`;
 
@@ -129,7 +142,8 @@ export class AssemblyService {
         files: {
           html: htmlUrl,
           pdf: pdfUrl
-        },        metadata: {
+        },
+        metadata: {
           title: story.title, // Use title from database
           wordCount: countWords(chapters.map(c => c.content).join(' ')),
           pageCount: Math.ceil(chapters.length / 2), // Rough estimate
@@ -182,12 +196,12 @@ export class AssemblyService {
         if (!file.name) continue;
 
         // Check for front cover
-        if (!frontCover && file.name.includes('front_cover') && file.name.match(/\.(jpg|jpeg|png|webp)$/i)) {
+        if (!frontCover && file.name.includes('frontcover') && file.name.match(/\.(jpg|jpeg|png|webp)$/i)) {
           frontCover = await this.storageService.getPublicUrl(file.name);
         }
         
         // Check for back cover
-        if (!backCover && file.name.includes('back_cover') && file.name.match(/\.(jpg|jpeg|png|webp)$/i)) {
+        if (!backCover && file.name.includes('backcover') && file.name.match(/\.(jpg|jpeg|png|webp)$/i)) {
           backCover = await this.storageService.getPublicUrl(file.name);
         }
           // Check for chapter images
@@ -198,7 +212,9 @@ export class AssemblyService {
             chapters[chapterNum] = await this.storageService.getPublicUrl(file.name);
           }
         }
-      }      const result: { frontCover?: string; backCover?: string; chapters: Record<number, string> } = { chapters };
+      }
+      
+      const result: { frontCover?: string; backCover?: string; chapters: Record<number, string> } = { chapters };
       if (frontCover) result.frontCover = frontCover;
       if (backCover) result.backCover = backCover;
       
@@ -207,7 +223,9 @@ export class AssemblyService {
       logger.warn('Failed to get latest images from storage', { error, storyId });
       return { chapters: {} };
     }
-  }  private async createHTML(
+  }
+  
+  private async createHTML(
     story: { title: string; description?: string; author?: string; dedicationMessage?: string | null; storyLanguage?: string }, 
     outline: Record<string, unknown>, 
     chapters: Array<{ number: number, content: string, title: string }>, 
@@ -219,13 +237,15 @@ export class AssemblyService {
     const dedication = story.dedicationMessage || null;
     const locale = story.storyLanguage || 'en-US';
 
-    // Get localized credits message
-    const creditsMessage = await MessageService.getCreditsMessage(locale, author);    // Generate table of contents
+    // Get localized messages
+    const creditsMessage = await MessageService.getCreditsMessage(locale, author);
+    const tableOfContentsTitle = await MessageService.getTableOfContentsTitle(locale);
+    const storyImaginedByMessage = await MessageService.getStoryImaginedByMessage(locale, author);
+    const craftedWithMessage = await MessageService.getCraftedWithMessage(locale);
+    const byAuthorMessage = await MessageService.getByAuthorMessage(locale, author);// Generate table of contents
     const tableOfContents = chapters.map((chapter) => 
-      `<li class="mythoria-toc-item"><a href="#chapter-${chapter.number}" class="mythoria-toc-link">${chapter.title}</a></li>`
-    ).join('');
-
-    // Generate the HTML body content only (without body tag)
+      `<li class="mythoria-toc-item"><a href="#chapter-${chapter.number}" class="mythoria-toc-link">${chapter.number}. ${chapter.title}</a></li>`
+    ).join('');    // Generate the HTML body content only (without body tag)
     const html = `
     <!-- Story Title -->
     <h1 class="mythoria-story-title">${title}</h1>
@@ -234,23 +254,21 @@ export class AssemblyService {
     ${bookCoverImages.has('front') ? 
       `<div class="mythoria-front-cover">
         <img src="${bookCoverImages.get('front')}" alt="Book Front Cover" class="mythoria-cover-image" />
-      </div>` : 
+      </div>
+      
+      <!-- Page Break -->
+      <div class="mythoria-page-break"></div>` : 
       ''
-    }
-
-    <!-- Page Break -->
-    <div class="mythoria-page-break"></div>
-
-    <!-- Author Dedicatory -->
-    ${dedication ? `<div class="mythoria-dedicatory">${dedication}</div>` : ''}
+    }    <!-- Author Dedicatory -->
+    ${dedication ? `<div class="mythoria-dedicatory">${dedication}</div>
 
     <!-- Author Name -->
-    <div class="mythoria-author-name">by ${author}</div>
+    <div class="mythoria-author-name">${byAuthorMessage}</div>` : ''}
 
     <!-- Mythoria Message -->
     <div class="mythoria-message">
-      <p class="mythoria-message-text">This story was imagined by <i class="mythoria-author-emphasis">${author}</i>.</p>
-      <p class="mythoria-message-text">Crafted with:</p>
+      <p class="mythoria-message-text">${storyImaginedByMessage}</p>
+      <p class="mythoria-message-text">${craftedWithMessage}</p>
       <img src="https://storage.googleapis.com/mythoria-generated-stories/Mythoria-logo-white-512x336.jpg" alt="Mythoria Logo" class="mythoria-logo" />
     </div>
 
@@ -259,7 +277,7 @@ export class AssemblyService {
 
     <!-- Table of Contents -->
     <div class="mythoria-table-of-contents">
-      <h2 class="mythoria-toc-title">Table of Contents</h2>
+      <h2 class="mythoria-toc-title">${tableOfContentsTitle}</h2>
       <ul class="mythoria-toc-list">
         ${tableOfContents}
       </ul>
@@ -285,18 +303,19 @@ export class AssemblyService {
       <div class="mythoria-page-break"></div>
     `).join('')}
 
-    <!-- Back Cover (if available) -->
-    ${bookCoverImages.has('back') ? 
-      `<div class="mythoria-back-cover">
-        <img src="${bookCoverImages.get('back')}" alt="Book Back Cover" class="mythoria-cover-image" />
-      </div>` : 
-      ''
-    }
-
     <!-- Credits -->
     <div class="mythoria-credits">
       <p class="mythoria-credits-text">${creditsMessage}</p>
-    </div>`;
+    </div>
+
+    <!-- Back Cover (if available) -->
+    ${bookCoverImages.has('back') ? 
+      `<div class="mythoria-page-break"></div>
+      <div class="mythoria-back-cover">
+        <img src="${bookCoverImages.get('back')}" alt="Book Back Cover" class="mythoria-cover-image" />
+      </div>` : 
+      ''
+    }`;
 
     return html;
   }
@@ -315,14 +334,18 @@ export class AssemblyService {
       const dedication = story.dedicationMessage || null;
       const locale = story.storyLanguage || 'en-US';
 
-      // Get localized credits message
+      // Get localized messages
       const creditsMessage = await MessageService.getCreditsMessage(locale, author);
+      const tableOfContentsTitle = await MessageService.getTableOfContentsTitle(locale);
+      const storyImaginedByMessage = await MessageService.getStoryImaginedByMessage(locale, author);
+      const craftedWithMessage = await MessageService.getCraftedWithMessage(locale);
+      const byAuthorMessage = await MessageService.getByAuthorMessage(locale, author);
 
       // Generate table of contents
       const tableOfContents = chapters.map((chapter) => 
-        `<li class="mythoria-toc-item"><a href="#chapter-${chapter.number}" class="mythoria-toc-link">${chapter.title}</a></li>`
+        `<li class="mythoria-toc-item"><a href="#chapter-${chapter.number}" class="mythoria-toc-link">${chapter.number}. ${chapter.title}</a></li>`
       ).join('');
-
+      
       // Generate the HTML body content for PDF
       const storyContent = `
         <!-- Story Title -->
@@ -332,24 +355,24 @@ export class AssemblyService {
         ${bookCoverImages.has('front') ? 
           `<div class="mythoria-front-cover">
             <img src="${bookCoverImages.get('front')}" alt="Book Front Cover" class="mythoria-cover-image" />
-          </div>` : 
+          </div>
+          
+          <!-- Page Break -->
+          <div class="mythoria-page-break"></div>` : 
           ''
         }
-
-        <!-- Page Break -->
-        <div class="mythoria-page-break"></div>
-
+        
         <!-- Author Dedicatory -->
-        ${dedication ? `<div class="mythoria-dedicatory">${dedication}</div>` : ''}
-
+        ${dedication ? `<div class="mythoria-dedicatory">${dedication}</div>
+        
         <!-- Author Name -->
-        <div class="mythoria-author-name">by ${author}</div>
+        <div class="mythoria-author-name">${byAuthorMessage}</div>` : ''}        
 
         <!-- Mythoria Message -->
         <div class="mythoria-message">
-          <p class="mythoria-message-text">This story was imagined by <i class="mythoria-author-emphasis">${author}</i>.</p>
-          <p class="mythoria-message-text">Crafted with:</p>
-          <img src="Mythoria-logo-white-512x336.jpg" alt="Mythoria Logo" class="mythoria-logo" />
+          <p class="mythoria-message-text">${storyImaginedByMessage}</p>
+          <p class="mythoria-message-text">${craftedWithMessage}</p>
+          <img src="https://storage.googleapis.com/mythoria-generated-stories/Mythoria-logo-white-512x336.jpg" alt="Mythoria Logo" class="mythoria-logo" />
         </div>
 
         <!-- Page Break -->
@@ -357,7 +380,7 @@ export class AssemblyService {
 
         <!-- Table of Contents -->
         <div class="mythoria-table-of-contents">
-          <h2 class="mythoria-toc-title">Table of Contents</h2>
+          <h2 class="mythoria-toc-title">${tableOfContentsTitle}</h2>
           <ul class="mythoria-toc-list">
             ${tableOfContents}
           </ul>
@@ -380,21 +403,21 @@ export class AssemblyService {
               ${chapter.content.split('\n').map((p: string) => p.trim() ? `<p class="mythoria-chapter-paragraph">${p}</p>` : '').join('')}
             </div>
           </div>
-          <div class="mythoria-page-break"></div>
         `).join('')}
-
-        <!-- Back Cover (if available) -->
-        ${bookCoverImages.has('back') ? 
-          `<div class="mythoria-back-cover">
-            <img src="${bookCoverImages.get('back')}" alt="Book Back Cover" class="mythoria-cover-image" />
-          </div>` : 
-          ''
-        }
 
         <!-- Credits -->
         <div class="mythoria-credits">
           <p class="mythoria-credits-text">${creditsMessage}</p>
-        </div>`;
+        </div>
+
+        <!-- Back Cover (if available) -->
+        ${bookCoverImages.has('back') ? 
+          `<div class="mythoria-page-break"></div>
+          <div class="mythoria-back-cover">
+            <img src="${bookCoverImages.get('back')}" alt="Book Back Cover" class="mythoria-cover-image" />
+          </div>` : 
+          ''
+        }`;
 
       // Use the PDF service to generate the PDF with the proper template
       const pdfBuffer = await this.pdfService.generateStoryPDF(

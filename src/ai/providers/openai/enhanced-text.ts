@@ -12,13 +12,7 @@ export class EnhancedOpenAITextService extends OpenAITextService implements IEnh
   
   async completeWithUsage(prompt: string, options?: TextGenerationOptions): Promise<TextGenerationResult> {
     try {
-      if (this['useResponsesAPI']) {
-        // For Responses API, we need to extract usage from the response
-        return await this.completeWithResponsesAPIAndUsage(prompt, options);
-      } else {
-        // For Chat Completions API, we can get usage directly
-        return await this.completeWithChatCompletionsAndUsage(prompt, options);
-      }
+      return await this.completeWithResponsesAPIAndUsage(prompt, options);
     } catch (error) {
       logger.error('Enhanced OpenAI text generation failed', {
         error: error instanceof Error ? error.message : String(error),
@@ -27,30 +21,6 @@ export class EnhancedOpenAITextService extends OpenAITextService implements IEnh
       });
       throw error;
     }
-  }
-
-  /**
-   * Enhanced Chat Completions with usage tracking
-   */
-  private async completeWithChatCompletionsAndUsage(prompt: string, options?: TextGenerationOptions): Promise<TextGenerationResult> {
-    // We need to access the private methods and properties from the parent class
-    // This requires some workaround since TypeScript doesn't allow direct access to private members
-    
-    // Call the original complete method and capture the result
-    const content = await this.complete(prompt, options);
-    
-    // Since we can't directly access the API response from the parent class,
-    // we'll need to make our own API call to get the usage data
-    // This is not ideal but necessary for backward compatibility
-    
-    const usage = await this.estimateTokenUsage(prompt, content, options);
-    
-    return {
-      content,
-      usage,
-      model: options?.model || this['model'] || 'gpt-4o',
-      finishReason: 'stop'
-    };
   }
 
   /**

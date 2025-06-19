@@ -4,7 +4,6 @@
  */
 
 import { Router } from 'express';
-import { logger } from '@/config/logger.js';
 import { z } from 'zod';
 import {
   validateImageRequest,
@@ -16,6 +15,7 @@ import { PromptService } from '@/services/prompt.js';
 import { SchemaService } from '@/services/schema.js';
 import { StorageService } from '@/services/storage.js';
 import { AIGatewayWithTokenTracking } from '@/ai/gateway-with-tracking-v2.js';
+import { logger } from '@/config/logger.js';
 import {
   formatTargetAudience,
   getLanguageName,
@@ -61,14 +61,8 @@ const ChapterRequestSchema = z.object({
  * POST /ai/text/outline
  * Generate story outline using AI text generation with story context from database
  */
-router.post('/text/outline', async (req, res) => {
-  try {
+router.post('/text/outline', async (req, res) => {  try {
     const { storyId, runId } = OutlineRequestSchema.parse(req.body);
-
-    logger.info('AI Gateway: Generating story outline from database context', {
-      storyId,
-      runId
-    });
 
     // Load story context from database
     const storyContext = await storyService.getStoryContext(storyId);
@@ -118,9 +112,19 @@ router.post('/text/outline', async (req, res) => {
 
     // Load JSON schema for structured output
     const storyOutlineSchema = await SchemaService.loadSchema('story-outline');    // Generate outline using AI with specific outline model and JSON schema
-    const outlineModel = process.env.VERTEX_AI_OUTLINE_MODEL || process.env.VERTEX_AI_MODEL_ID || 'gemini-2.0-flash';
+    // Use model based on configured text provider
+    let outlineModel: string;
+    const textProvider = process.env.TEXT_PROVIDER || 'google-genai';
+    
+    if (textProvider === 'openai') {
+      outlineModel = process.env.OPENAI_TEXT_MODEL || 'gpt-4.1';
+    } else if (textProvider === 'google-genai') {
+      outlineModel = process.env.GOOGLE_GENAI_MODEL || 'gemini-2.5-flash';
+    } else {
+      outlineModel = 'gpt-4.1';
+    }
     const requestOptions = {
-      maxTokens: 8192,
+      maxTokens: 16384,
       temperature: 1,
       model: outlineModel,
       jsonSchema: storyOutlineSchema
@@ -134,20 +138,16 @@ router.post('/text/outline', async (req, res) => {
     const outline = await aiGateway.getTextService(aiContext).complete(finalPrompt, requestOptions);
 
     // Parse and validate the AI response
-    const outlineData = parseAIResponse(outline);
-
-    // Validate that the response matches our expected structure
+    const outlineData = parseAIResponse(outline);    // Validate that the response matches our expected structure
     if (!outlineData.bookTitle || !outlineData.chapters || !Array.isArray(outlineData.chapters)) {
+      logger.error('Invalid outline structure', {
+        hasBookTitle: !!outlineData.bookTitle,
+        hasChapters: !!outlineData.chapters,
+        isChaptersArray: Array.isArray(outlineData.chapters),
+        actualKeys: Object.keys(outlineData)
+      });
       throw new Error('Invalid outline structure received');
     }
-
-    logger.info('AI Gateway: Story outline generated successfully', {
-      storyId,
-      runId,
-      outlineLength: outline.length,
-      storyTitle: storyContext.story.title,
-      charactersCount: storyContext.characters.length
-    });
 
     res.json({
       success: true,
@@ -157,15 +157,8 @@ router.post('/text/outline', async (req, res) => {
       storyContext: {
         title: storyContext.story.title,
         charactersCount: storyContext.characters.length
-      }
-    });
+      }    });
   } catch (error) {
-    logger.error('AI Gateway: Outline generation failed', {
-      error: error instanceof Error ? error.message : String(error),
-      storyId: req.body?.storyId,
-      runId: req.body?.runId
-    });
-
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error'
@@ -191,16 +184,8 @@ router.post('/text/chapter/:chapterNumber', async (req, res) => {
           success: false,
           error: `Invalid chapter number ${chapterNumber}. Must be between 1 and ${maxChapters}.`
         });
-        return;
-      }
+        return;      }
     }
-
-    logger.info('AI Gateway: Generating chapter', {
-      storyId,
-      runId: runId || 'N/A',
-      chapterNumber,
-      chapterTitle
-    });
 
     // Get story context from database
     const storyContext = await storyService.getStoryContext(storyId);
@@ -240,15 +225,8 @@ router.post('/text/chapter/:chapterNumber', async (req, res) => {
 
     // Generate chapter content
     const chapterText = await aiGateway.getTextService(chapterContext).complete(chapterPrompt, {
-      maxTokens: 6000,
-      temperature: 0.8
-    });
-
-    logger.info('AI Gateway: Chapter generated successfully', {
-      storyId,
-      runId: runId || 'N/A',
-      chapterNumber,
-      chapterLength: chapterText.length
+      maxTokens: 16384,
+      temperature: 1
     });
 
     res.json({
@@ -258,15 +236,7 @@ router.post('/text/chapter/:chapterNumber', async (req, res) => {
       chapterNumber,
       chapter: chapterText.trim()
     });
-
   } catch (error) {
-    logger.error('AI Gateway: Chapter generation failed', {
-      error: error instanceof Error ? error.message : String(error),
-      storyId: req.body.storyId,
-      runId: req.body.runId || 'N/A',
-      chapterNumber: req.params.chapterNumber
-    });
-
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error'
@@ -280,16 +250,8 @@ router.post('/text/chapter/:chapterNumber', async (req, res) => {
  */
 router.post('/image', async (req, res) => {
   let currentStep = 'parsing_request';
-  try {
-    const { prompt, storyId, runId, chapterNumber, imageType, width, height, style } =
-      validateImageRequest(req.body);    logger.info('AI Gateway: Generating image', {
-      storyId,
-      runId,
-      chapterNumber,
-      imageType,
-      promptLength: prompt.length,
-      dimensions: width && height ? `${width}x${height}` : 'default'
-    });
+  try {    const { prompt, storyId, runId, chapterNumber, imageType, width, height, style } =
+      validateImageRequest(req.body);
 
     // Get story context to extract authorId for token tracking
     const storyContext = await storyService.getStoryContext(storyId);
@@ -312,15 +274,7 @@ router.post('/image', async (req, res) => {
     const imageBuffer = await aiGateway.getImageService(imageContext).generate(prompt, {
       ...(width && { width }),
       ...(height && { height }),
-      ...(style && { style })
-    });
-
-    logger.info('AI Gateway: Image generated successfully', {
-      storyId,
-      runId,
-      chapterNumber,
-      imageSize: imageBuffer.length
-    });
+      ...(style && { style })    });
 
     currentStep = 'preparing_upload';
     const filename = generateImageFilename({
@@ -329,17 +283,7 @@ router.post('/image', async (req, res) => {
       ...(chapterNumber !== undefined ? { chapterNumber } : {})
     });
 
-    currentStep = 'uploading_to_storage';
-    const imageUrl = await storageService.uploadFile(filename, imageBuffer, 'image/png');
-
-    logger.info('AI Gateway: Image uploaded to storage', {
-      storyId,
-      runId,
-      chapterNumber,
-      filename,
-      imageUrl,
-      imageSize: imageBuffer.length
-    });
+    currentStep = 'uploading_to_storage';    const imageUrl = await storageService.uploadFile(filename, imageBuffer, 'image/png');
 
     res.json({
       success: true,
@@ -349,13 +293,10 @@ router.post('/image', async (req, res) => {
       image: {
         url: imageUrl,
         filename,
-        format: 'png',
-        size: imageBuffer.length
+        format: 'png',        size: imageBuffer.length
       }
-    });
-  } catch (error) {
+    });  } catch (error) {
     const errorDetails = formatImageError(error, req.body, currentStep);
-    logger.error('AI Gateway: Image generation or upload failed', errorDetails);
 
     res.status(500).json({
       success: false,
@@ -363,6 +304,85 @@ router.post('/image', async (req, res) => {
       failedAt: currentStep,
       timestamp: errorDetails.timestamp,
       requestId: req.body.runId || 'unknown'
+    });
+  }
+});
+
+/**
+ * GET /ai/test-text
+ * Test the configured text AI provider with environment variables and basic prompt
+ */
+router.get('/test-text', async (_req, res) => {
+  try {    // Collect relevant environment variables for AI provider selection
+    const envVars = {
+      TEXT_PROVIDER: process.env.TEXT_PROVIDER,
+      IMAGE_PROVIDER: process.env.IMAGE_PROVIDER,
+      
+      // Google GenAI
+      GOOGLE_GENAI_API_KEY: process.env.GOOGLE_GENAI_API_KEY ? '***REDACTED***' : undefined,
+      GOOGLE_GENAI_MODEL: process.env.GOOGLE_GENAI_MODEL,
+      
+      // OpenAI
+      OPENAI_API_KEY: process.env.OPENAI_API_KEY ? '***REDACTED***' : undefined,
+      OPENAI_TEXT_MODEL: process.env.OPENAI_TEXT_MODEL,
+      
+      // Debug settings
+      DEBUG_AI_FULL_PROMPTS: process.env.DEBUG_AI_FULL_PROMPTS,
+      DEBUG_AI_FULL_RESPONSES: process.env.DEBUG_AI_FULL_RESPONSES,
+      LOG_LEVEL: process.env.LOG_LEVEL
+    };    // Create a test context for the AI call
+    const testContext = {
+      authorId: '00000000-0000-0000-0000-000000000001', // Test UUID
+      storyId: '00000000-0000-0000-0000-000000000002', // Test UUID
+      action: 'test' as const
+    };
+
+    let success = false;
+    let response = '';
+    let error = null;
+    let provider = '';
+    
+    try {
+      // Get the text service from the AI gateway
+      const textService = aiGateway.getTextService(testContext);
+      provider = process.env.TEXT_PROVIDER || 'google-genai';
+      
+      // Make a basic prompt request
+      response = await textService.complete('Say hi and tell me you are working correctly. Keep it brief.', {
+        maxTokens: 100,
+        temperature: 0.7
+      });
+      
+      success = true;
+    } catch (aiError) {
+      success = false;
+      error = {
+        message: aiError instanceof Error ? aiError.message : String(aiError),
+        stack: aiError instanceof Error ? aiError.stack : undefined,
+        name: aiError instanceof Error ? aiError.name : 'UnknownError'
+      };
+    }
+
+    res.json({
+      success,
+      timestamp: new Date().toISOString(),
+      environment: envVars,
+      testResult: {
+        provider,
+        response: success ? response : null,
+        error: error
+      }
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      timestamp: new Date().toISOString(),
+      error: {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        name: error instanceof Error ? error.name : 'UnknownError'
+      }
     });
   }
 });

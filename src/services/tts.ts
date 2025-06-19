@@ -4,13 +4,13 @@
  * Generates audio per chapter to avoid character limits and provide better UX
  */
 
-import { RunsService } from './runs.js';
-import { StoryService } from './story.js';
-import { StorageService } from './storage.js';
-import { tokenUsageTrackingService } from './token-usage-tracking.js';
-import { logger } from '@/config/logger.js';
+import { RunsService } from './runs';
+import { StoryService } from './story';
+import { StorageService } from './storage';
+import { tokenUsageTrackingService } from './token-usage-tracking';
+import { logger } from '@/config/logger';
 import OpenAI from 'openai';
-import { countWords } from '@/shared/utils.js';
+import { countWords } from '@/shared/utils';
 
 export interface TTSChapterResult {
   chapterNumber: number;
@@ -96,11 +96,42 @@ export class TTSService {
         throw new Error(`Run not found: ${runId}`);
       }
 
-      // Get story details to obtain the story language
+      // Get story details to obtain the story language and check features
       const story = await this.storyService.getStory(run.storyId);
       if (!story) {
-        throw new Error(`Story not found: ${run.storyId}`);
+        throw new Error(`Story not found: ${run.storyId}`);      }      // Check if story has audioBook feature enabled
+      const features = (story.features as Record<string, unknown>) || {};
+      if (!features.audioBook) {
+        logger.info('Audio generation skipped for chapter - not enabled for this story', { 
+          runId, 
+          chapterNumber,
+          storyId: run.storyId, 
+          audioBookEnabled: features.audioBook 
+        });
+        
+        // Return empty result indicating audio generation was skipped
+        return {
+          chapterNumber,
+          audioUrl: '',
+          duration: 0,
+          format: 'mp3',
+          provider: 'openai' as const,
+          voice: 'nova',
+          metadata: {
+            totalWords: 0,
+            generatedAt: new Date().toISOString(),
+            model: 'tts-1',
+            speed: 0.9
+          }
+        };
       }
+
+      logger.info('Audio generation authorized for chapter', { 
+        runId, 
+        chapterNumber,
+        storyId: run.storyId, 
+        audioBookEnabled: features.audioBook 
+      });
 
       // Get TTS configuration
       const config = this.getTTSConfig();
@@ -235,6 +266,43 @@ export class TTSService {
       if (!run) {
         throw new Error(`Run not found: ${runId}`);
       }
+
+      // Get story details to check features
+      const story = await this.storyService.getStory(run.storyId);
+      if (!story) {
+        throw new Error(`Story not found: ${run.storyId}`);
+      }      
+      // Check if story has audioBook feature enabled
+      const features = (story.features as Record<string, unknown>) || {};
+      if (!features.audioBook) {
+        logger.info('Audio generation skipped - not enabled for this story', { 
+          runId, 
+          storyId: run.storyId, 
+          audioBookEnabled: features.audioBook 
+        });
+        
+        // Return empty result indicating audio generation was skipped
+        return {
+          audioUrls: {},
+          totalDuration: 0,
+          format: 'mp3',
+          provider: 'openai' as const,
+          voice: 'coral',
+          metadata: {
+            totalWords: 0,
+            generatedAt: new Date().toISOString(),
+            model: 'gpt-4.1',
+            speed: 0.9,
+            chaptersProcessed: 0
+          }
+        };
+      }
+
+      logger.info('Audio generation authorized for story', { 
+        runId, 
+        storyId: run.storyId, 
+        audioBookEnabled: features.audioBook 
+      });
 
       // Get all chapters
       const steps = await this.runsService.getRunSteps(runId);

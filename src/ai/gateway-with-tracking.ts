@@ -12,7 +12,7 @@ export interface AICallContext {
   authorId: string;
   storyId: string;
   action: 'story_structure' | 'story_outline' | 'chapter_writing' | 'image_generation' | 
-          'story_review' | 'character_generation' | 'story_enhancement' | 'audio_generation' | 'content_validation';
+          'story_review' | 'character_generation' | 'story_enhancement' | 'audio_generation' | 'content_validation' | 'test';
 }
 
 /**

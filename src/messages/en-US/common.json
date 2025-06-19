@@ -1,5 +1,9 @@
 {
   "Story": {
-    "credits": "Story imagined by {author}, crafted using the [Mythoria app](https://mythoria.pt)."
+    "credits": "Mythoria - tell your own story.",
+    "tableOfContents": "Table of Contents",
+    "storyImaginedBy": "This story was imagined by",
+    "craftedWith": "Crafted with:",
+    "byAuthor": "by {author}"
   }
 }

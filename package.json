@@ -28,8 +28,8 @@
   },
   "dependencies": {
     "@google-cloud/storage": "^7.14.0",
-    "@google-cloud/vertexai": "^1.10.0",
     "@google-cloud/workflows": "^4.2.0",
+    "@google/generative-ai": "^0.24.1",
     "@types/pg": "^8.15.2",
     "dotenv": "^16.5.0",
     "drizzle-kit": "^0.31.1",

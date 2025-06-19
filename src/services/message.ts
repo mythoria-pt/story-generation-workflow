@@ -10,6 +10,10 @@ import { logger } from '@/config/logger.js';
 export interface MessageData {
   Story: {
     credits: string;
+    tableOfContents: string;
+    storyImaginedBy: string;
+    craftedWith: string;
+    byAuthor: string;
   };
 }
 
@@ -45,11 +49,14 @@ export class MessageService {
       if (locale !== 'en-US') {
         return this.loadMessages('en-US');
       }
-      
-      // If even en-US fails, return default messages
+        // If even en-US fails, return default messages
       const defaultMessages: MessageData = {
         Story: {
-          credits: "Story imagined by {author}, crafted using the [Mythoria app](https://mythoria.pt)."
+          credits: "Story imagined by {author}, crafted using the [Mythoria app](https://mythoria.pt).",
+          tableOfContents: "Table of Contents",
+          storyImaginedBy: "This story was imagined by",
+          craftedWith: "Crafted with:",
+          byAuthor: "by {author}"
         }
       };
       
@@ -64,6 +71,38 @@ export class MessageService {
   static async getCreditsMessage(locale: string, author: string): Promise<string> {
     const messages = await this.loadMessages(locale);
     return messages.Story.credits.replace('{author}', author);
+  }
+
+  /**
+   * Get table of contents title
+   */
+  static async getTableOfContentsTitle(locale: string): Promise<string> {
+    const messages = await this.loadMessages(locale);
+    return messages.Story.tableOfContents;
+  }
+
+  /**
+   * Get "story imagined by" message with author substitution
+   */
+  static async getStoryImaginedByMessage(locale: string, author: string): Promise<string> {
+    const messages = await this.loadMessages(locale);
+    return `${messages.Story.storyImaginedBy} <i class="mythoria-author-emphasis">${author}</i>.`;
+  }
+
+  /**
+   * Get "crafted with" message
+   */
+  static async getCraftedWithMessage(locale: string): Promise<string> {
+    const messages = await this.loadMessages(locale);
+    return messages.Story.craftedWith;
+  }
+
+  /**
+   * Get "by author" message with author substitution
+   */
+  static async getByAuthorMessage(locale: string, author: string): Promise<string> {
+    const messages = await this.loadMessages(locale);
+    return messages.Story.byAuthor.replace('{author}', author);
   }
 
   /**

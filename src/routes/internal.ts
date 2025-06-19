@@ -5,12 +5,15 @@
 
 import { Router } from 'express';
 import { z } from 'zod';
+import { readFile } from 'fs/promises';
+import { join } from 'path';
 import { logger } from '@/config/logger.js';
 import { RunsService } from '@/services/runs.js';
 import { AssemblyService } from '@/services/assembly.js';
 import { TTSService } from '@/services/tts.js';
 import { StorageService } from '@/services/storage.js';
 import { ProgressTrackerService } from '@/services/progress-tracker.js';
+import { StoryService } from '@/services/story.js';
 
 const router = Router();
 
@@ -20,6 +23,7 @@ const assemblyService = new AssemblyService();
 const ttsService = new TTSService();
 const storageService = new StorageService();
 const progressTracker = new ProgressTrackerService();
+const storyService = new StoryService();
 
 // Request schemas
 const UpdateRunRequestSchema = z.object({
@@ -189,16 +193,43 @@ router.get('/prompts/:runId/:chapterNumber', async (req, res) => {
         error: `No photo prompt found for chapter ${chapterNumber}`
       });
       return;
+    }    // Get the story context to retrieve graphicalStyle
+    const run = await runsService.getRun(runId);
+    let enhancedPrompt = chapter.chapterPhotoPrompt;
+    
+    if (run?.storyId) {
+      const storyContext = await storyService.getStoryContext(run.storyId);
+      
+      if (storyContext?.story.graphicalStyle) {
+        try {
+          // Load the image styles configuration
+          const imageStylesPath = join(process.cwd(), 'src', 'prompts', 'imageStyles.json');
+          const imageStylesContent = await readFile(imageStylesPath, 'utf-8');
+          const imageStyles = JSON.parse(imageStylesContent);
+          
+          const styleConfig = imageStyles[storyContext.story.graphicalStyle];
+          if (styleConfig?.systemPrompt) {
+            enhancedPrompt += ` Use the following style guidelines: ${styleConfig.systemPrompt}`;
+          }
+        } catch (styleError) {
+          logger.warn('Failed to load image style guidelines', {
+            error: styleError instanceof Error ? styleError.message : String(styleError),
+            graphicalStyle: storyContext.story.graphicalStyle
+          });
+        }
+      }
     }
 
     logger.debug('Internal API: Chapter prompt retrieved successfully', {
       runId,
       chapterNumber,
-      promptLength: chapter.chapterPhotoPrompt.length
+      promptLength: enhancedPrompt.length,
+      originalLength: chapter.chapterPhotoPrompt.length,
+      hasStyleGuidelines: enhancedPrompt.length > chapter.chapterPhotoPrompt.length
     });
 
-    // Return the prompt in the format expected by the workflow
-    res.json(chapter.chapterPhotoPrompt);
+    // Return the enhanced prompt in the format expected by the workflow
+    res.json(enhancedPrompt);
 
   } catch (error) {
     logger.error('Internal API: Failed to get chapter prompt', {
@@ -360,8 +391,7 @@ router.get('/prompts/:runId/book-cover/:coverType', async (req, res) => {
 
     const outline = outlineStep.detailJson as any;
     const promptField = coverType === 'front' ? 'bookCoverPrompt' : 'bookBackCoverPrompt';
-    
-    if (!outline[promptField]) {
+      if (!outline[promptField]) {
       res.status(404).json({
         success: false,
         error: `No ${coverType} cover prompt found in outline`
@@ -369,14 +399,44 @@ router.get('/prompts/:runId/book-cover/:coverType', async (req, res) => {
       return;
     }
 
+    // Get the story context to retrieve graphicalStyle
+    const run = await runsService.getRun(runId);
+    let enhancedPrompt = outline[promptField];
+    
+    if (run?.storyId) {
+      const storyContext = await storyService.getStoryContext(run.storyId);
+      
+      if (storyContext?.story.graphicalStyle) {
+        try {
+          // Load the image styles configuration
+          const imageStylesPath = join(process.cwd(), 'src', 'prompts', 'imageStyles.json');
+          const imageStylesContent = await readFile(imageStylesPath, 'utf-8');
+          const imageStyles = JSON.parse(imageStylesContent);
+          
+          const styleConfig = imageStyles[storyContext.story.graphicalStyle];
+          if (styleConfig?.systemPrompt) {
+            enhancedPrompt += ` Use the following style guidelines: ${styleConfig.systemPrompt}`;
+          }
+        } catch (styleError) {
+          logger.warn('Failed to load image style guidelines for book cover', {
+            error: styleError instanceof Error ? styleError.message : String(styleError),
+            graphicalStyle: storyContext.story.graphicalStyle,
+            coverType
+          });
+        }
+      }
+    }
+
     logger.debug('Internal API: Book cover prompt retrieved successfully', {
       runId,
       coverType,
-      promptLength: outline[promptField].length
+      promptLength: enhancedPrompt.length,
+      originalLength: outline[promptField].length,
+      hasStyleGuidelines: enhancedPrompt.length > outline[promptField].length
     });
 
-    // Return the prompt in the format expected by the workflow
-    res.json(outline[promptField]);
+    // Return the enhanced prompt in the format expected by the workflow
+    res.json(enhancedPrompt);
 
   } catch (error) {
     logger.error('Internal API: Failed to get book cover prompt', {
@@ -449,12 +509,11 @@ router.post('/tts/:runId', async (req, res) => {
     await runsService.storeStepResult(runId, 'tts', {
       status: 'completed',
       result
-    });
-
-    logger.info('Internal API: TTS generated successfully', {
+    });    logger.info('Internal API: TTS request completed', {
       runId,
       audioUrls: result.audioUrls,
-      chaptersProcessed: result.metadata.chaptersProcessed
+      chaptersProcessed: result.metadata.chaptersProcessed,
+      audioGenerated: Object.keys(result.audioUrls).length > 0
     });
 
     res.json({

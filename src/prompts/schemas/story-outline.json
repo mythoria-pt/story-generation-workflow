@@ -1,82 +1,61 @@
 {
-  "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
-  "title": "Story Outline Schema",
-  "description": "JSON schema for story outline generation response",
-  "required": [
-    "bookTitle",
-    "bookCoverPrompt",
-    "bookBackCoverPrompt",
-    "synopses",
-    "chapters"
-  ],
   "properties": {
     "bookTitle": {
       "type": "string",
-      "description": "The title of the book",
-      "minLength": 1,
-      "maxLength": 255
+      "maxLength": 150
     },
     "bookCoverPrompt": {
       "type": "string",
-      "description": "Detailed prompt for generating the book cover illustration",
-      "minLength": 10,
-      "maxLength": 1000
+      "description": "Detailed prompt for generating the book cover illustration. Include characters physical descriptions, actions, and settings.",
+      "maxLength": 600
     },
     "bookBackCoverPrompt": {
       "type": "string",
-      "description": "Detailed prompt for generating the book back cover illustration",
-      "minLength": 10,
-      "maxLength": 1000
-    },
-    "synopses": {
+      "description": "Detailed prompt for generating the book back cover illustration. Include characters physical descriptions, actions, and settings.",
+      "maxLength": 600
+    },    "synopses": {
       "type": "string",
-      "description": "Brief synopsis of the entire book",
-      "minLength": 10,
-      "maxLength": 500
+      "description": "Detailed synopsis of the entire book"
     },
     "chapters": {
       "type": "array",
-      "description": "Array of chapter details",
-      "minItems": 1,
-      "maxItems": 50,
       "items": {
         "type": "object",
-        "required": [
-          "chapterNumber",
-          "chapterTitle",
-          "chapterSynopses",
-          "chapterPhotoPrompt"
-        ],
         "properties": {
           "chapterNumber": {
             "type": "integer",
-            "description": "Chapter number (1-based)",
-            "minimum": 1,
-            "maximum": 50
+            "description": "Chapter number (1-based)"
           },
           "chapterTitle": {
-            "type": "string",
-            "description": "Title of the chapter",
-            "minLength": 1,
-            "maxLength": 100
+            "type": "string"
           },
           "chapterSynopses": {
-            "type": "string",  
-            "description": "Brief synopsis of what happens in this chapter",
-            "minLength": 10,
-            "maxLength": 300
+            "type": "string",
+            "description": "Detailed and full synopsis of what happens in this chapter. Include characters names, descriptions and actions"
           },
           "chapterPhotoPrompt": {
             "type": "string",
-            "description": "Detailed prompt for generating an illustration for this chapter",
-            "minLength": 10,
-            "maxLength": 500
+            "description": "Detailed prompt for generating an illustration for this chapter. Include characters physical descriptions, actions, and settings."
           }
         },
+        "required": [
+          "chapterPhotoPrompt",
+          "chapterNumber",
+          "chapterSynopses",
+          "chapterTitle"
+        ],
         "additionalProperties": false
-      }
+      },
+      "maxItems": 20
     }
   },
+  "required": [
+    "bookTitle",
+    "chapters",
+    "synopses",
+    "bookBackCoverPrompt",
+    "bookCoverPrompt"
+  ],
   "additionalProperties": false
 }

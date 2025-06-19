@@ -61,12 +61,10 @@ export interface AIProviderConfig {
     openaiApiKey?: string;
     openaiUseResponsesAPI?: boolean;
     openaiImageModel?: string;
-    vertexProjectId?: string;
-    vertexLocation?: string;
-    vertexModel?: string;
-    vertexOutlineModel?: string;
+    googleGenAIApiKey?: string;
+    googleGenAIModel?: string;
   };
 }
 
-export type TextProvider = 'vertex' | 'openai';
-export type ImageProvider = 'vertex' | 'openai';
+export type TextProvider = 'openai' | 'google-genai';
+export type ImageProvider = 'openai';

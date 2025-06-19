@@ -1,3 +1,4 @@
+/** @type {import('jest').Config} */
 export default {
   preset: 'ts-jest/presets/default-esm',
   testEnvironment: 'node',
@@ -6,7 +7,8 @@ export default {
   setupFilesAfterEnv: ['<rootDir>/src/tests/setup.ts'],
   transform: {
     '^.+\\.ts$': ['ts-jest', { 
-      useESM: true
+      useESM: true,
+      tsconfig: 'tsconfig.test.json'
     }],
   },
   collectCoverageFrom: [
@@ -18,7 +20,12 @@ export default {
   ],
   coverageDirectory: 'coverage',
   coverageReporters: ['text', 'lcov', 'html'],  moduleNameMapper: {
+    '^@/(.*)\\.js$': '<rootDir>/src/$1.ts',
     '^@/(.*)$': '<rootDir>/src/$1',
   },
-  extensionsToTreatAsEsm: ['.ts']
+  extensionsToTreatAsEsm: ['.ts'],
+  moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node'],
+  transformIgnorePatterns: [
+    'node_modules/(?!(.*\\.mjs$))'
+  ]
 };

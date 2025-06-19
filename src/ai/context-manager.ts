@@ -1,9 +1,8 @@
 /**
- * AI Context Manager
- * Manages conversation context across multiple AI requests for story generation
+ * AI Context Manager - Simplified for Stateful Conversation APIs
+ * Manages session identifiers and provider-specific data for story generation
+ * Note: Conversation history is now handled natively by OpenAI Responses API and Google GenAI Chat instances
  */
-
-// import { logger } from '../config/log.js';
 
 // Simple logging for now to avoid test issues
 const log = {
@@ -17,36 +16,25 @@ export interface ContextData {
   contextId: string;
   storyId: string;
   systemPrompt: string;
-  conversationHistory: ConversationEntry[];
   providerSpecificData: ProviderContextData;
   createdAt: Date;
   updatedAt: Date;
 }
 
-export interface ConversationEntry {
-  role: 'system' | 'user' | 'assistant';
-  content: string;
-  timestamp: Date;
-  step: string; // e.g., 'outline', 'chapter-1', 'chapter-2'
-}
-
 export interface ProviderContextData {
-  // Google Vertex AI Context Cache
-  vertex?: {
-    cachedContentName?: string;
-    cachedContentId?: string;
-  };
-  
-  // OpenAI Response API
+  // OpenAI Response API - stores response_id for stateful conversations
   openai?: {
     responseId?: string;
-    conversationId?: string;
+  };
+
+  // Google GenAI - stores chat instance for stateful conversations
+  googleGenAI?: {
+    chatInstance?: any; // The Chat instance from ai.chats.create()
   };
 }
 
 /**
- * Context Manager handles storing and retrieving context data
- * Currently uses in-memory storage but can be extended to use Redis or database
+ * Context Manager handles storing and retrieving session data for stateful AI conversations
  */
 export class AIContextManager {
   private contexts: Map<string, ContextData> = new Map();
@@ -63,12 +51,6 @@ export class AIContextManager {
       contextId,
       storyId,
       systemPrompt,
-      conversationHistory: [{
-        role: 'system',
-        content: systemPrompt,
-        timestamp: new Date(),
-        step: 'initialization'
-      }],
       providerSpecificData: {},
       createdAt: new Date(),
       updatedAt: new Date()
@@ -97,40 +79,7 @@ export class AIContextManager {
   }
   
   /**
-   * Add conversation entry to context
-   */
-  async addConversationEntry(
-    contextId: string,
-    role: 'user' | 'assistant',
-    content: string,
-    step: string
-  ): Promise<void> {
-    const context = this.contexts.get(contextId);
-    if (!context) {
-      log.error('Cannot add conversation entry: context not found', { contextId });
-      throw new Error(`Context ${contextId} not found`);
-    }
-    
-    context.conversationHistory.push({
-      role,
-      content,
-      timestamp: new Date(),
-      step
-    });
-    
-    context.updatedAt = new Date();
-    
-    log.debug('Conversation entry added', {
-      contextId,
-      role,
-      step,
-      contentLength: content.length,
-      totalEntries: context.conversationHistory.length
-    });
-  }
-  
-  /**
-   * Update provider-specific context data
+   * Update provider-specific context data (e.g., response_id, chat instances)
    */
   async updateProviderData(
     contextId: string,
@@ -169,18 +118,6 @@ export class AIContextManager {
   }
   
   /**
-   * Get conversation history as messages array for AI providers
-   */
-  async getConversationMessages(contextId: string): Promise<ConversationEntry[]> {
-    const context = this.contexts.get(contextId);
-    if (!context) {
-      return [];
-    }
-    
-    return context.conversationHistory;
-  }
-  
-  /**
    * Clear old contexts (cleanup method)
    */
   async cleanupOldContexts(maxAgeHours: number = 24): Promise<void> {
@@ -206,11 +143,10 @@ export class AIContextManager {
   /**
    * Get context statistics
    */
-  getStats(): { totalContexts: number; contexts: Array<{ contextId: string; storyId: string; entryCount: number; updatedAt: Date }> } {
+  getStats(): { totalContexts: number; contexts: Array<{ contextId: string; storyId: string; updatedAt: Date }> } {
     const contexts = Array.from(this.contexts.values()).map(context => ({
       contextId: context.contextId,
       storyId: context.storyId,
-      entryCount: context.conversationHistory.length,
       updatedAt: context.updatedAt
     }));
     

@@ -90,7 +90,9 @@ export class OpenAIImageService implements IImageGenerationService {
         max_output_tokens: 2048,
         top_p: 1,
         store: true
-      });      // Handle the response - cast to any to access the data structure
+      });
+      
+      // Handle the response - cast to any to access the data structure
       const responseData = response as any;
 
       // Extract image generation data from response based on the actual OpenAI Responses API format

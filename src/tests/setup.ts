@@ -21,16 +21,12 @@ jest.mock('@google-cloud/storage', () => ({
         save: jest.fn(),
         getSignedUrl: jest.fn(),
         delete: jest.fn(),
-      })),
-    })),
+      })),    })),
   })),
 }));
 
-jest.mock('@google-cloud/vertexai', () => ({
-  VertexAI: jest.fn(() => ({
-    getGenerativeModel: jest.fn(),
-  })),
-}));
+// Note: Removed @google-cloud/vertexai mock since we're no longer using Vertex AI
+// Now using Google GenAI instead
 
 jest.mock('@google-cloud/workflows', () => ({
   WorkflowsClient: jest.fn(() => ({

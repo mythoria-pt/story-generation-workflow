@@ -21,8 +21,7 @@ if (nodeEnv === 'production') {
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'staging', 'production']),
   PORT: z.string().transform(Number).default('8080'),
-  DB_HOST: z.string(),
-  DB_PORT: z.string().transform(Number),
+  DB_HOST: z.string(),  DB_PORT: z.string().transform(Number),
   DB_USER: z.string(),
   DB_PASSWORD: z.string(),
   DB_NAME: z.string(),
@@ -30,17 +29,20 @@ const envSchema = z.object({
   GOOGLE_CLOUD_PROJECT_ID: z.string(),
   GOOGLE_CLOUD_REGION: z.string(),
   GOOGLE_CLOUD_LOCATION: z.string().optional(), // For backward compatibility
-  STORAGE_BUCKET_NAME: z.string(),  VERTEX_AI_MODEL_ID: z.string(),
-  VERTEX_AI_OUTLINE_MODEL: z.string().optional(), // Specific model for outline generation
-  VERTEX_AI_LOCATION: z.string().optional(),
-  WORKFLOWS_LOCATION: z.string(),
+  STORAGE_BUCKET_NAME: z.string(),  WORKFLOWS_LOCATION: z.string(),
   IMAGE_GENERATION_MODEL: z.string().optional(),
   AUDIO_GENERATION_MODEL: z.string().optional(),
   LOG_LEVEL: z.enum(['error', 'warn', 'info', 'debug']).optional().default('info'),  // AI Provider Configuration
-  TEXT_PROVIDER: z.enum(['vertex', 'openai']).optional().default('vertex'),
-  IMAGE_PROVIDER: z.enum(['vertex', 'openai']).optional().default('vertex'),  OPENAI_API_KEY: z.string().optional(),
+  TEXT_PROVIDER: z.enum(['openai', 'google-genai']).optional().default('google-genai'),
+  IMAGE_PROVIDER: z.enum(['openai']).optional().default('openai'),
+
+  OPENAI_API_KEY: z.string().optional(),
   OPENAI_IMAGE_MODEL: z.string().optional().default('dall-e-3'),
   OPENAI_IMAGE_QUALITY: z.enum(['low', 'standard', 'high']).optional().default('low'),
+
+  // Google GenAI Configuration
+  GOOGLE_GENAI_API_KEY: z.string().optional(),
+  GOOGLE_GENAI_MODEL: z.string().optional().default('gemini-2.5-flash'),
 });
 
 export type Environment = z.infer<typeof envSchema>;
@@ -113,12 +115,7 @@ export const googleCloudConfig = {
     return {
       projectId: env.GOOGLE_CLOUD_PROJECT_ID,
       region: env.GOOGLE_CLOUD_REGION,
-      storageBucket: env.STORAGE_BUCKET_NAME,      vertexAi: {
-        modelId: env.VERTEX_AI_MODEL_ID,
-        outlineModel: env.VERTEX_AI_OUTLINE_MODEL || env.VERTEX_AI_MODEL_ID, // Use specific model for outlines or fall back to default
-        location: env.VERTEX_AI_LOCATION || env.GOOGLE_CLOUD_REGION,
-      },
-      workflows: {
+      storageBucket: env.STORAGE_BUCKET_NAME,      workflows: {
         location: env.WORKFLOWS_LOCATION,
       },
     };

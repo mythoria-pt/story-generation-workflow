@@ -223,4 +223,33 @@ export class StoryService {
       throw error;
     }
   }
+
+  /**
+   * Update story status
+   */
+  async updateStoryStatus(storyId: string, status: 'draft' | 'writing' | 'published') {
+    try {
+      await this.db
+        .update(stories)
+        .set({ 
+          status,
+          updatedAt: new Date().toISOString()
+        })
+        .where(eq(stories.storyId, storyId));
+
+      logger.info('Story status updated', {
+        storyId,
+        status
+      });
+
+      return true;
+    } catch (error) {
+      logger.error('Failed to update story status', {
+        error: error instanceof Error ? error.message : String(error),
+        storyId,
+        status
+      });
+      throw error;
+    }
+  }
 }

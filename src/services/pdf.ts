@@ -78,7 +78,9 @@ export class PDFService {
           </div>
         `,
         landscape: false
-      };      // Merge with provided options
+      };
+      
+      // Merge with provided options
       const pdfOptions = { ...defaultOptions, ...options };
 
       // Create PDF generator instance
