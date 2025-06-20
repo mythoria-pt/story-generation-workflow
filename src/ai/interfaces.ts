@@ -33,6 +33,14 @@ export interface IImageGenerationService {
    * @param options Additional generation options
    */
   generate(prompt: string, options?: ImageGenerationOptions): Promise<Buffer>;
+  
+  /**
+   * Edit an existing image based on a text prompt
+   * @param prompt The image editing prompt
+   * @param originalImage The original image as Buffer
+   * @param options Additional generation options
+   */
+  edit?(prompt: string, originalImage: Buffer, options?: ImageGenerationOptions): Promise<Buffer>;
 }
 
 export interface TextGenerationOptions {

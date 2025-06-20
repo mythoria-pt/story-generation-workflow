@@ -77,5 +77,6 @@ export const aiActionTypeEnum = pgEnum("ai_action_type", [
   'story_enhancement',
   'audio_generation',
   'content_validation',
+  'image_edit',
   'test'
 ]);

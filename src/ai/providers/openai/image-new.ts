@@ -180,12 +180,13 @@ export class OpenAIImageService implements IImageGenerationService {
 
   /**
    * Edit an existing image based on a text prompt using OpenAI Responses API
-   */  async edit(prompt: string, originalImage: Buffer, options?: ImageGenerationOptions): Promise<Buffer> {
+   */
+  async edit(prompt: string, originalImage: Buffer, options?: ImageGenerationOptions): Promise<Buffer> {
     try {
       const env = getEnvironment();
       const quality = env.OPENAI_IMAGE_QUALITY || 'high';
       
-      logger.info('OpenAI: EDIT METHOD CALLED - Editing image with Responses API', {
+      logger.info('OpenAI: Editing image with Responses API', {
         model: this.model,
         promptLength: prompt.length,
         originalImageSize: originalImage.length,

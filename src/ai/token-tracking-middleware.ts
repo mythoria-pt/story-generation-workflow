@@ -11,7 +11,7 @@ export interface AICallContext {
   authorId: string;
   storyId: string;
   action: 'story_structure' | 'story_outline' | 'chapter_writing' | 'image_generation' | 
-          'story_review' | 'character_generation' | 'story_enhancement' | 'audio_generation' | 'content_validation' | 'test';
+          'story_review' | 'character_generation' | 'story_enhancement' | 'audio_generation' | 'content_validation' | 'image_edit' | 'test';
 }
 
 /**
@@ -205,6 +205,77 @@ export class ImageGenerationMiddleware implements IImageGenerationService {
         error: error instanceof Error ? error.message : String(error),
         context: this.context,
         promptLength: prompt.length,
+        processingTimeMs: Date.now() - startTime
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Edit an existing image with token tracking
+   */  async edit(prompt: string, originalImage: Buffer, options?: ImageGenerationOptions): Promise<Buffer> {
+    const startTime = Date.now();
+    
+    try {
+      logger.info('MIDDLEWARE: Starting image editing with token tracking', {
+        context: this.context,
+        promptLength: prompt.length,
+        originalImageSize: originalImage.length,
+        model: options?.model,
+        hasEditMethod: typeof this.baseService.edit !== 'undefined'
+      });
+
+      // Check if the base service supports editing
+      if (!this.baseService.edit) {
+        throw new Error('Base image service does not support editing');
+      }
+
+      // Make the actual AI call
+      const result = await this.baseService.edit(prompt, originalImage, options);
+      
+      // Calculate processing time
+      const processingTimeMs = Date.now() - startTime;
+      
+      // For image editing, we use a different approach for "token" calculation
+      // Input tokens are based on prompt length + original image size, output tokens represent generation cost
+      const inputTokens = Math.ceil(prompt.length / 4) + Math.ceil(originalImage.length / 1000); // Add image size factor
+      const outputTokens = 1500; // Higher cost for image editing vs generation
+      
+      // Record the usage asynchronously
+      this.recordUsageAsync({
+        authorId: this.context.authorId,
+        storyId: this.context.storyId,
+        action: this.context.action,
+        aiModel: this.determineModel(options),
+        inputTokens,
+        outputTokens,
+        inputPromptJson: {
+          prompt,
+          options: options || {},
+          originalImageSize: originalImage.length,
+          timestamp: new Date().toISOString(),
+          processingTimeMs,
+          editedImageSizeBytes: result.length
+        }
+      });
+
+      logger.info('Image editing completed with token tracking', {
+        context: this.context,
+        promptLength: prompt.length,
+        originalImageSize: originalImage.length,
+        editedImageSizeBytes: result.length,
+        processingTimeMs,
+        estimatedInputTokens: inputTokens,
+        estimatedOutputTokens: outputTokens
+      });
+
+      return result;
+    } catch (error) {
+      logger.error('Image editing failed with token tracking', {
+        error: error instanceof Error ? error.message : String(error),
+        context: this.context,
+        promptLength: prompt.length,
+        originalImageSize: originalImage.length,
         processingTimeMs: Date.now() - startTime
       });
       throw error;
