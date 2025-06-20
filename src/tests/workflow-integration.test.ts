@@ -324,7 +324,7 @@ describe('Workflow Integration', () => {  describe('Google Cloud Workflows Struc
         googleCloudAuth: {
           required: true,
           method: 'OIDC',
-          serviceAccount: 'story-generation-workflow@oceanic-beach-460916-n816.iam.gserviceaccount.com'
+          serviceAccount: 'wf-story-gen-sa@oceanic-beach-460916-n5.iam.gserviceaccount.com'
         },
         internalEndpoints: {
           requireAuth: true,

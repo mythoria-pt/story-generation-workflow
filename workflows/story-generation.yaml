@@ -16,10 +16,10 @@ main:
     # ───────────────────────────────────────────────
     - init:
         assign:
-          - payload:  ${json.decode(base64.decode(event.data))}
+          - payload:  ${json.decode(base64.decode(event.message.data))}
           - storyId:  ${payload.storyId}
           - runId:    ${payload.runId}
-          - baseUrl:  "https://097a-2001-818-de82-dd00-d993-94dc-2153-facd.ngrok-free.app"
+          - baseUrl:  "https://story-generation-workflow-803421888801.europe-west9.run.app"
           - now:      ${time.format(sys.now())}
 
     # ───────────────────────────────────────────────

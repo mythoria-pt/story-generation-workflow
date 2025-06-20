@@ -1,0 +1,11 @@
+# Mythoria – Debug Workflow to inspect event structure
+main:
+  params: [event]
+  steps:
+    - debug_event:
+        call: sys.log
+        args:
+          data: ${event}
+          severity: INFO
+    - return_debug:
+        return: ${event}
