@@ -324,4 +324,43 @@ export class StorageService {
       throw error;
     }
   }
+
+  /**
+   * Download file content from Google Cloud Storage
+   */
+  async downloadFile(filename: string): Promise<string> {
+    try {
+      const bucket = this.storage.bucket(this.bucketName);
+      const file = bucket.file(filename);
+
+      logger.debug('Downloading file from GCS', {
+        filename,
+        bucketName: this.bucketName
+      });
+
+      const [exists] = await file.exists();
+      if (!exists) {
+        throw new Error(`File ${filename} does not exist in bucket ${this.bucketName}`);
+      }
+
+      const [contents] = await file.download();
+      const fileContent = contents.toString('utf-8');
+
+      logger.info('File downloaded successfully', {
+        filename,
+        size: contents.length
+      });
+
+      return fileContent;
+    } catch (error) {
+      const errorDetails = handleGCSError(error, {
+        filename,
+        bucketName: this.bucketName,
+        operation: 'downloadFile'
+      });
+
+      logger.error('Failed to download file', errorDetails);
+      throw error;
+    }
+  }
 }

@@ -85,6 +85,17 @@ curl -X POST http://localhost:3000/ai/text/outline \
   -d '{"storyId": "story-123", "runId": "run-456"}'
 ```
 
+### Edit an Existing Story
+```bash
+curl -X POST http://localhost:3000/story-edit \
+  -H "Content-Type: application/json" \
+  -d '{
+    "storyId": "550e8400-e29b-41d4-a716-446655440000",
+    "chapterNumber": 2,
+    "userRequest": "Make the dragon more friendly and less scary for young children"
+  }'
+```
+
 ### Check Service Health
 ```bash
 curl http://localhost:3000/health

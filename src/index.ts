@@ -63,10 +63,12 @@ app.get('/', (_req, res) => {
 import { router as workflowRoutes } from './routes/workflow.js';
 import { aiRouter } from './routes/ai.js';
 import { internalRouter } from './routes/internal.js';
+import { storyEditRouter } from './routes/story-edit.js';
 
 app.use('/api/workflow', workflowRoutes);
 app.use('/ai', aiRouter);
 app.use('/internal', internalRouter);
+app.use('/story-edit', storyEditRouter);
 
 // Error handling middleware
 app.use((error: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
