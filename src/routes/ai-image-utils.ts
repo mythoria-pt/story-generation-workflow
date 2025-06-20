@@ -34,15 +34,15 @@ export function generateImageFilename(params: {
   const timestamp = params.timestamp ?? new Date().toISOString().replace(/[:.]/g, '-');
 
   if (imageType === 'front_cover') {
-    return `${storyId}/images/frontcover_${timestamp}.png`;
+    return `${storyId}/images/frontcover_v001_${timestamp}.jpg`;
   }
   if (imageType === 'back_cover') {
-    return `${storyId}/images/backcover_${timestamp}.png`;
+    return `${storyId}/images/backcover_v001_${timestamp}.jpg`;
   }
   if (chapterNumber) {
-    return `${storyId}/images/chapter_${chapterNumber}_${timestamp}.png`;
+    return `${storyId}/images/chapter_${chapterNumber}_v001_${timestamp}.jpg`;
   }
-  return `${storyId}/images/image_${timestamp}.png`;
+  return `${storyId}/images/image_v001_${timestamp}.jpg`;
 }
 
 /**

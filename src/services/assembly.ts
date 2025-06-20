@@ -11,6 +11,36 @@ import { PDFService } from './pdf.js';
 import { logger } from '@/config/logger.js';
 import { countWords } from '@/shared/utils.js';
 
+/**
+ * Encode HTML special characters to prevent encoding issues
+ */
+function encodeHtmlSpecialChars(text: string): string {
+  if (!text) return '';
+  
+  return text
+    .replace(/&/g, '&amp;')     // Must be first to avoid double encoding
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;')
+    .replace(/\//g, '&#x2F;')
+    // Additional common special characters
+    .replace(/\u00A0/g, '&nbsp;')  // Non-breaking space
+    .replace(/\u00A9/g, '&copy;')  // Copyright symbol
+    .replace(/\u00AE/g, '&reg;')   // Registered trademark
+    .replace(/\u2013/g, '&ndash;') // En dash
+    .replace(/\u2014/g, '&mdash;') // Em dash
+    .replace(/\u2018/g, '&lsquo;') // Left single quote
+    .replace(/\u2019/g, '&rsquo;') // Right single quote
+    .replace(/\u201C/g, '&ldquo;') // Left double quote
+    .replace(/\u201D/g, '&rdquo;') // Right double quote
+    .replace(/\u2026/g, '&hellip;') // Ellipsis
+    // Encode other Unicode characters that might cause issues
+    .replace(/[\u0080-\uFFFF]/g, (match) => {
+      return '&#' + match.charCodeAt(0) + ';';
+    });
+}
+
 export interface AssemblyResult {
   files: {
     html?: string;
@@ -242,13 +272,13 @@ export class AssemblyService {
     const tableOfContentsTitle = await MessageService.getTableOfContentsTitle(locale);
     const storyImaginedByMessage = await MessageService.getStoryImaginedByMessage(locale, author);
     const craftedWithMessage = await MessageService.getCraftedWithMessage(locale);
-    const byAuthorMessage = await MessageService.getByAuthorMessage(locale, author);// Generate table of contents
+    const byAuthorMessage = await MessageService.getByAuthorMessage(locale, author);    // Generate table of contents
     const tableOfContents = chapters.map((chapter) => 
-      `<li class="mythoria-toc-item"><a href="#chapter-${chapter.number}" class="mythoria-toc-link">${chapter.number}. ${chapter.title}</a></li>`
+      `<li class="mythoria-toc-item"><a href="#chapter-${chapter.number}" class="mythoria-toc-link">${chapter.number}. ${encodeHtmlSpecialChars(chapter.title)}</a></li>`
     ).join('');    // Generate the HTML body content only (without body tag)
     const html = `
     <!-- Story Title -->
-    <h1 class="mythoria-story-title">${title}</h1>
+    <h1 class="mythoria-story-title">${encodeHtmlSpecialChars(title)}</h1>
 
     <!-- Front Cover -->
     ${bookCoverImages.has('front') ? 
@@ -258,17 +288,16 @@ export class AssemblyService {
       
       <!-- Page Break -->
       <div class="mythoria-page-break"></div>` : 
-      ''
-    }    <!-- Author Dedicatory -->
-    ${dedication ? `<div class="mythoria-dedicatory">${dedication}</div>
+      ''    }    <!-- Author Dedicatory -->
+    ${dedication ? `<div class="mythoria-dedicatory">${encodeHtmlSpecialChars(dedication)}</div>
 
     <!-- Author Name -->
-    <div class="mythoria-author-name">${byAuthorMessage}</div>` : ''}
+    <div class="mythoria-author-name">${encodeHtmlSpecialChars(byAuthorMessage)}</div>` : ''}
 
     <!-- Mythoria Message -->
     <div class="mythoria-message">
-      <p class="mythoria-message-text">${storyImaginedByMessage}</p>
-      <p class="mythoria-message-text">${craftedWithMessage}</p>
+      <p class="mythoria-message-text">${encodeHtmlSpecialChars(storyImaginedByMessage)}</p>
+      <p class="mythoria-message-text">${encodeHtmlSpecialChars(craftedWithMessage)}</p>
       <img src="https://storage.googleapis.com/mythoria-generated-stories/Mythoria-logo-white-512x336.jpg" alt="Mythoria Logo" class="mythoria-logo" />
     </div>
 
@@ -277,19 +306,17 @@ export class AssemblyService {
 
     <!-- Table of Contents -->
     <div class="mythoria-table-of-contents">
-      <h2 class="mythoria-toc-title">${tableOfContentsTitle}</h2>
+      <h2 class="mythoria-toc-title">${encodeHtmlSpecialChars(tableOfContentsTitle)}</h2>
       <ul class="mythoria-toc-list">
         ${tableOfContents}
       </ul>
     </div>
 
     <!-- Page Break -->
-    <div class="mythoria-page-break"></div>
-
-    <!-- Chapters -->
+    <div class="mythoria-page-break"></div>    <!-- Chapters -->
     ${chapters.map(chapter => `
       <div class="mythoria-chapter" id="chapter-${chapter.number}">
-        <h2 class="mythoria-chapter-title">${chapter.title}</h2>
+        <h2 class="mythoria-chapter-title">${encodeHtmlSpecialChars(chapter.title)}</h2>
         ${chapterImages.has(chapter.number) ?
           `<div class="mythoria-chapter-image">
             <img src="${chapterImages.get(chapter.number)}" alt="Chapter ${chapter.number} illustration" class="mythoria-chapter-img" />
@@ -297,7 +324,7 @@ export class AssemblyService {
           ''
         }
         <div class="mythoria-chapter-content">
-          ${chapter.content.split('\n').map((p: string) => p.trim() ? `<p class="mythoria-chapter-paragraph">${p}</p>` : '').join('')}
+          ${chapter.content.split('\n').map((p: string) => p.trim() ? `<p class="mythoria-chapter-paragraph">${encodeHtmlSpecialChars(p)}</p>` : '').join('')}
         </div>
       </div>
       <div class="mythoria-page-break"></div>
@@ -305,7 +332,7 @@ export class AssemblyService {
 
     <!-- Credits -->
     <div class="mythoria-credits">
-      <p class="mythoria-credits-text">${creditsMessage}</p>
+      <p class="mythoria-credits-text">${encodeHtmlSpecialChars(creditsMessage)}</p>
     </div>
 
     <!-- Back Cover (if available) -->
@@ -339,17 +366,15 @@ export class AssemblyService {
       const tableOfContentsTitle = await MessageService.getTableOfContentsTitle(locale);
       const storyImaginedByMessage = await MessageService.getStoryImaginedByMessage(locale, author);
       const craftedWithMessage = await MessageService.getCraftedWithMessage(locale);
-      const byAuthorMessage = await MessageService.getByAuthorMessage(locale, author);
-
-      // Generate table of contents
+      const byAuthorMessage = await MessageService.getByAuthorMessage(locale, author);      // Generate table of contents
       const tableOfContents = chapters.map((chapter) => 
-        `<li class="mythoria-toc-item"><a href="#chapter-${chapter.number}" class="mythoria-toc-link">${chapter.number}. ${chapter.title}</a></li>`
+        `<li class="mythoria-toc-item"><a href="#chapter-${chapter.number}" class="mythoria-toc-link">${chapter.number}. ${encodeHtmlSpecialChars(chapter.title)}</a></li>`
       ).join('');
       
       // Generate the HTML body content for PDF
       const storyContent = `
         <!-- Story Title -->
-        <h1 class="mythoria-story-title">${title}</h1>
+        <h1 class="mythoria-story-title">${encodeHtmlSpecialChars(title)}</h1>
 
         <!-- Front Cover -->
         ${bookCoverImages.has('front') ? 
@@ -363,24 +388,22 @@ export class AssemblyService {
         }
         
         <!-- Author Dedicatory -->
-        ${dedication ? `<div class="mythoria-dedicatory">${dedication}</div>
+        ${dedication ? `<div class="mythoria-dedicatory">${encodeHtmlSpecialChars(dedication)}</div>
         
         <!-- Author Name -->
-        <div class="mythoria-author-name">${byAuthorMessage}</div>` : ''}        
+        <div class="mythoria-author-name">${encodeHtmlSpecialChars(byAuthorMessage)}</div>` : ''}        
 
         <!-- Mythoria Message -->
         <div class="mythoria-message">
-          <p class="mythoria-message-text">${storyImaginedByMessage}</p>
-          <p class="mythoria-message-text">${craftedWithMessage}</p>
+          <p class="mythoria-message-text">${encodeHtmlSpecialChars(storyImaginedByMessage)}</p>
+          <p class="mythoria-message-text">${encodeHtmlSpecialChars(craftedWithMessage)}</p>
           <img src="https://storage.googleapis.com/mythoria-generated-stories/Mythoria-logo-white-512x336.jpg" alt="Mythoria Logo" class="mythoria-logo" />
         </div>
 
         <!-- Page Break -->
-        <div class="mythoria-page-break"></div>
-
-        <!-- Table of Contents -->
+        <div class="mythoria-page-break"></div>        <!-- Table of Contents -->
         <div class="mythoria-table-of-contents">
-          <h2 class="mythoria-toc-title">${tableOfContentsTitle}</h2>
+          <h2 class="mythoria-toc-title">${encodeHtmlSpecialChars(tableOfContentsTitle)}</h2>
           <ul class="mythoria-toc-list">
             ${tableOfContents}
           </ul>
@@ -392,7 +415,7 @@ export class AssemblyService {
         <!-- Chapters -->
         ${chapters.map(chapter => `
           <div class="mythoria-chapter" id="chapter-${chapter.number}">
-            <h2 class="mythoria-chapter-title">${chapter.title}</h2>
+            <h2 class="mythoria-chapter-title">${encodeHtmlSpecialChars(chapter.title)}</h2>
             ${chapterImages.has(chapter.number) ?
               `<div class="mythoria-chapter-image">
                 <img src="${chapterImages.get(chapter.number)}" alt="Chapter ${chapter.number} illustration" class="mythoria-chapter-img" />
@@ -400,14 +423,14 @@ export class AssemblyService {
               ''
             }
             <div class="mythoria-chapter-content">
-              ${chapter.content.split('\n').map((p: string) => p.trim() ? `<p class="mythoria-chapter-paragraph">${p}</p>` : '').join('')}
+              ${chapter.content.split('\n').map((p: string) => p.trim() ? `<p class="mythoria-chapter-paragraph">${encodeHtmlSpecialChars(p)}</p>` : '').join('')}
             </div>
           </div>
         `).join('')}
 
         <!-- Credits -->
         <div class="mythoria-credits">
-          <p class="mythoria-credits-text">${creditsMessage}</p>
+          <p class="mythoria-credits-text">${encodeHtmlSpecialChars(creditsMessage)}</p>
         </div>
 
         <!-- Back Cover (if available) -->

@@ -213,7 +213,9 @@ router.post('/text/chapter/:chapterNumber', async (req, res) => {
       language: getLanguageName(storyContext.story.storyLanguage),
       chapterCount: chapterCount?.toString() || '10',
       hookInstruction: hookInstruction
-    };    // Build the complete prompt
+    };
+    
+    // Build the complete prompt
     const chapterPrompt = PromptService.buildPrompt(promptTemplate, templateVariables);
 
     // Create context for token tracking
@@ -250,7 +252,8 @@ router.post('/text/chapter/:chapterNumber', async (req, res) => {
  */
 router.post('/image', async (req, res) => {
   let currentStep = 'parsing_request';
-  try {    const { prompt, storyId, runId, chapterNumber, imageType, width, height, style } =
+  try {
+    const { prompt, storyId, runId, chapterNumber, imageType, width, height, style } =
       validateImageRequest(req.body);
 
     // Get story context to extract authorId for token tracking
@@ -270,20 +273,32 @@ router.post('/image', async (req, res) => {
       action: 'image_generation' as const
     };
 
+    // Set default dimensions for front and back covers to portrait format
+    let imageWidth = width;
+    let imageHeight = height;
+    
+    if (imageType === 'front_cover' || imageType === 'back_cover') {
+      // Default to portrait format for book covers if no dimensions specified
+      if (!imageWidth && !imageHeight) {
+        imageWidth = 1024;
+        imageHeight = 1536;
+      }
+    }
+
     currentStep = 'generating_image';
     const imageBuffer = await aiGateway.getImageService(imageContext).generate(prompt, {
-      ...(width && { width }),
-      ...(height && { height }),
-      ...(style && { style })    });
+      ...(imageWidth && { width: imageWidth }),
+      ...(imageHeight && { height: imageHeight }),
+      ...(style && { style })
+    });
 
     currentStep = 'preparing_upload';
     const filename = generateImageFilename({
       storyId,
       ...(imageType ? { imageType } : {}),
       ...(chapterNumber !== undefined ? { chapterNumber } : {})
-    });
-
-    currentStep = 'uploading_to_storage';    const imageUrl = await storageService.uploadFile(filename, imageBuffer, 'image/png');
+    });    currentStep = 'uploading_to_storage';
+    const imageUrl = await storageService.uploadFile(filename, imageBuffer, 'image/jpeg');
 
     res.json({
       success: true,
@@ -293,9 +308,10 @@ router.post('/image', async (req, res) => {
       image: {
         url: imageUrl,
         filename,
-        format: 'png',        size: imageBuffer.length
+        format: 'jpeg',
+        size: imageBuffer.length
       }
-    });  } catch (error) {
+    });} catch (error) {
     const errorDetails = formatImageError(error, req.body, currentStep);
 
     res.status(500).json({
