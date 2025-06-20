@@ -263,28 +263,30 @@ Based on the original image provided and the user's specific request above, gene
  * Generate a versioned filename for the edited image
  */
 async function generateVersionedFilename(originalUrl: string): Promise<string> {
-  const filename = extractFilenameFromUrl(originalUrl);
-  if (!filename) {
+  const fullPath = extractFilenameFromUrl(originalUrl);
+  if (!fullPath) {
     // Fallback filename if extraction fails
+    return `edited_image_v001.png`;
+  }
+  // Split the path to get directory and filename
+  const pathParts = fullPath.split('/');
+  const originalFilename = pathParts[pathParts.length - 1];
+  const directoryPath = pathParts.slice(0, -1).join('/');
+
+  // Validate we have a filename
+  if (!originalFilename) {
     return `edited_image_v001.png`;
   }
 
   // Extract base filename without extension
-  const lastDotIndex = filename.lastIndexOf('.');
-  let baseName = lastDotIndex > 0 ? filename.substring(0, lastDotIndex) : filename;
-  const extension = lastDotIndex > 0 ? filename.substring(lastDotIndex) : '.png';
+  const lastDotIndex = originalFilename.lastIndexOf('.');
+  let baseName = lastDotIndex > 0 ? originalFilename.substring(0, lastDotIndex) : originalFilename;
+  const extension = lastDotIndex > 0 ? originalFilename.substring(lastDotIndex) : '.png';
 
   // Remove existing version numbers (v001, v2, etc.) and date patterns
   baseName = baseName.replace(/_v\d{3}$/, ''); // Remove _v001, _v002, etc.
   baseName = baseName.replace(/_v\d+_.*$/, ''); // Remove _v2_date... pattern
   baseName = baseName.replace(/_\d{4}-\d{2}-\d{2}T.*$/, ''); // Remove date patterns
-
-  // Extract story ID from filename for querying existing versions
-  const storyIdMatch = filename.match(/^([a-f0-9-]{36})/);
-  if (!storyIdMatch) {
-    // If no story ID found, just use v001
-    return `${baseName}_v001${extension}`;
-  }
 
   try {
     // Check for existing versioned files to determine next version
@@ -293,20 +295,17 @@ async function generateVersionedFilename(originalUrl: string): Promise<string> {
       projectId: env.GOOGLE_CLOUD_PROJECT_ID
     });
     const bucket = storage.bucket(env.STORAGE_BUCKET_NAME);
-      // Get the directory path (everything except the filename)
-    const pathParts = filename.split('/');
-    pathParts.pop(); // Remove the filename
-    const directoryPath = pathParts.join('/');
     
-    // Search for existing versions
-    const searchPrefix = directoryPath ? `${directoryPath}/${baseName}_v` : `${baseName}_v`;
+    // Search for existing versions in the same directory
+    const searchPrefix = `${directoryPath}/${baseName}_v`;
     const [files] = await bucket.getFiles({ prefix: searchPrefix });
     
     let highestVersion = 0;
     
     // Find highest version number
     for (const file of files) {
-      const existingFilename = file.name.split('/').pop() || '';      const versionMatch = existingFilename.match(/_v(\d{3})/);
+      const filename = file.name.split('/').pop() || '';
+      const versionMatch = filename.match(/_v(\d{3})/);
       if (versionMatch && versionMatch[1]) {
         const existingVersion = parseInt(versionMatch[1], 10);
         if (existingVersion > highestVersion) {
@@ -317,7 +316,7 @@ async function generateVersionedFilename(originalUrl: string): Promise<string> {
     
     // Generate next version with zero-padded format
     const nextVersion = (highestVersion + 1).toString().padStart(3, '0');
-    return directoryPath ? `${directoryPath}/${baseName}_v${nextVersion}${extension}` : `${baseName}_v${nextVersion}${extension}`;
+    return `${directoryPath}/${baseName}_v${nextVersion}${extension}`;
     
   } catch (error) {
     logger.error('Error checking existing versions, using v001', {
@@ -325,8 +324,7 @@ async function generateVersionedFilename(originalUrl: string): Promise<string> {
       error: error instanceof Error ? error.message : String(error)
     });
     // Fallback to v001 if there's an error
-    const directoryPath = filename.split('/').slice(0, -1).join('/');
-    return directoryPath ? `${directoryPath}/${baseName}_v001${extension}` : `${baseName}_v001${extension}`;
+    return `${directoryPath}/${baseName}_v001${extension}`;
   }
 }
 

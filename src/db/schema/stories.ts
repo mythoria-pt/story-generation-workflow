@@ -21,10 +21,8 @@ export const stories = pgTable("stories", {
   graphicalStyle: graphicalStyleEnum("graphical_style"),
   chapterCount: integer("chapter_count").default(6).notNull(),
   status: storyStatusEnum().default('draft'),
-  features: jsonb(),
-  deliveryAddress: jsonb("delivery_address"),
+  features: jsonb(),  deliveryAddress: jsonb("delivery_address"),
   dedicationMessage: text("dedication_message"),
-  mediaLinks: jsonb("media_links"),
   htmlUri: text("html_uri"), // Internal Google Storage link to access the HTML file
   pdfUri: text("pdf_uri"), // Internal Google Storage link to access the PDF file
   audiobookUri: jsonb("audiobook_uri"), // JSON object with internal GS links to each chapter audio file
