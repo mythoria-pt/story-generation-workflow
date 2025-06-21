@@ -1,0 +1,121 @@
+# Mythoria – Audiobook Generation Workflow
+# Trigger: HTTP POST to /audio/create-audiobook
+#
+# Request body (JSON):
+#   { "storyId": "<uuid>", "voice": "<optional-voice>" }
+#
+# Cloud Run base URL (internal API + AI-Gateway):
+#   https://story-generation-workflow-803421888801.europe-west9.run.app
+#
+
+main:
+  params: [request]
+
+  steps:
+    # ───────────────────────────────────────────────
+    # 0. Parse request & constants
+    # ───────────────────────────────────────────────
+    - init:
+        assign:
+          - storyId:  ${request.storyId}
+          - voice:    ${default(request.voice, "nova")}
+          - baseUrl:  "https://story-generation-workflow-803421888801.europe-west9.run.app"
+          - now:      ${time.format(sys.now())}
+
+    # ───────────────────────────────────────────────
+    # 1. Validate story exists and get story HTML
+    # ───────────────────────────────────────────────
+    - validateStory:
+        try:
+          steps:
+            # Get story details to validate it exists
+            - getStory:
+                call: http.request
+                args:
+                  url:    ${baseUrl + "/internal/stories/" + storyId}
+                  method: GET
+                  auth:   { type: OIDC }
+                result: storyResp
+
+            # Download and parse story HTML from storage
+            - getStoryHtml:
+                call: http.request
+                args:
+                  url:    ${baseUrl + "/internal/stories/" + storyId + "/html"}
+                  method: GET
+                  auth:   { type: OIDC }
+                result: htmlResp
+
+            - extractChapters:
+                assign:
+                  - storyTitle: ${storyResp.body.title}
+                  - chapters: ${htmlResp.body.chapters}
+
+        except:
+          as: validationError
+          steps:
+            - returnError:
+                return:
+                  success: false
+                  error: ${string(validationError)}
+                  storyId: ${storyId}
+
+    # ───────────────────────────────────────────────
+    # 2. Generate audio for each chapter sequentially
+    # ───────────────────────────────────────────────
+    - generateAudiobookChapters:
+        try:
+          steps:
+            - processChapters:
+                for:
+                  range: ${[1, len(chapters)]}
+                  value: chapterNum
+                  steps:
+                    - extractChapterText:
+                        assign:
+                          - currentChapter: ${chapters[chapterNum - 1]}
+                          - chapterTitle: ${currentChapter.title}
+                          - chapterContent: ${currentChapter.content}
+
+                    - generateChapterAudio:
+                        call: http.request
+                        args:
+                          url:    ${baseUrl + "/internal/audiobook/chapter"}
+                          method: POST
+                          auth:   { type: OIDC }
+                          body:
+                            storyId: ${storyId}
+                            chapterNumber: ${chapterNum}
+                            chapterTitle: ${chapterTitle}
+                            chapterContent: ${chapterContent}
+                            storyTitle: ${storyTitle}
+                            voice: ${voice}
+                        result: chapterAudioResp
+
+            - finalizeAudiobook:
+                call: http.request
+                args:
+                  url:    ${baseUrl + "/internal/audiobook/finalize"}
+                  method: POST
+                  auth:   { type: OIDC }
+                  body:
+                    storyId: ${storyId}
+                result: finalizeResp
+
+            - returnSuccess:
+                return:
+                  success: true
+                  storyId: ${storyId}
+                  audioUrls: ${finalizeResp.body.audioUrls}
+                  totalDuration: ${finalizeResp.body.totalDuration}
+                  chaptersProcessed: ${len(chapters)}
+                  generatedAt: ${now}
+
+        except:
+          as: audioError
+          steps:
+            - returnAudioError:
+                return:
+                  success: false
+                  error: ${string(audioError)}
+                  storyId: ${storyId}

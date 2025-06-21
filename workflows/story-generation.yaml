@@ -248,9 +248,7 @@ main:
                             filename: ${imageResp.body.image.filename}
                             metadata:
                               format: ${imageResp.body.image.format}
-                              size: ${imageResp.body.image.size}
-
-            # 7. Assemble HTML & PDF
+                              size: ${imageResp.body.image.size}            # 7. Assemble HTML & PDF
             - setAssembleStep:
                 call: http.request
                 args:
@@ -267,26 +265,8 @@ main:
                   method: POST
                   auth:   { type: OIDC }
                 result: assembleResp
-            
-            # 8. Generate audio book
-            - setTTSStep:
-                call: http.request
-                args:
-                  url:    ${baseUrl + "/internal/runs/" + runId}
-                  method: PATCH
-                  auth:   { type: OIDC }
-                  body:
-                    currentStep: "generate_audiobook"
 
-            - generateAudiobook:
-                call: http.request
-                args:
-                  url:    ${baseUrl + "/internal/tts/" + runId}
-                  method: POST
-                  auth:   { type: OIDC }
-                result: audiobookResp
-
-            # 9. Mark run completed
+            # 8. Mark run completed
             - markCompleted:
                 call: http.request
                 args:

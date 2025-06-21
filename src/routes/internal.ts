@@ -3,7 +3,7 @@
  * Endpoints for story generation run management and workflow coordination
  */
 
-import { Router } from 'express';
+import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
@@ -669,6 +669,252 @@ router.post('/runs/:runId/image', async (req, res) => {
     logger.error('Internal API: Failed to store image result', {
       error: error instanceof Error ? error.message : String(error),
       runId: req.params.runId
+    });
+
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+
+
+/**
+ * GET /internal/stories/:storyId
+ * Get story details for validation
+ */
+router.get('/stories/:storyId', async (req: Request, res: Response): Promise<void> => {  try {
+    const storyId = req.params.storyId;
+
+    if (!storyId) {
+      res.status(400).json({
+        success: false,
+        error: 'storyId parameter is required'
+      });
+      return;
+    }
+
+    logger.info('Internal API: Getting story details', { storyId });
+
+    const story = await storyService.getStory(storyId);
+    
+    if (!story) {
+      res.status(404).json({
+        success: false,
+        error: 'Story not found'
+      });
+      return;
+    }
+
+    res.json({
+      success: true,
+      title: story.title,
+      storyLanguage: story.storyLanguage,
+      features: story.features
+    });
+
+  } catch (error) {
+    logger.error('Internal API: Failed to get story details', {
+      error: error instanceof Error ? error.message : String(error),
+      storyId: req.params.storyId
+    });
+
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+/**
+ * GET /internal/stories/:storyId/html
+ * Get story HTML and extract chapter content for TTS
+ */
+router.get('/stories/:storyId/html', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const storyId = req.params.storyId;
+
+    if (!storyId) {
+      res.status(400).json({
+        success: false,
+        error: 'storyId parameter is required'
+      });
+      return;
+    }
+
+    logger.info('Internal API: Getting story HTML for audiobook', { storyId });
+
+    // Download HTML file from storage
+    const htmlFilename = `${storyId}/story.html`;
+    const htmlContent = await storageService.downloadFile(htmlFilename);
+    
+    if (!htmlContent) {
+      res.status(404).json({
+        success: false,
+        error: 'Story HTML not found'
+      });
+      return;
+    }
+
+    // Parse HTML and extract chapters (simplified version for workflow)
+    const chapters: Array<{title: string, content: string}> = [];
+
+    // Simple regex-based extraction for the workflow
+    const chapterMatches = htmlContent.match(/<div class="mythoria-chapter"[^>]*>([\s\S]*?)<\/div>\s*<div class="mythoria-page-break"><\/div>/g);
+    
+    if (chapterMatches) {
+      chapterMatches.forEach((chapterHtml, index) => {
+        // Extract title
+        const titleMatch = chapterHtml.match(/<h2 class="mythoria-chapter-title"[^>]*>(.*?)<\/h2>/);
+        const title = titleMatch?.[1]?.replace(/&[^;]+;/g, ' ').trim() || `Chapter ${index + 1}`;
+        
+        // Extract content paragraphs
+        const contentMatches = chapterHtml.match(/<p class="mythoria-chapter-paragraph"[^>]*>(.*?)<\/p>/g);
+        let content = '';
+        
+        if (contentMatches) {
+          content = contentMatches
+            .map(p => p.replace(/<[^>]*>/g, '').replace(/&[^;]+;/g, ' ').trim())
+            .filter(text => text && !text.startsWith('#'))
+            .join('\n\n');
+        }
+
+        if (content) {
+          chapters.push({ title, content });
+        }
+      });
+    }
+
+    logger.info('Internal API: Extracted chapters from HTML', {
+      storyId,
+      chaptersFound: chapters.length
+    });
+
+    res.json({
+      success: true,
+      storyId,
+      chapters
+    });
+
+  } catch (error) {
+    logger.error('Internal API: Failed to get story HTML', {
+      error: error instanceof Error ? error.message : String(error),
+      storyId: req.params.storyId
+    });
+
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+/**
+ * POST /internal/audiobook/chapter
+ * Generate audio for a single chapter from HTML content
+ */
+router.post('/audiobook/chapter', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { storyId, chapterNumber, chapterContent, storyTitle, voice } = req.body;
+
+    logger.info('Internal API: Generating chapter audio from HTML', {
+      storyId,
+      chapterNumber,
+      voice
+    });
+
+    // Generate TTS using the existing TTS service
+    const result = await ttsService.generateChapterAudioFromText(
+      storyId,
+      chapterNumber,
+      chapterContent,
+      storyTitle,
+      voice
+    );
+
+    logger.info('Internal API: Chapter audio generation completed', {
+      storyId,
+      chapterNumber,
+      audioUrl: result.audioUrl,
+      duration: result.duration
+    });
+
+    res.json({
+      success: true,
+      ...result
+    });
+
+  } catch (error) {
+    logger.error('Internal API: Failed to generate chapter audio', {
+      error: error instanceof Error ? error.message : String(error),
+      storyId: req.body.storyId,
+      chapterNumber: req.body.chapterNumber
+    });
+
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+/**
+ * POST /internal/audiobook/finalize
+ * Finalize audiobook generation and update story
+ */
+router.post('/audiobook/finalize', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { storyId } = req.body;
+
+    logger.info('Internal API: Finalizing audiobook', { storyId });
+
+    // Get all chapter audio files from storage
+    const audioUrls: Record<number, string> = {};
+    let totalDuration = 0;
+    let chapterNumber = 1;
+
+    // Find all audio files for this story
+    while (true) {
+      try {
+        const audioFilename = `${storyId}/audio/chapter_${chapterNumber}.mp3`;
+        const exists = await storageService.fileExists(audioFilename);
+        
+        if (exists) {
+          const audioUrl = await storageService.getPublicUrl(audioFilename);
+          audioUrls[chapterNumber] = audioUrl;
+          totalDuration += 60; // Default 1 minute per chapter
+          chapterNumber++;
+        } else {
+          break;
+        }
+      } catch {
+        break;
+      }
+    }    // Update story with audiobook URIs
+    const audiobookUri = audioUrls as Record<string, string>;
+    await storyService.updateStoryUris(storyId, {
+      audiobookUri
+    });
+
+    logger.info('Internal API: Audiobook finalization completed', {
+      storyId,
+      chaptersProcessed: Object.keys(audioUrls).length,
+      totalDuration
+    });
+
+    res.json({
+      success: true,
+      storyId,
+      audioUrls,
+      totalDuration,
+      chaptersProcessed: Object.keys(audioUrls).length
+    });
+
+  } catch (error) {
+    logger.error('Internal API: Failed to finalize audiobook', {
+      error: error instanceof Error ? error.message : String(error),
+      storyId: req.body.storyId
     });
 
     res.status(500).json({

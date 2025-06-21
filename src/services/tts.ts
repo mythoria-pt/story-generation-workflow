@@ -8,6 +8,7 @@ import { RunsService } from './runs';
 import { StoryService } from './story';
 import { StorageService } from './storage';
 import { tokenUsageTrackingService } from './token-usage-tracking';
+import { AudioPromptService } from './audio-prompt';
 import { logger } from '@/config/logger';
 import OpenAI from 'openai';
 import { countWords } from '@/shared/utils';
@@ -94,43 +95,16 @@ export class TTSService {
       const run = await this.runsService.getRun(runId);
       if (!run) {
         throw new Error(`Run not found: ${runId}`);
-      }
-
-      // Get story details to obtain the story language and check features
+      }      // Get story details to obtain the story language
       const story = await this.storyService.getStory(run.storyId);
       if (!story) {
-        throw new Error(`Story not found: ${run.storyId}`);      }      // Check if story has audioBook feature enabled
-      const features = (story.features as Record<string, unknown>) || {};
-      if (!features.audioBook) {
-        logger.info('Audio generation skipped for chapter - not enabled for this story', { 
-          runId, 
-          chapterNumber,
-          storyId: run.storyId, 
-          audioBookEnabled: features.audioBook 
-        });
-        
-        // Return empty result indicating audio generation was skipped
-        return {
-          chapterNumber,
-          audioUrl: '',
-          duration: 0,
-          format: 'mp3',
-          provider: 'openai' as const,
-          voice: 'nova',
-          metadata: {
-            totalWords: 0,
-            generatedAt: new Date().toISOString(),
-            model: 'tts-1',
-            speed: 0.9
-          }
-        };
+        throw new Error(`Story not found: ${run.storyId}`);
       }
 
-      logger.info('Audio generation authorized for chapter', { 
+      logger.info('Starting audio generation for chapter', { 
         runId, 
         chapterNumber,
-        storyId: run.storyId, 
-        audioBookEnabled: features.audioBook 
+        storyId: run.storyId
       });
 
       // Get TTS configuration
@@ -143,17 +117,43 @@ export class TTSService {
       }
 
       const chapterData = chapterStep.detailJson as Record<string, unknown>;
-      const chapterContent = chapterData.chapter as string || '';
-
-      // Use story language from the story record
+      const chapterContent = chapterData.chapter as string || '';      // Use story language from the story record
       const storyLanguage = story.storyLanguage || 'en-US';
       
+      // Load audio prompt configuration for the story language
+      const audioPromptConfig = await AudioPromptService.getTTSInstructions(
+        storyLanguage,
+        undefined // We'll use default target age since it's not in the story schema
+      );
+
       // Prepare chapter text for TTS
-      const chapterText = this.prepareChapterTextForTTS(
+      let chapterText = this.prepareChapterTextForTTS(
         story.title || 'Untitled Story',
         chapterNumber,
         chapterContent
       );
+
+      // Enhance text with audio prompts if available
+      if (audioPromptConfig) {
+        logger.info('Applying audio prompt configuration', {
+          runId,
+          chapterNumber,
+          language: audioPromptConfig.language,
+          languageName: audioPromptConfig.languageName
+        });
+
+        chapterText = AudioPromptService.enhanceTextForTTS(
+          chapterText,
+          audioPromptConfig.systemPrompt,
+          audioPromptConfig.instructions
+        );
+      } else {
+        logger.warn('No audio prompt configuration found, using basic TTS', {
+          runId,
+          chapterNumber,
+          storyLanguage
+        });
+      }
 
       // Generate audio for the chapter
       let audioBuffer: Buffer;
@@ -562,6 +562,137 @@ export class TTSService {
     const wordCount = countWords(text);
     const wordsPerMinute = 150;
     return Math.ceil((wordCount / wordsPerMinute) * 60); // return seconds
+  }
+
+  /**
+   * Generate audio narration for a single chapter from provided text content
+   * This is used for standalone audiobook generation from HTML content
+   */
+  async generateChapterAudioFromText(
+    storyId: string,
+    chapterNumber: number,
+    chapterContent: string,
+    storyTitle: string,
+    voice?: string
+  ): Promise<TTSChapterResult> {
+    try {
+      logger.info('Starting TTS generation for chapter from text', {
+        storyId,
+        chapterNumber,
+        voice
+      });      // Get story details to check language
+      const story = await this.storyService.getStory(storyId);
+      if (!story) {
+        throw new Error(`Story not found: ${storyId}`);
+      }      logger.info('Starting audio generation for chapter from text', { 
+        storyId, 
+        chapterNumber,
+        voice: voice || 'nova'
+      });
+
+      // Get TTS configuration
+      const config = this.getTTSConfig();
+      if (voice) {
+        config.voice = voice;
+      }      // Use story language from the story record
+      const storyLanguage = story.storyLanguage || 'en-US';
+        // Load audio prompt configuration for the story language
+      const audioPromptConfig = await AudioPromptService.getTTSInstructions(
+        storyLanguage,
+        undefined // We'll use default target age since it's not in the story schema
+      );
+
+      // Prepare chapter text for TTS
+      let chapterText = this.prepareChapterTextForTTS(
+        storyTitle,
+        chapterNumber,
+        chapterContent
+      );
+
+      // Enhance text with audio prompts if available
+      if (audioPromptConfig) {
+        logger.info('Applying audio prompt configuration', {
+          storyId,
+          chapterNumber,
+          language: audioPromptConfig.language,
+          languageName: audioPromptConfig.languageName
+        });
+
+        chapterText = AudioPromptService.enhanceTextForTTS(
+          chapterText,
+          audioPromptConfig.systemPrompt,
+          audioPromptConfig.instructions
+        );
+      } else {
+        logger.warn('No audio prompt configuration found, using basic TTS', {
+          storyId,
+          chapterNumber,
+          storyLanguage
+        });
+      }
+
+      // Generate audio for the chapter
+      let audioBuffer: Buffer;
+      let actualVoice: string;
+      let actualModel: string;
+
+      if (config.provider === 'openai') {
+        const result = await this.synthesizeSpeechOpenAI(chapterText, config);
+        audioBuffer = result.buffer;
+        actualVoice = result.voice;
+        actualModel = result.model;
+      } else {
+        const result = await this.synthesizeSpeechVertex(chapterText, config, storyLanguage);
+        audioBuffer = result.buffer;
+        actualVoice = result.voice;
+        actualModel = result.model;
+      }
+
+      // Upload chapter audio to storage
+      const audioFilename = `${storyId}/audio/chapter_${chapterNumber}.mp3`;
+      const audioUrl = await this.storageService.uploadFile(
+        audioFilename,
+        audioBuffer,
+        'audio/mpeg'
+      );
+
+      // Update story audiobookUri with this chapter's audio
+      await this.updateStoryAudiobookUri(storyId, chapterNumber, audioUrl);
+
+      const result: TTSChapterResult = {
+        chapterNumber,
+        audioUrl,
+        duration: this.estimateDuration(chapterText),
+        format: 'mp3',
+        provider: config.provider,
+        voice: actualVoice,
+        metadata: {
+          totalWords: countWords(chapterText),
+          generatedAt: new Date().toISOString(),
+          model: actualModel,
+          speed: config.speed
+        }
+      };
+
+      logger.info('TTS generation completed for chapter from text', {
+        storyId,
+        chapterNumber,
+        provider: config.provider,
+        audioUrl,
+        duration: result.duration,
+        wordCount: result.metadata.totalWords,
+        storyLanguage
+      });
+
+      return result;
+    } catch (error) {
+      logger.error('TTS generation failed for chapter from text', {
+        error: error instanceof Error ? error.message : String(error),
+        storyId,
+        chapterNumber
+      });
+      throw error;
+    }
   }
 
 }
