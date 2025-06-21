@@ -482,7 +482,7 @@ function mergeChapterEdit(fullHtml: string, chapterNumber: number, editedText: s
       'i'
     );
     
-    let match = fullHtml.match(chapterDivRegex);
+    const match = fullHtml.match(chapterDivRegex);
     
     if (!match) {
       // Try to find chapter by position if ID-based search fails
