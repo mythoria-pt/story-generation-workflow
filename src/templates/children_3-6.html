@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="{{language}}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{title}}</title>
+    <style>
+        /* Reset and Base Styles */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html, body {
+            height: 100%;
+            font-family: 'Georgia', 'Times New Roman', serif;
+            font-size: 12pt;
+            line-height: 1.6;
+            color: #333;
+            background: white;
+        }
+
+        /* Print-specific styles */
+        @page {
+            size: A4;
+            margin: 2cm 2.5cm 3cm 2.5cm;
+            
+            @top-center {
+                content: "{{title}}";
+                font-size: 10pt;
+                color: #666;
+                padding-bottom: 1cm;
+            }
+            
+            @bottom-center {
+                content: counter(page);
+                font-size: 10pt;
+                color: #666;
+            }
+        }
+
+        @page:first {
+            @top-center { content: none; }
+            @bottom-center { content: none; }
+        }
+
+        @page:blank {
+            @top-center { content: none; }
+            @bottom-center { content: none; }
+        }
+
+        /* Story Title */
+        .mythoria-story-title {
+            font-size: 28pt;
+            font-weight: bold;
+            text-align: center;
+            margin-bottom: 2cm;
+            margin-top: 3cm;
+            color: #2c3e50;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            page-break-after: always;
+        }
+
+        /* Front Cover */
+        .mythoria-front-cover {
+            text-align: center;
+            page-break-after: always;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 80vh;
+        }
+
+        .mythoria-cover-image {
+            max-width: 15cm;
+            max-height: 20cm;
+            width: auto;
+            height: auto;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+
+        /* Page Breaks */
+        .mythoria-page-break {
+            page-break-before: always;
+        }
+
+        /* Author Dedicatory */
+        .mythoria-dedicatory {
+            font-style: italic;
+            text-align: center;
+            font-size: 14pt;
+            margin: 4cm 0 2cm 0;
+            color: #555;
+            padding: 2cm;
+            border-top: 1px solid #ddd;
+            border-bottom: 1px solid #ddd;
+        }
+
+        /* Author Name */
+        .mythoria-author-name {
+            text-align: center;
+            font-size: 16pt;
+            font-weight: bold;
+            margin: 2cm 0;
+            color: #2c3e50;
+        }
+
+        /* Mythoria Message */
+        .mythoria-message {
+            text-align: center;
+            margin: 3cm 0;
+            padding: 2cm;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border: 1px solid #e9ecef;
+        }
+
+        .mythoria-message-text {
+            font-size: 12pt;
+            margin-bottom: 1cm;
+            color: #555;
+        }
+
+        .mythoria-author-emphasis {
+            font-style: italic;
+            color: #2c3e50;
+            font-weight: bold;
+        }
+
+        .mythoria-logo {
+            max-width: 8cm;
+            height: auto;
+            margin-top: 1cm;
+            opacity: 0.8;
+        }
+
+        /* Table of Contents */
+        .mythoria-table-of-contents {
+            margin: 2cm 0;
+            page-break-after: always;
+        }
+
+        .mythoria-toc-title {
+            font-size: 20pt;
+            font-weight: bold;
+            text-align: center;
+            margin-bottom: 2cm;
+            color: #2c3e50;
+            border-bottom: 2px solid #2c3e50;
+            padding-bottom: 0.5cm;
+        }
+
+        .mythoria-toc-list {
+            list-style: none;
+            padding: 0;
+            max-width: 12cm;
+            margin: 0 auto;
+        }
+
+        .mythoria-toc-item {
+            margin-bottom: 0.8cm;
+            border-bottom: 1px dotted #ccc;
+            padding-bottom: 0.3cm;
+        }
+
+        .mythoria-toc-link {
+            text-decoration: none;
+            color: #2c3e50;
+            font-size: 14pt;
+            font-weight: 500;
+            display: block;
+            position: relative;
+        }
+
+        .mythoria-toc-link:hover {
+            color: #3498db;
+        }
+
+        /* Chapters */
+        .mythoria-chapter {
+            page-break-before: always;
+            margin-bottom: 2cm;
+        }
+
+        .mythoria-chapter-title {
+            font-size: 18pt;
+            font-weight: bold;
+            margin-bottom: 1.5cm;
+            color: #2c3e50;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 0.5cm;
+            text-align: center;
+        }
+
+        .mythoria-chapter-image {
+            text-align: center;
+            margin: 2cm 0;
+            page-break-inside: avoid;
+        }
+
+        .mythoria-chapter-img {
+            max-width: 12cm;
+            max-height: 8cm;
+            width: auto;
+            height: auto;
+            border-radius: 6px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .mythoria-chapter-content {
+            margin-top: 1.5cm;
+        }
+
+        .mythoria-chapter-paragraph {
+            text-align: justify;
+            margin-bottom: 0.8cm;
+            text-indent: 1cm;
+            line-height: 1.7;
+            font-size: 12pt;
+            orphans: 3;
+            widows: 3;
+        }
+
+        .mythoria-chapter-paragraph:first-child {
+            text-indent: 0;
+        }
+
+        /* Back Cover */
+        .mythoria-back-cover {
+            text-align: center;
+            page-break-before: always;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 80vh;
+        }
+
+        /* Credits */
+        .mythoria-credits {
+            page-break-before: always;
+            text-align: center;
+            margin-top: 4cm;
+            padding: 2cm;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+
+        .mythoria-credits-text {
+            font-size: 11pt;
+            color: #666;
+            line-height: 1.5;
+        }
+
+        /* Print optimizations */
+        @media print {
+            body {
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+            
+            .mythoria-chapter {
+                page-break-inside: avoid;
+            }
+            
+            .mythoria-chapter-image {
+                page-break-inside: avoid;
+                page-break-after: avoid;
+            }
+            
+            .mythoria-chapter-title {
+                page-break-after: avoid;
+            }
+            
+            .mythoria-toc-item {
+                page-break-inside: avoid;
+            }
+            
+            /* Avoid orphaned headings */
+            h1, h2, h3, h4, h5, h6 {
+                page-break-after: avoid;
+            }
+            
+            /* Avoid widows and orphans */
+            p {
+                orphans: 3;
+                widows: 3;
+            }
+        }
+
+        /* Screen preview styles */
+        @media screen {
+            body {
+                background: #e8e8e8;
+                padding: 2cm;
+            }
+            
+            .print-page {
+                background: white;
+                box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+                margin: 0 auto 2cm auto;
+                max-width: 21cm;
+                min-height: 29.7cm;
+                padding: 2cm 2.5cm 3cm 2.5cm;
+            }
+        }
+
+        /* Accessibility improvements */
+        img {
+            max-width: 100%;
+            height: auto;
+        }
+
+        /* Typography enhancements */
+        em, i {
+            font-style: italic;
+        }
+
+        strong, b {
+            font-weight: bold;
+        }
+
+        /* Link styling for table of contents */
+        a {
+            color: inherit;
+            text-decoration: none;
+        }
+
+        /* Ensure good contrast for printing */
+        .mythoria-story-title,
+        .mythoria-chapter-title,
+        .mythoria-toc-title,
+        .mythoria-author-name {
+            color: #000 !important;
+        }
+    </style>
+</head>
+<body>
+    <div class="print-page">
+        {{content}}
+    </div>
+</body>
+</html>

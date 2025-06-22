@@ -66,6 +66,7 @@ import { internalRouter } from './routes/internal.js';
 import { storyEditRouter } from './routes/story-edit.js';
 import { imageEditRouter } from './routes/image-edit.js';
 import { audioRouter } from './routes/audio.js';
+import { pdfRouter } from './routes/pdf.js';
 
 app.use('/api/workflow', workflowRoutes);
 app.use('/ai', aiRouter);
@@ -73,6 +74,7 @@ app.use('/audio', audioRouter);
 app.use('/internal', internalRouter);
 app.use('/story-edit', storyEditRouter);
 app.use('/image-edit', imageEditRouter);
+app.use('/pdf', pdfRouter);
 
 // Error handling middleware
 app.use((error: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

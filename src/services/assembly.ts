@@ -7,7 +7,6 @@ import { RunsService } from './runs.js';
 import { StorageService } from './storage.js';
 import { StoryService } from './story.js';
 import { MessageService } from './message.js';
-import { PDFService } from './pdf.js';
 import { logger } from '@/config/logger.js';
 import { countWords } from '@/shared/utils.js';
 
@@ -44,7 +43,6 @@ function encodeHtmlSpecialChars(text: string): string {
 export interface AssemblyResult {
   files: {
     html?: string;
-    pdf?: string;
   };
   metadata: {
     title: string;
@@ -58,13 +56,11 @@ export class AssemblyService {
   private runsService: RunsService;
   private storageService: StorageService;
   private storyService: StoryService;
-  private pdfService: PDFService;
 
   constructor() {
     this.runsService = new RunsService();
     this.storageService = new StorageService();
     this.storyService = new StoryService();
-    this.pdfService = new PDFService();
   }
 
   /**
@@ -140,38 +136,21 @@ export class AssemblyService {
         story, // Use story from database
         outlineData,
         chapters,
-        chapterImages,
-        bookCoverImages
-      );
-
-      // Create PDF content (simplified - would need proper PDF library)
-      const pdfContent = await this.createPDF(
-        story, // Use story from database
-        outlineData,
-        chapters,
-        chapterImages,
-        bookCoverImages
+        chapterImages,        bookCoverImages
       );
       
-      // Upload files to storage with correct bucket structure
+      // Upload HTML file to storage
       const htmlFilename = `${run.storyId}/story.html`;
-      const pdfFilename = `${run.storyId}/story.pdf`;
+      const htmlUrl = await this.storageService.uploadFile(htmlFilename, Buffer.from(htmlContent), 'text/html');
 
-      const [htmlUrl, pdfUrl] = await Promise.all([
-        this.storageService.uploadFile(htmlFilename, Buffer.from(htmlContent), 'text/html'),
-        this.storageService.uploadFile(pdfFilename, pdfContent, 'application/pdf')
-      ]);
-
-      // Update story with the HTML and PDF URIs in the database
+      // Update story with the HTML URI in the database
       await this.storyService.updateStoryUris(run.storyId, {
-        htmlUri: htmlUrl,
-        pdfUri: pdfUrl
+        htmlUri: htmlUrl
       });
 
       const result: AssemblyResult = {
         files: {
-          html: htmlUrl,
-          pdf: pdfUrl
+          html: htmlUrl
         },
         metadata: {
           title: story.title, // Use title from database
@@ -179,14 +158,11 @@ export class AssemblyService {
           pageCount: Math.ceil(chapters.length / 2), // Rough estimate
           generatedAt: new Date().toISOString()
         }
-      };
-
-      logger.info('Story assembly completed', {
+      };      logger.info('Story assembly completed', {
         runId,
         wordCount: result.metadata.wordCount,
         pageCount: result.metadata.pageCount,
-        htmlUri: htmlUrl,
-        pdfUri: pdfUrl
+        htmlUri: htmlUrl
       });
 
       return result;
@@ -313,7 +289,9 @@ export class AssemblyService {
     </div>
 
     <!-- Page Break -->
-    <div class="mythoria-page-break"></div>    <!-- Chapters -->
+    <div class="mythoria-page-break"></div>
+    
+    <!-- Chapters -->
     ${chapters.map(chapter => `
       <div class="mythoria-chapter" id="chapter-${chapter.number}">
         <h2 class="mythoria-chapter-title">${encodeHtmlSpecialChars(chapter.title)}</h2>
@@ -342,122 +320,7 @@ export class AssemblyService {
         <img src="${bookCoverImages.get('back')}" alt="Book Back Cover" class="mythoria-cover-image" />
       </div>` : 
       ''
-    }`;
-
-    return html;
-  }
-  
-  private async createPDF(
-    story: { title: string; description?: string; author?: string; dedicationMessage?: string | null; storyLanguage?: string }, 
-    outline: Record<string, unknown>, 
-    chapters: Array<{ number: number, content: string, title: string }>, 
-    chapterImages: Map<number, string>, 
-    bookCoverImages: Map<string, string>
-  ): Promise<Buffer> {
-    try {
-      // Create the story HTML content using the same structure as createHTML
-      const title = story.title;
-      const author = story.author || outline.author as string || 'Mythoria AI';
-      const dedication = story.dedicationMessage || null;
-      const locale = story.storyLanguage || 'en-US';
-
-      // Get localized messages
-      const creditsMessage = await MessageService.getCreditsMessage(locale, author);
-      const tableOfContentsTitle = await MessageService.getTableOfContentsTitle(locale);
-      const storyImaginedByMessage = await MessageService.getStoryImaginedByMessage(locale, author);
-      const craftedWithMessage = await MessageService.getCraftedWithMessage(locale);
-      const byAuthorMessage = await MessageService.getByAuthorMessage(locale, author);      // Generate table of contents
-      const tableOfContents = chapters.map((chapter) => 
-        `<li class="mythoria-toc-item"><a href="#chapter-${chapter.number}" class="mythoria-toc-link">${chapter.number}. ${encodeHtmlSpecialChars(chapter.title)}</a></li>`
-      ).join('');
-      
-      // Generate the HTML body content for PDF
-      const storyContent = `
-        <!-- Story Title -->
-        <h1 class="mythoria-story-title">${encodeHtmlSpecialChars(title)}</h1>
-
-        <!-- Front Cover -->
-        ${bookCoverImages.has('front') ? 
-          `<div class="mythoria-front-cover">
-            <img src="${bookCoverImages.get('front')}" alt="Book Front Cover" class="mythoria-cover-image" />
-          </div>
-          
-          <!-- Page Break -->
-          <div class="mythoria-page-break"></div>` : 
-          ''
-        }
-        
-        <!-- Author Dedicatory -->
-        ${dedication ? `<div class="mythoria-dedicatory">${encodeHtmlSpecialChars(dedication)}</div>
-        
-        <!-- Author Name -->
-        <div class="mythoria-author-name">${encodeHtmlSpecialChars(byAuthorMessage)}</div>` : ''}        
-
-        <!-- Mythoria Message -->
-        <div class="mythoria-message">
-          <p class="mythoria-message-text">${encodeHtmlSpecialChars(storyImaginedByMessage)}</p>
-          <p class="mythoria-message-text">${encodeHtmlSpecialChars(craftedWithMessage)}</p>
-          <img src="https://storage.googleapis.com/mythoria-generated-stories/Mythoria-logo-white-512x336.jpg" alt="Mythoria Logo" class="mythoria-logo" />
-        </div>
-
-        <!-- Page Break -->
-        <div class="mythoria-page-break"></div>        <!-- Table of Contents -->
-        <div class="mythoria-table-of-contents">
-          <h2 class="mythoria-toc-title">${encodeHtmlSpecialChars(tableOfContentsTitle)}</h2>
-          <ul class="mythoria-toc-list">
-            ${tableOfContents}
-          </ul>
-        </div>
-
-        <!-- Page Break -->
-        <div class="mythoria-page-break"></div>
-
-        <!-- Chapters -->
-        ${chapters.map(chapter => `
-          <div class="mythoria-chapter" id="chapter-${chapter.number}">
-            <h2 class="mythoria-chapter-title">${encodeHtmlSpecialChars(chapter.title)}</h2>
-            ${chapterImages.has(chapter.number) ?
-              `<div class="mythoria-chapter-image">
-                <img src="${chapterImages.get(chapter.number)}" alt="Chapter ${chapter.number} illustration" class="mythoria-chapter-img" />
-              </div>` :
-              ''
-            }
-            <div class="mythoria-chapter-content">
-              ${chapter.content.split('\n').map((p: string) => p.trim() ? `<p class="mythoria-chapter-paragraph">${encodeHtmlSpecialChars(p)}</p>` : '').join('')}
-            </div>
-          </div>
-        `).join('')}
-
-        <!-- Credits -->
-        <div class="mythoria-credits">
-          <p class="mythoria-credits-text">${encodeHtmlSpecialChars(creditsMessage)}</p>
-        </div>
-
-        <!-- Back Cover (if available) -->
-        ${bookCoverImages.has('back') ? 
-          `<div class="mythoria-page-break"></div>
-          <div class="mythoria-back-cover">
-            <img src="${bookCoverImages.get('back')}" alt="Book Back Cover" class="mythoria-cover-image" />
-          </div>` : 
-          ''
-        }`;
-
-      // Use the PDF service to generate the PDF with the proper template
-      const pdfBuffer = await this.pdfService.generateStoryPDF(
-        storyContent,
-        title,
-        locale.split('-')[0] // Convert 'en-US' to 'en'
-      );
-
-      return pdfBuffer;
-
-    } catch (error) {
-      logger.error('PDF creation failed', {
-        error: error instanceof Error ? error.message : String(error),
-        storyTitle: story.title
-      });
-      throw error;
-    }
+    }`;    return html;
   }
 
 }

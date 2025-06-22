@@ -30,8 +30,9 @@ export interface PDFGenerationOptions {
 export class PDFService {
   private templatePath: string;
 
-  constructor() {
-    this.templatePath = path.join(__dirname, '../templates/story-print.html');
+  constructor(templatePath?: string) {
+    // Use provided template path or default to all_ages.html
+    this.templatePath = templatePath || path.join(__dirname, '../templates/all_ages.html');
   }
 
   /**
