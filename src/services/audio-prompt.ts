@@ -90,9 +90,7 @@ export class AudioPromptService {
       promptConfig.systemPrompt,
       targetAge,
       promptConfig.targetAgeOptions
-    );
-
-    return {
+    );    return {
       systemPrompt: processedSystemPrompt,
       instructions: promptConfig.instructions,
       language: promptConfig.language,
@@ -101,20 +99,101 @@ export class AudioPromptService {
   }
 
   /**
-   * Create enhanced text for TTS by combining the original text with instructions
+   * Get recommended voice for OpenAI TTS based on system prompt and language
+   */
+  static getRecommendedVoice(
+    systemPrompt: string,
+    _language: string,
+    targetAge?: string
+  ): 'alloy' | 'echo' | 'fable' | 'onyx' | 'nova' | 'shimmer' {
+    // Voice selection based on target audience and language
+    const lowerPrompt = systemPrompt.toLowerCase();
+    
+    // For children's content, use warmer, more expressive voices
+    if (targetAge === 'toddlers' || targetAge === 'children') {
+      if (lowerPrompt.includes('fun') || lowerPrompt.includes('funny')) {
+        return 'nova'; // Expressive and warm
+      }
+      return 'alloy'; // Clear and friendly
+    }
+    
+    // For storytelling that emphasizes emotion and passion
+    if (lowerPrompt.includes('passion') || lowerPrompt.includes('emotion')) {
+      return 'fable'; // Expressive storytelling voice
+    }
+    
+    // For professional or adult content
+    if (targetAge === 'adults' || targetAge === 'young adults') {
+      return 'onyx'; // Deep and authoritative
+    }
+    
+    // Default to nova for general storytelling
+    return 'nova';
+  }
+
+  /**
+   * Get recommended speed based on target age and instructions
+   */
+  static getRecommendedSpeed(
+    targetAge: string | undefined,
+    instructions: string[]
+  ): number {
+    // Default speed from environment or 1.0
+    let speed = parseFloat(process.env.TTS_SPEED || '1.0');
+    
+    // Adjust speed based on target age
+    if (targetAge === 'toddlers') {
+      speed = Math.min(speed * 0.8, 1.0); // Slower for toddlers
+    } else if (targetAge === 'children') {
+      speed = Math.min(speed * 0.9, 1.0); // Slightly slower for children
+    } else if (targetAge === 'adults') {
+      speed = Math.min(speed * 1.1, 1.25); // Can be faster for adults
+    }
+    
+    // Check instructions for pace guidance
+    const instructionText = instructions.join(' ').toLowerCase();
+    if (instructionText.includes('slow') || instructionText.includes('pace')) {
+      speed *= 0.9;
+    }
+    
+    // Ensure speed is within OpenAI TTS limits (0.25 to 4.0)
+    return Math.max(0.25, Math.min(4.0, speed));
+  }
+
+  /**
+   * Process text for better TTS pronunciation and pacing
    */
   static enhanceTextForTTS(
     originalText: string,
     systemPrompt: string,
     instructions: string[]
   ): string {
-    // For TTS, we can prepend instructions to guide the synthesis
-    // Note: This approach works better with advanced TTS models that understand context
+    // Don't prepend system prompts to text - they should not be read aloud
+    // Instead, enhance the text based on the instructions for better TTS
     
-    const instructionText = instructions.join('. ') + '.';
+    let enhancedText = originalText;
     
-    // Create enhanced text with context
-    const enhancedText = `[${systemPrompt}. ${instructionText}]\n\n${originalText}`;
+    // Apply text processing based on instructions
+    const instructionText = instructions.join(' ').toLowerCase();
+    
+    // Add appropriate pauses for emotional delivery
+    if (systemPrompt.toLowerCase().includes('emotion') || systemPrompt.toLowerCase().includes('passion')) {
+      // Add slight pauses after emotional moments
+      enhancedText = enhancedText
+        .replace(/(!|\.\.\.)/g, '$1 ') // Pause after exclamations and ellipses
+        .replace(/([.!?])\s*"/g, '$1" '); // Pause after quoted speech
+    }
+    
+    // Enhance pronunciation for clear articulation
+    if (instructionText.includes('clear') || instructionText.includes('pronounce')) {
+      // Add pronunciation hints for difficult words
+      enhancedText = enhancedText
+        .replace(/\b(said|says)\b/g, 'said') // Ensure clear past tense
+        .replace(/(\w+)'(\w+)/g, '$1 $2'); // Separate contractions slightly
+    }
+    
+    // Clean up any extra whitespace
+    enhancedText = enhancedText.replace(/\s+/g, ' ').trim();
     
     return enhancedText;
   }

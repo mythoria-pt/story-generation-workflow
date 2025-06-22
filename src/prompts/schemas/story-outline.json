@@ -5,6 +5,19 @@
       "type": "string",
       "maxLength": 150
     },
+    "target-audience": {
+      "type": "string",
+      "enum": [
+        "children_0-2",
+        "children_3-6",
+        "children_7-10",
+        "children_11-14",
+        "young_adult_15-17",
+        "adult_18+",
+        "all_ages"
+      ],
+      "description": "Target audience for the story"
+    },
     "bookCoverPrompt": {
       "type": "string",
       "description": "Detailed prompt for generating the book cover illustration. Include characters physical descriptions, actions, and settings.",
@@ -14,7 +27,7 @@
       "type": "string",
       "description": "Detailed prompt for generating the book back cover illustration. Include characters physical descriptions, actions, and settings.",
       "maxLength": 600
-    },    "synopses": {
+    },"synopses": {
       "type": "string",
       "description": "Detailed synopsis of the entire book"
     },
@@ -49,9 +62,9 @@
       },
       "maxItems": 20
     }
-  },
-  "required": [
+  },  "required": [
     "bookTitle",
+    "target-audience",
     "chapters",
     "synopses",
     "bookBackCoverPrompt",

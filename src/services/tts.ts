@@ -131,9 +131,7 @@ export class TTSService {
         story.title || 'Untitled Story',
         chapterNumber,
         chapterContent
-      );
-
-      // Enhance text with audio prompts if available
+      );      // Enhance text with audio prompts if available
       if (audioPromptConfig) {
         logger.info('Applying audio prompt configuration', {
           runId,
@@ -142,11 +140,37 @@ export class TTSService {
           languageName: audioPromptConfig.languageName
         });
 
+        // Use audio prompts to enhance text processing and get voice recommendations
         chapterText = AudioPromptService.enhanceTextForTTS(
           chapterText,
           audioPromptConfig.systemPrompt,
           audioPromptConfig.instructions
         );
+
+        // Get recommended voice and speed based on audio prompts
+        const recommendedVoice = AudioPromptService.getRecommendedVoice(
+          audioPromptConfig.systemPrompt,
+          storyLanguage,
+          undefined // Target age not available in current schema
+        );
+        
+        const recommendedSpeed = AudioPromptService.getRecommendedSpeed(
+          undefined, // Target age not available in current schema
+          audioPromptConfig.instructions
+        );
+
+        // Override config with recommendations from audio prompts
+        config.voice = recommendedVoice;
+        config.speed = recommendedSpeed;
+
+        logger.info('Applied audio prompt recommendations', {
+          runId,
+          chapterNumber,
+          recommendedVoice,
+          recommendedSpeed,
+          originalVoice: process.env.TTS_VOICE,
+          originalSpeed: process.env.TTS_SPEED
+        });
       } else {
         logger.warn('No audio prompt configuration found, using basic TTS', {
           runId,

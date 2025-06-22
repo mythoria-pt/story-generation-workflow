@@ -79,8 +79,7 @@ describe('AudioPromptService', () => {
     expect(instructions?.language).toBe('en-US');
     expect(instructions?.languageName).toBe('English (American)');
   });
-
-  it('should enhance text with TTS instructions', async () => {
+  it('should enhance text for TTS without including system prompts', async () => {
     const originalText = 'Once upon a time, there was a brave knight.';
     const systemPrompt = 'You are a professional storyteller.';
     const instructions = ['Speak clearly', 'Use emotions'];
@@ -91,10 +90,12 @@ describe('AudioPromptService', () => {
       instructions
     );
     
-    expect(enhanced).toContain(systemPrompt);
-    expect(enhanced).toContain('Speak clearly');
-    expect(enhanced).toContain('Use emotions');
+    // The enhanced text should NOT contain system prompts (they shouldn't be read aloud)
+    expect(enhanced).not.toContain('You are a professional storyteller.');
+    // The enhanced text should still contain the original content
     expect(enhanced).toContain(originalText);
+    // Text should be cleaned and processed for better TTS
+    expect(enhanced).toBe(originalText); // For this simple case, it should be the same after cleaning
   });
 
   it('should cache prompt configurations', async () => {

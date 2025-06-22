@@ -22,6 +22,7 @@ export default {
   coverageReporters: ['text', 'lcov', 'html'],  moduleNameMapper: {
     '^@/(.*)\\.js$': '<rootDir>/src/$1.ts',
     '^@/(.*)$': '<rootDir>/src/$1',
+    '^(.+)\\.js$': '$1'
   },
   extensionsToTreatAsEsm: ['.ts'],
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node'],
