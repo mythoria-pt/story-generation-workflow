@@ -219,12 +219,10 @@ router.post('/internal/audiobook/chapter', async (req: express.Request, res: exp
       .replace(/\s+/g, ' ')
       .trim();
     
-    chapterText += processedContent;
-
-    // Get TTS configuration
+    chapterText += processedContent;    // Get TTS configuration
     const config = {
       provider: (process.env.TTS_PROVIDER || 'openai') as 'openai' | 'vertex',
-      model: process.env.TTS_MODEL || 'tts-1',
+      model: process.env.TTS_MODEL || 'gpt-4o-mini-tts',
       voice: voice || process.env.TTS_VOICE || 'nova',
       speed: parseFloat(process.env.TTS_SPEED || '0.9'),
       language: storyLanguage

@@ -73,11 +73,10 @@ export class TTSService {
 
   /**
    * Get TTS configuration from environment variables
-   */
-  private getTTSConfig(): TTSConfig {
+   */  private getTTSConfig(): TTSConfig {
     return {
       provider: (process.env.TTS_PROVIDER || 'openai') as 'openai' | 'vertex',
-      model: process.env.TTS_MODEL || 'tts-1',
+      model: process.env.TTS_MODEL || 'gpt-4o-mini-tts',
       voice: process.env.TTS_VOICE || 'nova',
       speed: parseFloat(process.env.TTS_SPEED || '0.9'),
       language: process.env.TTS_LANGUAGE || 'en-US'

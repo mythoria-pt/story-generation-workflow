@@ -31,8 +31,7 @@ const envSchema = z.object({
   GOOGLE_CLOUD_LOCATION: z.string().optional(), // For backward compatibility
   STORAGE_BUCKET_NAME: z.string(),  WORKFLOWS_LOCATION: z.string(),
   IMAGE_GENERATION_MODEL: z.string().optional(),
-  AUDIO_GENERATION_MODEL: z.string().optional(),
-  LOG_LEVEL: z.enum(['error', 'warn', 'info', 'debug']).optional().default('info'),  // AI Provider Configuration
+  LOG_LEVEL: z.enum(['error', 'warn', 'info', 'debug']).optional().default('info'),// AI Provider Configuration
   TEXT_PROVIDER: z.enum(['openai', 'google-genai']).optional().default('google-genai'),
   IMAGE_PROVIDER: z.enum(['openai']).optional().default('openai'),
 
