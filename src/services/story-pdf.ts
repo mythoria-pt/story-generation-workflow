@@ -10,6 +10,7 @@ import { StoryService } from './story.js';
 import { PDFService } from './pdf.js';
 import { logger } from '@/config/logger.js';
 import { countWords } from '@/shared/utils.js';
+import { Story } from '@/db/schema/stories.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -182,23 +183,21 @@ export class StoryPDFService {
 
     // Return the template path
     return templatePath;
-  }
-  /**
+  }  /**
    * Generate PDF directly from HTML content
    */
-  private async generatePDFFromHTML(htmlContent: string, story: any, templatePath: string): Promise<Buffer> {
+  private async generatePDFFromHTML(htmlContent: string, story: Story & { author?: string }, templatePath: string): Promise<Buffer> {
     try {
       // Check if the template exists, if not use fallback
       const fs = await import('fs/promises');
       let finalTemplatePath = templatePath;
-      
-      try {
+        try {
         await fs.access(templatePath);
         logger.info('Using target audience specific template', { 
           targetAudience: story.targetAudience,
           templatePath 
         });
-      } catch (error) {
+      } catch {
         // Template doesn't exist, use fallback
         finalTemplatePath = path.join(__dirname, '../templates/all_ages.html');
         logger.warn('Template not found, using fallback', { 
