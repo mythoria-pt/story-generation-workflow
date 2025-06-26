@@ -4,14 +4,14 @@
  * Generates audio per chapter to avoid character limits and provide better UX
  */
 
-import { RunsService } from './runs';
-import { StoryService } from './story';
-import { StorageService } from './storage';
-import { tokenUsageTrackingService } from './token-usage-tracking';
-import { AudioPromptService } from './audio-prompt';
-import { logger } from '@/config/logger';
+import { RunsService } from './runs.js';
+import { StoryService } from './story.js';
+import { StorageService } from './storage.js';
+import { tokenUsageTrackingService } from './token-usage-tracking.js';
+import { AudioPromptService } from './audio-prompt.js';
+import { logger } from '@/config/logger.js';
 import OpenAI from 'openai';
-import { countWords } from '@/shared/utils';
+import { countWords } from '@/shared/utils.js';
 
 export interface TTSChapterResult {
   chapterNumber: number;

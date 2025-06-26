@@ -6,15 +6,27 @@ import path from 'path';
 // Load environment variables based on NODE_ENV
 const nodeEnv = process.env.NODE_ENV || 'development';
 
-// Load appropriate environment files
+// Load appropriate environment files only if they exist
 if (nodeEnv === 'production') {
-  config({ path: '.env.production' });
+  // In production (Cloud Run), environment variables are set via deployment config
+  // Only load .env.production if it exists locally
+  if (fs.existsSync('.env.production')) {
+    config({ path: '.env.production' });
+  }
 } else if (nodeEnv === 'development') {
-  config({ path: '.env.local' });
-  config({ path: '.env' });
+  if (fs.existsSync('.env.local')) {
+    config({ path: '.env.local' });
+  }
+  if (fs.existsSync('.env')) {
+    config({ path: '.env' });
+  }
 } else {
-  config({ path: `.env.${nodeEnv}` });
-  config({ path: '.env' });
+  if (fs.existsSync(`.env.${nodeEnv}`)) {
+    config({ path: `.env.${nodeEnv}` });
+  }
+  if (fs.existsSync('.env')) {
+    config({ path: '.env' });
+  }
 }
 
 // Environment schema based on .env.schema.json
@@ -42,6 +54,13 @@ const envSchema = z.object({
   // Google GenAI Configuration
   GOOGLE_GENAI_API_KEY: z.string().optional(),
   GOOGLE_GENAI_MODEL: z.string().optional().default('gemini-2.5-flash'),
+  
+  // TTS Configuration
+  TTS_PROVIDER: z.enum(['openai', 'vertex']).optional().default('openai'),
+  TTS_MODEL: z.string().optional().default('tts-1'),
+  TTS_VOICE: z.string().optional().default('nova'),
+  TTS_SPEED: z.string().optional().default('0.9'),
+  TTS_LANGUAGE: z.string().optional().default('en-US'),
 });
 
 export type Environment = z.infer<typeof envSchema>;
