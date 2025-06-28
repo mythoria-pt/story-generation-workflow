@@ -4,8 +4,8 @@
  */
 
 import { eq, and } from 'drizzle-orm';
-import { getDatabase } from '@/db/connection.js';
-import { storyGenerationRuns, storyGenerationSteps } from '@/db/schema/story-generation.js';
+import { getWorkflowsDatabase } from '@/db/workflows-db.js';
+import { storyGenerationRuns, storyGenerationSteps } from '@/db/workflows-db.js';
 import { logger } from '@/config/logger.js';
 
 export interface RunUpdate {
@@ -22,7 +22,7 @@ export interface StepResult {
 }
 
 export class RunsService {
-  private db = getDatabase();
+  private db = getWorkflowsDatabase();
 
   /**
    * Update a story generation run

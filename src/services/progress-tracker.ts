@@ -45,10 +45,11 @@ export class ProgressTrackerService {
   }
 
   /**
-   * Calculate the expected number of chapters from the outline
+   * Calculate the expected number of chapters from the outline or database
    */
   private async getChapterCount(runId: string): Promise<number> {
     try {
+      // First, try to get chapter count from the outline
       const outlineStep = await this.runsService.getStepResult(runId, 'generate_outline');
       
       if (outlineStep?.detailJson && typeof outlineStep.detailJson === 'object') {
@@ -56,6 +57,10 @@ export class ProgressTrackerService {
         
         // Try to extract chapter count from outline structure
         if (outline.chapters && Array.isArray(outline.chapters)) {
+          logger.debug('Chapter count determined from outline', { 
+            runId, 
+            chapterCount: outline.chapters.length 
+          });
           return outline.chapters.length;
         }
         
@@ -63,13 +68,33 @@ export class ProgressTrackerService {
         if (outline.content && typeof outline.content === 'string') {
           const chapterMatches = outline.content.match(/Chapter\s+\d+/gi);
           if (chapterMatches) {
+            logger.debug('Chapter count determined from outline content', { 
+              runId, 
+              chapterCount: chapterMatches.length 
+            });
             return chapterMatches.length;
           }
         }
       }
       
-      // Default fallback - typical children's book has 3-5 chapters
-      logger.warn('Could not determine chapter count from outline, using default of 4', { runId });
+      // If outline doesn't have chapter count, read from database
+      logger.debug('Chapter count not available in outline, checking database', { runId });
+      
+      const run = await this.runsService.getRun(runId);
+      if (run?.storyId) {
+        const story = await this.storyService.getStory(run.storyId);
+        if (story?.chapterCount) {
+          logger.debug('Chapter count determined from database', { 
+            runId, 
+            storyId: run.storyId,
+            chapterCount: story.chapterCount 
+          });
+          return story.chapterCount;
+        }
+      }
+      
+      // Final fallback - typical children's book has 3-5 chapters
+      logger.warn('Could not determine chapter count from outline or database, using default of 4', { runId });
       return 4;
       
     } catch (error) {

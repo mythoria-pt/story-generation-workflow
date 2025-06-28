@@ -1,8 +1,18 @@
 # Story Generation Workflow - Development Guide
 
-## Project Overview
+## Overview
 
-The Story Generation Workflow is a Node.js microservice built with TypeScript, Express.js, and Google Cloud services. It follows clean architecture principles with provider-agnostic AI services and comprehensive testing.
+The Story Generation Workflow is a modern Node.js microservice built with TypeScript, Express.js, and Google Cloud services. This guide covers local development setup, testing, debugging, and contribution workflows.
+
+## Technology Stack
+
+- **Runtime**: Node.js 20+ with ES Modules
+- **Language**: TypeScript 5.7.2
+- **Framework**: Express.js with async/await patterns
+- **Database**: PostgreSQL with Drizzle ORM
+- **Testing**: Jest with comprehensive coverage
+- **Code Quality**: ESLint, Prettier, TypeScript strict mode
+- **Containerization**: Docker with multi-stage builds
 
 ## Development Environment Setup
 

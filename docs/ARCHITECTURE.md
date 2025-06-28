@@ -4,6 +4,30 @@
 
 The Story Generation Workflow (SGW) is a provider-agnostic microservice that orchestrates the complete story generation process using Google Cloud Workflows, AI services (Vertex AI, OpenAI, Stability AI), and Cloud Storage. It implements a clean architecture pattern with environment-agnostic business logic and swappable adapters for external services.
 
+## Technology Stack
+
+### Core Technologies
+- **Runtime**: Node.js 20+ with ES Modules
+- **Language**: TypeScript 5.7.2
+- **Framework**: Express.js with async/await patterns
+- **Database**: PostgreSQL with Drizzle ORM
+- **Testing**: Jest with comprehensive coverage
+- **Containerization**: Docker with multi-stage builds
+
+### Google Cloud Platform Services
+- **Compute**: Cloud Run (serverless containers)
+- **Orchestration**: Cloud Workflows (YAML-defined workflows)
+- **AI/ML**: Vertex AI (Gemini models)
+- **Storage**: Cloud Storage (files, templates, assets)
+- **Messaging**: Pub/Sub (event-driven communication)
+- **Security**: Secret Manager, IAM service accounts
+- **Monitoring**: Cloud Logging, Error Reporting
+
+### External AI Services
+- **Primary**: Google Vertex AI (Gemini 2.0 Flash, Imagen)
+- **Secondary**: OpenAI (GPT-4, DALL-E, Whisper, TTS)
+- **Tertiary**: Stability AI (Stable Diffusion)
+
 ## System Architecture
 
 ```mermaid

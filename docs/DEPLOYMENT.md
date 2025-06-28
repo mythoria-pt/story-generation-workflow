@@ -1,6 +1,17 @@
 # Story Generation Workflow - Deployment Guide
 
-## Google Cloud Services Configuration
+## Overview
+
+This guide covers deploying the Story Generation Workflow service to Google Cloud Platform using Cloud Run, with supporting services including Cloud Workflows, Pub/Sub, and Cloud SQL.
+
+## Prerequisites
+
+- Google Cloud CLI installed and authenticated
+- Docker installed for container builds
+- Access to Google Cloud Project: `oceanic-beach-460916-n5`
+- Required IAM permissions for deployment
+
+## Google Cloud Platform Setup
 
 ### Project Information
 - **Project ID**: `oceanic-beach-460916-n5`

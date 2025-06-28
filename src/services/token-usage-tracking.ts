@@ -3,8 +3,8 @@
  * Handles recording of AI API usage, token consumption, and cost estimation
  */
 
-import { getDatabase } from '@/db/connection.js';
-import { tokenUsageTracking, InsertTokenUsage } from '@/db/schema/token-usage.js';
+import { getWorkflowsDatabase } from '@/db/workflows-db.js';
+import { tokenUsageTracking, InsertTokenUsage } from '@/db/workflows-db.js';
 import { logger } from '@/config/logger.js';
 import { eq, gte, lte, and } from 'drizzle-orm';
 
@@ -28,7 +28,7 @@ export interface CostEstimation {
 }
 
 export class TokenUsageTrackingService {
-  private db = getDatabase();
+  private db = getWorkflowsDatabase();
 
   /**
    * Record token usage from an AI API call
