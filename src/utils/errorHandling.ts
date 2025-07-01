@@ -8,7 +8,7 @@ export interface ErrorDetails {
   name?: string;
   code?: string;
   status?: number;
-  details?: any;
+  details?: unknown; // Can contain various error details from different sources
   timestamp: string;
 }
 
@@ -30,20 +30,24 @@ export function serializeError(error: unknown): ErrorDetails {
 
     // Handle Google Cloud Storage specific errors
     if ('code' in error) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       details.code = String((error as any).code);
     }
     
     if ('status' in error) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       details.status = Number((error as any).status);
     }
 
     // Include additional properties that might be on the error object
     const errorKeys = Object.getOwnPropertyNames(error);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const additionalProps: Record<string, any> = {};
     
     for (const key of errorKeys) {
       if (!['message', 'name', 'stack'].includes(key)) {
         try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const value = (error as any)[key];
           // Only include serializable values
           if (typeof value !== 'function' && typeof value !== 'symbol') {
@@ -77,13 +81,14 @@ export function serializeError(error: unknown): ErrorDetails {
 /**
  * Create a Google Cloud Storage specific error handler
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function handleGCSError(error: unknown, context: Record<string, any> = {}): ErrorDetails {
   const serialized = serializeError(error);
   
   return {
     ...serialized,
     details: {
-      ...serialized.details,
+      ...(serialized.details && typeof serialized.details === 'object' ? serialized.details : {}),
       context,
       // Common GCS error scenarios
       troubleshooting: getGCSTroubleshootingHints(serialized)

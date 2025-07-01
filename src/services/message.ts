@@ -26,7 +26,10 @@ export class MessageService {
   static async loadMessages(locale: string): Promise<MessageData> {
     // Check cache first
     if (this.messagesCache.has(locale)) {
-      return this.messagesCache.get(locale)!;
+      const cachedMessages = this.messagesCache.get(locale);
+      if (cachedMessages) {
+        return cachedMessages;
+      }
     }
 
     try {

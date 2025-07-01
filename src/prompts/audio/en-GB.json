@@ -9,5 +9,9 @@
     "Maintain an appropriate pace for the target age",
     "Use varied intonation to maintain interest",
     "Pronounce all words clearly with British accent"
-  ]
+  ],
+  "translations": {
+    "audioIntro": "This story was imagined by {author} and crafted using Mythoria - tell your own story.",
+    "chapter": "Chapter"
+  }
 }

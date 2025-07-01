@@ -11,6 +11,7 @@ import {
   formatImageError
 } from './ai-image-utils.js';
 import { StoryService } from '@/services/story.js';
+import { StoryContext } from '@/shared/utils.js';
 import { PromptService } from '@/services/prompt.js';
 import { SchemaService } from '@/services/schema.js';
 import { StorageService } from '@/services/storage.js';
@@ -41,7 +42,8 @@ const ChapterRequestSchema = z.object({
   chapterNumber: z.number().int().positive(),
   chapterTitle: z.string(),
   chapterSynopses: z.string(),
-  chapterCount: z.number().int().positive().optional(), outline: z.object({
+  chapterCount: z.number().int().positive().optional(),
+  outline: z.object({
     bookTitle: z.string(),
     bookCoverPrompt: z.string(),
     bookBackCoverPrompt: z.string(),
@@ -56,6 +58,31 @@ const ChapterRequestSchema = z.object({
   previousChapters: z.array(z.string()).optional()
 });
 
+// Type definitions
+const OutlineSchema = z.object({
+  bookTitle: z.string(),
+  bookCoverPrompt: z.string(),
+  bookBackCoverPrompt: z.string(),
+  synopses: z.string(),
+  chapters: z.array(z.object({
+    chapterNumber: z.number().int().positive(),
+    chapterTitle: z.string(),
+    chapterSynopses: z.string(),
+    chapterPhotoPrompt: z.string()
+  }))
+});
+
+type OutlineData = z.infer<typeof OutlineSchema>;
+
+// Helper function to check if data matches outline structure
+function isOutlineData(data: unknown): data is OutlineData {
+  try {
+    OutlineSchema.parse(data);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * POST /ai/text/outline
@@ -95,7 +122,7 @@ router.post('/text/outline', async (req, res) => {  try {
         2
       ),
       bookTitle: storyContext.story.title,
-      storyDescription: getStoryDescription(storyContext as any),
+      storyDescription: getStoryDescription(storyContext as StoryContext),
       description: storyContext.story.plotDescription || 'No specific plot description provided.',
       graphicalStyle: storyContext.story.graphicalStyle || 'colorful and vibrant illustration',
       // Placeholder values for template completion
@@ -138,16 +165,20 @@ router.post('/text/outline', async (req, res) => {  try {
     const outline = await aiGateway.getTextService(aiContext).complete(finalPrompt, requestOptions);
 
     // Parse and validate the AI response
-    const outlineData = parseAIResponse(outline);    // Validate that the response matches our expected structure
-    if (!outlineData.bookTitle || !outlineData.chapters || !Array.isArray(outlineData.chapters)) {
+    const parsedData = parseAIResponse(outline);
+    
+    // Validate that the response matches our expected structure
+    if (!isOutlineData(parsedData)) {
       logger.error('Invalid outline structure', {
-        hasBookTitle: !!outlineData.bookTitle,
-        hasChapters: !!outlineData.chapters,
-        isChaptersArray: Array.isArray(outlineData.chapters),
-        actualKeys: Object.keys(outlineData)
+        hasBookTitle: !!(parsedData as any)?.bookTitle,
+        hasChapters: !!(parsedData as any)?.chapters,
+        isChaptersArray: Array.isArray((parsedData as any)?.chapters),
+        actualKeys: parsedData && typeof parsedData === 'object' ? Object.keys(parsedData) : []
       });
       throw new Error('Invalid outline structure received');
     }
+    
+    const outlineData = parsedData;
 
     res.json({
       success: true,

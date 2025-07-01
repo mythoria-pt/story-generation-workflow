@@ -9,5 +9,9 @@
     "Halte ein angemessenes Tempo für die Zielgruppe",
     "Verwende abwechslungsreiche Betonung, um das Interesse zu erhalten",
     "Sprich alle Wörter deutlich mit deutschem Akzent aus"
-  ]
+  ],
+  "translations": {
+    "audioIntro": "Diese Geschichte wurde von {author} erdacht und mit Mythoria erstellt - erzählen Sie Ihre eigene Geschichte.",
+    "chapter": "Kapitel"
+  }
 }

@@ -167,6 +167,26 @@ export function formatTargetAudience(targetAudience?: string): string {
 }
 
 /**
+ * Extracts target age category from targetAudience for audio prompt configuration
+ */
+export function extractTargetAge(targetAudience?: string | null): string | undefined {
+  if (!targetAudience) return undefined;
+  
+  // Map target audience enum values to audio prompt target age categories
+  const ageMap: Record<string, string> = {
+    'children_0-2': 'toddlers',
+    'children_3-6': 'children',
+    'children_7-10': 'children',
+    'children_11-14': 'children',
+    'young_adult_15-17': 'young adults',
+    'adult_18+': 'adults',
+    'all_ages': 'general audience'
+  };
+  
+  return ageMap[targetAudience];
+}
+
+/**
  * Generates story description from story context
  */
 export function getStoryDescription(storyContext: StoryContext): string {
@@ -193,7 +213,7 @@ export function getStoryDescription(storyContext: StoryContext): string {
 /**
  * Parses AI response, handling various formats including markdown code blocks
  */
-export function parseAIResponse(response: string): any {
+export function parseAIResponse(response: string): unknown {
   let cleanedResponse = response.trim();
   
   // Handle markdown code blocks

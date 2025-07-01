@@ -1,82 +1,99 @@
 # Mythoria – Audiobook Generation Workflow
-# Trigger: HTTP POST to /audio/create-audiobook
+# Trigger: Pub/Sub topic mythoria-audiobook-requests
 #
-# Request body (JSON):
-#   { "storyId": "<uuid>", "voice": "<optional-voice>" }
+# Pub/Sub message (base-64 JSON):
+#   { "storyId": "<uuid>", "runId": "<uuid>", "voice": "<voice>", "timestamp": "<iso-string>" }
 #
 # Cloud Run base URL (internal API + AI-Gateway):
 #   https://story-generation-workflow-803421888801.europe-west9.run.app
 #
 
 main:
-  params: [request]
+  params: [event]
 
   steps:
     # ───────────────────────────────────────────────
-    # 0. Parse request & constants
+    # 0. Parse event & constants
     # ───────────────────────────────────────────────
     - init:
         assign:
-          - storyId:  ${request.storyId}
-          - voice:    ${default(request.voice, "nova")}
-          - baseUrl:  "https://story-generation-workflow-803421888801.europe-west9.run.app"
+          - payload:  ${json.decode(base64.decode(event.data.message.data))}
+          - storyId:  ${payload.storyId}
+          - runId:    ${payload.runId}
+          - voice:    ${default(payload.voice, "coral")}
+          - baseUrl:  "https://a73b-2001-818-de82-dd00-a484-3325-86dc-5f9e.ngrok-free.app"
           - now:      ${time.format(sys.now())}
 
     # ───────────────────────────────────────────────
-    # 1. Validate story exists and get story HTML
+    # 1. Pipeline wrapped in one try/except for error handling
     # ───────────────────────────────────────────────
-    - validateStory:
+    - runAudiobookPipeline:
         try:
-          steps:
-            # Get story details to validate it exists
-            - getStory:
+          steps:               
+            # 1. Mark audiobook generation as started
+            - markAudiobookStarted:
                 call: http.request
                 args:
-                  url:    ${baseUrl + "/internal/stories/" + storyId}
-                  method: GET
+                  url:    ${baseUrl + "/internal/stories/" + storyId + "/audiobook-status"}
+                  method: PATCH
                   auth:   { type: OIDC }
-                result: storyResp
+                  body:
+                    status: "generating"
+                    runId: ${runId}
+                    startedAt: ${time.format(sys.now())}
 
-            # Download and parse story HTML from storage
-            - getStoryHtml:
-                call: http.request
-                args:
-                  url:    ${baseUrl + "/internal/stories/" + storyId + "/html"}
-                  method: GET
-                  auth:   { type: OIDC }
-                result: htmlResp
+            # 2. Validate story exists and get story HTML
+            - validateStory:
+                steps:
+                  # Get story details to validate it exists
+                  - getStory:
+                      call: http.request
+                      args:
+                        url:    ${baseUrl + "/internal/stories/" + storyId}
+                        method: GET
+                        auth:   { type: OIDC }
+                      result: storyResp
 
-            - extractChapters:
+                  # Download and parse story HTML from storage
+                  - getStoryHtml:
+                      call: http.request
+                      args:
+                        url:    ${baseUrl + "/internal/stories/" + storyId + "/html"}
+                        method: GET
+                        auth:   { type: OIDC }
+                      result: htmlResp
+
+                  - extractStoryContent:
+                      assign:
+                        - storyTitle: ${storyResp.body.title}
+                        - storyAuthor: ${default(htmlResp.body.author, "")}
+                        - dedicatoryMessage: ${default(htmlResp.body.dedicationMessage, "")}
+                        - storyLanguage: ${default(storyResp.body.storyLanguage, "en-US")}
+                        - chapters: ${htmlResp.body.chapters}  # Only actual chapters
+
+            # 3. Filter out non-chapter content
+            - filterChapters:
                 assign:
-                  - storyTitle: ${storyResp.body.title}
-                  - chapters: ${htmlResp.body.chapters}
-
-        except:
-          as: validationError
-          steps:
-            - returnError:
-                return:
-                  success: false
-                  error: ${string(validationError)}
-                  storyId: ${storyId}
-
-    # ───────────────────────────────────────────────
-    # 2. Generate audio for each chapter sequentially
-    # ───────────────────────────────────────────────
-    - generateAudiobookChapters:
-        try:
-          steps:
+                  - actualChapters: []
+                  - chapterIndex: 0
+            
             - processChapters:
                 for:
-                  range: ${[1, len(chapters)]}
+                  range: ${[0, len(chapters) - 1]}
+                  value: i
+                  steps:
+                    - checkIfChapter:
+                        switch:
+                          - condition: ${not(text.match_regex(chapters[i].title, "(?i)dedicat|author|credit|attribution"))}
+                            assign:
+                              - actualChapters: ${list.concat(actualChapters, chapters[i])}
+
+            # 4. Generate audio for each chapter
+            - generateChapterAudios:
+                for:
+                  range: ${[1, len(actualChapters)]}
                   value: chapterNum
                   steps:
-                    - extractChapterText:
-                        assign:
-                          - currentChapter: ${chapters[chapterNum - 1]}
-                          - chapterTitle: ${currentChapter.title}
-                          - chapterContent: ${currentChapter.content}
-
                     - generateChapterAudio:
                         call: http.request
                         args:
@@ -86,12 +103,17 @@ main:
                           body:
                             storyId: ${storyId}
                             chapterNumber: ${chapterNum}
-                            chapterTitle: ${chapterTitle}
-                            chapterContent: ${chapterContent}
+                            chapterTitle: ${actualChapters[chapterNum - 1].title}
+                            chapterContent: ${actualChapters[chapterNum - 1].content}
                             storyTitle: ${storyTitle}
+                            storyAuthor: ${storyAuthor}
+                            dedicatoryMessage: ${dedicatoryMessage}
                             voice: ${voice}
+                            storyLanguage: ${storyLanguage}
+                            isFirstChapter: ${chapterNum == 1}
                         result: chapterAudioResp
 
+            # 5. Finalize audiobook and mark as completed
             - finalizeAudiobook:
                 call: http.request
                 args:
@@ -102,20 +124,47 @@ main:
                     storyId: ${storyId}
                 result: finalizeResp
 
+            # 6. Mark audiobook as completed
+            - markAudiobookCompleted:
+                call: http.request
+                args:
+                  url:    ${baseUrl + "/internal/stories/" + storyId + "/audiobook-status"}
+                  method: PATCH
+                  auth:   { type: OIDC }
+                  body:
+                    status: "completed"
+                    completedAt: ${time.format(sys.now())}
+                    audioUrls: ${finalizeResp.body.audioUrls}
+                    totalDuration: ${finalizeResp.body.totalDuration}
+
             - returnSuccess:
                 return:
                   success: true
                   storyId: ${storyId}
+                  runId: ${runId}
                   audioUrls: ${finalizeResp.body.audioUrls}
                   totalDuration: ${finalizeResp.body.totalDuration}
-                  chaptersProcessed: ${len(chapters)}
+                  chaptersProcessed: ${len(actualChapters)}
                   generatedAt: ${now}
 
         except:
           as: audioError
           steps:
+            # Mark audiobook generation as failed
+            - markAudiobookFailed:
+                call: http.request
+                args:
+                  url:    ${baseUrl + "/internal/stories/" + storyId + "/audiobook-status"}
+                  method: PATCH
+                  auth:   { type: OIDC }
+                  body:
+                    status: "failed"
+                    failedAt: ${time.format(sys.now())}
+                    error: ${audioError.message}
+
             - returnAudioError:
                 return:
                   success: false
-                  error: ${string(audioError)}
+                  error: ${audioError.message}
                   storyId: ${storyId}
+                  runId: ${runId}

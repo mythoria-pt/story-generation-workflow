@@ -12,6 +12,34 @@ export interface GoogleGenAITextConfig {
   model?: string;
 }
 
+interface JsonSchemaType {
+  type: string;
+  description?: string;
+  properties?: Record<string, JsonSchemaType>;
+  items?: JsonSchemaType;
+  required?: string[];
+  enum?: unknown[];
+  maxItems?: number;
+  minItems?: number;
+  maxLength?: number;
+  minLength?: number;
+  [key: string]: unknown;
+}
+
+interface GenAISchemaType {
+  type: string;
+  description?: string;
+  properties?: Record<string, GenAISchemaType>;
+  items?: GenAISchemaType;
+  required?: string[];
+  enum?: unknown[];
+  propertyOrdering?: string[];
+  maxItems?: number;
+  minItems?: number;
+  maxLength?: number;
+  minLength?: number;
+}
+
 export class GoogleGenAITextService implements ITextGenerationService {
   private genAI: GoogleGenerativeAI;
   private model: string;
@@ -28,7 +56,16 @@ export class GoogleGenAITextService implements ITextGenerationService {
   /**
    * Convert JSON Schema to Google GenAI Schema format
    */
-  private convertJsonSchemaToGenAISchema(jsonSchema: any): any {
+  private convertJsonSchemaToGenAISchema(jsonSchema: unknown): GenAISchemaType {
+    // Type guard to ensure we have a valid schema object
+    if (!jsonSchema || typeof jsonSchema !== 'object') {
+      throw new Error('Invalid JSON schema provided');
+    }
+    
+    const schema = jsonSchema as JsonSchemaType;
+    if (!schema.type || typeof schema.type !== 'string') {
+      throw new Error('JSON schema must have a valid type property');
+    }
     const convertType = (type: string) => {
       switch (type) {
         case 'string': return 'STRING';
@@ -41,8 +78,8 @@ export class GoogleGenAITextService implements ITextGenerationService {
       }
     };
 
-    const convertSchema = (schema: any): any => {
-      const result: any = {
+    const convertSchema = (schema: JsonSchemaType): GenAISchemaType => {
+      const result: GenAISchemaType = {
         type: convertType(schema.type)
       };
 
@@ -63,7 +100,7 @@ export class GoogleGenAITextService implements ITextGenerationService {
         // Add property ordering if available or create a default one
         if (schema.required && Array.isArray(schema.required)) {
           result.propertyOrdering = schema.required.concat(
-            Object.keys(schema.properties).filter(key => !schema.required.includes(key))
+            Object.keys(schema.properties).filter(key => schema.required && !schema.required.includes(key))
           );
         } else {
           result.propertyOrdering = Object.keys(schema.properties);
@@ -95,7 +132,7 @@ export class GoogleGenAITextService implements ITextGenerationService {
       return result;
     };
 
-    return convertSchema(jsonSchema);
+    return convertSchema(schema);
   }
   /**
    * Initialize context for a story generation session
@@ -177,6 +214,7 @@ export class GoogleGenAITextService implements ITextGenerationService {
           // For stateful conversation with JSON schema, we need to create a new model
           // since chat instances don't support changing responseSchema on the fly
           if (options?.jsonSchema) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const generationConfig: any = {
               maxOutputTokens: options?.maxTokens || 4096,
               temperature: options?.temperature || 0.7,
@@ -212,6 +250,7 @@ export class GoogleGenAITextService implements ITextGenerationService {
       }
         // If no chat instance exists, create a new one for stateless generation
       if (!response) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const generationConfig: any = {
           maxOutputTokens: options?.maxTokens || 8192,
           temperature: options?.temperature || 0.7,
@@ -246,7 +285,8 @@ export class GoogleGenAITextService implements ITextGenerationService {
       }
       
       // Extract the text response
-      const candidate = response.response.candidates?.[0];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const candidate = (response as any).response.candidates?.[0];
       if (!candidate) {
         throw new Error('No candidates returned from Google GenAI');
       }

@@ -29,7 +29,7 @@ export interface ProviderContextData {
 
   // Google GenAI - stores chat instance for stateful conversations
   googleGenAI?: {
-    chatInstance?: any; // The Chat instance from ai.chats.create()
+    chatInstance?: { sendMessage: (message: string) => Promise<unknown> } | undefined; // Chat instance from genAI
   };
 }
 

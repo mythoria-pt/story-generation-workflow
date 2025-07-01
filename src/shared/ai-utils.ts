@@ -104,11 +104,13 @@ export function prepareChapterTemplateVars(
 /**
  * Validates outline structure
  */
-export function validateOutlineStructure(outlineData: any): boolean {
+export function validateOutlineStructure(outlineData: unknown): boolean {
   return !!(
-    outlineData.bookTitle && 
-    outlineData.chapters && 
-    Array.isArray(outlineData.chapters)
+    outlineData && 
+    typeof outlineData === 'object' &&
+    'bookTitle' in outlineData && 
+    'chapters' in outlineData && 
+    Array.isArray((outlineData as { chapters: unknown }).chapters)
   );
 }
 
@@ -119,8 +121,8 @@ export async function handleAIResponse(
   response: string,
   storyId: string,
   runId: string,
-  validateFn?: (data: any) => boolean
-): Promise<any> {
+  validateFn?: (data: unknown) => boolean
+): Promise<unknown> {
   try {
     const parsedData = parseAIResponse(response);
     

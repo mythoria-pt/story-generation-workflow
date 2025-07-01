@@ -8,6 +8,10 @@ export interface AudioPromptConfig {
   languageName: string;
   targetAgeOptions: string[];
   instructions: string[];
+  translations?: {
+    audioIntro?: string;
+    chapter?: string;
+  };
 }
 
 export class AudioPromptService {
@@ -20,7 +24,10 @@ export class AudioPromptService {
     try {
       // Check cache first
       if (this.promptCache.has(language)) {
-        return this.promptCache.get(language)!;
+        const cachedPrompt = this.promptCache.get(language);
+        if (cachedPrompt) {
+          return cachedPrompt;
+        }
       }
 
       // Load from file
@@ -90,7 +97,9 @@ export class AudioPromptService {
       promptConfig.systemPrompt,
       targetAge,
       promptConfig.targetAgeOptions
-    );    return {
+    );
+    
+    return {
       systemPrompt: processedSystemPrompt,
       instructions: promptConfig.instructions,
       language: promptConfig.language,
@@ -143,21 +152,21 @@ export class AudioPromptService {
     
     // Adjust speed based on target age
     if (targetAge === 'toddlers') {
-      speed = Math.min(speed * 0.8, 1.0); // Slower for toddlers
+      speed = Math.min(speed * 0.8, 0.9); // Slower for toddlers
     } else if (targetAge === 'children') {
       speed = Math.min(speed * 0.9, 1.0); // Slightly slower for children
     } else if (targetAge === 'adults') {
-      speed = Math.min(speed * 1.1, 1.25); // Can be faster for adults
+      speed = Math.max(speed * 1.1, 1.2); // Can be faster for adults
     }
     
     // Check instructions for pace guidance
     const instructionText = instructions.join(' ').toLowerCase();
     if (instructionText.includes('slow') || instructionText.includes('pace')) {
-      speed *= 0.9;
+      speed *= 1;
     }
     
-    // Ensure speed is within OpenAI TTS limits (0.25 to 4.0)
-    return Math.max(0.25, Math.min(4.0, speed));
+    // Ensure speed is withinlimits (0.25 to 4.0)
+    return Math.max(0.9, Math.min(1.2, speed));
   }
 
   /**
@@ -203,5 +212,33 @@ export class AudioPromptService {
    */
   static clearCache(): void {
     this.promptCache.clear();
+  }
+
+  /**
+   * Get translated "Chapter" word for the given language
+   */
+  static async getTranslatedChapter(storyLanguage: string): Promise<string> {
+    const promptConfig = await this.loadAudioPrompt(storyLanguage);
+    
+    if (promptConfig?.translations?.chapter) {
+      return promptConfig.translations.chapter;
+    }
+    
+    // Fallback to default English
+    return 'Chapter';
+  }
+
+  /**
+   * Get translated audio intro message for the given language
+   */
+  static async getTranslatedAudioIntro(storyLanguage: string, authorName: string): Promise<string> {
+    const promptConfig = await this.loadAudioPrompt(storyLanguage);
+    
+    if (promptConfig?.translations?.audioIntro) {
+      return promptConfig.translations.audioIntro.replace('{author}', authorName);
+    }
+    
+    // Fallback to default English
+    return `This story was imagined by ${authorName} and crafted using Mythoria - tell your own story.`;
   }
 }

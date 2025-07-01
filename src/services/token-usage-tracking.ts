@@ -202,9 +202,12 @@ export class TokenUsageTrackingService {
           actionBreakdown[record.action] = { tokens: 0, cost: 0, calls: 0 };
         }
 
-        actionBreakdown[record.action]!.tokens += tokens;
-        actionBreakdown[record.action]!.cost += cost;
-        actionBreakdown[record.action]!.calls += 1;
+        const breakdown = actionBreakdown[record.action];
+        if (breakdown) {
+          breakdown.tokens += tokens;
+          breakdown.cost += cost;
+          breakdown.calls += 1;
+        }
       }
 
       return {
@@ -259,17 +262,23 @@ export class TokenUsageTrackingService {
         if (!storyBreakdown[record.storyId]) {
           storyBreakdown[record.storyId] = { tokens: 0, cost: 0, calls: 0 };
         }
-        storyBreakdown[record.storyId]!.tokens += tokens;
-        storyBreakdown[record.storyId]!.cost += cost;
-        storyBreakdown[record.storyId]!.calls += 1;
+        const storyData = storyBreakdown[record.storyId];
+        if (storyData) {
+          storyData.tokens += tokens;
+          storyData.cost += cost;
+          storyData.calls += 1;
+        }
 
         // Action breakdown
         if (!actionBreakdown[record.action]) {
           actionBreakdown[record.action] = { tokens: 0, cost: 0, calls: 0 };
         }
-        actionBreakdown[record.action]!.tokens += tokens;
-        actionBreakdown[record.action]!.cost += cost;
-        actionBreakdown[record.action]!.calls += 1;
+        const actionData = actionBreakdown[record.action];
+        if (actionData) {
+          actionData.tokens += tokens;
+          actionData.cost += cost;
+          actionData.calls += 1;
+        }
       }
 
       return {

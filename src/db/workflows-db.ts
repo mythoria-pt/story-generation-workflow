@@ -7,12 +7,22 @@ let workflowsDb: ReturnType<typeof drizzle> | null = null;
 
 export function getWorkflowsDatabase() {
   if (!workflowsDb) {
+    // Validate required environment variables
+    const host = process.env.DB_HOST;
+    const user = process.env.DB_USER;
+    const password = process.env.DB_PASSWORD;
+    const database = process.env.WORKFLOWS_DB_NAME;
+    
+    if (!host || !user || !password || !database) {
+      throw new Error('Missing required database environment variables: DB_HOST, DB_USER, DB_PASSWORD, WORKFLOWS_DB_NAME');
+    }
+    
     workflowsPool = new Pool({
-      host: process.env.DB_HOST!,
+      host,
       port: parseInt(process.env.DB_PORT || '5432'),
-      user: process.env.DB_USER!,
-      password: process.env.DB_PASSWORD!,
-      database: process.env.WORKFLOWS_DB_NAME!,
+      user,
+      password,
+      database,
       ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
       max: 10,
       idleTimeoutMillis: 30000,

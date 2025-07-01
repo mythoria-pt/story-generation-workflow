@@ -136,6 +136,7 @@ export class StoryService {
           updatedAt: stories.updatedAt,
           storyGenerationStatus: stories.storyGenerationStatus,
           storyGenerationCompletedPercentage: stories.storyGenerationCompletedPercentage,
+          audiobookStatus: stories.audiobookStatus,
           author: authors.displayName, // Join to get author's display name
         })
         .from(stories)
@@ -246,6 +247,46 @@ export class StoryService {
         error: error instanceof Error ? error.message : String(error),
         storyId,
         status
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Update audiobook status
+   */
+  async updateAudiobookStatus(storyId: string, updates: {
+    audiobookStatus?: string;
+    audiobookUri?: object;
+  }) {
+    try {
+      const updateData: Record<string, any> = {
+        updatedAt: new Date().toISOString()
+      };
+      
+      if (updates.audiobookStatus !== undefined) {
+        updateData.audiobookStatus = updates.audiobookStatus;
+      }
+      if (updates.audiobookUri !== undefined) {
+        updateData.audiobookUri = updates.audiobookUri;
+      }
+      
+      await this.db
+        .update(stories)
+        .set(updateData)
+        .where(eq(stories.storyId, storyId));
+
+      logger.info('Audiobook status updated successfully', {
+        storyId,
+        updates: Object.keys(updateData)
+      });
+
+      return true;
+    } catch (error) {
+      logger.error('Failed to update audiobook status', {
+        error: error instanceof Error ? error.message : String(error),
+        storyId,
+        updates
       });
       throw error;
     }

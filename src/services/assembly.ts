@@ -158,7 +158,9 @@ export class AssemblyService {
           pageCount: Math.ceil(chapters.length / 2), // Rough estimate
           generatedAt: new Date().toISOString()
         }
-      };      logger.info('Story assembly completed', {
+      };
+      
+      logger.info('Story assembly completed', {
         runId,
         wordCount: result.metadata.wordCount,
         pageCount: result.metadata.pageCount,

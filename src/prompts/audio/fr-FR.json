@@ -9,5 +9,9 @@
     "Maintenez un rythme approprié pour l'âge cible",
     "Utilisez une intonation variée pour maintenir l'intérêt",
     "Prononcez clairement tous les mots avec l'accent français"
-  ]
+  ],
+  "translations": {
+    "audioIntro": "Cette histoire a été imaginée par {author} et créée avec Mythoria - racontez votre propre histoire.",
+    "chapter": "Chapitre"
+  }
 }

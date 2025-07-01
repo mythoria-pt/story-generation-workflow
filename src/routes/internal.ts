@@ -745,29 +745,57 @@ router.get('/stories/:storyId/html', async (req: Request, res: Response): Promis
 
     logger.info('Internal API: Getting story HTML for audiobook', { storyId });
 
-    // Download HTML file from storage
-    const htmlFilename = `${storyId}/story.html`;
+    // Get story details from database to get the correct HTML URI
+    const story = await storyService.getStory(storyId);
+    
+    if (!story) {
+      res.status(404).json({
+        success: false,
+        error: 'Story not found'
+      });
+      return;
+    }
+
+    if (!story.htmlUri) {
+      res.status(404).json({
+        success: false,
+        error: 'Story HTML not found - story has not been generated yet'
+      });
+      return;
+    }
+
+    // Extract the filename from the full GCS URI
+    const urlParts = story.htmlUri.split('/');
+    const bucketIndex = urlParts.findIndex(part => part === 'mythoria-generated-stories');
+    const htmlFilename = urlParts.slice(bucketIndex + 1).join('/');
+    
     const htmlContent = await storageService.downloadFile(htmlFilename);
     
     if (!htmlContent) {
       res.status(404).json({
         success: false,
-        error: 'Story HTML not found'
+        error: 'Story HTML file not found in storage'
       });
       return;
     }
 
-    // Parse HTML and extract chapters (simplified version for workflow)
+    // Parse HTML and extract only actual chapters (no dedicatory or credits)
     const chapters: Array<{title: string, content: string}> = [];
 
-    // Simple regex-based extraction for the workflow
-    const chapterMatches = htmlContent.match(/<div class="mythoria-chapter"[^>]*>([\s\S]*?)<\/div>\s*<div class="mythoria-page-break"><\/div>/g);
+    // Extract chapters using the mythoria-chapter class
+    const chapterMatches = htmlContent.match(/<div class="mythoria-chapter"[^>]*>([\s\S]*?)<\/div>\s*(?=<div class="mythoria-page-break"|$)/g);
     
     if (chapterMatches) {
       chapterMatches.forEach((chapterHtml, index) => {
         // Extract title
         const titleMatch = chapterHtml.match(/<h2 class="mythoria-chapter-title"[^>]*>(.*?)<\/h2>/);
         const title = titleMatch?.[1]?.replace(/&[^;]+;/g, ' ').trim() || `Chapter ${index + 1}`;
+        
+        // Skip non-chapter content (dedicatory, credits)
+        if (title.match(/dedicat|author|credit|attribution/i)) {
+          logger.info('Skipping non-chapter content', { title, storyId });
+          return;
+        }
         
         // Extract content paragraphs
         const contentMatches = chapterHtml.match(/<p class="mythoria-chapter-paragraph"[^>]*>(.*?)<\/p>/g);
@@ -786,15 +814,21 @@ router.get('/stories/:storyId/html', async (req: Request, res: Response): Promis
       });
     }
 
+    // Also pass along story details for the workflow
     logger.info('Internal API: Extracted chapters from HTML', {
       storyId,
-      chaptersFound: chapters.length
+      chaptersFound: chapters.length,
+      chapterTitles: chapters.map(ch => ch.title)
     });
 
     res.json({
       success: true,
       storyId,
-      chapters
+      chapters,
+      title: story.title,
+      author: story.author,
+      dedicationMessage: story.dedicationMessage,
+      storyLanguage: story.storyLanguage
     });
 
   } catch (error) {
@@ -816,21 +850,50 @@ router.get('/stories/:storyId/html', async (req: Request, res: Response): Promis
  */
 router.post('/audiobook/chapter', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { storyId, chapterNumber, chapterContent, storyTitle, voice } = req.body;
+    const { 
+      storyId, 
+      chapterNumber, 
+      chapterContent, 
+      storyTitle, 
+      storyAuthor,
+      dedicatoryMessage,
+      voice, 
+      storyLanguage,
+      isFirstChapter 
+    } = req.body;
 
-    logger.info('Internal API: Generating chapter audio from HTML', {
+    logger.info('Internal API: Generating chapter audio', {
       storyId,
       chapterNumber,
-      voice
+      voice,
+      storyLanguage,
+      isFirstChapter,
+      contentLength: chapterContent?.length || 0
     });
 
-    // Generate TTS using the existing TTS service
+    // Validate required parameters
+    if (!storyId || !chapterNumber || !chapterContent) {
+      res.status(400).json({
+        success: false,
+        error: 'Missing required parameters: storyId, chapterNumber, chapterContent'
+      });
+      return;
+    }
+
+    // Generate TTS using the existing TTS service with enhanced parameters
     const result = await ttsService.generateChapterAudioFromText(
       storyId,
       chapterNumber,
       chapterContent,
-      storyTitle,
-      voice
+      storyTitle || 'Untitled Story',
+      voice,
+      'chapter',
+      {
+        storyAuthor,
+        dedicatoryMessage,
+        storyLanguage,
+        isFirstChapter
+      }
     );
 
     logger.info('Internal API: Chapter audio generation completed', {
@@ -849,7 +912,8 @@ router.post('/audiobook/chapter', async (req: Request, res: Response): Promise<v
     logger.error('Internal API: Failed to generate chapter audio', {
       error: error instanceof Error ? error.message : String(error),
       storyId: req.body.storyId,
-      chapterNumber: req.body.chapterNumber
+      chapterNumber: req.body.chapterNumber,
+      stack: error instanceof Error ? error.stack : undefined
     });
 
     res.status(500).json({
@@ -924,6 +988,88 @@ router.post('/audiobook/finalize', async (req: Request, res: Response): Promise<
   }
 });
 
+// ============================================================================
+// AUDIOBOOK STATUS MANAGEMENT
+// ============================================================================
 
+/**
+ * PATCH /internal/stories/:storyId/audiobook-status
+ * Update audiobook generation status for a story
+ */
+router.patch('/stories/:storyId/audiobook-status', async (req: Request, res: Response) => {
+  try {
+    const { storyId } = req.params;
+    const { status, completedAt, failedAt, audioUrls, totalDuration } = req.body;
+
+    // Validate storyId
+    if (!storyId) {
+      res.status(400).json({
+        success: false,
+        error: 'Story ID is required'
+      });
+      return;
+    }
+
+    // Validate status
+    const validStatuses = ['generating', 'completed', 'failed'];
+    if (status && !validStatuses.includes(status)) {
+      res.status(400).json({
+        success: false,
+        error: `Invalid status. Must be one of: ${validStatuses.join(', ')}`
+      });
+      return;
+    }
+
+    logger.info('Internal API: Updating audiobook status', {
+      storyId,
+      status,
+      completedAt,
+      failedAt,
+      hasAudioUrls: !!audioUrls,
+      totalDuration
+    });
+
+    // Update story audiobook status
+    const updateData: any = {};
+    
+    if (status) {
+      updateData.audiobookStatus = status;
+    }
+    
+    if (status === 'completed' && audioUrls) {
+      updateData.audiobookUri = audioUrls;
+    }
+
+    // Update the story in the database
+    await storyService.updateAudiobookStatus(storyId, updateData);
+
+    logger.info('Internal API: Audiobook status updated successfully', {
+      storyId,
+      status,
+      updateData
+    });
+
+    res.json({
+      success: true,
+      storyId,
+      status,
+      updatedAt: new Date().toISOString(),
+      ...(audioUrls && { audioUrls }),
+      ...(totalDuration && { totalDuration })
+    });
+
+  } catch (error) {
+    logger.error('Internal API: Failed to update audiobook status', {
+      error: error instanceof Error ? error.message : String(error),
+      storyId: req.params.storyId,
+      requestBody: req.body
+    });
+
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
 
 export { router as internalRouter };

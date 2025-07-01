@@ -87,7 +87,7 @@ export class GoogleCloudWorkflowsAdapter implements IWorkflowService {
       throw error;
     }
   }
-  private mapExecutionState(state?: any): 'pending' | 'running' | 'completed' | 'failed' {
+  private mapExecutionState(state?: unknown): 'pending' | 'running' | 'completed' | 'failed' {
     // Handle both string and enum values
     const stateStr = typeof state === 'string' ? state : String(state);
     switch (stateStr) {

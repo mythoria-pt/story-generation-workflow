@@ -14,6 +14,26 @@ export interface OpenAIConfig {
   maxRetries?: number;
 }
 
+interface OpenAIImageGenerationCall {
+  type: string;
+  status: string;
+  id?: string;
+  size?: string;
+  quality?: string;
+  output_format?: string;
+  background?: string;
+  revised_prompt?: string;
+  result?: {
+    url?: string;
+    b64_json?: string;
+  };
+}
+
+interface OpenAIResponseData {
+  output?: OpenAIImageGenerationCall[];
+  [key: string]: unknown;
+}
+
 export class OpenAIImageService implements IImageGenerationService {
   private client: OpenAI;
   private model: string;
@@ -94,8 +114,8 @@ export class OpenAIImageService implements IImageGenerationService {
         store: true
       });
       
-      // Handle the response - cast to any to access the data structure
-      const responseData = response as any;
+      // Handle the response - use proper typing
+      const responseData = response as unknown as OpenAIResponseData;
 
       // Extract image generation data from response based on the actual OpenAI Responses API format
       // The image is in the output array with type="image_generation_call" and status="completed"
@@ -104,7 +124,7 @@ export class OpenAIImageService implements IImageGenerationService {
 
       if (responseData.output && Array.isArray(responseData.output)) {
         // Find the image generation call in the output array
-        const imageGenerationCall = responseData.output.find((item: any) => 
+        const imageGenerationCall = responseData.output.find((item: OpenAIImageGenerationCall) => 
           item.type === 'image_generation_call' && item.status === 'completed'
         );
 
@@ -129,7 +149,7 @@ export class OpenAIImageService implements IImageGenerationService {
         
         // Also log just the output array for easier debugging
         if (responseData.output) {
-          console.error('Output array contents:', responseData.output.map((item: any) => ({
+          console.error('Output array contents:', responseData.output.map((item: OpenAIImageGenerationCall) => ({
             type: item.type,
             status: item.status,
             id: item.id
@@ -139,7 +159,13 @@ export class OpenAIImageService implements IImageGenerationService {
         throw new Error('No image generation call found in response');
       }
 
-      const buffer = Buffer.from(imageData, 'base64');
+      // Extract base64 image data
+      const base64Data = imageData?.b64_json;
+      if (!base64Data) {
+        throw new Error('No base64 image data found in response');
+      }
+
+      const buffer = Buffer.from(base64Data, 'base64');
 
       logger.info('OpenAI: Image generated successfully with Responses API', {
         model: this.model,

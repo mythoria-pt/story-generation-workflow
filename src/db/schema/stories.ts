@@ -1,6 +1,6 @@
 import { pgTable, uuid, varchar, timestamp, text, jsonb, integer, foreignKey } from "drizzle-orm/pg-core";
 import { authors } from './authors.js';
-import { storyStatusEnum, targetAudienceEnum, novelStyleEnum, graphicalStyleEnum, runStatusEnum } from './enums.js';
+import { storyStatusEnum, targetAudienceEnum, novelStyleEnum, graphicalStyleEnum, runStatusEnum, audiobookStatusEnum } from './enums.js';
 
 // -----------------------------------------------------------------------------
 // Stories domain
@@ -30,6 +30,7 @@ export const stories = pgTable("stories", {
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
   storyGenerationStatus: runStatusEnum("story_generation_status"),
   storyGenerationCompletedPercentage: integer("story_generation_completed_percentage").default(0),
+  audiobookStatus: audiobookStatusEnum("audiobook_status").default('not_started'),
 }, (table) => [
   foreignKey({
     columns: [table.authorId],

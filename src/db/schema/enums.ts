@@ -80,3 +80,10 @@ export const aiActionTypeEnum = pgEnum("ai_action_type", [
   'image_edit',
   'test'
 ]);
+
+export const audiobookStatusEnum = pgEnum("audiobook_status", [
+  'not_started',
+  'generating',
+  'completed', 
+  'failed'
+]);
