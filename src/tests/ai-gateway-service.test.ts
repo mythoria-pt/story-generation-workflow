@@ -55,12 +55,12 @@ describe('AI Gateway Service', () => {
       process.env.TEXT_PROVIDER = 'vertex';
       process.env.IMAGE_PROVIDER = 'vertex';
       process.env.GOOGLE_CLOUD_PROJECT_ID = 'env-project-id';
-      process.env.VERTEX_AI_LOCATION = 'us-east1';
+      process.env.VERTEX_AI_LOCATION = 'global';
       process.env.VERTEX_AI_MODEL_ID = 'gemini-2.5-flash';
 
       expect(process.env.TEXT_PROVIDER).toBe('vertex');
       expect(process.env.GOOGLE_CLOUD_PROJECT_ID).toBe('env-project-id');
-      expect(process.env.VERTEX_AI_LOCATION).toBe('us-east1');
+      expect(process.env.VERTEX_AI_LOCATION).toBe('global');
     });
 
     it('should handle environment variable mapping for OpenAI', () => {
@@ -88,7 +88,7 @@ describe('AI Gateway Service', () => {
 
     it('should prioritize VERTEX_AI_LOCATION over GOOGLE_CLOUD_REGION', () => {
       process.env.VERTEX_AI_LOCATION = 'us-west1';
-      process.env.GOOGLE_CLOUD_REGION = 'us-east1';
+      process.env.GOOGLE_CLOUD_REGION = 'global';
 
       const location = process.env.VERTEX_AI_LOCATION || process.env.GOOGLE_CLOUD_REGION;
       expect(location).toBe('us-west1');
@@ -96,10 +96,10 @@ describe('AI Gateway Service', () => {
 
     it('should fallback to GOOGLE_CLOUD_REGION when VERTEX_AI_LOCATION is not set', () => {
       delete process.env.VERTEX_AI_LOCATION;
-      process.env.GOOGLE_CLOUD_REGION = 'us-east1';
+      process.env.GOOGLE_CLOUD_REGION = 'global';
 
       const location = process.env.VERTEX_AI_LOCATION || process.env.GOOGLE_CLOUD_REGION;
-      expect(location).toBe('us-east1');
+      expect(location).toBe('global');
     });
   });
 

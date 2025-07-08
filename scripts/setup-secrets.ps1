@@ -71,7 +71,7 @@ $VertexAiModelId = if ($VertexAiModelId) { $VertexAiModelId } else { $env:VERTEX
 
 # Additional secrets from environment
 $VertexAiLocation = $env:VERTEX_AI_LOCATION
-$WorkflowsLocation = $env:WORKFLOWS_LOCATION
+$WorkflowsLocation = $env:GOOGLE_CLOUD_REGION
 $ImageGenerationModel = $env:IMAGE_GENERATION_MODEL
 $AudioGenerationModel = $env:AUDIO_GENERATION_MODEL
 
@@ -97,7 +97,7 @@ Write-Host "  [OK] PROJECT_ID: $ProjectId" -ForegroundColor Green
 Write-Host "  [OK] STORAGE_BUCKET_NAME: $StorageBucketName" -ForegroundColor Green
 Write-Host "  [OK] VERTEX_AI_MODEL_ID: $VertexAiModelId" -ForegroundColor Green
 Write-Host "  [OK] VERTEX_AI_LOCATION: $VertexAiLocation" -ForegroundColor Green
-Write-Host "  [OK] WORKFLOWS_LOCATION: $WorkflowsLocation" -ForegroundColor Green
+Write-Host "  [OK] GOOGLE_CLOUD_REGION: $WorkflowsLocation" -ForegroundColor Green
 if ($ImageGenerationModel) { Write-Host "  [OK] IMAGE_GENERATION_MODEL: $ImageGenerationModel" -ForegroundColor Green }
 if ($AudioGenerationModel) { Write-Host "  [OK] AUDIO_GENERATION_MODEL: $AudioGenerationModel" -ForegroundColor Green }
 
@@ -123,17 +123,50 @@ try {
 }
 
 # Create story-generation-workflow specific secrets
-# Note: The following variables have been moved to environment variables in cloudbuild.yaml:
-# - mythoria-generated-stories-bucket (now STORAGE_BUCKET_NAME)
-# - mythoria-audio-generation-model (now AUDIO_GENERATION_MODEL)
-# - mythoria-image-generation-model (now IMAGE_GENERATION_MODEL)
-# - mythoria-workflows-location (now WORKFLOWS_LOCATION)  
-# - mythoria-vertex-ai-location (now VERTEX_AI_LOCATION)
-# - mythoria-vertex-ai-model (now VERTEX_AI_MODEL_ID)
-# - mythoria-storage-bucket (now STORAGE_BUCKET_NAME)
+Write-Info "Creating story-specific secrets..."
 
-Write-Info "All story-generation-workflow configuration is now handled via environment variables in cloudbuild.yaml"
-Write-Info "Only sensitive database and API key secrets remain in Secret Manager"
+# API Keys (sensitive data that belongs in Secret Manager)
+if ($env:OPENAI_API_KEY) {
+    Write-Info "Creating OpenAI API key secret..."
+    $env:OPENAI_API_KEY | Set-Content -Path temp.txt -NoNewline
+    gcloud secrets create mythoria-openai-api-key --data-file=temp.txt 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Success "Created mythoria-openai-api-key secret"
+    } else {
+        Write-Info "Secret mythoria-openai-api-key already exists - updating..."
+        gcloud secrets versions add mythoria-openai-api-key --data-file=temp.txt
+    }
+    Remove-Item temp.txt
+}
+
+if ($env:GOOGLE_GENAI_API_KEY) {
+    Write-Info "Creating Google GenAI API key secret..."
+    $env:GOOGLE_GENAI_API_KEY | Set-Content -Path temp.txt -NoNewline
+    gcloud secrets create mythoria-google-genai-api-key --data-file=temp.txt 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Success "Created mythoria-google-genai-api-key secret"
+    } else {
+        Write-Info "Secret mythoria-google-genai-api-key already exists - updating..."
+        gcloud secrets versions add mythoria-google-genai-api-key --data-file=temp.txt
+    }
+    Remove-Item temp.txt
+}
+
+# Storage bucket name (configuration data that could be in Secret Manager for consistency)
+if ($StorageBucketName) {
+    Write-Info "Creating storage bucket name secret..."
+    $StorageBucketName | Set-Content -Path temp.txt -NoNewline
+    gcloud secrets create mythoria-storage-bucket --data-file=temp.txt 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Success "Created mythoria-storage-bucket secret"
+    } else {
+        Write-Info "Secret mythoria-storage-bucket already exists - updating..."
+        gcloud secrets versions add mythoria-storage-bucket --data-file=temp.txt
+    }
+    Remove-Item temp.txt
+}
+
+Write-Info "All story-generation-workflow specific secrets have been created"
 
 # Grant permissions to Cloud Build service account for new secrets
 Write-Host "Granting permissions to Cloud Build service account..." -ForegroundColor Blue
@@ -141,17 +174,13 @@ $projectNumber = (gcloud projects describe $ProjectId --format='value(projectNum
 $cloudBuildServiceAccount = "$projectNumber@cloudbuild.gserviceaccount.com"
 
 $storySecrets = @(
-    "mythoria-storage-bucket",
-    "mythoria-vertex-ai-model", 
-    "mythoria-vertex-ai-location",
-    "mythoria-workflows-location"
+    "mythoria-openai-api-key",
+    "mythoria-google-genai-api-key",
+    "mythoria-storage-bucket"
 )
 
-if ($ImageGenerationModel) { $storySecrets += "mythoria-image-generation-model" }
-if ($AudioGenerationModel) { $storySecrets += "mythoria-audio-generation-model" }
-
 foreach ($secret in $storySecrets) {
-    gcloud secrets add-iam-policy-binding $secret --member="serviceAccount:$cloudBuildServiceAccount" --role="roles/secretmanager.secretAccessor"
+    gcloud secrets add-iam-policy-binding $secret --member="serviceAccount:$cloudBuildServiceAccount" --role="roles/secretmanager.secretAccessor" 2>$null
 }
 
 # Grant permissions to Cloud Run service account (Compute Engine default) for new secrets
@@ -159,7 +188,7 @@ Write-Host "Granting permissions to Cloud Run service account..." -ForegroundCol
 $computeServiceAccount = "$projectNumber-compute@developer.gserviceaccount.com"
 
 foreach ($secret in $storySecrets) {
-    gcloud secrets add-iam-policy-binding $secret --member="serviceAccount:$computeServiceAccount" --role="roles/secretmanager.secretAccessor"
+    gcloud secrets add-iam-policy-binding $secret --member="serviceAccount:$computeServiceAccount" --role="roles/secretmanager.secretAccessor" 2>$null
 }
 
 Write-Host "[SUCCESS] Story Generation Workflow secrets setup completed successfully!" -ForegroundColor Green
@@ -170,12 +199,9 @@ Write-Host "  - mythoria-db-user" -ForegroundColor White
 Write-Host "  - mythoria-db-password" -ForegroundColor White
 Write-Host ""
 Write-Host "Created new secrets for story-generation-workflow:" -ForegroundColor Cyan
+Write-Host "  - mythoria-openai-api-key" -ForegroundColor White
+Write-Host "  - mythoria-google-genai-api-key" -ForegroundColor White
 Write-Host "  - mythoria-storage-bucket" -ForegroundColor White
-Write-Host "  - mythoria-vertex-ai-model" -ForegroundColor White
-Write-Host "  - mythoria-vertex-ai-location" -ForegroundColor White
-Write-Host "  - mythoria-workflows-location" -ForegroundColor White
-if ($ImageGenerationModel) { Write-Host "  - mythoria-image-generation-model" -ForegroundColor White }
-if ($AudioGenerationModel) { Write-Host "  - mythoria-audio-generation-model" -ForegroundColor White }
 
 Write-Host ""
 Write-Host "To verify all secrets were created, run:" -ForegroundColor Cyan

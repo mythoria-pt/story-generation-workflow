@@ -13,7 +13,7 @@ describe('Environment Configuration', () => {
     process.env.GOOGLE_CLOUD_REGION = 'europe-west9';
     process.env.STORAGE_BUCKET_NAME = 'test-bucket';
     process.env.VERTEX_AI_MODEL_ID = 'gemini-2.0-flash';
-    process.env.WORKFLOWS_LOCATION = 'europe-west9';
+    process.env.GOOGLE_CLOUD_REGION = 'europe-west9';
   });
 
   it('should validate basic environment structure', () => {
@@ -34,7 +34,7 @@ describe('Environment Configuration', () => {
       'GOOGLE_CLOUD_REGION',
       'STORAGE_BUCKET_NAME',
       'VERTEX_AI_MODEL_ID',
-      'WORKFLOWS_LOCATION'
+      'GOOGLE_CLOUD_REGION'
     ];
 
     requiredVars.forEach(varName => {

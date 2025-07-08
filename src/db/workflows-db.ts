@@ -11,10 +11,10 @@ export function getWorkflowsDatabase() {
     const host = process.env.DB_HOST;
     const user = process.env.DB_USER;
     const password = process.env.DB_PASSWORD;
-    const database = process.env.WORKFLOWS_DB_NAME;
+    const database = process.env.WORKFLOWS_DB;
     
     if (!host || !user || !password || !database) {
-      throw new Error('Missing required database environment variables: DB_HOST, DB_USER, DB_PASSWORD, WORKFLOWS_DB_NAME');
+      throw new Error('Missing required database environment variables: DB_HOST, DB_USER, DB_PASSWORD, WORKFLOWS_DB');
     }
     
     workflowsPool = new Pool({
@@ -23,7 +23,7 @@ export function getWorkflowsDatabase() {
       user,
       password,
       database,
-      ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
+      ssl: false, // Always false as per requirement
       max: 10,
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 2000,

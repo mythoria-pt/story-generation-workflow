@@ -253,8 +253,68 @@ export class AssemblyService {
     const byAuthorMessage = await MessageService.getByAuthorMessage(locale, author);    // Generate table of contents
     const tableOfContents = chapters.map((chapter) => 
       `<li class="mythoria-toc-item"><a href="#chapter-${chapter.number}" class="mythoria-toc-link">${chapter.number}. ${encodeHtmlSpecialChars(chapter.title)}</a></li>`
-    ).join('');    // Generate the HTML body content only (without body tag)
-    const html = `
+    ).join('');
+
+    // Generate complete HTML document
+    const html = `<!DOCTYPE html>
+<html lang="${locale}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${encodeHtmlSpecialChars(title)}</title>
+    <style>
+        body {
+            font-family: Georgia, serif;
+            line-height: 1.6;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            color: #333;
+        }
+        .mythoria-page-break {
+            page-break-before: always;
+        }
+        .mythoria-story-title {
+            text-align: center;
+            font-size: 2.5em;
+            margin-bottom: 30px;
+        }
+        .mythoria-toc-link {
+            color: #0066cc;
+            text-decoration: none;
+        }
+        .mythoria-toc-link:hover {
+            text-decoration: underline;
+        }
+        .mythoria-chapter-title {
+            font-size: 1.8em;
+            margin-top: 40px;
+            margin-bottom: 20px;
+        }
+        .mythoria-chapter-paragraph {
+            margin-bottom: 15px;
+            text-align: justify;
+        }
+        .mythoria-cover-image, .mythoria-chapter-img {
+            max-width: 100%;
+            height: auto;
+            display: block;
+            margin: 20px auto;
+        }
+        .mythoria-logo {
+            max-width: 200px;
+            height: auto;
+            display: block;
+            margin: 20px auto;
+        }
+        @media print {
+            .mythoria-page-break {
+                page-break-before: always;
+            }
+        }
+    </style>
+</head>
+<body>
     <!-- Story Title -->
     <h1 class="mythoria-story-title">${encodeHtmlSpecialChars(title)}</h1>
 
@@ -322,7 +382,11 @@ export class AssemblyService {
         <img src="${bookCoverImages.get('back')}" alt="Book Back Cover" class="mythoria-cover-image" />
       </div>` : 
       ''
-    }`;    return html;
+    }
+</body>
+</html>`;
+
+    return html;
   }
 
 }

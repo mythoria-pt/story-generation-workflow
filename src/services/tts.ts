@@ -466,7 +466,7 @@ export class TTSService {
       });
       
       const response = await this.openaiClient.audio.speech.create({
-        model: config.model as 'tts-1' | 'tts-1-hd',
+        model: config.model as 'gpt-4o-mini-tts' | 'gpt-4o-mini-tts-hd',
         voice: config.voice as 'alloy' | 'echo' | 'fable' | 'onyx' | 'nova' | 'shimmer',
         input: text,
         speed: config.speed,

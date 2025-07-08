@@ -65,7 +65,7 @@ STABILITY_API_KEY=your_stability_api_key
 STORAGE_BUCKET_NAME=mythoria-story-assets-europe-west9
 
 # Workflows
-WORKFLOWS_LOCATION=europe-west9
+GOOGLE_CLOUD_REGION=europe-west9
 ```
 
 ### Installation & Setup

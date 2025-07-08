@@ -63,7 +63,7 @@ Write-Host ""
 # Set the Google Cloud project
 gcloud config set project $ProjectId 2>$null
 
-# Define secrets
+# Define secrets based on actual usage in .env.production and cloudbuild.yaml
 $sharedSecrets = @{
     "mythoria-db-host" = "Database host (shared with mythoria-webapp)"
     "mythoria-db-user" = "Database user (shared with mythoria-webapp)"
@@ -71,22 +71,15 @@ $sharedSecrets = @{
 }
 
 $storySecrets = @{
-    "mythoria-storage-bucket" = "Google Cloud Storage bucket for story assets"
-    "mythoria-vertex-ai-model" = "Vertex AI model ID for story generation"
-    "mythoria-vertex-ai-location" = "Vertex AI location/region"
-    "mythoria-workflows-location" = "Google Cloud Workflows location"
-}
-
-$optionalSecrets = @{
-    "mythoria-image-generation-model" = "Image generation model (optional)"
-    "mythoria-audio-generation-model" = "Audio generation model (optional)"
+    "mythoria-openai-api-key" = "OpenAI API key for image and text generation"
+    "mythoria-google-genai-api-key" = "Google GenAI API key for text generation"
+    "mythoria-storage-bucket" = "Google Cloud Storage bucket name for story assets"
 }
 
 # Combine all secrets into one hashtable
 $allSecrets = @{}
 $sharedSecrets.GetEnumerator() | ForEach-Object { $allSecrets[$_.Key] = $_.Value }
 $storySecrets.GetEnumerator() | ForEach-Object { $allSecrets[$_.Key] = $_.Value }
-$optionalSecrets.GetEnumerator() | ForEach-Object { $allSecrets[$_.Key] = $_.Value }
 
 $existingSecrets = @()
 $missingSecrets = @()
@@ -140,7 +133,7 @@ if ($missingSecrets.Count -gt 0) {
     Write-Host "To create missing secrets:" -ForegroundColor Yellow
     
     $sharedMissing = $missingSecrets | Where-Object { $sharedSecrets.ContainsKey($_) }
-    $storyMissing = $missingSecrets | Where-Object { $storySecrets.ContainsKey($_) -or $optionalSecrets.ContainsKey($_) }
+    $storyMissing = $missingSecrets | Where-Object { $storySecrets.ContainsKey($_) }
     
     if ($sharedMissing.Count -gt 0) {
         Write-Host "1. First, create shared secrets by running the mythoria-webapp setup:" -ForegroundColor Cyan

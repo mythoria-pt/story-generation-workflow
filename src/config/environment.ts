@@ -33,15 +33,13 @@ if (nodeEnv === 'production') {
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'staging', 'production']),
   PORT: z.string().transform(Number).default('8080'),
-  DB_HOST: z.string(),  DB_PORT: z.string().transform(Number),
+  DB_HOST: z.string(), DB_PORT: z.string().transform(Number),
   DB_USER: z.string(),
   DB_PASSWORD: z.string(),
   DB_NAME: z.string(),
-  DB_SSL: z.string().transform(val => val === 'true').optional(),
   GOOGLE_CLOUD_PROJECT_ID: z.string(),
   GOOGLE_CLOUD_REGION: z.string(),
-  GOOGLE_CLOUD_LOCATION: z.string().optional(), // For backward compatibility
-  STORAGE_BUCKET_NAME: z.string(),  WORKFLOWS_LOCATION: z.string(),
+  STORAGE_BUCKET_NAME: z.string(),
   IMAGE_GENERATION_MODEL: z.string().optional(),
   LOG_LEVEL: z.enum(['error', 'warn', 'info', 'debug']).optional().default('info'),// AI Provider Configuration
   TEXT_PROVIDER: z.enum(['openai', 'google-genai']).optional().default('google-genai'),
@@ -54,10 +52,10 @@ const envSchema = z.object({
   // Google GenAI Configuration
   GOOGLE_GENAI_API_KEY: z.string().optional(),
   GOOGLE_GENAI_MODEL: z.string().optional().default('gemini-2.5-flash'),
-  
+
   // TTS Configuration
   TTS_PROVIDER: z.enum(['openai', 'vertex']).optional().default('openai'),
-  TTS_MODEL: z.string().optional().default('tts-1'),
+  TTS_MODEL: z.string().optional().default('gpt-4o-mini-tts'),
   TTS_VOICE: z.string().optional().default('nova'),
   TTS_SPEED: z.string().optional().default('0.9'),
   TTS_LANGUAGE: z.string().optional().default('en-US'),
@@ -77,10 +75,10 @@ export function getEnvironment(): Environment {
     const envVars = {
       ...process.env,
       PORT: process.env.PORT || '8080',
-      // Ensure backward compatibility with GOOGLE_CLOUD_LOCATION
-      GOOGLE_CLOUD_LOCATION: process.env.GOOGLE_CLOUD_LOCATION || process.env.GOOGLE_CLOUD_REGION
+      // Ensure backward compatibility with GOOGLE_CLOUD_REGION
+      GOOGLE_CLOUD_REGION: process.env.GOOGLE_CLOUD_REGION
     };
-    
+
     cachedEnv = envSchema.parse(envVars);
     return cachedEnv;
   } catch (error) {
@@ -91,11 +89,11 @@ export function getEnvironment(): Environment {
 
 export function validateEnvironment(): void {
   const schemaPath = path.join(process.cwd(), '.env.schema.json');
-  
+
   if (fs.existsSync(schemaPath)) {
     console.log('✅ Environment schema found');
   }
-    try {
+  try {
     const env = getEnvironment();
     console.log('✅ Environment variables validated successfully');
     console.log(`📍 Running in ${env.NODE_ENV} mode`);
@@ -122,7 +120,7 @@ export const databaseConfig = {
       user: env.DB_USER,
       password: env.DB_PASSWORD,
       database: env.DB_NAME,
-      ssl: env.DB_SSL,
+      ssl: false, // Always false as per requirement
     };
   },
 };
@@ -133,8 +131,9 @@ export const googleCloudConfig = {
     return {
       projectId: env.GOOGLE_CLOUD_PROJECT_ID,
       region: env.GOOGLE_CLOUD_REGION,
-      storageBucket: env.STORAGE_BUCKET_NAME,      workflows: {
-        location: env.WORKFLOWS_LOCATION,
+      storageBucket: env.STORAGE_BUCKET_NAME,
+      workflows: {
+        location: env.GOOGLE_CLOUD_REGION,
       },
     };
   },

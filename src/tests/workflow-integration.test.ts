@@ -91,8 +91,8 @@ describe('Workflow Integration', () => {  describe('Google Cloud Workflows Struc
   describe('Request/Response Validation', () => {
     it('should validate story outline request structure', () => {
       const outlineRequest = {
-        storyId: 'story-123',
-        runId: 'run-456',
+        storyId: '550e8400-e29b-41d4-a716-446655440000',
+        runId: '660f8500-e29b-41d4-a716-446655440001',
         prompt: 'A magical adventure about friendship and courage',
         genre: 'fantasy',
         targetAudience: 'children',
@@ -103,8 +103,8 @@ describe('Workflow Integration', () => {  describe('Google Cloud Workflows Struc
       expect(outlineRequest).toHaveProperty('runId');
       expect(outlineRequest).toHaveProperty('prompt');
       
-      expect(outlineRequest.storyId).toMatch(/^story-/);
-      expect(outlineRequest.runId).toMatch(/^run-/);
+      expect(outlineRequest.storyId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+      expect(outlineRequest.runId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
       expect(outlineRequest.prompt.length).toBeGreaterThan(10);
       expect(outlineRequest.chapters).toBeGreaterThan(0);
     });
@@ -153,8 +153,8 @@ describe('Workflow Integration', () => {  describe('Google Cloud Workflows Struc
 
     it('should validate chapter generation request structure', () => {
       const chapterRequest = {
-        storyId: 'story-123',
-        runId: 'run-456',
+        storyId: '550e8400-e29b-41d4-a716-446655440000',
+        runId: '660f8500-e29b-41d4-a716-446655440001',
         chapterNumber: 1,
         outline: {
           title: 'The Friendship Quest',
@@ -179,8 +179,8 @@ describe('Workflow Integration', () => {  describe('Google Cloud Workflows Struc
 
     it('should validate image generation request structure', () => {
       const imageRequest = {
-        storyId: 'story-123',
-        runId: 'run-456',
+        storyId: '550e8400-e29b-41d4-a716-446655440000',
+        runId: '660f8500-e29b-41d4-a716-446655440001',
         chapterNumber: 1,
         prompt: 'A brave young girl standing at the edge of an enchanted forest, with magical light filtering through ancient trees and mysterious shadows in the distance',
         style: 'children_book_illustration',

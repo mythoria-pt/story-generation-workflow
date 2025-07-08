@@ -233,7 +233,7 @@ This service uses a hybrid approach for configuration:
 - `STORAGE_BUCKET_NAME` - Google Cloud Storage bucket name
 - `VERTEX_AI_MODEL_ID` - Vertex AI model identifier  
 - `VERTEX_AI_LOCATION` - Vertex AI service location
-- `WORKFLOWS_LOCATION` - Google Cloud Workflows location
+- `GOOGLE_CLOUD_REGION` - Google Cloud Workflows location
 - `IMAGE_GENERATION_MODEL` - Image generation model name
 - `AUDIO_GENERATION_MODEL` - Audio generation model name
 - `IMAGE_PROVIDER` - AI image provider selection

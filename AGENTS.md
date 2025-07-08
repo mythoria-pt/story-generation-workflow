@@ -472,7 +472,7 @@ export const environmentSchema = z.object({
   STORAGE_BUCKET_NAME: z.string().min(1),
   
   // Workflows
-  WORKFLOWS_LOCATION: z.string().default('europe-west9')
+  GOOGLE_CLOUD_REGION: z.string().default('europe-west9')
 });
 
 export type Environment = z.infer<typeof environmentSchema>;

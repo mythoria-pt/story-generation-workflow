@@ -67,7 +67,7 @@ OPENAI_API_KEY: ${SECRET:mythoria-openai-api-key}
 STORAGE_BUCKET_NAME: ${SECRET:mythoria-storage-bucket}
 
 # Workflows
-WORKFLOWS_LOCATION: europe-west9
+GOOGLE_CLOUD_REGION: europe-west9
 
 # Application
 NODE_ENV: production

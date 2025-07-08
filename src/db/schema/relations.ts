@@ -3,7 +3,6 @@ import { authors, addresses, events } from './authors.js';
 import { stories, storyVersions } from './stories.js';
 import { characters, storyCharacters } from './characters.js';
 import { creditLedger, authorCreditBalances } from './credits.js';
-import { storyGenerationRuns, storyGenerationSteps } from './story-generation.js';
 
 // -----------------------------------------------------------------------------
 // Relations (for type safety with Drizzle ORM queries)
@@ -37,7 +36,6 @@ export const storiesRelations = relations(stories, ({ one, many }) => ({
   storyCharacters: many(storyCharacters),
   storyVersions: many(storyVersions),
   creditLedgerEntries: many(creditLedger),
-  storyGenerationRuns: many(storyGenerationRuns),
 }));
 
 export const charactersRelations = relations(characters, ({ one, many }) => ({
@@ -88,21 +86,5 @@ export const authorCreditBalancesRelations = relations(authorCreditBalances, ({ 
   author: one(authors, {
     fields: [authorCreditBalances.authorId],
     references: [authors.authorId],
-  }),
-}));
-
-// Story Generation Relations
-export const storyGenerationRunsRelations = relations(storyGenerationRuns, ({ one, many }) => ({
-  story: one(stories, {
-    fields: [storyGenerationRuns.storyId],
-    references: [stories.storyId],
-  }),
-  steps: many(storyGenerationSteps),
-}));
-
-export const storyGenerationStepsRelations = relations(storyGenerationSteps, ({ one }) => ({
-  run: one(storyGenerationRuns, {
-    fields: [storyGenerationSteps.runId],
-    references: [storyGenerationRuns.runId],
   }),
 }));
