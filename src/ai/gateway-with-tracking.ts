@@ -157,7 +157,7 @@ class ImageGenerationServiceWrapper implements IImageGenerationService {
   private getDefaultModel(): string {
     // Try to determine the model from common patterns
     if (process.env.IMAGE_PROVIDER === 'openai') {
-      return process.env.OPENAI_IMAGE_MODEL || 'dall-e-3';
+      return process.env.OPENAI_IMAGE_MODEL || 'gpt-4.1';
     } else if (process.env.IMAGE_PROVIDER === 'vertex') {
       return 'imagen-3.0-generate-001';
     }

@@ -8,6 +8,7 @@ import { getDatabase } from '@/db/connection.js';
 import { stories, storyCharacters } from '@/db/schema/index.js';
 import { characters } from '@/db/schema/characters.js';
 import { authors } from '@/db/schema/authors.js';
+import { retry } from '@/shared/utils.js';
 import { logger } from '@/config/logger.js';
 
 export interface StoryContext {
@@ -161,7 +162,7 @@ export class StoryService {
     audiobookUri?: object;
   }) {
     try {
-      const updateData: Record<string, any> = {};
+      const updateData: Record<string, unknown> = {};
       
       if (updates.htmlUri !== undefined) {
         updateData.htmlUri = updates.htmlUri;
@@ -173,10 +174,13 @@ export class StoryService {
         updateData.audiobookUri = updates.audiobookUri;
       }
       
-      await this.db
-        .update(stories)
-        .set(updateData)
-        .where(eq(stories.storyId, storyId));
+      // Use retry logic for database connection timeouts
+      await retry(async () => {
+        await this.db
+          .update(stories)
+          .set(updateData)
+          .where(eq(stories.storyId, storyId));
+      }, 3, 1000); // 3 retries, starting with 1s delay
 
       logger.info('Story URIs updated successfully', {
         storyId,
@@ -199,13 +203,16 @@ export class StoryService {
    */
   async updateStoryCompletionPercentage(storyId: string, completionPercentage: number) {
     try {
-      await this.db
-        .update(stories)
-        .set({ 
-          storyGenerationCompletedPercentage: completionPercentage,
-          updatedAt: new Date().toISOString()
-        })
-        .where(eq(stories.storyId, storyId));
+      // Use retry logic for database connection timeouts
+      await retry(async () => {
+        await this.db
+          .update(stories)
+          .set({ 
+            storyGenerationCompletedPercentage: completionPercentage,
+            updatedAt: new Date().toISOString()
+          })
+          .where(eq(stories.storyId, storyId));
+      }, 3, 1000); // 3 retries, starting with 1s delay
 
       logger.info('Story completion percentage updated', {
         storyId,
@@ -228,13 +235,16 @@ export class StoryService {
    */
   async updateStoryStatus(storyId: string, status: 'draft' | 'writing' | 'published') {
     try {
-      await this.db
-        .update(stories)
-        .set({ 
-          status,
-          updatedAt: new Date().toISOString()
-        })
-        .where(eq(stories.storyId, storyId));
+      // Use retry logic for database connection timeouts
+      await retry(async () => {
+        await this.db
+          .update(stories)
+          .set({ 
+            status,
+            updatedAt: new Date().toISOString()
+          })
+          .where(eq(stories.storyId, storyId));
+      }, 3, 1000); // 3 retries, starting with 1s delay
 
       logger.info('Story status updated', {
         storyId,
@@ -260,7 +270,7 @@ export class StoryService {
     audiobookUri?: object;
   }) {
     try {
-      const updateData: Record<string, any> = {
+      const updateData: Record<string, unknown> = {
         updatedAt: new Date().toISOString()
       };
       

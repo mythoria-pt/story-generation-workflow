@@ -6,7 +6,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { logger } from '@/config/logger.js';
-import { StoryService } from '@/services/story.js';
+import { StoryService, StoryContext } from '@/services/story.js';
 import { StorageService } from '@/services/storage.js';
 import { PromptService } from '@/services/prompt.js';
 import { AIGatewayWithTokenTracking } from '@/ai/gateway-with-tracking-v2.js';
@@ -402,7 +402,7 @@ function extractTextFromHtml(html: string): string {
 async function createStoryEditPrompt(
   originalText: string, 
   userRequest: string, 
-  storyContext: any,
+  storyContext: StoryContext,
   contextDescription: string
 ): Promise<string> {
   

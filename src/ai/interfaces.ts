@@ -61,6 +61,8 @@ export interface ImageGenerationOptions {
   quality?: 'standard' | 'hd';
   style?: 'vivid' | 'natural';
   steps?: number;
+  bookTitle?: string;
+  graphicalStyle?: string;
 }
 
 export interface AIProviderConfig {

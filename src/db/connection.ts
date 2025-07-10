@@ -17,9 +17,9 @@ export function getDatabase() {
       password: config.password,
       database: config.database,
       ssl: config.ssl ? (typeof config.ssl === 'object' ? config.ssl : { rejectUnauthorized: false }) : false,
-      max: 10,
+      max: 15, // Increased from 10 to handle more concurrent operations
       idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 2000,
+      connectionTimeoutMillis: 10000, // Increased from 2000ms to 10000ms to match workflows-db
     });
 
     db = drizzle(pool, { schema });

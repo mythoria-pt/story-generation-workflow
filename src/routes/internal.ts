@@ -5,8 +5,6 @@
 
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
-import { readFile } from 'fs/promises';
-import { join } from 'path';
 import { logger } from '@/config/logger.js';
 import { RunsService } from '@/services/runs.js';
 import { AssemblyService } from '@/services/assembly.js';
@@ -14,6 +12,20 @@ import { TTSService } from '@/services/tts.js';
 import { StorageService } from '@/services/storage.js';
 import { ProgressTrackerService } from '@/services/progress-tracker.js';
 import { StoryService } from '@/services/story.js';
+
+// Type for outline data structure
+type OutlineData = {
+  bookTitle: string;
+  bookCoverPrompt: string;
+  bookBackCoverPrompt: string;
+  synopses: string;
+  chapters: Array<{
+    chapterNumber: number;
+    chapterTitle: string;
+    chapterSynopses: string;
+    chapterPhotoPrompt: string;
+  }>;
+};
 
 const router = Router();
 
@@ -166,7 +178,7 @@ router.get('/prompts/:runId/:chapterNumber', async (req, res) => {
       return;
     }
 
-    const outline = outlineStep.detailJson as any;
+    const outline = outlineStep.detailJson as OutlineData;
     
     if (!outline.chapters || !Array.isArray(outline.chapters)) {
       res.status(400).json({
@@ -177,7 +189,7 @@ router.get('/prompts/:runId/:chapterNumber', async (req, res) => {
     }
 
     // Find the specific chapter
-    const chapter = outline.chapters.find((ch: any) => ch.chapterNumber === chapterNumber);
+    const chapter = outline.chapters.find((ch) => ch.chapterNumber === chapterNumber);
     
     if (!chapter) {
       res.status(404).json({
@@ -193,39 +205,17 @@ router.get('/prompts/:runId/:chapterNumber', async (req, res) => {
         error: `No photo prompt found for chapter ${chapterNumber}`
       });
       return;
-    }    // Get the story context to retrieve graphicalStyle
-    const run = await runsService.getRun(runId);
-    let enhancedPrompt = chapter.chapterPhotoPrompt;
+    }    // Get the story context to retrieve graphicalStyle (not needed now but left for future use)
+    const enhancedPrompt = chapter.chapterPhotoPrompt;
     
-    if (run?.storyId) {
-      const storyContext = await storyService.getStoryContext(run.storyId);
-      
-      if (storyContext?.story.graphicalStyle) {
-        try {
-          // Load the image styles configuration
-          const imageStylesPath = join(process.cwd(), 'src', 'prompts', 'imageStyles.json');
-          const imageStylesContent = await readFile(imageStylesPath, 'utf-8');
-          const imageStyles = JSON.parse(imageStylesContent);
-          
-          const styleConfig = imageStyles[storyContext.story.graphicalStyle];
-          if (styleConfig?.systemPrompt) {
-            enhancedPrompt += ` Use the following style guidelines: ${styleConfig.systemPrompt}`;
-          }
-        } catch (styleError) {
-          logger.warn('Failed to load image style guidelines', {
-            error: styleError instanceof Error ? styleError.message : String(styleError),
-            graphicalStyle: storyContext.story.graphicalStyle
-          });
-        }
-      }
-    }
+    // Note: Style guidelines are now handled in the OpenAI image service itself
+    // via the graphicalStyle option, so we don't add them here anymore
 
     logger.debug('Internal API: Chapter prompt retrieved successfully', {
       runId,
       chapterNumber,
       promptLength: enhancedPrompt.length,
-      originalLength: chapter.chapterPhotoPrompt.length,
-      hasStyleGuidelines: enhancedPrompt.length > chapter.chapterPhotoPrompt.length
+      originalLength: chapter.chapterPhotoPrompt.length
     });
 
     // Return the enhanced prompt in the format expected by the workflow
@@ -389,7 +379,7 @@ router.get('/prompts/:runId/book-cover/:coverType', async (req, res) => {
       return;
     }
 
-    const outline = outlineStep.detailJson as any;
+    const outline = outlineStep.detailJson as OutlineData;
     const promptField = coverType === 'front' ? 'bookCoverPrompt' : 'bookBackCoverPrompt';
       if (!outline[promptField]) {
       res.status(404).json({
@@ -399,40 +389,17 @@ router.get('/prompts/:runId/book-cover/:coverType', async (req, res) => {
       return;
     }
 
-    // Get the story context to retrieve graphicalStyle
-    const run = await runsService.getRun(runId);
-    let enhancedPrompt = outline[promptField];
+    // Get the story context to retrieve graphicalStyle (not needed now but left for future use)
+    const enhancedPrompt = outline[promptField];
     
-    if (run?.storyId) {
-      const storyContext = await storyService.getStoryContext(run.storyId);
-      
-      if (storyContext?.story.graphicalStyle) {
-        try {
-          // Load the image styles configuration
-          const imageStylesPath = join(process.cwd(), 'src', 'prompts', 'imageStyles.json');
-          const imageStylesContent = await readFile(imageStylesPath, 'utf-8');
-          const imageStyles = JSON.parse(imageStylesContent);
-          
-          const styleConfig = imageStyles[storyContext.story.graphicalStyle];
-          if (styleConfig?.systemPrompt) {
-            enhancedPrompt += ` Use the following style guidelines: ${styleConfig.systemPrompt}`;
-          }
-        } catch (styleError) {
-          logger.warn('Failed to load image style guidelines for book cover', {
-            error: styleError instanceof Error ? styleError.message : String(styleError),
-            graphicalStyle: storyContext.story.graphicalStyle,
-            coverType
-          });
-        }
-      }
-    }
+    // Note: Style guidelines are now handled in the OpenAI image service itself
+    // via the graphicalStyle option, so we don't add them here anymore
 
     logger.debug('Internal API: Book cover prompt retrieved successfully', {
       runId,
       coverType,
       promptLength: enhancedPrompt.length,
-      originalLength: outline[promptField].length,
-      hasStyleGuidelines: enhancedPrompt.length > outline[promptField].length
+      originalLength: outline[promptField].length
     });
 
     // Return the enhanced prompt in the format expected by the workflow
@@ -1030,7 +997,10 @@ router.patch('/stories/:storyId/audiobook-status', async (req: Request, res: Res
     });
 
     // Update story audiobook status
-    const updateData: any = {};
+    const updateData: {
+      audiobookStatus?: string;
+      audiobookUri?: object;
+    } = {};
     
     if (status) {
       updateData.audiobookStatus = status;

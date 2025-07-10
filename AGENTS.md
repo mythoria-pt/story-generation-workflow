@@ -822,16 +822,6 @@ story-generation-workflow/
 
 ## Core Interfaces
 
-### Repository Interfaces
-```typescript
-interface IStoryRepository {
-  findById(id: string): Promise<StoryOutline | null>;
-  create(story: Omit<StoryOutline, 'id' | 'createdAt' | 'updatedAt'>): Promise<StoryOutline>;
-  update(id: string, updates: Partial<StoryOutline>): Promise<StoryOutline>;
-  delete(id: string): Promise<void>;
-}
-```
-
 ### Service Interfaces  
 ```typescript
 interface ITextGenerationService {
@@ -927,6 +917,25 @@ interface ChapterContent {
 3. Configuration validated with Zod schemas
 4. Database operations through repository pattern
 5. Error handling with structured logging
+
+## Coding Style
+
+- Use 2 spaces for indentation.
+- Use single quotes for strings.
+- Always use semicolons.
+- Interface names should be descriptive without prefixes (e.g., `StoryOutlineParams`, `ChapterWritingResult`).
+- Enum values should use UPPER_SNAKE_CASE for constants.
+- Always use strict equality (`===` and `!==`).
+- Use JSDoc-style comments for functions and complex logic.
+- Organize imports: external packages first, then internal imports with `@/` path mapping.
+- Prefer arrow functions for inline callbacks, regular functions for main declarations.
+- Use async/await over promises for better readability.
+- Always use trailing commas in objects and arrays.
+- Use descriptive variable names and avoid abbreviations.
+- Use ES modules (import/export) consistently.
+- Implement comprehensive error handling with structured logging.
+- Use Zod for runtime type validation and schema parsing.
+- Follow clean architecture principles with clear separation of concerns.
 
 ### Testing Rules
 1. Unit test business logic without external dependencies

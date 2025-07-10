@@ -293,7 +293,7 @@ export class ImageGenerationMiddleware implements IImageGenerationService {
     // Fallback to environment configuration
     const provider = process.env.IMAGE_PROVIDER || 'vertex';
     if (provider === 'openai') {
-      return process.env.OPENAI_IMAGE_MODEL || 'dall-e-3';
+      return process.env.OPENAI_IMAGE_MODEL || 'gpt-4.1';
     } else if (provider === 'vertex') {
       return 'imagen-3.0-generate-001';
     }

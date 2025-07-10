@@ -1,1 +1,1 @@
-export * from './story-repository.js';
+// Database adapters would be exported here when implemented

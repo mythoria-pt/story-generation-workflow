@@ -46,6 +46,19 @@ interface OpenAIResponsesRequestBody {
   stop?: string[];
 }
 
+interface OpenAIResponseOutput {
+  type: string;
+  content?: Array<{
+    type: string;
+    text?: string;
+  }>;
+}
+
+interface OpenAIResponseData {
+  id: string;
+  output?: OpenAIResponseOutput[];
+}
+
 export class OpenAITextService implements ITextGenerationService {
   private apiKey: string;
   private model: string;
@@ -239,14 +252,14 @@ export class OpenAITextService implements ITextGenerationService {
       throw new Error(`OpenAI Responses API error: ${response.status} - ${errorData}`);
     }
 
-    const data = await response.json();
+    const data: OpenAIResponseData = await response.json();
     
     // DEBUG: Log the raw response from OpenAI Responses API
     logger.info('OpenAI Responses API Debug - Response Details', {
       responseId: data.id,
       hasOutput: !!data.output,
       outputLength: data.output?.length || 0,
-      outputTypes: data.output?.map((item: any) => item.type) || [],
+      outputTypes: data.output?.map((item) => item.type) || [],
       contextId: options?.contextId
     });
 
@@ -259,8 +272,8 @@ export class OpenAITextService implements ITextGenerationService {
     }
     
     // Extract text content from the new response format
-    const outputMessage = data.output?.find((item: any) => item.type === 'message');
-    const textContent = outputMessage?.content?.find((content: any) => content.type === 'output_text');
+    const outputMessage = data.output?.find((item) => item.type === 'message');
+    const textContent = outputMessage?.content?.find((content) => content.type === 'output_text');
     const result = textContent?.text;
 
     if (!result) {

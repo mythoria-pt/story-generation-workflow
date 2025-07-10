@@ -25,7 +25,7 @@ async function testOpenAIIntegration() {
 
     const imageService = new OpenAIImageService({
       apiKey: env.OPENAI_API_KEY,
-      model: 'dall-e-3'
+      model: 'gpt-4.1'
     });
 
     // Test text generation
@@ -52,15 +52,14 @@ async function testOpenAIIntegration() {
     console.log('Image generation prompt:', imagePrompt);
     console.log('Quality setting:', env.OPENAI_IMAGE_QUALITY);
     
-    // Note: Uncomment below to actually generate an image (will use API credits)
-    /*
+    // Note: Running image generation test to debug the issue
+    console.log('🖼️  Running image generation with debugging...');
     const imageBuffer = await imageService.generate(imagePrompt, {
       width: 1024,
-      height: 1024
+      height: 1024,
+      bookTitle: 'Test Magical Forest Story'
     });
     console.log('✅ Image generated, size:', imageBuffer.length, 'bytes');
-    */
-    console.log('🔄 Image generation test skipped (uncomment to run)');
 
     console.log('\n✅ All tests completed successfully!');
     

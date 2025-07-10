@@ -1,4 +1,5 @@
 import { getDatabase } from '@/db/connection.js';
+import { getWorkflowsDatabase } from '@/db/workflows-db.js';
 import { logger } from '@/config/logger.js';
 import { getDatabaseConfig } from '@/config/database.js';
 
@@ -10,6 +11,12 @@ export interface HealthStatus {
   version: string;
   checks: {
     database: {
+      status: 'healthy' | 'unhealthy';
+      message: string;
+      host: string;
+      responseTime?: number;
+    };
+    workflowsDatabase: {
       status: 'healthy' | 'unhealthy';
       message: string;
       host: string;
@@ -34,13 +41,16 @@ export class HealthService {
     // Check database health
     const databaseCheck = await this.checkDatabaseHealth();
     
+    // Check workflows database health
+    const workflowsDatabaseCheck = await this.checkWorkflowsDatabaseHealth();
+    
     // Check internet connectivity
     const internetCheck = await this.checkInternetConnectivity();
     
     // Determine overall status
-    const overallStatus = databaseCheck.status === 'healthy' && internetCheck.status === 'healthy' 
+    const overallStatus = databaseCheck.status === 'healthy' && workflowsDatabaseCheck.status === 'healthy' && internetCheck.status === 'healthy' 
       ? 'healthy' 
-      : (databaseCheck.status === 'healthy' || internetCheck.status === 'healthy') 
+      : (databaseCheck.status === 'healthy' || workflowsDatabaseCheck.status === 'healthy' || internetCheck.status === 'healthy') 
         ? 'degraded' 
         : 'unhealthy';
     
@@ -52,6 +62,7 @@ export class HealthService {
       version: this.version,
       checks: {
         database: databaseCheck,
+        workflowsDatabase: workflowsDatabaseCheck,
         internet: internetCheck
       }
     };
@@ -89,6 +100,45 @@ export class HealthService {
         return {
         status: 'unhealthy',
         message: `Database connection failed: ${errorMessage}`,
+        host: dbConfig.host,
+        responseTime
+      };
+    }
+  }
+
+  private async checkWorkflowsDatabaseHealth(): Promise<{
+    status: 'healthy' | 'unhealthy';
+    message: string;
+    host: string;
+    responseTime?: number;
+  }> {
+    const startTime = Date.now();
+    const dbConfig = getDatabaseConfig();
+    
+    try {
+      const db = getWorkflowsDatabase();
+      
+      // Execute a simple query to test connection
+      await db.execute(sql`SELECT 1 as health_check`);
+      
+      const responseTime = Date.now() - startTime;
+      
+      logger.debug(`Workflows Database health check successful (${responseTime}ms)`);
+      
+      return {
+        status: 'healthy',
+        message: 'Workflows Database connection successful',
+        host: dbConfig.host,
+        responseTime
+      };
+    } catch (error) {
+      const responseTime = Date.now() - startTime;
+      const errorMessage = error instanceof Error ? error.message : 'Unknown workflows database error';
+      
+      logger.error(`Workflows Database health check failed (${responseTime}ms):`, error);
+        return {
+        status: 'unhealthy',
+        message: `Workflows Database connection failed: ${errorMessage}`,
         host: dbConfig.host,
         responseTime
       };

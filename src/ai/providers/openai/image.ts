@@ -63,11 +63,74 @@ export class OpenAIImageService implements IImageGenerationService {
       // Ensure size is valid for the API
       const size = this.getSizeString(options?.width, options?.height);
       const validSizes = ['1024x1024', '1024x1536', '1536x1024'];
-      const finalSize = validSizes.includes(size) ? size as '1024x1024' | '1024x1536' | '1536x1024' : '1024x1024';
+      const finalSize = validSizes.includes(size) ? size as '1024x1024' | '1024x1536' | '1536x1024' : '1024x1536';
 
       // Ensure quality is valid for the API
       const validQualities = ['low', 'high', 'medium', 'auto'];
       const finalQuality = validQualities.includes(quality) ? quality as 'low' | 'high' | 'medium' | 'auto' : 'low';
+
+      // Prepare system message with book title and style
+      const bookTitle = options?.bookTitle || 'Untitled Story';
+      let systemMessage = `This image is the cover of a book, title "${bookTitle}".`;
+      
+      // If graphicalStyle is provided in options, try to load and append style guidelines
+      if (options && 'graphicalStyle' in options && options.graphicalStyle) {
+        try {
+          // Dynamically import the PromptService to avoid circular dependencies
+          const { PromptService } = await import('../../../services/prompt.js');
+          const styleConfig = await PromptService.getImageStylePrompt(options.graphicalStyle as string);
+          systemMessage += `\n${styleConfig.systemPrompt}`;
+        } catch (error) {
+          logger.warn('Failed to load style configuration for image generation', {
+            error: error instanceof Error ? error.message : String(error),
+            graphicalStyle: options.graphicalStyle
+          });
+          // Fallback to a generic style instruction
+          systemMessage += '\nCreate a high-quality, detailed image with good composition and visual appeal.';
+        }
+      } else {
+        // Default style instruction when no specific style is provided
+        systemMessage += '\nCreate a high-quality, detailed image with good composition and visual appeal.';
+      }
+
+      // Debug: Log the complete request being sent to OpenAI
+      console.log('=== FULL OPENAI REQUEST DEBUG ===');
+      console.log('Model:', this.model);
+      console.log('=== System Message ===');
+      console.log('System message text:', systemMessage);
+      console.log('=== User Prompt ===');
+      console.log('User prompt text:', prompt);
+      console.log('User prompt length:', prompt.length);
+      console.log('=== Tool Configuration ===');
+      const toolConfig = {
+        "type": "image_generation" as const,
+        "size": finalSize,
+        "quality": finalQuality,
+        "output_format": "jpeg" as const,
+        "background": "opaque" as const,
+        "moderation": "low" as const,
+        "partial_images": 0
+      };
+      console.log('Image generation tool config:', JSON.stringify(toolConfig, null, 2));
+      console.log('=== Request Structure ===');
+      console.log('Model:', this.model);
+      console.log('Temperature:', 1);
+      console.log('Max output tokens:', 2048);
+      console.log('Top P:', 1);
+      console.log('Store:', true);
+      console.log('=== END OPENAI REQUEST DEBUG ===');
+
+      // Debug: Log the request parameters being sent to OpenAI
+      logger.info('OpenAI: Request parameters for image generation', {
+        model: this.model,
+        promptLength: prompt.length,
+        size: finalSize,
+        quality: finalQuality,
+        bookTitle: bookTitle,
+        userPrompt: prompt.substring(0, 200) + (prompt.length > 200 ? '...' : ''),
+        systemPrompt: systemMessage,
+        toolConfig: toolConfig
+      });
 
       const response = await this.client.responses.create({
         model: this.model,
@@ -77,7 +140,7 @@ export class OpenAIImageService implements IImageGenerationService {
             "content": [
               {
                 "type": "input_text",
-                "text": "This image is the cover of a book, title {{bookTitle}}.\nUse the style "
+                "text": systemMessage
               }
             ]
           },
@@ -97,17 +160,7 @@ export class OpenAIImageService implements IImageGenerationService {
           }
         },
         reasoning: {},
-        tools: [
-          {
-            "type": "image_generation",
-            "size": finalSize,
-            "quality": finalQuality,
-            "output_format": "jpeg",
-            "background": "auto",
-            "moderation": "low",
-            "partial_images": 0
-          }
-        ],
+        tools: [toolConfig],
         temperature: 1,
         max_output_tokens: 2048,
         top_p: 1,
@@ -116,6 +169,14 @@ export class OpenAIImageService implements IImageGenerationService {
       
       // Handle the response - use proper typing
       const responseData = response as unknown as OpenAIResponseData;
+
+      // Debug: Log the complete response structure (limited)
+      logger.info('OpenAI: Complete response received', {
+        responseKeys: Object.keys(responseData),
+        responseType: typeof responseData,
+        hasOutput: !!responseData.output,
+        outputLength: responseData.output ? responseData.output.length : 0
+      });
 
       // Extract image generation data from response based on the actual OpenAI Responses API format
       // The image is in the output array with type="image_generation_call" and status="completed"
@@ -132,6 +193,7 @@ export class OpenAIImageService implements IImageGenerationService {
           imageData = imageGenerationCall.result;
           revisedPrompt = imageGenerationCall.revised_prompt;
           
+          // Debug: Log detailed information about the found image generation call
           logger.info('OpenAI: Found image generation call', {
             id: imageGenerationCall.id,
             size: imageGenerationCall.size,
@@ -145,23 +207,59 @@ export class OpenAIImageService implements IImageGenerationService {
 
       if (!imageData) {
         // Log the full response structure for debugging
+        console.error('=== NO IMAGE DATA FOUND DEBUG ===');
         console.error('OpenAI Responses API - No image data found. Full response structure:', JSON.stringify(responseData, null, 2));
         
         // Also log just the output array for easier debugging
         if (responseData.output) {
+          console.error('Output array length:', responseData.output.length);
           console.error('Output array contents:', responseData.output.map((item: OpenAIImageGenerationCall) => ({
             type: item.type,
             status: item.status,
-            id: item.id
+            id: item.id,
+            hasResult: !!item.result,
+            resultKeys: item.result ? Object.keys(item.result) : 'no result'
           })));
+          
+          // Log each output item in detail
+          responseData.output.forEach((item: OpenAIImageGenerationCall, index: number) => {
+            console.error(`Output item ${index}:`, JSON.stringify(item, null, 2));
+          });
+        } else {
+          console.error('No output array found in response');
         }
+        console.error('=== END NO IMAGE DATA DEBUG ===');
         
         throw new Error('No image generation call found in response');
       }
 
-      // Extract base64 image data
-      const base64Data = imageData?.b64_json;
+      // Extract base64 image data efficiently
+      let base64Data = null;
+      
+      // Check if imageData is directly a string (base64 data)
+      if (typeof imageData === 'string') {
+        base64Data = imageData;
+      } else if (imageData && typeof imageData === 'object') {
+        // Check for base64 data in object properties
+        base64Data = imageData.b64_json || imageData.url;
+        
+        // If still not found, check if it's an array-like object containing the base64 string
+        if (!base64Data && Object.keys(imageData).length > 100) {
+          // It might be an array-like object where the base64 string is spread across indices
+          const imageDataRecord = imageData as Record<string, unknown>;
+          const sortedKeys = Object.keys(imageDataRecord).sort((a, b) => parseInt(a) - parseInt(b));
+          if (sortedKeys.every(key => /^\d+$/.test(key))) {
+            base64Data = sortedKeys.map(key => String(imageDataRecord[key])).join('');
+          }
+        }
+      }
+      
       if (!base64Data) {
+        logger.error('OpenAI: No base64 image data found in response', {
+          imageDataType: typeof imageData,
+          imageDataExists: !!imageData,
+          imageDataProperties: imageData ? Object.keys(imageData).length : 0
+        });
         throw new Error('No base64 image data found in response');
       }
 
@@ -180,7 +278,13 @@ export class OpenAIImageService implements IImageGenerationService {
     } catch (error) {
       // If it's an OpenAI API error, log the response body
       if (error instanceof Error && 'response' in error) {
-        const apiError = error as any;
+        const apiError = error as Error & { 
+          response?: { 
+            status?: number; 
+            statusText?: string; 
+            data?: unknown; 
+          } 
+        };
         if (apiError.response) {
           console.error('OpenAI API Error Response Body:', JSON.stringify(apiError.response.data || apiError.response, null, 2));
           logger.error('OpenAI API Error Response', {
@@ -271,7 +375,7 @@ export class OpenAIImageService implements IImageGenerationService {
             "size": finalSize,
             "quality": finalQuality,
             "output_format": "jpeg",
-            "background": "auto",
+            "background": "opaque",
             "moderation": "auto",
             "partial_images": 0
           }
@@ -289,8 +393,8 @@ export class OpenAIImageService implements IImageGenerationService {
         store: true
       });
       
-      // Handle the response - cast to any to access the data structure
-      const responseData = response as any;
+      // Handle the response - use proper typing
+      const responseData = response as unknown as OpenAIResponseData;
 
       // Extract image generation data from response
       let imageData = null;
@@ -298,7 +402,7 @@ export class OpenAIImageService implements IImageGenerationService {
 
       if (responseData.output && Array.isArray(responseData.output)) {
         // Find the image generation call in the output array
-        const imageGenerationCall = responseData.output.find((item: any) => 
+        const imageGenerationCall = responseData.output.find((item: OpenAIImageGenerationCall) => 
           item.type === 'image_generation_call' && item.status === 'completed'
         );
 
@@ -323,7 +427,7 @@ export class OpenAIImageService implements IImageGenerationService {
         
         // Also log just the output array for easier debugging
         if (responseData.output) {
-          console.error('Output array contents:', responseData.output.map((item: any) => ({
+          console.error('Output array contents:', responseData.output.map((item: OpenAIImageGenerationCall) => ({
             type: item.type,
             status: item.status,
             id: item.id
@@ -333,7 +437,28 @@ export class OpenAIImageService implements IImageGenerationService {
         throw new Error('No image generation call found in edit response');
       }
 
-      const buffer = Buffer.from(imageData, 'base64');
+      // Extract base64 data - handle both string and object cases
+      let base64Data: string | null = null;
+      if (typeof imageData === 'string') {
+        base64Data = imageData;
+      } else if (imageData && typeof imageData === 'object') {
+        const imageDataObj = imageData as { b64_json?: string; url?: string; [key: string]: unknown };
+        base64Data = imageDataObj.b64_json || imageDataObj.url || null;
+        
+        // Handle array-like object case
+        if (!base64Data && Object.keys(imageDataObj).length > 100) {
+          const sortedKeys = Object.keys(imageDataObj).sort((a, b) => parseInt(a) - parseInt(b));
+          if (sortedKeys.every(key => /^\d+$/.test(key))) {
+            base64Data = sortedKeys.map(key => String(imageDataObj[key])).join('');
+          }
+        }
+      }
+
+      if (!base64Data) {
+        throw new Error('No base64 image data found in edit response');
+      }
+
+      const buffer = Buffer.from(base64Data, 'base64');
 
       logger.info('OpenAI: Image edited successfully with Responses API', {
         model: this.model,
@@ -349,7 +474,13 @@ export class OpenAIImageService implements IImageGenerationService {
     } catch (error) {
       // If it's an OpenAI API error, log the response body
       if (error instanceof Error && 'response' in error) {
-        const apiError = error as any;
+        const apiError = error as Error & { 
+          response?: { 
+            status?: number; 
+            statusText?: string; 
+            data?: unknown; 
+          } 
+        };
         if (apiError.response) {
           console.error('OpenAI API Error Response Body (Image Edit):', JSON.stringify(apiError.response.data || apiError.response, null, 2));
           logger.error('OpenAI API Error Response (Image Edit)', {
@@ -376,7 +507,7 @@ export class OpenAIImageService implements IImageGenerationService {
 
   private getSizeString(width?: number, height?: number): string {
     if (!width && !height) {
-      return '1024x1024';
+      return '1024x1536'; // Default to portrait format
     }
     
     // Valid sizes for OpenAI Responses API
@@ -399,6 +530,6 @@ export class OpenAIImageService implements IImageGenerationService {
       }
     }
     
-    return '1024x1024';
+    return '1024x1536'; // Default to portrait format
   }
 }

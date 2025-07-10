@@ -6,6 +6,7 @@
 import { RunsService } from './runs.js';
 import { StoryService } from './story.js';
 import { logger } from '@/config/logger.js';
+import { retry } from '@/shared/utils.js';
 
 export interface WorkflowStep {
   stepName: string;
@@ -234,39 +235,42 @@ export class ProgressTrackerService {
    */
   async updateStoryProgress(runId: string): Promise<void> {
     try {
-      const run = await this.runsService.getRun(runId);
-      if (!run) {
-        throw new Error(`Run not found: ${runId}`);
-      }
+      // Use retry logic for the entire progress update operation
+      await retry(async () => {
+        const run = await this.runsService.getRun(runId);
+        if (!run) {
+          throw new Error(`Run not found: ${runId}`);
+        }
 
-      const progress = await this.calculateProgress(runId);
-      
-      // If the run is completed, ensure 100% completion
-      let finalPercentage = progress.completedPercentage;
-      if (run.status === 'completed' && run.currentStep === 'done') {
-        finalPercentage = 100;
-      }
-      
-      // Update the story's completion percentage
-      await this.storyService.updateStoryCompletionPercentage(
-        run.storyId,
-        finalPercentage
-      );
+        const progress = await this.calculateProgress(runId);
+        
+        // If the run is completed, ensure 100% completion
+        let finalPercentage = progress.completedPercentage;
+        if (run.status === 'completed' && run.currentStep === 'done') {
+          finalPercentage = 100;
+        }
+        
+        // Update the story's completion percentage
+        await this.storyService.updateStoryCompletionPercentage(
+          run.storyId,
+          finalPercentage
+        );
 
-      // If the run is completed, update story status to published
-      if (run.status === 'completed' && run.currentStep === 'done') {
-        await this.storyService.updateStoryStatus(run.storyId, 'published');
-      }
+        // If the run is completed, update story status to published
+        if (run.status === 'completed' && run.currentStep === 'done') {
+          await this.storyService.updateStoryStatus(run.storyId, 'published');
+        }
 
-      logger.info('Story progress updated', {
-        runId,
-        storyId: run.storyId,
-        completedPercentage: finalPercentage,
-        currentStep: progress.currentStep,
-        completedSteps: progress.completedSteps.length,
-        totalSteps: progress.totalSteps,
-        storyStatus: run.status === 'completed' && run.currentStep === 'done' ? 'published' : 'unchanged'
-      });
+        logger.info('Story progress updated', {
+          runId,
+          storyId: run.storyId,
+          completedPercentage: finalPercentage,
+          currentStep: progress.currentStep,
+          completedSteps: progress.completedSteps.length,
+          totalSteps: progress.totalSteps,
+          storyStatus: run.status === 'completed' && run.currentStep === 'done' ? 'published' : 'unchanged'
+        });
+      }, 3, 1000); // 3 retries, starting with 1s delay
 
     } catch (error) {
       logger.error('Failed to update story progress', {

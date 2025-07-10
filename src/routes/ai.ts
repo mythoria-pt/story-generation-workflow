@@ -169,11 +169,14 @@ router.post('/text/outline', async (req, res) => {  try {
     
     // Validate that the response matches our expected structure
     if (!isOutlineData(parsedData)) {
+      // Type guard failed, so we know parsedData doesn't match OutlineData
+      // But we can still safely check basic properties for debugging
+      const dataAsRecord = parsedData && typeof parsedData === 'object' ? parsedData as Record<string, unknown> : {};
       logger.error('Invalid outline structure', {
-        hasBookTitle: !!(parsedData as any)?.bookTitle,
-        hasChapters: !!(parsedData as any)?.chapters,
-        isChaptersArray: Array.isArray((parsedData as any)?.chapters),
-        actualKeys: parsedData && typeof parsedData === 'object' ? Object.keys(parsedData) : []
+        hasBookTitle: !!(dataAsRecord?.bookTitle),
+        hasChapters: !!(dataAsRecord?.chapters),
+        isChaptersArray: Array.isArray(dataAsRecord?.chapters),
+        actualKeys: Object.keys(dataAsRecord)
       });
       throw new Error('Invalid outline structure received');
     }
@@ -320,7 +323,9 @@ router.post('/image', async (req, res) => {
     const imageBuffer = await aiGateway.getImageService(imageContext).generate(prompt, {
       ...(imageWidth && { width: imageWidth }),
       ...(imageHeight && { height: imageHeight }),
-      ...(style && { style })
+      ...(style && { style }),
+      bookTitle: storyContext.story.title,
+      ...(storyContext.story.graphicalStyle && { graphicalStyle: storyContext.story.graphicalStyle })
     });
 
     currentStep = 'preparing_upload';

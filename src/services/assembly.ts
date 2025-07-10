@@ -140,7 +140,7 @@ export class AssemblyService {
       );
       
       // Upload HTML file to storage
-      const htmlFilename = `${run.storyId}/story.html`;
+      const htmlFilename = `${run.storyId}/story_v001.html`;
       const htmlUrl = await this.storageService.uploadFile(htmlFilename, Buffer.from(htmlContent), 'text/html');
 
       // Update story with the HTML URI in the database

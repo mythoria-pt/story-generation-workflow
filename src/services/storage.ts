@@ -6,7 +6,7 @@
 import { Storage } from '@google-cloud/storage';
 import { getEnvironment } from '@/config/environment.js';
 import { logger } from '@/config/logger.js';
-import { handleGCSError } from '@/utils/errorHandling.js';
+import { handleGCSError, ErrorDetails } from '@/utils/errorHandling.js';
 
 export class StorageService {
   private storage: Storage;
@@ -176,7 +176,7 @@ export class StorageService {
   /**
    * Test storage configuration and permissions
    */
-  async testConnection(): Promise<{ success: boolean; details: any }> {
+  async testConnection(): Promise<{ success: boolean; details: Record<string, unknown> | ErrorDetails }> {
     try {
       logger.info('Testing Google Cloud Storage connection', {
         bucketName: this.bucketName,
@@ -272,14 +272,15 @@ export class StorageService {
   /**
    * Get bucket configuration and provide setup recommendations
    */
-  async getBucketInfo(): Promise<{ config: any; recommendations: string[] }> {
+  async getBucketInfo(): Promise<{ config: Record<string, unknown>; recommendations: string[] }> {
     try {
       const bucket = this.storage.bucket(this.bucketName);
       const [metadata] = await bucket.getMetadata();
       const [iam] = await bucket.iam.getPolicy();
 
       const recommendations: string[] = [];      // Check if uniform bucket-level access is enabled
-      if ((metadata.uniformBucketLevelAccess as any)?.enabled) {
+      const uniformAccess = metadata.uniformBucketLevelAccess as { enabled?: boolean } | undefined;
+      if (uniformAccess?.enabled) {
         recommendations.push('✅ Uniform bucket-level access is enabled (recommended for security)');
         recommendations.push('ℹ️  To make files publicly accessible, configure IAM policy at bucket level:');
         recommendations.push('   - Add "allUsers" member with "Storage Object Viewer" role');

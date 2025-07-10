@@ -90,10 +90,34 @@ router.get('/internal/stories/:storyId/html', async (req: express.Request, res: 
   try {
     const storyId = req.params.storyId;
 
+    if (!storyId) {
+      res.status(400).json({
+        success: false,
+        error: 'storyId parameter is required'
+      });
+      return;
+    }
+
     logger.info('Internal API: Getting story HTML for audiobook', { storyId });
 
+    // Get story from database to fetch the correct HTML URI
+    const story = await storyService.getStory(storyId);
+    if (!story || !story.htmlUri) {
+      res.status(404).json({
+        success: false,
+        error: 'Story not found or HTML not generated yet'
+      });
+      return;
+    }
+
+    // Extract filename from the URI for storage service
+    // URI format: https://storage.googleapis.com/bucket-name/path/to/file
+    const url = new URL(story.htmlUri);
+    const pathParts = url.pathname.split('/').filter(part => part.length > 0);
+    // Skip bucket name (first part) and reconstruct the file path
+    const htmlFilename = pathParts.slice(1).join('/');
+
     // Download HTML file from storage
-    const htmlFilename = `${storyId}/story.html`;
     const htmlContent = await storageService.downloadFile(htmlFilename);
     
     if (!htmlContent) {

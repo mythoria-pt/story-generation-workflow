@@ -24,9 +24,9 @@ export function getWorkflowsDatabase() {
       password,
       database,
       ssl: false, // Always false as per requirement
-      max: 10,
+      max: 15, // Increased from 10 to handle more concurrent operations
       idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 2000,
+      connectionTimeoutMillis: 10000, // Increased from 2000ms to 10000ms
     });
 
     workflowsDb = drizzle(workflowsPool, { 

@@ -46,7 +46,7 @@ const envSchema = z.object({
   IMAGE_PROVIDER: z.enum(['openai']).optional().default('openai'),
 
   OPENAI_API_KEY: z.string().optional(),
-  OPENAI_IMAGE_MODEL: z.string().optional().default('dall-e-3'),
+  OPENAI_IMAGE_MODEL: z.string().optional().default('gpt-4.1'),
   OPENAI_IMAGE_QUALITY: z.enum(['low', 'standard', 'high']).optional().default('low'),
 
   // Google GenAI Configuration

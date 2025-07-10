@@ -165,7 +165,7 @@ gs://mythoria-story-assets-europe-west9/
 │   │   ├── chapter_2.mp3
 │   │   └── ...
 │   ├── final/
-│   │   ├── story.html
+│   │   ├── story_v001.html
 │   │   ├── story.pdf
 │   │   └── story.mp3 (optional)
 │   └── metadata.json

@@ -225,7 +225,7 @@ export class FinalProductionHandler implements WorkflowStepHandler<FinalProducti
     
     // Placeholder return
     return {
-      htmlUrl: `https://storage.googleapis.com/story-output/${params.storyId}/story.html`,
+      htmlUrl: `https://storage.googleapis.com/story-output/${params.storyId}/story_v001.html`,
       pdfUrl: `https://storage.googleapis.com/story-output/${params.storyId}/story.pdf`,
       status: 'completed'
     };
