@@ -7,6 +7,7 @@
 import { RunsService } from './runs.js';
 import { StoryService } from './story.js';
 import { StorageService } from './storage.js';
+import { ChaptersService } from './chapters.js';
 import { tokenUsageTrackingService } from './token-usage-tracking.js';
 import { AudioPromptService } from './audio-prompt.js';
 import { logger } from '@/config/logger.js';
@@ -56,12 +57,14 @@ export class TTSService {
   private runsService: RunsService;
   private storyService: StoryService;
   private storageService: StorageService;
+  private chaptersService: ChaptersService;
   private openaiClient: OpenAI | null = null;
 
   constructor() {
     this.runsService = new RunsService();
     this.storyService = new StoryService();
     this.storageService = new StorageService();
+    this.chaptersService = new ChaptersService();
     
     // Initialize OpenAI client if API key is available
     const openaiApiKey = process.env.OPENAI_API_KEY;
@@ -251,8 +254,8 @@ export class TTSService {
         'audio/mpeg'
       );
 
-      // Update story audiobookUri with this chapter's audio
-      await this.updateStoryAudiobookUri(run.storyId, chapterNumber, audioUrl);
+      // Update chapter audio URI in database
+      await this.chaptersService.updateChapterAudio(run.storyId, chapterNumber, audioUrl);
 
       const result: TTSChapterResult = {
         chapterNumber,
@@ -404,47 +407,6 @@ export class TTSService {
       throw error;
     }
   }
-
-  /**
-   * Update story's audiobookUri with chapter audio URL
-   */
-  private async updateStoryAudiobookUri(storyId: string, chapterNumber: number, audioUrl: string): Promise<void> {
-    try {
-      // Get current story
-      const story = await this.storyService.getStory(storyId);
-      if (!story) {
-        throw new Error(`Story not found: ${storyId}`);
-      }      // Get current audiobookUri or create new one
-      let audiobookUri = (story.audiobookUri as Record<string, string>) || {};
-      if (typeof audiobookUri !== 'object') {
-        audiobookUri = {};
-      }
-
-      // Add/update the chapter audio URL
-      audiobookUri[`chapter_${chapterNumber}`] = audioUrl;
-
-      // Update the story
-      await this.storyService.updateStoryUris(storyId, {
-        audiobookUri
-      });
-
-      logger.info('Updated story audiobookUri', {
-        storyId,
-        chapterNumber,
-        audioUrl
-      });
-    } catch (error) {
-      logger.error('Failed to update story audiobookUri', {
-        error: error instanceof Error ? error.message : String(error),
-        storyId,
-        chapterNumber,
-        audioUrl
-      });
-      throw error;
-    }
-  }
-
-
 
   /**
    * Synthesize speech using OpenAI TTS
@@ -662,8 +624,8 @@ export class TTSService {
         'audio/mpeg'
       );
 
-      // Update story audiobookUri with this chapter's audio
-      await this.updateStoryAudiobookUri(storyId, chapterNumber, audioUrl);
+      // Update chapter audio URI in database
+      await this.chaptersService.updateChapterAudio(storyId, chapterNumber, audioUrl);
 
       const result: TTSChapterResult = {
         chapterNumber,

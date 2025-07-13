@@ -21,7 +21,7 @@ main:
           - storyId:  ${payload.storyId}
           - runId:    ${payload.runId}
           - voice:    ${default(payload.voice, "coral")}
-          - baseUrl:  "https://a73b-2001-818-de82-dd00-a484-3325-86dc-5f9e.ngrok-free.app"
+          - baseUrl:  "https://91c4beeda346.ngrok-free.app"
           - now:      ${time.format(sys.now())}
 
     # ───────────────────────────────────────────────
@@ -69,29 +69,12 @@ main:
                         - storyAuthor: ${default(htmlResp.body.author, "")}
                         - dedicatoryMessage: ${default(htmlResp.body.dedicationMessage, "")}
                         - storyLanguage: ${default(storyResp.body.storyLanguage, "en-US")}
-                        - chapters: ${htmlResp.body.chapters}  # Only actual chapters
+                        - chapters: ${htmlResp.body.chapters}  # Chapters from database
 
-            # 3. Filter out non-chapter content
-            - filterChapters:
-                assign:
-                  - actualChapters: []
-                  - chapterIndex: 0
-            
-            - processChapters:
-                for:
-                  range: ${[0, len(chapters) - 1]}
-                  value: i
-                  steps:
-                    - checkIfChapter:
-                        switch:
-                          - condition: ${not(text.match_regex(chapters[i].title, "(?i)dedicat|author|credit|attribution"))}
-                            assign:
-                              - actualChapters: ${list.concat(actualChapters, chapters[i])}
-
-            # 4. Generate audio for each chapter
+            # 3. Generate audio for each chapter sequentially
             - generateChapterAudios:
                 for:
-                  range: ${[1, len(actualChapters)]}
+                  range: ${[1, len(chapters)]}
                   value: chapterNum
                   steps:
                     - generateChapterAudio:
@@ -103,8 +86,8 @@ main:
                           body:
                             storyId: ${storyId}
                             chapterNumber: ${chapterNum}
-                            chapterTitle: ${actualChapters[chapterNum - 1].title}
-                            chapterContent: ${actualChapters[chapterNum - 1].content}
+                            chapterTitle: ${chapters[chapterNum - 1].title}
+                            chapterContent: ${chapters[chapterNum - 1].content}
                             storyTitle: ${storyTitle}
                             storyAuthor: ${storyAuthor}
                             dedicatoryMessage: ${dedicatoryMessage}
@@ -113,7 +96,7 @@ main:
                             isFirstChapter: ${chapterNum == 1}
                         result: chapterAudioResp
 
-            # 5. Finalize audiobook and mark as completed
+            # 4. Finalize audiobook and mark as completed
             - finalizeAudiobook:
                 call: http.request
                 args:
@@ -124,7 +107,7 @@ main:
                     storyId: ${storyId}
                 result: finalizeResp
 
-            # 6. Mark audiobook as completed
+            # 5. Mark audiobook as completed
             - markAudiobookCompleted:
                 call: http.request
                 args:
@@ -144,7 +127,7 @@ main:
                   runId: ${runId}
                   audioUrls: ${finalizeResp.body.audioUrls}
                   totalDuration: ${finalizeResp.body.totalDuration}
-                  chaptersProcessed: ${len(actualChapters)}
+                  chaptersProcessed: ${len(chapters)}
                   generatedAt: ${now}
 
         except:

@@ -109,13 +109,14 @@ router.post('/text/outline', async (req, res) => {  try {
       targetAudience: formatTargetAudience(storyContext.story.targetAudience),
       place: storyContext.story.place || 'a magical land',
       language: getLanguageName(storyContext.story.storyLanguage),
-      chapterCount,characters: JSON.stringify(
+      chapterCount,      characters: JSON.stringify(
         storyContext.characters.map(char => ({
           name: char.name,
           type: char.type || '',
           role: char.role || '',
-          passions: char.passions || '',
-          superpowers: char.superpowers || '',
+          age: char.age || '',
+          traits: char.traits || [],
+          characteristics: char.characteristics || '',
           physicalDescription: char.physicalDescription || ''
         })),
         null,
@@ -325,7 +326,8 @@ router.post('/image', async (req, res) => {
       ...(imageHeight && { height: imageHeight }),
       ...(style && { style }),
       bookTitle: storyContext.story.title,
-      ...(storyContext.story.graphicalStyle && { graphicalStyle: storyContext.story.graphicalStyle })
+      ...(storyContext.story.graphicalStyle && { graphicalStyle: storyContext.story.graphicalStyle }),
+      ...(imageType && { imageType })
     });
 
     currentStep = 'preparing_upload';
@@ -382,7 +384,9 @@ router.get('/test-text', async (_req, res) => {
       DEBUG_AI_FULL_PROMPTS: process.env.DEBUG_AI_FULL_PROMPTS,
       DEBUG_AI_FULL_RESPONSES: process.env.DEBUG_AI_FULL_RESPONSES,
       LOG_LEVEL: process.env.LOG_LEVEL
-    };    // Create a test context for the AI call
+    };
+    
+    // Create a test context for the AI call
     const testContext = {
       authorId: '00000000-0000-0000-0000-000000000001', // Test UUID
       storyId: '00000000-0000-0000-0000-000000000002', // Test UUID

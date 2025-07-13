@@ -1,56 +1,88 @@
 /**
  * Image Edit API Routes
- * Endpoints for editing existing story images using AI
+ * RESTful endpoints for editing existing story images using AI
+ * New database-driven approach using chapters table
  */
 
 import { Router } from 'express';
 import { z } from 'zod';
 import { logger } from '@/config/logger.js';
-import { getEnvironment } from '@/config/environment.js';
 import { StoryService } from '@/services/story.js';
+import { ChaptersService } from '@/services/chapters.js';
 import { StorageService } from '@/services/storage.js';
 import { AIGatewayWithTokenTracking } from '@/ai/gateway-with-tracking-v2.js';
-import { readFile } from 'fs/promises';
-import { join } from 'path';
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
-import { Storage } from '@google-cloud/storage';
 
 const router = Router();
 
 // Initialize services
 const storyService = new StoryService();
+const chaptersService = new ChaptersService();
 const storageService = new StorageService();
 const aiGateway = AIGatewayWithTokenTracking.fromEnvironment();
 
-// Get current directory for prompt file
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-// Request schema
+// Request schemas
 const ImageEditRequestSchema = z.object({
-  storyId: z.string().uuid(),
-  imageUrl: z.string().url().refine(url => url.startsWith('gs://') || url.startsWith('https://storage.googleapis.com/'), {
-    message: "Image URL must be a Google Cloud Storage URL (gs:// or https://storage.googleapis.com/)"
-  }),
   userRequest: z.string().min(1).max(2000)
 });
 
 /**
- * POST /image-edit
- * Edit an existing story image using AI
+ * Generate next version filename for an image
  */
-router.post('/', async (req, res) => {
-  try {
-    const { storyId, imageUrl, userRequest } = ImageEditRequestSchema.parse(req.body);
+function generateNextVersionFilename(currentUri: string): string {
+  // Extract filename and increment version
+  // Example: frontcover_v001.jpg -> frontcover_v002.jpg
+  const versionRegex = /_v(\d{3})\./;
+  const match = currentUri.match(versionRegex);
+  
+  if (match && match[1]) {
+    const currentVersion = parseInt(match[1]);
+    const nextVersion = currentVersion + 1;
+    const nextVersionStr = nextVersion.toString().padStart(3, '0');
+    return currentUri.replace(versionRegex, `_v${nextVersionStr}.`);
+  }
+  
+  // Fallback: add v002 if no version found
+  const extensionRegex = /(\.[^.]+)$/;
+  return currentUri.replace(extensionRegex, '_v002$1');
+}
 
-    logger.info('Image edit request received', {
+/**
+ * Extract filename from Google Storage URI
+ */
+function extractFilenameFromUri(uri: string): string {
+  try {
+    const url = new URL(uri);
+    const pathParts = url.pathname.split('/');
+    return pathParts[pathParts.length - 1] || 'image.jpg';
+  } catch {
+    // Fallback: get everything after last slash
+    return uri.split('/').pop() || 'image.jpg';
+  }
+}
+
+/**
+ * PATCH /stories/:storyId/images/front-cover
+ * Edit the front cover image of a story using AI
+ */
+router.patch('/stories/:storyId/images/front-cover', async (req, res) => {
+  try {
+    const storyId = req.params.storyId;
+    const { userRequest } = ImageEditRequestSchema.parse(req.body);
+
+    if (!storyId) {
+      res.status(400).json({
+        success: false,
+        error: 'Invalid storyId'
+      });
+      return;
+    }
+
+    logger.info('Front cover edit request received', {
       storyId,
-      imageUrl,
       userRequestLength: userRequest.length
     });
 
-    // 1. Load story metadata from database and verify it exists
+    // 1. Load story from database
     const story = await storyService.getStory(storyId);
     if (!story) {
       logger.warn('Story not found', { storyId });
@@ -61,295 +93,327 @@ router.post('/', async (req, res) => {
       return;
     }
 
-    // 2. Verify the image exists in storage
-    const imageExists = await verifyImageExists(imageUrl);
-    if (!imageExists) {
-      logger.warn('Image not found in storage', { storyId, imageUrl });
+    // 2. Check if story has a front cover URI
+    if (!story.coverUri) {
+      logger.warn('Story has no front cover image', { storyId });
       res.status(404).json({
         success: false,
-        error: 'Image not found in storage'
+        error: 'Story has no front cover image'
       });
       return;
     }
 
-    // 3. Download the original image
-    const originalImageBuffer = await downloadImageFromStorage(imageUrl);
-    if (!originalImageBuffer) {
-      logger.warn('Could not download original image', { storyId, imageUrl });
-      res.status(404).json({
+    // 3. Generate new image filename with incremented version
+    const currentCoverUri = story.coverUri;
+    const newCoverFilename = extractFilenameFromUri(generateNextVersionFilename(currentCoverUri));
+
+    // 4. Load story context for AI prompt
+    const storyContext = await storyService.getStoryContext(storyId);
+    if (!storyContext) {
+      logger.error('Could not load story context', { storyId });
+      res.status(500).json({
         success: false,
-        error: 'Could not access original image from storage'
+        error: 'Could not load story context'
       });
       return;
     }
 
-    // 4. Load system prompt for image editing
-    const systemPrompt = await loadImageEditSystemPrompt();
+    // 5. Create image generation prompt
+    const imagePrompt = `Book front cover for "${storyContext.story.title}". ${userRequest}. Style: ${storyContext.story.graphicalStyle || 'colorful and vibrant illustration'}.`;
 
-    // 5. Create the complete prompt for AI image editing
-    const editPrompt = await createImageEditPrompt(userRequest, systemPrompt);
-
-    logger.info('Created image edit prompt', {
-      storyId,
-      promptLength: editPrompt.length,
-      fullPrompt: editPrompt // Log the complete prompt for debugging
-    });
-
-    // 6. Request image editing from AI
+    // 6. Generate new image using AI
     const aiContext = {
       authorId: story.authorId,
       storyId: storyId,
-      action: 'image_edit' as const
-    };    logger.info('Sending image to AI for editing', {
-      storyId,
-      originalImageSize: originalImageBuffer.length,
-      imageFormat: 'Buffer (sent as base64 to AI)',
-      promptPreview: editPrompt.substring(0, 200) + '...'
+      action: 'image_generation' as const
+    };
+
+    const imageBuffer = await aiGateway.getImageService(aiContext).generate(imagePrompt, {
+      width: 1024,
+      height: 1536, // Portrait format for book cover
+      imageType: 'front_cover',
+      bookTitle: storyContext.story.title,
+      graphicalStyle: storyContext.story.graphicalStyle
     });
 
-    // Use the edit method instead of generate for image editing
-    const imageService = aiGateway.getImageService(aiContext);
-    let editedImageBuffer: Buffer;
-    
-    if (imageService.edit) {
-      editedImageBuffer = await imageService.edit(editPrompt, originalImageBuffer, {
-        width: 1024,
-        height: 1536,
-        quality: 'standard'
-      });
-    } else {
-      // Fallback to generate method if edit is not available
-      logger.warn('Image service does not support edit method, falling back to generate');
-      editedImageBuffer = await imageService.generate(editPrompt, {
-        width: 1024,
-        height: 1536,
-        quality: 'standard'
-      });
-    }
+    // 7. Upload new image to storage
+    const newImageUrl = await storageService.uploadFile(newCoverFilename, imageBuffer, 'image/jpeg');
 
-    logger.info('AI image editing completed', {
+    logger.info('Front cover image edit completed', {
       storyId,
-      originalImageSize: originalImageBuffer.length,
-      editedImageSize: editedImageBuffer.length
-    });    // 7. Generate new filename with version suffix
-    const newFilename = await generateVersionedFilename(imageUrl);
-
-    // 8. Upload the edited image to storage
-    const newImageUrl = await storageService.uploadFile(
-      newFilename,
-      editedImageBuffer,
-      'image/png'
-    );
-
-    logger.info('Image edit completed successfully', {
-      storyId,
-      originalImageUrl: imageUrl,
-      newImageUrl,
-      newFilename
+      originalUri: currentCoverUri,
+      newUri: newImageUrl,
+      newFilename: newCoverFilename
     });
 
+    // 8. Return the new image URL
     res.json({
       success: true,
       storyId,
-      originalImageUrl: imageUrl,
+      imageType: 'front_cover',
       newImageUrl,
-      userRequest,
       metadata: {
-        originalImageSize: originalImageBuffer.length,
-        editedImageSize: editedImageBuffer.length,
-        filename: newFilename,
+        originalUri: currentCoverUri,
+        filename: newCoverFilename,
+        size: imageBuffer.length,
         timestamp: new Date().toISOString()
       }
     });
 
   } catch (error) {
-    logger.error('Image edit request failed', {
+    logger.error('Front cover edit request failed', {
       error: error instanceof Error ? error.message : String(error),
-      storyId: req.body?.storyId,
-      imageUrl: req.body?.imageUrl
+      storyId: req.params?.storyId
     });
 
     res.status(500).json({
       success: false,
-      error: error instanceof Error ? error.message : 'Image editing failed'
+      error: error instanceof Error ? error.message : 'Front cover editing failed'
     });
   }
 });
 
 /**
- * Verify that an image exists in Google Cloud Storage
+ * PATCH /stories/:storyId/images/back-cover
+ * Edit the back cover image of a story using AI
  */
-async function verifyImageExists(imageUrl: string): Promise<boolean> {
+router.patch('/stories/:storyId/images/back-cover', async (req, res) => {
   try {
-    const filename = extractFilenameFromUrl(imageUrl);
-    if (!filename) {
-      return false;
-    }
-    
-    return await storageService.fileExists(filename);
-  } catch (error) {
-    logger.error('Error verifying image existence', {
-      imageUrl,
-      error: error instanceof Error ? error.message : String(error)
-    });
-    return false;
-  }
-}
+    const storyId = req.params.storyId;
+    const { userRequest } = ImageEditRequestSchema.parse(req.body);
 
-/**
- * Download image content from Google Cloud Storage
- */
-async function downloadImageFromStorage(imageUrl: string): Promise<Buffer | null> {
-  try {
-    // Convert gs:// URL to https:// URL if needed
-    let downloadUrl = imageUrl;
-    if (imageUrl.startsWith('gs://')) {
-      // Convert gs://bucket/path to https://storage.googleapis.com/bucket/path
-      downloadUrl = imageUrl.replace('gs://', 'https://storage.googleapis.com/');
-    }
-
-    const response = await fetch(downloadUrl);
-    if (!response.ok) {
-      logger.error('Failed to download image', {
-        imageUrl,
-        downloadUrl,
-        status: response.status,
-        statusText: response.statusText
+    if (!storyId) {
+      res.status(400).json({
+        success: false,
+        error: 'Invalid storyId'
       });
-      return null;
+      return;
     }
 
-    const arrayBuffer = await response.arrayBuffer();
-    return Buffer.from(arrayBuffer);
-  } catch (error) {
-    logger.error('Error downloading image from storage', {
-      imageUrl,
-      error: error instanceof Error ? error.message : String(error)
+    logger.info('Back cover edit request received', {
+      storyId,
+      userRequestLength: userRequest.length
     });
-    return null;
-  }
-}
 
-/**
- * Load the system prompt for image editing
- */
-async function loadImageEditSystemPrompt(): Promise<string> {
-  try {
-    const promptPath = join(__dirname, '..', 'prompts', 'image-edit-system.md');
-    return await readFile(promptPath, 'utf-8');
-  } catch (error) {
-    logger.error('Failed to load image edit system prompt', {
-      error: error instanceof Error ? error.message : String(error)
+    // 1. Load story from database
+    const story = await storyService.getStory(storyId);
+    if (!story) {
+      logger.warn('Story not found', { storyId });
+      res.status(404).json({
+        success: false,
+        error: 'Story not found'
+      });
+      return;
+    }
+
+    // 2. Check if story has a back cover URI
+    if (!story.backcoverUri) {
+      logger.warn('Story has no back cover image', { storyId });
+      res.status(404).json({
+        success: false,
+        error: 'Story has no back cover image'
+      });
+      return;
+    }
+
+    // 3. Generate new image filename with incremented version
+    const currentBackcoverUri = story.backcoverUri;
+    const newBackcoverFilename = extractFilenameFromUri(generateNextVersionFilename(currentBackcoverUri));
+
+    // 4. Load story context for AI prompt
+    const storyContext = await storyService.getStoryContext(storyId);
+    if (!storyContext) {
+      logger.error('Could not load story context', { storyId });
+      res.status(500).json({
+        success: false,
+        error: 'Could not load story context'
+      });
+      return;
+    }
+
+    // 5. Create image generation prompt
+    const imagePrompt = `Book back cover for "${storyContext.story.title}". ${userRequest}. Style: ${storyContext.story.graphicalStyle || 'colorful and vibrant illustration'}.`;
+
+    // 6. Generate new image using AI
+    const aiContext = {
+      authorId: story.authorId,
+      storyId: storyId,
+      action: 'image_generation' as const
+    };
+
+    const imageBuffer = await aiGateway.getImageService(aiContext).generate(imagePrompt, {
+      width: 1024,
+      height: 1536, // Portrait format for book cover
+      imageType: 'back_cover',
+      bookTitle: storyContext.story.title,
+      graphicalStyle: storyContext.story.graphicalStyle
     });
-    // Fallback prompt
-    return `You are an expert AI image editor. Edit the provided image according to the user's request while maintaining the artistic style and quality of the original image.`;
-  }
-}
 
-/**
- * Create the complete prompt for AI image editing
- */
-async function createImageEditPrompt(userRequest: string, systemPrompt: string): Promise<string> {
-  return `${systemPrompt}
+    // 7. Upload new image to storage
+    const newImageUrl = await storageService.uploadFile(newBackcoverFilename, imageBuffer, 'image/jpeg');
 
-## User Request:
-${userRequest}
-
-## Instructions:
-Based on the original image provided and the user's specific request above, generate an edited version of the image that fulfills the user's requirements while maintaining the artistic quality and style of the original.`;
-}
-
-/**
- * Generate a versioned filename for the edited image
- */
-async function generateVersionedFilename(originalUrl: string): Promise<string> {
-  const fullPath = extractFilenameFromUrl(originalUrl);
-  if (!fullPath) {
-    // Fallback filename if extraction fails
-    return `edited_image_v001.png`;
-  }
-  // Split the path to get directory and filename
-  const pathParts = fullPath.split('/');
-  const originalFilename = pathParts[pathParts.length - 1];
-  const directoryPath = pathParts.slice(0, -1).join('/');
-
-  // Validate we have a filename
-  if (!originalFilename) {
-    return `edited_image_v001.png`;
-  }
-
-  // Extract base filename without extension
-  const lastDotIndex = originalFilename.lastIndexOf('.');
-  let baseName = lastDotIndex > 0 ? originalFilename.substring(0, lastDotIndex) : originalFilename;
-  const extension = lastDotIndex > 0 ? originalFilename.substring(lastDotIndex) : '.png';
-
-  // Remove existing version numbers (v001, v2, etc.) and date patterns
-  baseName = baseName.replace(/_v\d{3}$/, ''); // Remove _v001, _v002, etc.
-  baseName = baseName.replace(/_v\d+_.*$/, ''); // Remove _v2_date... pattern
-  baseName = baseName.replace(/_\d{4}-\d{2}-\d{2}T.*$/, ''); // Remove date patterns
-
-  try {
-    // Check for existing versioned files to determine next version
-    const env = getEnvironment();
-    const storage = new Storage({
-      projectId: env.GOOGLE_CLOUD_PROJECT_ID
+    logger.info('Back cover image edit completed', {
+      storyId,
+      originalUri: currentBackcoverUri,
+      newUri: newImageUrl,
+      newFilename: newBackcoverFilename
     });
-    const bucket = storage.bucket(env.STORAGE_BUCKET_NAME);
-    
-    // Search for existing versions in the same directory
-    const searchPrefix = `${directoryPath}/${baseName}_v`;
-    const [files] = await bucket.getFiles({ prefix: searchPrefix });
-    
-    let highestVersion = 0;
-    
-    // Find highest version number
-    for (const file of files) {
-      const filename = file.name.split('/').pop() || '';
-      const versionMatch = filename.match(/_v(\d{3})/);
-      if (versionMatch && versionMatch[1]) {
-        const existingVersion = parseInt(versionMatch[1], 10);
-        if (existingVersion > highestVersion) {
-          highestVersion = existingVersion;
-        }
+
+    // 8. Return the new image URL
+    res.json({
+      success: true,
+      storyId,
+      imageType: 'back_cover',
+      newImageUrl,
+      metadata: {
+        originalUri: currentBackcoverUri,
+        filename: newBackcoverFilename,
+        size: imageBuffer.length,
+        timestamp: new Date().toISOString()
       }
-    }
-    
-    // Generate next version with zero-padded format
-    const nextVersion = (highestVersion + 1).toString().padStart(3, '0');
-    return `${directoryPath}/${baseName}_v${nextVersion}${extension}`;
-    
-  } catch (error) {
-    logger.error('Error checking existing versions, using v001', {
-      originalUrl,
-      error: error instanceof Error ? error.message : String(error)
     });
-    // Fallback to v001 if there's an error
-    return `${directoryPath}/${baseName}_v001${extension}`;
+
+  } catch (error) {
+    logger.error('Back cover edit request failed', {
+      error: error instanceof Error ? error.message : String(error),
+      storyId: req.params?.storyId
+    });
+
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Back cover editing failed'
+    });
   }
-}
+});
 
 /**
- * Extract filename from a Google Cloud Storage URL
+ * PATCH /stories/:storyId/chapters/:chapterNumber/image
+ * Edit a chapter image of a story using AI
  */
-function extractFilenameFromUrl(url: string): string | null {
+router.patch('/stories/:storyId/chapters/:chapterNumber/image', async (req, res) => {
   try {
-    if (url.startsWith('gs://')) {
-      // gs://bucket-name/path/to/file.ext -> path/to/file.ext
-      const parts = url.split('/');
-      return parts.slice(3).join('/'); // Skip gs:, empty string, and bucket name
-    } else if (url.startsWith('https://storage.googleapis.com/')) {
-      // https://storage.googleapis.com/bucket-name/path/to/file.ext -> path/to/file.ext
-      const parts = url.split('/');
-      return parts.slice(4).join('/'); // Skip https:, empty string, storage.googleapis.com, and bucket name
-    }
-    return null;
-  } catch (error) {
-    logger.error('Error extracting filename from URL', {
-      url,
-      error: error instanceof Error ? error.message : String(error)
-    });
-    return null;
-  }
-}
+    const storyId = req.params.storyId;
+    const chapterNumber = parseInt(req.params.chapterNumber);
+    const { userRequest } = ImageEditRequestSchema.parse(req.body);
 
+    if (!storyId || isNaN(chapterNumber) || chapterNumber < 1) {
+      res.status(400).json({
+        success: false,
+        error: 'Invalid storyId or chapterNumber'
+      });
+      return;
+    }
+
+    logger.info('Chapter image edit request received', {
+      storyId,
+      chapterNumber,
+      userRequestLength: userRequest.length
+    });
+
+    // 1. Load story from database
+    const story = await storyService.getStory(storyId);
+    if (!story) {
+      logger.warn('Story not found', { storyId });
+      res.status(404).json({
+        success: false,
+        error: 'Story not found'
+      });
+      return;
+    }
+
+    // 2. Get the specific chapter from database
+    const storyChapters = await chaptersService.getStoryChapters(storyId);
+    const targetChapter = storyChapters.find(ch => ch.chapterNumber === chapterNumber);
+    
+    if (!targetChapter) {
+      logger.warn('Chapter not found', { storyId, chapterNumber });
+      res.status(404).json({
+        success: false,
+        error: `Chapter ${chapterNumber} not found`
+      });
+      return;
+    }
+
+    // 3. Check if chapter has an image
+    if (!targetChapter.imageUri) {
+      logger.warn('Chapter has no image', { storyId, chapterNumber });
+      res.status(404).json({
+        success: false,
+        error: `Chapter ${chapterNumber} has no image`
+      });
+      return;
+    }
+
+    // 4. Generate new image filename with incremented version
+    const currentImageUri = targetChapter.imageUri;
+    const newImageFilename = extractFilenameFromUri(generateNextVersionFilename(currentImageUri));
+
+    // 5. Load story context for AI prompt
+    const storyContext = await storyService.getStoryContext(storyId);
+    if (!storyContext) {
+      logger.error('Could not load story context', { storyId });
+      res.status(500).json({
+        success: false,
+        error: 'Could not load story context'
+      });
+      return;
+    }
+
+    // 6. Create image generation prompt
+    const imagePrompt = `Chapter illustration for "${targetChapter.title}" from "${storyContext.story.title}". ${userRequest}. Style: ${storyContext.story.graphicalStyle || 'colorful and vibrant illustration'}.`;
+
+    // 7. Generate new image using AI
+    const aiContext = {
+      authorId: story.authorId,
+      storyId: storyId,
+      action: 'image_generation' as const
+    };
+
+    const imageBuffer = await aiGateway.getImageService(aiContext).generate(imagePrompt, {
+      width: 1024,
+      height: 1024, // Square format for chapter illustration
+      imageType: 'chapter',
+      bookTitle: storyContext.story.title,
+      graphicalStyle: storyContext.story.graphicalStyle
+    });
+
+    // 8. Upload new image to storage
+    const newImageUrl = await storageService.uploadFile(newImageFilename, imageBuffer, 'image/jpeg');
+
+    logger.info('Chapter image edit completed', {
+      storyId,
+      chapterNumber,
+      originalUri: currentImageUri,
+      newUri: newImageUrl,
+      newFilename: newImageFilename
+    });
+
+    // 9. Return the new image URL
+    res.json({
+      success: true,
+      storyId,
+      chapterNumber,
+      imageType: 'chapter',
+      newImageUrl,
+      metadata: {
+        originalUri: currentImageUri,
+        filename: newImageFilename,
+        size: imageBuffer.length,
+        timestamp: new Date().toISOString()
+      }
+    });
+
+  } catch (error) {
+    logger.error('Chapter image edit request failed', {
+      error: error instanceof Error ? error.message : String(error),
+      storyId: req.params?.storyId,
+      chapterNumber: req.params?.chapterNumber
+    });
+
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Chapter image editing failed'
+    });
+  }
+});
 export { router as imageEditRouter };

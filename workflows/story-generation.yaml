@@ -19,7 +19,7 @@ main:
           - payload:  ${json.decode(base64.decode(event.message.data))}
           - storyId:  ${payload.storyId}
           - runId:    ${payload.runId}
-          - baseUrl:  "https://story-generation-workflow-803421888801.europe-west9.run.app"
+          - baseUrl:  "https://91c4beeda346.ngrok-free.app"
           - now:      ${time.format(sys.now())}
 
     # ───────────────────────────────────────────────
@@ -36,6 +36,7 @@ main:
                   method: PATCH
                   auth:   { type: OIDC }
                   body:
+                    storyId:      ${storyId}
                     status:       "running"
                     currentStep: "generate_outline"
                     startedAt:   ${time.format(sys.now())}
@@ -108,7 +109,10 @@ main:
                           url:    ${baseUrl + "/internal/runs/" + runId + "/chapter/" + string(chapterNum)}
                           method: POST
                           auth:   { type: OIDC }
-                          body: ${chapterResp.body}
+                          body: 
+                            chapter: ${chapterResp.body.chapter}
+                            imagePrompts: ${chapterResp.body.imagePrompts}
+                            chapterTitle: ${chapterTitle}
 
             # 4. Generate book front cover
             - setFrontCoverStep:
@@ -248,24 +252,12 @@ main:
                             filename: ${imageResp.body.image.filename}
                             metadata:
                               format: ${imageResp.body.image.format}
-                              size: ${imageResp.body.image.size}            # 7. Assemble HTML & PDF
-            - setAssembleStep:
-                call: http.request
-                args:
-                  url:    ${baseUrl + "/internal/runs/" + runId}
-                  method: PATCH
-                  auth:   { type: OIDC }
-                  body:
-                    currentStep: "assemble"
-
-            - assemble:
-                call: http.request
-                args:
-                  url:    ${baseUrl + "/internal/assemble/" + runId}
-                  method: POST
-                  auth:   { type: OIDC }
-                result: assembleResp
-
+                              size: ${imageResp.body.image.size}
+            # 7. Assembly step removed from workflow execution
+            # The assembly service is still available for future PDF generation
+            # but is no longer part of the main story generation workflow
+            # as chapters are now stored directly in the database
+            
             # 8. Mark run completed
             - markCompleted:
                 call: http.request
@@ -295,8 +287,8 @@ main:
                   auth:   { type: OIDC }
                   body:
                     status:       "failed"
-                    currentStep:  ${default(wfError.step, "unknown")}
-                    errorMessage: ${string(wfError)}
+                    currentStep:  "unknown"
+                    errorMessage: ${wfError.message}
                     endedAt:      ${time.format(sys.now())}
 
             - rethrow:

@@ -93,9 +93,9 @@ try {
     # Create a simplified cloudbuild.yaml for direct deployment
     $simplifiedCloudBuild = @"
 steps:
-  # Build Docker image
+  # Build Docker image with simple Dockerfile
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', 'gcr.io/$PROJECT_ID/story-generation-workflow:latest', '.']
+    args: ['build', '-t', 'gcr.io/$PROJECT_ID/story-generation-workflow:latest', '-f', 'Dockerfile.simple', '.']
   
   # Push Docker image
   - name: 'gcr.io/cloud-builders/docker'

@@ -31,8 +31,9 @@ export interface StoryContext {
     name: string;
     type?: string | undefined;
     role?: string | undefined;
-    passions?: string | undefined;
-    superpowers?: string | undefined;
+    age?: string | undefined;
+    traits?: string[] | undefined;
+    characteristics?: string | undefined;
     physicalDescription?: string | undefined;
   }>;
 }
@@ -62,8 +63,9 @@ export class StoryService {
           characterId: characters.characterId,
           name: characters.name,
           type: characters.type,
-          passions: characters.passions,
-          superpowers: characters.superpowers,
+          age: characters.age,
+          traits: characters.traits,
+          characteristics: characters.characteristics,
           physicalDescription: characters.physicalDescription,
           role: storyCharacters.role,
         })
@@ -95,8 +97,9 @@ export class StoryService {
           name: char.name,
           type: char.type || undefined,
           role: char.role || undefined,
-          passions: char.passions || undefined,
-          superpowers: char.superpowers || undefined,
+          age: char.age || undefined,
+          traits: char.traits || undefined,
+          characteristics: char.characteristics || undefined,
           physicalDescription: char.physicalDescription || undefined,
         }))
       };
@@ -128,11 +131,19 @@ export class StoryService {
           graphicalStyle: stories.graphicalStyle,
           chapterCount: stories.chapterCount,
           status: stories.status,
-          features: stories.features,          deliveryAddress: stories.deliveryAddress,
+          features: stories.features,
+          deliveryAddress: stories.deliveryAddress,
+          customAuthor: stories.customAuthor,
           dedicationMessage: stories.dedicationMessage,
           htmlUri: stories.htmlUri,
           pdfUri: stories.pdfUri,
           audiobookUri: stories.audiobookUri,
+          coverUri: stories.coverUri,
+          backcoverUri: stories.backcoverUri,
+          slug: stories.slug,
+          isPublic: stories.isPublic,
+          isFeatured: stories.isFeatured,
+          featureImageUri: stories.featureImageUri,
           createdAt: stories.createdAt,
           updatedAt: stories.updatedAt,
           storyGenerationStatus: stories.storyGenerationStatus,
@@ -160,6 +171,7 @@ export class StoryService {
     htmlUri?: string;
     pdfUri?: string;
     audiobookUri?: object;
+    hasAudio?: boolean;
   }) {
     try {
       const updateData: Record<string, unknown> = {};
@@ -172,6 +184,9 @@ export class StoryService {
       }
       if (updates.audiobookUri !== undefined) {
         updateData.audiobookUri = updates.audiobookUri;
+      }
+      if (updates.hasAudio !== undefined) {
+        updateData.hasAudio = updates.hasAudio;
       }
       
       // Use retry logic for database connection timeouts
@@ -209,7 +224,7 @@ export class StoryService {
           .update(stories)
           .set({ 
             storyGenerationCompletedPercentage: completionPercentage,
-            updatedAt: new Date().toISOString()
+            updatedAt: new Date()
           })
           .where(eq(stories.storyId, storyId));
       }, 3, 1000); // 3 retries, starting with 1s delay
@@ -241,7 +256,7 @@ export class StoryService {
           .update(stories)
           .set({ 
             status,
-            updatedAt: new Date().toISOString()
+            updatedAt: new Date()
           })
           .where(eq(stories.storyId, storyId));
       }, 3, 1000); // 3 retries, starting with 1s delay
@@ -294,6 +309,53 @@ export class StoryService {
       return true;
     } catch (error) {
       logger.error('Failed to update audiobook status', {
+        error: error instanceof Error ? error.message : String(error),
+        storyId,
+        updates
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Update story cover URIs
+   */
+  async updateStoryCoverUris(storyId: string, updates: {
+    coverUri?: string;
+    backcoverUri?: string;
+  }) {
+    try {
+      const updateData: Record<string, unknown> = {};
+      
+      if (updates.coverUri !== undefined) {
+        updateData.coverUri = updates.coverUri;
+      }
+      if (updates.backcoverUri !== undefined) {
+        updateData.backcoverUri = updates.backcoverUri;
+      }
+      
+      if (Object.keys(updateData).length === 0) {
+        return true; // Nothing to update
+      }
+      
+      updateData.updatedAt = new Date();
+      
+      // Use retry logic for database connection timeouts
+      await retry(async () => {
+        await this.db
+          .update(stories)
+          .set(updateData)
+          .where(eq(stories.storyId, storyId));
+      }, 3, 1000); // 3 retries, starting with 1s delay
+
+      logger.info('Story cover URIs updated successfully', {
+        storyId,
+        updates: Object.keys(updateData)
+      });
+
+      return true;
+    } catch (error) {
+      logger.error('Failed to update story cover URIs', {
         error: error instanceof Error ? error.message : String(error),
         storyId,
         updates

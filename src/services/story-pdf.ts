@@ -186,7 +186,7 @@ export class StoryPDFService {
   }  /**
    * Generate PDF directly from HTML content
    */
-  private async generatePDFFromHTML(htmlContent: string, story: Story & { author?: string }, templatePath: string): Promise<Buffer> {
+  private async generatePDFFromHTML(htmlContent: string, story: Partial<Story> & { author?: string }, templatePath: string): Promise<Buffer> {
     try {
       // Check if the template exists, if not use fallback
       const fs = await import('fs/promises');
@@ -217,7 +217,7 @@ export class StoryPDFService {
       // Use the PDF service to generate the PDF
       const pdfBuffer = await pdfService.generateStoryPDF(
         storyContentOnly,
-        story.title,
+        story.title || 'Untitled Story',
         story.storyLanguage?.split('-')[0] || 'en'
       );
 

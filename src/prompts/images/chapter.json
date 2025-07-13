@@ -1,0 +1,8 @@
+{
+  "systemPrompt": "This image is an illustration for a chapter in the book \"{{bookTitle}}\". Create a scene that captures the essence of the chapter content.",
+  "userPrompt": "{{promptText}}",
+  "templateVariables": {
+    "bookTitle": "Title of the book",
+    "promptText": "Detailed description of the chapter scene to illustrate"
+  }
+}

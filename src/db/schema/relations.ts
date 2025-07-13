@@ -1,31 +1,48 @@
 import { relations } from "drizzle-orm";
-import { authors, addresses, events } from './authors.js';
-import { stories, storyVersions } from './stories.js';
-import { characters, storyCharacters } from './characters.js';
-import { creditLedger, authorCreditBalances } from './credits.js';
+import { authors, addresses, events } from './authors';
+import { stories, storyVersions } from './stories';
+import { characters, storyCharacters } from './characters';
+import { paymentMethods, payments, credits } from './payments';
+import { shippingCodes } from './shipping';
+import { creditLedger, authorCreditBalances } from './credits';
+import { storyRatings } from './ratings';
+import { printProviders, printRequests } from './print';
 
 // -----------------------------------------------------------------------------
 // Relations (for type safety with Drizzle ORM queries)
-// Note: Excludes payment and shipping related relations
 // -----------------------------------------------------------------------------
 
 export const authorsRelations = relations(authors, ({ one, many }) => ({
+  paymentMethods: many(paymentMethods),
   addresses: many(addresses),
   stories: many(stories),
   characters: many(characters), // Characters an author created directly
+  credits: many(credits),
+  payments: many(payments),
   events: many(events),
   creditLedgerEntries: many(creditLedger),
   creditBalance: one(authorCreditBalances, {
     fields: [authors.authorId],
     references: [authorCreditBalances.authorId],
   }),
+  storyRatings: many(storyRatings),
 }));
 
-export const addressesRelations = relations(addresses, ({ one }) => ({
+export const paymentMethodsRelations = relations(paymentMethods, ({ one, many }) => ({
+  author: one(authors, {
+    fields: [paymentMethods.authorId],
+    references: [authors.authorId],
+  }),
+  payments: many(payments),
+}));
+
+export const addressesRelations = relations(addresses, ({ one, many }) => ({
   author: one(authors, {
     fields: [addresses.authorId],
     references: [authors.authorId],
   }),
+  shippingCodes: many(shippingCodes),
+  printRequests: many(printRequests),
 }));
 
 export const storiesRelations = relations(stories, ({ one, many }) => ({
@@ -34,8 +51,10 @@ export const storiesRelations = relations(stories, ({ one, many }) => ({
     references: [authors.authorId],
   }),
   storyCharacters: many(storyCharacters),
+  shippingCodes: many(shippingCodes),
   storyVersions: many(storyVersions),
   creditLedgerEntries: many(creditLedger),
+  ratings: many(storyRatings),
 }));
 
 export const charactersRelations = relations(characters, ({ one, many }) => ({
@@ -54,6 +73,39 @@ export const storyCharactersRelations = relations(storyCharacters, ({ one }) => 
   character: one(characters, {
     fields: [storyCharacters.characterId],
     references: [characters.characterId],
+  }),
+}));
+
+export const shippingCodesRelations = relations(shippingCodes, ({ one }) => ({
+  story: one(stories, {
+    fields: [shippingCodes.storyId],
+    references: [stories.storyId],
+  }),
+  address: one(addresses, {
+    fields: [shippingCodes.addressId],
+    references: [addresses.addressId],
+  }),
+}));
+
+export const creditsRelations = relations(credits, ({ one }) => ({
+  author: one(authors, {
+    fields: [credits.authorId],
+    references: [authors.authorId],
+  }),
+}));
+
+export const paymentsRelations = relations(payments, ({ one }) => ({
+  author: one(authors, {
+    fields: [payments.authorId],
+    references: [authors.authorId],
+  }),
+  paymentMethod: one(paymentMethods, {
+    fields: [payments.paymentMethodId],
+    references: [paymentMethods.paymentMethodId],
+  }),
+  shippingCode: one(shippingCodes, {
+    fields: [payments.shippingCodeId],
+    references: [shippingCodes.shippingCodeId],
   }),
 }));
 
@@ -86,5 +138,32 @@ export const authorCreditBalancesRelations = relations(authorCreditBalances, ({ 
   author: one(authors, {
     fields: [authorCreditBalances.authorId],
     references: [authors.authorId],
+  }),
+}));
+
+export const storyRatingsRelations = relations(storyRatings, ({ one }) => ({
+  story: one(stories, {
+    fields: [storyRatings.storyId],
+    references: [stories.storyId],
+  }),
+  user: one(authors, {
+    fields: [storyRatings.userId],
+    references: [authors.authorId],
+  }),
+}));
+
+// Print Relations
+export const printProvidersRelations = relations(printProviders, ({ many }) => ({
+  printRequests: many(printRequests),
+}));
+
+export const printRequestsRelations = relations(printRequests, ({ one }) => ({
+  printProvider: one(printProviders, {
+    fields: [printRequests.printProviderId],
+    references: [printProviders.id],
+  }),
+  shippingAddress: one(addresses, {
+    fields: [printRequests.shippingId],
+    references: [addresses.addressId],
   }),
 }));

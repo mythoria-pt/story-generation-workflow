@@ -1,0 +1,38 @@
+# .gcloudignore
+
+# Exclude git history and configuration
+.git/
+.gitignore
+.github/
+
+# Node.js dependencies and development files
+node_modules/
+npm-debug.log
+.env
+.env.local
+.env.development
+.env.test
+
+# Keep .env.production for deployment
+!.env.production
+
+# Testing
+coverage/
+**/__tests__/
+**/*.test.js
+**/*.test.ts
+
+# TypeScript source files (build output is in /dist)
+/src/**/*.ts
+/src/**/*.js
+
+# Build artifacts
+/build/
+/.cache/
+
+# Other files and folders
+.DS_Store
+.vscode/
+*.log
+*.gz
+*.zip

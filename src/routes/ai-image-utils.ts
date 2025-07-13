@@ -31,18 +31,18 @@ export function generateImageFilename(params: {
   timestamp?: string;
 }): string {
   const { storyId, imageType, chapterNumber } = params;
-  const timestamp = params.timestamp ?? new Date().toISOString().replace(/[:.]/g, '-');
+  // Timestamp is no longer needed in the filename as per requirement
 
   if (imageType === 'front_cover') {
-    return `${storyId}/images/frontcover_v001_${timestamp}.jpg`;
+    return `${storyId}/images/frontcover_v001.jpg`;
   }
   if (imageType === 'back_cover') {
-    return `${storyId}/images/backcover_v001_${timestamp}.jpg`;
+    return `${storyId}/images/backcover_v001.jpg`;
   }
   if (chapterNumber) {
-    return `${storyId}/images/chapter_${chapterNumber}_v001_${timestamp}.jpg`;
+    return `${storyId}/images/chapter_${chapterNumber}_v001.jpg`;
   }
-  return `${storyId}/images/image_v001_${timestamp}.jpg`;
+  return `${storyId}/images/image_v001.jpg`;
 }
 
 /**

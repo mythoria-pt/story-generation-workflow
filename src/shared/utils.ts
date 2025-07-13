@@ -77,12 +77,14 @@ export async function retry<T>(
 // ----------------------------------------------------------------------------->
 
 export interface StoryCharacter {
+  characterId?: string;
   name: string;
-  type: string;
-  role: string;
-  passions: string;
-  superpowers: string;
-  physicalDescription: string;
+  type?: string;
+  role?: string;
+  age?: string;
+  traits?: string[];
+  characteristics?: string;
+  physicalDescription?: string;
 }
 
 export interface StoryContext {
@@ -139,8 +141,9 @@ export function prepareCharactersForPrompt(characters: StoryCharacter[]): string
     name: char.name,
     type: char.type,
     role: char.role,
-    passions: char.passions,
-    superpowers: char.superpowers,
+    age: char.age,
+    traits: char.traits,
+    characteristics: char.characteristics,
     physicalDescription: char.physicalDescription
   }));
   

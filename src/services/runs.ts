@@ -25,6 +25,70 @@ export class RunsService {
   private db = getWorkflowsDatabase();
 
   /**
+   * Create a new story generation run
+   */
+  async createRun(storyId: string, runId: string, gcpWorkflowExecution?: string) {
+    try {
+      const runData = {
+        runId,
+        storyId,
+        gcpWorkflowExecution,
+        status: 'queued' as const,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      const [createdRun] = await this.db
+        .insert(storyGenerationRuns)
+        .values(runData)
+        .returning();
+
+      if (!createdRun) {
+        throw new Error(`Failed to create run: ${runId}`);
+      }
+
+      logger.info('Run created successfully', {
+        runId,
+        storyId,
+        status: createdRun.status
+      });
+
+      return createdRun;
+    } catch (error) {
+      logger.error('Failed to create run', {
+        error: error instanceof Error ? error.message : String(error),
+        runId,
+        storyId
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Create run if it doesn't exist, otherwise return existing run
+   */
+  async createOrGetRun(storyId: string, runId: string, gcpWorkflowExecution?: string) {
+    try {
+      // First try to get existing run
+      const existingRun = await this.getRun(runId);
+      if (existingRun) {
+        logger.debug('Run already exists', { runId, storyId });
+        return existingRun;
+      }
+
+      // Create new run if it doesn't exist
+      return await this.createRun(storyId, runId, gcpWorkflowExecution);
+    } catch (error) {
+      logger.error('Failed to create or get run', {
+        error: error instanceof Error ? error.message : String(error),
+        runId,
+        storyId
+      });
+      throw error;
+    }
+  }
+
+  /**
    * Update a story generation run
    */  async updateRun(runId: string, updates: RunUpdate) {
     try {

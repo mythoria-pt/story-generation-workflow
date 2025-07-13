@@ -229,8 +229,9 @@ export class StoryContextService {
       systemPrompt += `\n${index + 1}. **${char.name}**`;
       if (char.role) systemPrompt += ` (${char.role})`;
       if (char.type) systemPrompt += ` - Type: ${char.type}`;
-      if (char.passions) systemPrompt += ` - Passions: ${char.passions}`;
-      if (char.superpowers) systemPrompt += ` - Superpowers: ${char.superpowers}`;
+      if (char.age) systemPrompt += ` - Age: ${char.age}`;
+      if (char.traits && char.traits.length > 0) systemPrompt += ` - Traits: ${char.traits.join(', ')}`;
+      if (char.characteristics) systemPrompt += ` - Characteristics: ${char.characteristics}`;
       if (char.physicalDescription) systemPrompt += ` - Description: ${char.physicalDescription}`;
     });
 
@@ -238,7 +239,7 @@ export class StoryContextService {
 - Keep the story consistent with the provided character details and story settings
 - Maintain continuity across all story elements
 - Write in an engaging, age-appropriate style for the target audience
-- Incorporate the characters' passions and superpowers naturally into the narrative
+- Incorporate the characters' traits and characteristics naturally into the narrative
 - Remember previous story elements to maintain consistency`;
 
     return systemPrompt;

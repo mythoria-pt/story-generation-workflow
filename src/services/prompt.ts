@@ -51,6 +51,31 @@ export class PromptService {
       throw new Error(`Failed to load prompt template: ${locale}/${promptName}`);
     }
   }
+  
+  /**
+   * Load an image prompt template from JSON file
+   * These are stored in src/prompts/images/
+   */
+  static async loadImagePrompt(imageType: string): Promise<PromptTemplate> {
+    try {
+      const promptPath = join(this.PROMPTS_BASE_PATH, 'images', `${imageType}.json`);
+      const promptContent = await readFile(promptPath, 'utf-8');
+      const promptTemplate = JSON.parse(promptContent) as PromptTemplate;
+
+      logger.debug('Image prompt template loaded successfully', {
+        imageType,
+        promptPath
+      });
+
+      return promptTemplate;
+    } catch (error) {
+      logger.error('Failed to load image prompt template', {
+        error: error instanceof Error ? error.message : String(error),
+        imageType
+      });
+      throw new Error(`Failed to load image prompt template: images/${imageType}.json`);
+    }
+  }
 
   /**
    * Process a prompt template by replacing variables

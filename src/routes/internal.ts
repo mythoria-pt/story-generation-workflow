@@ -12,6 +12,7 @@ import { TTSService } from '@/services/tts.js';
 import { StorageService } from '@/services/storage.js';
 import { ProgressTrackerService } from '@/services/progress-tracker.js';
 import { StoryService } from '@/services/story.js';
+import { ChaptersService } from '@/services/chapters.js';
 
 // Type for outline data structure
 type OutlineData = {
@@ -36,6 +37,7 @@ const ttsService = new TTSService();
 const storageService = new StorageService();
 const progressTracker = new ProgressTrackerService();
 const storyService = new StoryService();
+const chaptersService = new ChaptersService();
 
 // Request schemas
 const UpdateRunRequestSchema = z.object({
@@ -43,6 +45,8 @@ const UpdateRunRequestSchema = z.object({
   currentStep: z.string().optional(),
   errorMessage: z.string().optional(),
   metadata: z.record(z.unknown()).optional(),
+  storyId: z.string().uuid().optional(), // Added to support creating missing runs
+  startedAt: z.string().optional(),
 });
 
 const StoreOutlineRequestSchema = z.object({
@@ -52,7 +56,8 @@ const StoreOutlineRequestSchema = z.object({
 const StoreChapterRequestSchema = z.object({
   chapterNumber: z.number().int().positive(),
   chapter: z.string(),
-  imagePrompts: z.array(z.string()).optional()
+  imagePrompts: z.array(z.string()).optional(),
+  chapterTitle: z.string() // Add chapter title
 });
 
 const StoreImageRequestSchema = z.object({
@@ -69,15 +74,38 @@ const StoreImageRequestSchema = z.object({
  * PATCH /internal/runs/:runId
  * Update run status and metadata
  */
-router.patch('/runs/:runId', async (req, res) => {
+router.patch('/runs/:runId', async (req: Request, res: Response) => {
   try {
     const runId = req.params.runId;
+    if (!runId) {
+      res.status(400).json({ success: false, error: 'Missing runId parameter' });
+      return;
+    }
+
     const updates = UpdateRunRequestSchema.parse(req.body);
 
     logger.info('Internal API: Updating run', {
       runId,
       updates
     });
+
+    // First check if run exists, create if missing (defensive programming)
+    let run = await runsService.getRun(runId);
+    if (!run && updates.storyId) {
+      logger.warn('Run not found, creating new run', {
+        runId,
+        storyId: updates.storyId
+      });
+      
+      run = await runsService.createRun(updates.storyId, runId);
+    } else if (!run) {
+      logger.error('Run not found and no storyId provided', { runId });
+      res.status(404).json({
+        success: false,
+        error: `Run not found: ${runId}. Please provide storyId to create missing run.`
+      });
+      return;
+    }
 
     const updatedRun = await runsService.updateRun(runId, updates);
 
@@ -103,6 +131,7 @@ router.patch('/runs/:runId', async (req, res) => {
       success: true,
       run: updatedRun
     });
+    return;
 
   } catch (error) {
     logger.error('Internal API: Failed to update run', {
@@ -114,6 +143,7 @@ router.patch('/runs/:runId', async (req, res) => {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error'
     });
+    return;
   }
 });
 
@@ -292,7 +322,7 @@ router.post('/runs/:runId/chapter/:chapterNumber', async (req, res) => {
   try {
     const runId = req.params.runId;
     const chapterNumber = parseInt(req.params.chapterNumber);
-    const { chapter, imagePrompts } = StoreChapterRequestSchema.parse({
+    const { chapter, imagePrompts, chapterTitle } = StoreChapterRequestSchema.parse({
       ...req.body,
       chapterNumber
     });
@@ -302,12 +332,46 @@ router.post('/runs/:runId/chapter/:chapterNumber', async (req, res) => {
       chapterNumber,
       chapterLength: chapter.length,
       imagePromptsCount: imagePrompts?.length || 0
-    });    await runsService.storeStepResult(runId, `write_chapter_${chapterNumber}`, {
+    });
+
+    // Get the run to extract storyId and authorId
+    const run = await runsService.getRun(runId);
+    if (!run) {
+      res.status(404).json({
+        success: false,
+        error: 'Run not found'
+      });
+      return;
+    }
+
+    // Get story to extract authorId
+    const story = await storyService.getStory(run.storyId);
+    if (!story) {
+      res.status(404).json({
+        success: false,
+        error: 'Story not found'
+      });
+      return;
+    }
+
+    // Save chapter to the main database
+    const savedChapter = await chaptersService.saveChapter({
+      storyId: run.storyId,
+      authorId: story.authorId,
+      chapterNumber,
+      title: chapterTitle || `Chapter ${chapterNumber}`,
+      htmlContent: chapter
+    });
+
+    // Still save to workflow database for backward compatibility and workflow tracking
+    await runsService.storeStepResult(runId, `write_chapter_${chapterNumber}`, {
       status: 'completed',
       result: {
         chapterNumber,
         chapter,
-        imagePrompts
+        imagePrompts,
+        chapterTitle,
+        chapterId: savedChapter.id // Store reference to main database
       }
     });
 
@@ -327,6 +391,8 @@ router.post('/runs/:runId/chapter/:chapterNumber', async (req, res) => {
       success: true,
       runId,
       chapterNumber,
+      chapterId: savedChapter.id,
+      version: savedChapter.version,
       step: `write_chapter_${chapterNumber}`
     });
 
@@ -423,9 +489,9 @@ router.get('/prompts/:runId/book-cover/:coverType', async (req, res) => {
  * POST /internal/assemble/:runId
  * Assemble story into final formats (HTML, PDF)
  */
-router.post('/assemble/:runId', async (req, res) => {
+router.post('/assemble/:runId', async (_req, res) => {
   try {
-    const runId = req.params.runId;
+    const runId = _req.params.runId;
 
     logger.info('Internal API: Assembling story', { runId });
 
@@ -451,7 +517,7 @@ router.post('/assemble/:runId', async (req, res) => {
   } catch (error) {
     logger.error('Internal API: Failed to assemble story', {
       error: error instanceof Error ? error.message : String(error),
-      runId: req.params.runId
+      runId: _req.params.runId
     });
 
     res.status(500).json({
@@ -465,9 +531,9 @@ router.post('/assemble/:runId', async (req, res) => {
  * POST /internal/tts/:runId
  * Generate audio narration for story (per chapter)
  */
-router.post('/tts/:runId', async (req, res) => {
+router.post('/tts/:runId', async (_req, res) => {
   try {
-    const runId = req.params.runId;
+    const runId = _req.params.runId;
 
     logger.info('Internal API: Generating TTS', { runId });
 
@@ -493,7 +559,7 @@ router.post('/tts/:runId', async (req, res) => {
   } catch (error) {
     logger.error('Internal API: Failed to generate TTS', {
       error: error instanceof Error ? error.message : String(error),
-      runId: req.params.runId
+      runId: _req.params.runId
     });
 
     res.status(500).json({
@@ -585,14 +651,34 @@ router.post('/runs/:runId/image', async (req, res) => {
       filename
     });
 
+    // Get the run to extract storyId
+    const run = await runsService.getRun(runId);
+    if (!run) {
+      res.status(404).json({
+        success: false,
+        error: 'Run not found'
+      });
+      return;
+    }
+
     // Determine step name based on image type
     let stepName: string;
     if (imageType === 'front_cover') {
       stepName = 'generate_front_cover';
+      // Update story cover URI
+      await storyService.updateStoryCoverUris(run.storyId, {
+        coverUri: imageUrl
+      });
     } else if (imageType === 'back_cover') {
       stepName = 'generate_back_cover';
+      // Update story back cover URI
+      await storyService.updateStoryCoverUris(run.storyId, {
+        backcoverUri: imageUrl
+      });
     } else if (imageType === 'chapter' && chapterNumber) {
       stepName = `generate_image_chapter_${chapterNumber}`;
+      // Update chapter image URI
+      await chaptersService.updateChapterImage(run.storyId, chapterNumber, imageUrl);
     } else {
       res.status(400).json({
         success: false,
@@ -601,6 +687,7 @@ router.post('/runs/:runId/image', async (req, res) => {
       return;
     }
 
+    // Still save to workflow database for backward compatibility and workflow tracking
     await runsService.storeStepResult(runId, stepName, {
       status: 'completed',
       result: {
@@ -710,9 +797,9 @@ router.get('/stories/:storyId/html', async (req: Request, res: Response): Promis
       return;
     }
 
-    logger.info('Internal API: Getting story HTML for audiobook', { storyId });
+    logger.info('Internal API: Getting story chapters for audiobook', { storyId });
 
-    // Get story details from database to get the correct HTML URI
+    // Get story details from database
     const story = await storyService.getStory(storyId);
     
     if (!story) {
@@ -723,66 +810,27 @@ router.get('/stories/:storyId/html', async (req: Request, res: Response): Promis
       return;
     }
 
-    if (!story.htmlUri) {
+    // Get chapters from database (latest versions only)
+    const chaptersFromDb = await chaptersService.getStoryChapters(storyId);
+    
+    if (!chaptersFromDb || chaptersFromDb.length === 0) {
       res.status(404).json({
         success: false,
-        error: 'Story HTML not found - story has not been generated yet'
+        error: 'No chapters found - story has not been generated yet'
       });
       return;
     }
 
-    // Extract the filename from the full GCS URI
-    const urlParts = story.htmlUri.split('/');
-    const bucketIndex = urlParts.findIndex(part => part === 'mythoria-generated-stories');
-    const htmlFilename = urlParts.slice(bucketIndex + 1).join('/');
-    
-    const htmlContent = await storageService.downloadFile(htmlFilename);
-    
-    if (!htmlContent) {
-      res.status(404).json({
-        success: false,
-        error: 'Story HTML file not found in storage'
-      });
-      return;
-    }
+    // Transform database chapters to the format expected by the workflow
+    const chapters = chaptersFromDb.map(chapter => ({
+      title: chapter.title,
+      content: chapter.htmlContent
+        .replace(/<[^>]*>/g, '') // Remove HTML tags
+        .replace(/&[^;]+;/g, ' ') // Replace HTML entities
+        .trim()
+    }));
 
-    // Parse HTML and extract only actual chapters (no dedicatory or credits)
-    const chapters: Array<{title: string, content: string}> = [];
-
-    // Extract chapters using the mythoria-chapter class
-    const chapterMatches = htmlContent.match(/<div class="mythoria-chapter"[^>]*>([\s\S]*?)<\/div>\s*(?=<div class="mythoria-page-break"|$)/g);
-    
-    if (chapterMatches) {
-      chapterMatches.forEach((chapterHtml, index) => {
-        // Extract title
-        const titleMatch = chapterHtml.match(/<h2 class="mythoria-chapter-title"[^>]*>(.*?)<\/h2>/);
-        const title = titleMatch?.[1]?.replace(/&[^;]+;/g, ' ').trim() || `Chapter ${index + 1}`;
-        
-        // Skip non-chapter content (dedicatory, credits)
-        if (title.match(/dedicat|author|credit|attribution/i)) {
-          logger.info('Skipping non-chapter content', { title, storyId });
-          return;
-        }
-        
-        // Extract content paragraphs
-        const contentMatches = chapterHtml.match(/<p class="mythoria-chapter-paragraph"[^>]*>(.*?)<\/p>/g);
-        let content = '';
-        
-        if (contentMatches) {
-          content = contentMatches
-            .map(p => p.replace(/<[^>]*>/g, '').replace(/&[^;]+;/g, ' ').trim())
-            .filter(text => text && !text.startsWith('#'))
-            .join('\n\n');
-        }
-
-        if (content) {
-          chapters.push({ title, content });
-        }
-      });
-    }
-
-    // Also pass along story details for the workflow
-    logger.info('Internal API: Extracted chapters from HTML', {
+    logger.info('Internal API: Retrieved chapters from database', {
       storyId,
       chaptersFound: chapters.length,
       chapterTitles: chapters.map(ch => ch.title)
@@ -900,32 +948,23 @@ router.post('/audiobook/finalize', async (req: Request, res: Response): Promise<
 
     logger.info('Internal API: Finalizing audiobook', { storyId });
 
-    // Get all chapter audio files from storage
+    // Get all chapters from database with their audio URIs
+    const chaptersFromDb = await chaptersService.getStoryChapters(storyId);
+    
     const audioUrls: Record<number, string> = {};
     let totalDuration = 0;
-    let chapterNumber = 1;
 
-    // Find all audio files for this story
-    while (true) {
-      try {
-        const audioFilename = `${storyId}/audio/chapter_${chapterNumber}.mp3`;
-        const exists = await storageService.fileExists(audioFilename);
-        
-        if (exists) {
-          const audioUrl = await storageService.getPublicUrl(audioFilename);
-          audioUrls[chapterNumber] = audioUrl;
-          totalDuration += 60; // Default 1 minute per chapter
-          chapterNumber++;
-        } else {
-          break;
-        }
-      } catch {
-        break;
+    // Build audio URLs from chapter audioUri fields
+    for (const chapter of chaptersFromDb) {
+      if (chapter.audioUri) {
+        audioUrls[chapter.chapterNumber] = chapter.audioUri;
+        totalDuration += 60; // Default 1 minute per chapter, could be enhanced to get actual duration
       }
-    }    // Update story with audiobook URIs
-    const audiobookUri = audioUrls as Record<string, string>;
+    }
+
+    // Update story hasAudio field
     await storyService.updateStoryUris(storyId, {
-      audiobookUri
+      hasAudio: Object.keys(audioUrls).length > 0
     });
 
     logger.info('Internal API: Audiobook finalization completed', {

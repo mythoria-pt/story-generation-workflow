@@ -1,0 +1,8 @@
+{
+  "systemPrompt": "This image is to be used as the back cover image of a book, titled \"{{bookTitle}}\". It should complement the front cover design and be formatted for A5-vertical hardcover format.",
+  "userPrompt": "{{promptText}}",
+  "templateVariables": {
+    "bookTitle": "Title of the book",
+    "promptText": "Detailed description of what should be on the back cover"
+  }
+}

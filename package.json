@@ -20,6 +20,7 @@
     "workflows-db:migrate": "tsx -r dotenv/config ./src/db/migrate-workflows.ts",
     "workflows-db:push": "drizzle-kit push --config=drizzle.workflows.config.ts",
     "workflows-db:studio": "drizzle-kit studio --config=drizzle.workflows.config.ts",
+    "sync-schema": "powershell -ExecutionPolicy Bypass -File .\\scripts\\sync-schema.ps1",
     "docker:build": "docker build -t story-generation-workflow .",
     "docker:run": "docker run -p 8080:8080 story-generation-workflow",
     "deploy": "powershell -ExecutionPolicy Bypass -File .\\scripts\\deploy.ps1",
@@ -28,6 +29,9 @@
     "check-secrets": "powershell -ExecutionPolicy Bypass -File .\\scripts\\check-secrets.ps1",
     "verify": "powershell -ExecutionPolicy Bypass -File .\\scripts\\verify-setup.ps1",
     "env:validate": "tsx src/config/validate-env.ts",
+    "schema:sync": "powershell -ExecutionPolicy Bypass -File .\\scripts\\sync-schema.ps1",
+    "schema:sync-dry": "powershell -ExecutionPolicy Bypass -File .\\scripts\\sync-schema.ps1 -DryRun",
+    "schema:sync-verbose": "powershell -ExecutionPolicy Bypass -File .\\scripts\\sync-schema.ps1 -Verbose",
     "clean": "rimraf dist"
   },
   "dependencies": {

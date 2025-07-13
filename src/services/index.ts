@@ -8,3 +8,4 @@ export * from './assembly.js';
 export * from './tts.js';
 export * from './story.js';
 export * from './prompt.js';
+export * from './chapters.js';

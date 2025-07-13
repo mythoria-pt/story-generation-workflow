@@ -1,5 +1,5 @@
-# Use official Node.js 22 LTS Alpine image for build stage (pinned version for stability)
-FROM node:22.12.0-alpine AS builder
+# Use official Node.js 20 LTS Alpine image for build stage (pinned version for stability)
+FROM node:20-alpine AS builder
 
 # Set working directory
 WORKDIR /app
@@ -19,8 +19,8 @@ RUN npm run build
 # Remove dev dependencies after build
 RUN npm prune --omit=dev
 
-# Production stage with distroless image (Node.js 22)
-FROM gcr.io/distroless/nodejs22-debian12
+# Production stage with distroless image (Node.js 20)
+FROM gcr.io/distroless/nodejs20-debian12
 
 # Set working directory
 WORKDIR /app

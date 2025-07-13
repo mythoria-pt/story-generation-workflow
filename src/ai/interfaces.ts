@@ -63,6 +63,7 @@ export interface ImageGenerationOptions {
   steps?: number;
   bookTitle?: string;
   graphicalStyle?: string;
+  imageType?: 'front_cover' | 'back_cover' | 'chapter';
 }
 
 export interface AIProviderConfig {

@@ -1,6 +1,10 @@
 /**
  * Assembly Service
  * Handles assembling story content into final formats (HTML, PDF)
+ * 
+ * NOTE: This service is no longer part of the main story generation workflow
+ * as chapters are now stored directly in the database. However, it remains
+ * available for future PDF generation functionality.
  */
 
 import { RunsService } from './runs.js';
@@ -10,35 +14,7 @@ import { MessageService } from './message.js';
 import { logger } from '@/config/logger.js';
 import { countWords } from '@/shared/utils.js';
 
-/**
- * Encode HTML special characters to prevent encoding issues
- */
-function encodeHtmlSpecialChars(text: string): string {
-  if (!text) return '';
-  
-  return text
-    .replace(/&/g, '&amp;')     // Must be first to avoid double encoding
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#x27;')
-    .replace(/\//g, '&#x2F;')
-    // Additional common special characters
-    .replace(/\u00A0/g, '&nbsp;')  // Non-breaking space
-    .replace(/\u00A9/g, '&copy;')  // Copyright symbol
-    .replace(/\u00AE/g, '&reg;')   // Registered trademark
-    .replace(/\u2013/g, '&ndash;') // En dash
-    .replace(/\u2014/g, '&mdash;') // Em dash
-    .replace(/\u2018/g, '&lsquo;') // Left single quote
-    .replace(/\u2019/g, '&rsquo;') // Right single quote
-    .replace(/\u201C/g, '&ldquo;') // Left double quote
-    .replace(/\u201D/g, '&rdquo;') // Right double quote
-    .replace(/\u2026/g, '&hellip;') // Ellipsis
-    // Encode other Unicode characters that might cause issues
-    .replace(/[\u0080-\uFFFF]/g, (match) => {
-      return '&#' + match.charCodeAt(0) + ';';
-    });
-}
+// No encoding functions needed as we're preserving all HTML
 
 export interface AssemblyResult {
   files: {
@@ -136,7 +112,8 @@ export class AssemblyService {
         story, // Use story from database
         outlineData,
         chapters,
-        chapterImages,        bookCoverImages
+        chapterImages,
+        bookCoverImages
       );
       
       // Upload HTML file to storage
@@ -234,7 +211,7 @@ export class AssemblyService {
   }
   
   private async createHTML(
-    story: { title: string; description?: string; author?: string; dedicationMessage?: string | null; storyLanguage?: string }, 
+    story: { title: string; description?: string; author?: string; dedicationMessage?: string | null; storyLanguage?: string; graphicalStyle?: string | null }, 
     outline: Record<string, unknown>, 
     chapters: Array<{ number: number, content: string, title: string }>, 
     chapterImages: Map<number, string>, 
@@ -244,149 +221,146 @@ export class AssemblyService {
     const author = story.author || outline.author as string || 'Mythoria AI';
     const dedication = story.dedicationMessage || null;
     const locale = story.storyLanguage || 'en-US';
+    const logoUrl = this.getLogoUrl(story.graphicalStyle);
 
     // Get localized messages
     const creditsMessage = await MessageService.getCreditsMessage(locale, author);
     const tableOfContentsTitle = await MessageService.getTableOfContentsTitle(locale);
     const storyImaginedByMessage = await MessageService.getStoryImaginedByMessage(locale, author);
     const craftedWithMessage = await MessageService.getCraftedWithMessage(locale);
-    const byAuthorMessage = await MessageService.getByAuthorMessage(locale, author);    // Generate table of contents
+    // Generate table of contents
     const tableOfContents = chapters.map((chapter) => 
-      `<li class="mythoria-toc-item"><a href="#chapter-${chapter.number}" class="mythoria-toc-link">${chapter.number}. ${encodeHtmlSpecialChars(chapter.title)}</a></li>`
+      `<li class="mythoria-toc-item"><a href="#chapter-${chapter.number}" class="mythoria-toc-link">${chapter.number}. ${chapter.title}</a></li>`
     ).join('');
 
-    // Generate complete HTML document
-    const html = `<!DOCTYPE html>
-<html lang="${locale}">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${encodeHtmlSpecialChars(title)}</title>
-    <style>
-        body {
-            font-family: Georgia, serif;
-            line-height: 1.6;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
-            color: #333;
-        }
-        .mythoria-page-break {
-            page-break-before: always;
-        }
-        .mythoria-story-title {
-            text-align: center;
-            font-size: 2.5em;
-            margin-bottom: 30px;
-        }
-        .mythoria-toc-link {
-            color: #0066cc;
-            text-decoration: none;
-        }
-        .mythoria-toc-link:hover {
-            text-decoration: underline;
-        }
-        .mythoria-chapter-title {
-            font-size: 1.8em;
-            margin-top: 40px;
-            margin-bottom: 20px;
-        }
-        .mythoria-chapter-paragraph {
-            margin-bottom: 15px;
-            text-align: justify;
-        }
-        .mythoria-cover-image, .mythoria-chapter-img {
-            max-width: 100%;
-            height: auto;
-            display: block;
-            margin: 20px auto;
-        }
-        .mythoria-logo {
-            max-width: 200px;
-            height: auto;
-            display: block;
-            margin: 20px auto;
-        }
-        @media print {
-            .mythoria-page-break {
-                page-break-before: always;
-            }
-        }
-    </style>
-</head>
-<body>
-    <!-- Story Title -->
-    <h1 class="mythoria-story-title">${encodeHtmlSpecialChars(title)}</h1>
+    // Generate content only (no html/head/body tags)
+    const html = `
+   
+<!-- Story Title -->
+<h1 class="mythoria-story-title">${title}</h1>
+<!-- Front Cover -->
+${bookCoverImages.has('front') ? 
+  `<div class="mythoria-front-cover">
+    <img src="${bookCoverImages.get('front')}" alt="Book Front Cover" class="mythoria-cover-image" />
+  </div>
+  
+  <!-- Page Break -->
+  <div class="mythoria-page-break"></div>` : 
+  ''
+}
+  
+<!-- Author Dedicatory -->
+${dedication ? `<div class="mythoria-dedicatory">
+  ${dedication}
+  <div class="mythoria-author-name">- <em>${author}</em></div>
+</div>` : ''}
+<!-- Mythoria Message -->
+<div class="mythoria-message">
+  <p class="mythoria-message-text">${storyImaginedByMessage}</p>
+  <p class="mythoria-message-text">${craftedWithMessage}</p>
+  <img src="${logoUrl}" alt="Mythoria Logo" class="mythoria-logo" />
+</div>
+<!-- Page Break -->
+<div class="mythoria-page-break"></div>
+<!-- Table of Contents -->
+<div class="mythoria-table-of-contents">
+  <h2 class="mythoria-toc-title">${tableOfContentsTitle}</h2>
+  <ul class="mythoria-toc-list">
+    ${tableOfContents}
+  </ul>
+</div>
+<!-- Page Break -->
+<div class="mythoria-page-break"></div>
 
-    <!-- Front Cover -->
-    ${bookCoverImages.has('front') ? 
-      `<div class="mythoria-front-cover">
-        <img src="${bookCoverImages.get('front')}" alt="Book Front Cover" class="mythoria-cover-image" />
-      </div>
-      
-      <!-- Page Break -->
-      <div class="mythoria-page-break"></div>` : 
-      ''    }    <!-- Author Dedicatory -->
-    ${dedication ? `<div class="mythoria-dedicatory">${encodeHtmlSpecialChars(dedication)}</div>
-
-    <!-- Author Name -->
-    <div class="mythoria-author-name">${encodeHtmlSpecialChars(byAuthorMessage)}</div>` : ''}
-
-    <!-- Mythoria Message -->
-    <div class="mythoria-message">
-      <p class="mythoria-message-text">${encodeHtmlSpecialChars(storyImaginedByMessage)}</p>
-      <p class="mythoria-message-text">${encodeHtmlSpecialChars(craftedWithMessage)}</p>
-      <img src="https://storage.googleapis.com/mythoria-generated-stories/Mythoria-logo-white-512x336.jpg" alt="Mythoria Logo" class="mythoria-logo" />
-    </div>
-
-    <!-- Page Break -->
-    <div class="mythoria-page-break"></div>
-
-    <!-- Table of Contents -->
-    <div class="mythoria-table-of-contents">
-      <h2 class="mythoria-toc-title">${encodeHtmlSpecialChars(tableOfContentsTitle)}</h2>
-      <ul class="mythoria-toc-list">
-        ${tableOfContents}
-      </ul>
-    </div>
-
-    <!-- Page Break -->
-    <div class="mythoria-page-break"></div>
-    
-    <!-- Chapters -->
-    ${chapters.map(chapter => `
-      <div class="mythoria-chapter" id="chapter-${chapter.number}">
-        <h2 class="mythoria-chapter-title">${encodeHtmlSpecialChars(chapter.title)}</h2>
-        ${chapterImages.has(chapter.number) ?
-          `<div class="mythoria-chapter-image">
-            <img src="${chapterImages.get(chapter.number)}" alt="Chapter ${chapter.number} illustration" class="mythoria-chapter-img" />
-          </div>` :
-          ''
-        }
-        <div class="mythoria-chapter-content">
-          ${chapter.content.split('\n').map((p: string) => p.trim() ? `<p class="mythoria-chapter-paragraph">${encodeHtmlSpecialChars(p)}</p>` : '').join('')}
-        </div>
-      </div>
-      <div class="mythoria-page-break"></div>
-    `).join('')}
-
-    <!-- Credits -->
-    <div class="mythoria-credits">
-      <p class="mythoria-credits-text">${encodeHtmlSpecialChars(creditsMessage)}</p>
-    </div>
-
-    <!-- Back Cover (if available) -->
-    ${bookCoverImages.has('back') ? 
-      `<div class="mythoria-page-break"></div>
-      <div class="mythoria-back-cover">
-        <img src="${bookCoverImages.get('back')}" alt="Book Back Cover" class="mythoria-cover-image" />
-      </div>` : 
+<!-- Chapters -->
+${chapters.map(chapter => `
+  <div class="mythoria-chapter" id="chapter-${chapter.number}">
+    <h2 class="mythoria-chapter-title">${chapter.title}</h2>
+    ${chapterImages.has(chapter.number) ?
+      `<div class="mythoria-chapter-image">
+        <img src="${chapterImages.get(chapter.number)}" alt="Chapter ${chapter.number} illustration" class="mythoria-chapter-img" />
+      </div>` :
       ''
     }
-</body>
-</html>`;
+    <div class="mythoria-chapter-content">
+      ${this.cleanChapterContent(chapter.content).split('\n').map((p: string) => p.trim() ? `<p class="mythoria-chapter-paragraph">${p}</p>` : '').join('')}
+    </div>
+  </div>
+  <div class="mythoria-page-break"></div>
+`).join('')}
+<!-- Credits -->
+<div class="mythoria-credits">
+  <p class="mythoria-credits-text">${creditsMessage}</p>
+</div>
+<!-- Back Cover (if available) -->
+${bookCoverImages.has('back') ? 
+  `<div class="mythoria-page-break"></div>
+  <div class="mythoria-back-cover">
+    <img src="${bookCoverImages.get('back')}" alt="Book Back Cover" class="mythoria-cover-image" />
+  </div>` : 
+  ''
+}`;
 
     return html;
+  }
+
+  /**
+   * Get the appropriate Mythoria logo URL based on the story's graphical style
+   * @param graphicalStyle - The graphical style from the story database field
+   * @returns The complete URL to the appropriate logo image
+   */
+  private getLogoUrl(graphicalStyle?: string | null): string {
+    const baseUrl = 'https://mythoria.pt/images/logo/';
+    
+    if (!graphicalStyle) {
+      return `${baseUrl}Logo.jpg`;
+    }
+
+    // Map graphical styles to logo filenames (case-insensitive)
+    // Based on the graphicalStyleEnum from the database schema
+    const styleMapping: Record<string, string> = {
+      'anime': 'anime.jpg',
+      'cartoon': 'cartoon.jpg',
+      'colored_pencil': 'colored_pencil.jpg',
+      'comic_book': 'comic_book.jpg',
+      'digital_art': 'digital_art.jpg',
+      'disney_style': 'disney.jpg',
+      'hand_drawn': 'hand_drawn.jpg',
+      'minimalist': 'minimalist.jpg',
+      'oil_painting': 'oil-painting.jpg',
+      'pixar_style': 'pixar.jpg',
+      'realistic': 'realistic.jpg',
+      'sketch': 'sketch.jpg',
+      'vintage': 'vintage.jpg',
+      'watercolor': 'digital_art.png' // Using PNG variant for watercolor
+    };
+
+    const normalizedStyle = graphicalStyle.toLowerCase();
+    const logoFile = styleMapping[normalizedStyle] || 'Logo.jpg';
+    
+    return `${baseUrl}${logoFile}`;
+  }
+
+  /**
+   * Clean chapter content by removing markdown code block markers
+   * @param content - The original chapter content
+   * @returns The cleaned chapter content without markdown code blocks
+   */
+  private cleanChapterContent(content: string): string {
+    // Remove any triple backtick code block markers (```html, ```, etc)
+    let cleanedContent = content;
+    
+    // Remove opening markdown code block with or without language specification
+    cleanedContent = cleanedContent.replace(/^\s*```(?:html|javascript|js|typescript|ts)?\s*/i, '');
+    
+    // Remove closing markdown code block
+    cleanedContent = cleanedContent.replace(/\s*```\s*$/i, '');
+
+    // Look for intermediate code blocks as well
+    cleanedContent = cleanedContent.replace(/```(?:html|javascript|js|typescript|ts)?\s*/gi, '');
+    cleanedContent = cleanedContent.replace(/\s*```/gi, '');
+
+    return cleanedContent;
   }
 
 }
