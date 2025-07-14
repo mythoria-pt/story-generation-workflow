@@ -59,6 +59,14 @@ const envSchema = z.object({
   TTS_VOICE: z.string().optional().default('nova'),
   TTS_SPEED: z.string().optional().default('0.9'),
   TTS_LANGUAGE: z.string().optional().default('en-US'),
+
+  // Image Size Configuration
+  IMAGE_DEFAULT_WIDTH: z.string().transform(Number).optional().default('1024'),
+  IMAGE_DEFAULT_HEIGHT: z.string().transform(Number).optional().default('1536'),
+  IMAGE_CHAPTER_WIDTH: z.string().transform(Number).optional().default('1024'),
+  IMAGE_CHAPTER_HEIGHT: z.string().transform(Number).optional().default('1536'),
+  IMAGE_COVER_WIDTH: z.string().transform(Number).optional().default('1024'),
+  IMAGE_COVER_HEIGHT: z.string().transform(Number).optional().default('1536'),
 });
 
 export type Environment = z.infer<typeof envSchema>;

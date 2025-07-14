@@ -15,6 +15,7 @@ import { StoryContext } from '@/shared/utils.js';
 import { PromptService } from '@/services/prompt.js';
 import { SchemaService } from '@/services/schema.js';
 import { StorageService } from '@/services/storage.js';
+import { getImageDimensions } from '@/utils/imageUtils.js';
 import { AIGatewayWithTokenTracking } from '@/ai/gateway-with-tracking-v2.js';
 import { logger } from '@/config/logger.js';
 import {
@@ -308,16 +309,14 @@ router.post('/image', async (req, res) => {
       action: 'image_generation' as const
     };
 
-    // Set default dimensions for front and back covers to portrait format
+    // Set default dimensions using environment configuration
     let imageWidth = width;
     let imageHeight = height;
     
-    if (imageType === 'front_cover' || imageType === 'back_cover') {
-      // Default to portrait format for book covers if no dimensions specified
-      if (!imageWidth && !imageHeight) {
-        imageWidth = 1024;
-        imageHeight = 1536;
-      }
+    if (!imageWidth && !imageHeight) {
+      const dimensions = getImageDimensions(imageType);
+      imageWidth = dimensions.width;
+      imageHeight = dimensions.height;
     }
 
     currentStep = 'generating_image';

@@ -364,4 +364,42 @@ export class StorageService {
       throw error;
     }
   }
+
+  /**
+   * Download file content as Buffer from Google Cloud Storage (for images)
+   */
+  async downloadFileAsBuffer(filename: string): Promise<Buffer> {
+    try {
+      const bucket = this.storage.bucket(this.bucketName);
+      const file = bucket.file(filename);
+
+      logger.debug('Downloading file as buffer from GCS', {
+        filename,
+        bucketName: this.bucketName
+      });
+
+      const [exists] = await file.exists();
+      if (!exists) {
+        throw new Error(`File ${filename} does not exist in bucket ${this.bucketName}`);
+      }
+
+      const [contents] = await file.download();
+
+      logger.info('File downloaded as buffer successfully', {
+        filename,
+        size: contents.length
+      });
+
+      return contents;
+    } catch (error) {
+      const errorDetails = handleGCSError(error, {
+        filename,
+        bucketName: this.bucketName,
+        operation: 'downloadFileAsBuffer'
+      });
+
+      logger.error('Failed to download file as buffer', errorDetails);
+      throw error;
+    }
+  }
 }

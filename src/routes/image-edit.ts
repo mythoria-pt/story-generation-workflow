@@ -1,7 +1,25 @@
 /**
  * Image Edit API Routes
- * RESTful endpoints for editing existing story images using AI
- * New database-driven approach using chapters table
+ * RESTful endpoints for editing existing story    }
+
+    // 2. Download original image using provided URI
+    const originalImageFilename = extractFilenameFromUri(originalImageUri);
+    let originalImageBuffer: Buffer;
+    
+    try {
+      originalImageBuffer = await storageService.downloadFileAsBuffer(originalImageFilename);
+    } catch (downloadError) {
+      sendErrorResponse(res, 500, 'Failed to download original image', {
+        storyId,
+        originalImageUri,
+        originalImageFilename,
+        error: downloadError instanceof Error ? downloadError.message : String(downloadError)
+      });
+      return;
+    }
+
+    // 3. Generate new image filename with incremented version
+    const newBackcoverFilename = extractFilenameFromUri(generateNextVersionFilename(originalImageUri)); New database-driven approach using chapters table
  */
 
 import { Router } from 'express';
@@ -10,7 +28,14 @@ import { logger } from '@/config/logger.js';
 import { StoryService } from '@/services/story.js';
 import { ChaptersService } from '@/services/chapters.js';
 import { StorageService } from '@/services/storage.js';
+import { PromptService } from '@/services/prompt.js';
 import { AIGatewayWithTokenTracking } from '@/ai/gateway-with-tracking-v2.js';
+import { 
+  extractFilenameFromUri, 
+  generateNextVersionFilename, 
+  buildImageEditPrompt,
+  getImageDimensions 
+} from '@/utils/imageUtils.js';
 
 const router = Router();
 
@@ -22,42 +47,25 @@ const aiGateway = AIGatewayWithTokenTracking.fromEnvironment();
 
 // Request schemas
 const ImageEditRequestSchema = z.object({
-  userRequest: z.string().min(1).max(2000)
+  userRequest: z.string().min(1).max(2000),
+  originalImageUri: z.string().url('Valid image URI is required'),
+  graphicalStyle: z.string().optional()
 });
 
 /**
- * Generate next version filename for an image
+ * Enhanced error response helper
  */
-function generateNextVersionFilename(currentUri: string): string {
-  // Extract filename and increment version
-  // Example: frontcover_v001.jpg -> frontcover_v002.jpg
-  const versionRegex = /_v(\d{3})\./;
-  const match = currentUri.match(versionRegex);
+function sendErrorResponse(res: any, statusCode: number, message: string, details?: any) {
+  logger.error(`Image edit error: ${message}`, details);
   
-  if (match && match[1]) {
-    const currentVersion = parseInt(match[1]);
-    const nextVersion = currentVersion + 1;
-    const nextVersionStr = nextVersion.toString().padStart(3, '0');
-    return currentUri.replace(versionRegex, `_v${nextVersionStr}.`);
-  }
+  // Log error to console as requested
+  console.error(`Image Edit Error [${statusCode}]: ${message}`, details);
   
-  // Fallback: add v002 if no version found
-  const extensionRegex = /(\.[^.]+)$/;
-  return currentUri.replace(extensionRegex, '_v002$1');
-}
-
-/**
- * Extract filename from Google Storage URI
- */
-function extractFilenameFromUri(uri: string): string {
-  try {
-    const url = new URL(uri);
-    const pathParts = url.pathname.split('/');
-    return pathParts[pathParts.length - 1] || 'image.jpg';
-  } catch {
-    // Fallback: get everything after last slash
-    return uri.split('/').pop() || 'image.jpg';
-  }
+  res.status(statusCode).json({
+    success: false,
+    error: message,
+    ...(details && { details })
+  });
 }
 
 /**
@@ -67,108 +75,124 @@ function extractFilenameFromUri(uri: string): string {
 router.patch('/stories/:storyId/images/front-cover', async (req, res) => {
   try {
     const storyId = req.params.storyId;
-    const { userRequest } = ImageEditRequestSchema.parse(req.body);
+    const { userRequest, originalImageUri, graphicalStyle } = ImageEditRequestSchema.parse(req.body);
 
     if (!storyId) {
-      res.status(400).json({
-        success: false,
-        error: 'Invalid storyId'
-      });
+      sendErrorResponse(res, 400, 'Invalid storyId');
       return;
     }
 
     logger.info('Front cover edit request received', {
       storyId,
-      userRequestLength: userRequest.length
+      userRequestLength: userRequest.length,
+      originalImageUri,
+      graphicalStyle
     });
 
-    // 1. Load story from database
+    // 1. Load story from database (for verification only)
     const story = await storyService.getStory(storyId);
     if (!story) {
-      logger.warn('Story not found', { storyId });
-      res.status(404).json({
-        success: false,
-        error: 'Story not found'
-      });
+      sendErrorResponse(res, 404, 'Story not found', { storyId });
       return;
     }
 
-    // 2. Check if story has a front cover URI
-    if (!story.coverUri) {
-      logger.warn('Story has no front cover image', { storyId });
-      res.status(404).json({
-        success: false,
-        error: 'Story has no front cover image'
+    // 2. Download original image using provided URI
+    const originalImageFilename = extractFilenameFromUri(originalImageUri);
+    let originalImageBuffer: Buffer;
+    
+    try {
+      originalImageBuffer = await storageService.downloadFileAsBuffer(originalImageFilename);
+    } catch (downloadError) {
+      sendErrorResponse(res, 500, 'Failed to download original image', {
+        storyId,
+        originalImageUri,
+        originalImageFilename,
+        error: downloadError instanceof Error ? downloadError.message : String(downloadError)
       });
       return;
     }
 
     // 3. Generate new image filename with incremented version
-    const currentCoverUri = story.coverUri;
-    const newCoverFilename = extractFilenameFromUri(generateNextVersionFilename(currentCoverUri));
+    const newCoverFilename = extractFilenameFromUri(generateNextVersionFilename(originalImageUri));
 
-    // 4. Load story context for AI prompt
-    const storyContext = await storyService.getStoryContext(storyId);
-    if (!storyContext) {
-      logger.error('Could not load story context', { storyId });
-      res.status(500).json({
-        success: false,
-        error: 'Could not load story context'
+    // 4. Get image editing prompt with style integration
+    let stylePrompt: string | undefined;
+    if (graphicalStyle) {
+      try {
+        const styleConfig = await PromptService.getImageStylePrompt(graphicalStyle);
+        stylePrompt = styleConfig.style;
+      } catch (styleError) {
+        logger.warn('Failed to get style prompt, continuing without style', { 
+          graphicalStyle, 
+          error: styleError instanceof Error ? styleError.message : String(styleError) 
+        });
+      }
+    }
+
+    const imagePrompt = buildImageEditPrompt(userRequest, graphicalStyle, stylePrompt);
+
+    // 5. Get image dimensions from environment configuration
+    const dimensions = getImageDimensions('front_cover');
+
+    // 6. Edit image using AI with original image
+    const aiContext = {
+      authorId: story.authorId,
+      storyId: storyId,
+      action: 'image_edit' as const
+    };
+
+    let imageBuffer: Buffer;
+    try {
+      const imageService = aiGateway.getImageService(aiContext);
+      if (!imageService.edit) {
+        sendErrorResponse(res, 500, 'Image editing not supported by current AI provider');
+        return;
+      }
+
+      imageBuffer = await imageService.edit(imagePrompt, originalImageBuffer, {
+        width: dimensions.width,
+        height: dimensions.height,
+        imageType: 'front_cover',
+        ...(graphicalStyle && { graphicalStyle })
+      });
+    } catch (editError) {
+      sendErrorResponse(res, 500, 'AI image editing failed', {
+        storyId,
+        error: editError instanceof Error ? editError.message : String(editError)
       });
       return;
     }
 
-    // 5. Create image generation prompt
-    const imagePrompt = `Book front cover for "${storyContext.story.title}". ${userRequest}. Style: ${storyContext.story.graphicalStyle || 'colorful and vibrant illustration'}.`;
-
-    // 6. Generate new image using AI
-    const aiContext = {
-      authorId: story.authorId,
-      storyId: storyId,
-      action: 'image_generation' as const
-    };
-
-    const imageBuffer = await aiGateway.getImageService(aiContext).generate(imagePrompt, {
-      width: 1024,
-      height: 1536, // Portrait format for book cover
-      imageType: 'front_cover',
-      bookTitle: storyContext.story.title,
-      graphicalStyle: storyContext.story.graphicalStyle
-    });
-
-    // 7. Upload new image to storage
+    // 9. Upload new image to storage
     const newImageUrl = await storageService.uploadFile(newCoverFilename, imageBuffer, 'image/jpeg');
 
     logger.info('Front cover image edit completed', {
       storyId,
-      originalUri: currentCoverUri,
+      originalUri: originalImageUri,
       newUri: newImageUrl,
       newFilename: newCoverFilename
     });
 
-    // 8. Return the new image URL
+    // 10. Return the new image URL
     res.json({
       success: true,
       storyId,
       imageType: 'front_cover',
       newImageUrl,
       metadata: {
-        originalUri: currentCoverUri,
+        originalUri: originalImageUri,
         filename: newCoverFilename,
         size: imageBuffer.length,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        userRequest,
+        dimensions
       }
     });
 
   } catch (error) {
-    logger.error('Front cover edit request failed', {
-      error: error instanceof Error ? error.message : String(error),
-      storyId: req.params?.storyId
-    });
-
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Front cover editing failed'
+    sendErrorResponse(res, 500, 'Front cover editing failed', {
+      storyId: req.params?.storyId,
+      error: error instanceof Error ? error.message : String(error)
     });
   }
 });
@@ -180,81 +204,99 @@ router.patch('/stories/:storyId/images/front-cover', async (req, res) => {
 router.patch('/stories/:storyId/images/back-cover', async (req, res) => {
   try {
     const storyId = req.params.storyId;
-    const { userRequest } = ImageEditRequestSchema.parse(req.body);
+    const { userRequest, originalImageUri, graphicalStyle } = ImageEditRequestSchema.parse(req.body);
 
     if (!storyId) {
-      res.status(400).json({
-        success: false,
-        error: 'Invalid storyId'
-      });
+      sendErrorResponse(res, 400, 'Invalid storyId');
       return;
     }
 
     logger.info('Back cover edit request received', {
       storyId,
-      userRequestLength: userRequest.length
+      userRequestLength: userRequest.length,
+      originalImageUri,
+      graphicalStyle
     });
 
-    // 1. Load story from database
+    // 1. Load story from database (for verification only)
     const story = await storyService.getStory(storyId);
     if (!story) {
-      logger.warn('Story not found', { storyId });
-      res.status(404).json({
-        success: false,
-        error: 'Story not found'
-      });
+      sendErrorResponse(res, 404, 'Story not found', { storyId });
       return;
     }
 
-    // 2. Check if story has a back cover URI
-    if (!story.backcoverUri) {
-      logger.warn('Story has no back cover image', { storyId });
-      res.status(404).json({
-        success: false,
-        error: 'Story has no back cover image'
+    // 2. Download original image using provided URI
+    const originalImageFilename = extractFilenameFromUri(originalImageUri);
+    let originalImageBuffer: Buffer;
+    
+    try {
+      originalImageBuffer = await storageService.downloadFileAsBuffer(originalImageFilename);
+    } catch (downloadError) {
+      sendErrorResponse(res, 500, 'Failed to download original image', {
+        storyId,
+        originalImageFilename,
+        error: downloadError instanceof Error ? downloadError.message : String(downloadError)
       });
       return;
     }
 
     // 3. Generate new image filename with incremented version
-    const currentBackcoverUri = story.backcoverUri;
-    const newBackcoverFilename = extractFilenameFromUri(generateNextVersionFilename(currentBackcoverUri));
+    const newBackcoverFilename = extractFilenameFromUri(generateNextVersionFilename(originalImageUri));
 
-    // 4. Load story context for AI prompt
-    const storyContext = await storyService.getStoryContext(storyId);
-    if (!storyContext) {
-      logger.error('Could not load story context', { storyId });
-      res.status(500).json({
-        success: false,
-        error: 'Could not load story context'
-      });
-      return;
+    // 4. Get image editing prompt with style integration
+    let stylePrompt: string | undefined;
+    if (graphicalStyle) {
+      try {
+        const styleConfig = await PromptService.getImageStylePrompt(graphicalStyle);
+        stylePrompt = styleConfig.style;
+      } catch (styleError) {
+        logger.warn('Failed to get style prompt, continuing without style', { 
+          graphicalStyle, 
+          error: styleError instanceof Error ? styleError.message : String(styleError) 
+        });
+      }
     }
 
-    // 5. Create image generation prompt
-    const imagePrompt = `Book back cover for "${storyContext.story.title}". ${userRequest}. Style: ${storyContext.story.graphicalStyle || 'colorful and vibrant illustration'}.`;
+    const imagePrompt = buildImageEditPrompt(userRequest, graphicalStyle, stylePrompt);
 
-    // 6. Generate new image using AI
+    // 5. Get image dimensions from environment configuration
+    const dimensions = getImageDimensions('back_cover');
+
+    // 6. Edit image using AI with original image
     const aiContext = {
       authorId: story.authorId,
       storyId: storyId,
-      action: 'image_generation' as const
+      action: 'image_edit' as const
     };
 
-    const imageBuffer = await aiGateway.getImageService(aiContext).generate(imagePrompt, {
-      width: 1024,
-      height: 1536, // Portrait format for book cover
-      imageType: 'back_cover',
-      bookTitle: storyContext.story.title,
-      graphicalStyle: storyContext.story.graphicalStyle
-    });
+    let imageBuffer: Buffer;
+    try {
+      const imageService = aiGateway.getImageService(aiContext);
+      if (!imageService.edit) {
+        sendErrorResponse(res, 500, 'Image editing not supported by current AI provider');
+        return;
+      }
+
+      imageBuffer = await imageService.edit(imagePrompt, originalImageBuffer, {
+        width: dimensions.width,
+        height: dimensions.height,
+        imageType: 'back_cover',
+        ...(graphicalStyle && { graphicalStyle })
+      });
+    } catch (editError) {
+      sendErrorResponse(res, 500, 'AI image editing failed', {
+        storyId,
+        error: editError instanceof Error ? editError.message : String(editError)
+      });
+      return;
+    }
 
     // 7. Upload new image to storage
     const newImageUrl = await storageService.uploadFile(newBackcoverFilename, imageBuffer, 'image/jpeg');
 
     logger.info('Back cover image edit completed', {
       storyId,
-      originalUri: currentBackcoverUri,
+      originalUri: originalImageUri,
       newUri: newImageUrl,
       newFilename: newBackcoverFilename
     });
@@ -266,22 +308,19 @@ router.patch('/stories/:storyId/images/back-cover', async (req, res) => {
       imageType: 'back_cover',
       newImageUrl,
       metadata: {
-        originalUri: currentBackcoverUri,
+        originalUri: originalImageUri,
         filename: newBackcoverFilename,
         size: imageBuffer.length,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        userRequest,
+        dimensions
       }
     });
 
   } catch (error) {
-    logger.error('Back cover edit request failed', {
-      error: error instanceof Error ? error.message : String(error),
-      storyId: req.params?.storyId
-    });
-
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Back cover editing failed'
+    sendErrorResponse(res, 500, 'Back cover editing failed', {
+      storyId: req.params?.storyId,
+      error: error instanceof Error ? error.message : String(error)
     });
   }
 });
@@ -294,101 +333,118 @@ router.patch('/stories/:storyId/chapters/:chapterNumber/image', async (req, res)
   try {
     const storyId = req.params.storyId;
     const chapterNumber = parseInt(req.params.chapterNumber);
-    const { userRequest } = ImageEditRequestSchema.parse(req.body);
+    const { userRequest, originalImageUri, graphicalStyle } = ImageEditRequestSchema.parse(req.body);
 
     if (!storyId || isNaN(chapterNumber) || chapterNumber < 1) {
-      res.status(400).json({
-        success: false,
-        error: 'Invalid storyId or chapterNumber'
-      });
+      sendErrorResponse(res, 400, 'Invalid storyId or chapterNumber');
       return;
     }
 
     logger.info('Chapter image edit request received', {
       storyId,
       chapterNumber,
-      userRequestLength: userRequest.length
+      userRequestLength: userRequest.length,
+      originalImageUri,
+      graphicalStyle
     });
 
-    // 1. Load story from database
+    // 1. Load story from database (for verification only)
     const story = await storyService.getStory(storyId);
     if (!story) {
-      logger.warn('Story not found', { storyId });
-      res.status(404).json({
-        success: false,
-        error: 'Story not found'
-      });
+      sendErrorResponse(res, 404, 'Story not found', { storyId });
       return;
     }
 
-    // 2. Get the specific chapter from database
+    // 2. Get the specific chapter from database (for verification only)
     const storyChapters = await chaptersService.getStoryChapters(storyId);
     const targetChapter = storyChapters.find(ch => ch.chapterNumber === chapterNumber);
     
     if (!targetChapter) {
-      logger.warn('Chapter not found', { storyId, chapterNumber });
-      res.status(404).json({
-        success: false,
-        error: `Chapter ${chapterNumber} not found`
-      });
+      sendErrorResponse(res, 404, `Chapter ${chapterNumber} not found`, { storyId, chapterNumber });
       return;
     }
 
-    // 3. Check if chapter has an image
-    if (!targetChapter.imageUri) {
-      logger.warn('Chapter has no image', { storyId, chapterNumber });
-      res.status(404).json({
-        success: false,
-        error: `Chapter ${chapterNumber} has no image`
+    // 3. Download original image using provided URI
+    const originalImageFilename = extractFilenameFromUri(originalImageUri);
+    let originalImageBuffer: Buffer;
+    
+    try {
+      originalImageBuffer = await storageService.downloadFileAsBuffer(originalImageFilename);
+    } catch (downloadError) {
+      sendErrorResponse(res, 500, 'Failed to download original chapter image', {
+        storyId,
+        chapterNumber,
+        originalImageUri,
+        originalImageFilename,
+        error: downloadError instanceof Error ? downloadError.message : String(downloadError)
       });
       return;
     }
 
     // 4. Generate new image filename with incremented version
-    const currentImageUri = targetChapter.imageUri;
-    const newImageFilename = extractFilenameFromUri(generateNextVersionFilename(currentImageUri));
+    const newImageFilename = extractFilenameFromUri(generateNextVersionFilename(originalImageUri));
 
-    // 5. Load story context for AI prompt
-    const storyContext = await storyService.getStoryContext(storyId);
-    if (!storyContext) {
-      logger.error('Could not load story context', { storyId });
-      res.status(500).json({
-        success: false,
-        error: 'Could not load story context'
+    // 5. Get image editing prompt with style integration
+    let stylePrompt: string | undefined;
+    if (graphicalStyle) {
+      try {
+        const styleConfig = await PromptService.getImageStylePrompt(graphicalStyle);
+        stylePrompt = styleConfig.style;
+      } catch (styleError) {
+        logger.warn('Failed to get style prompt, continuing without style', { 
+          graphicalStyle, 
+          error: styleError instanceof Error ? styleError.message : String(styleError) 
+        });
+      }
+    }
+
+    const imagePrompt = buildImageEditPrompt(userRequest, graphicalStyle, stylePrompt);
+
+    // 6. Get image dimensions from environment configuration
+    const dimensions = getImageDimensions('chapter');
+
+    // 7. Edit image using AI with original image
+    const aiContext = {
+      authorId: story.authorId,
+      storyId: storyId,
+      action: 'image_edit' as const
+    };
+
+    let imageBuffer: Buffer;
+    try {
+      const imageService = aiGateway.getImageService(aiContext);
+      if (!imageService.edit) {
+        sendErrorResponse(res, 500, 'Image editing not supported by current AI provider');
+        return;
+      }
+
+      imageBuffer = await imageService.edit(imagePrompt, originalImageBuffer, {
+        width: dimensions.width,
+        height: dimensions.height,
+        imageType: 'chapter',
+        ...(graphicalStyle && { graphicalStyle })
+      });
+    } catch (editError) {
+      sendErrorResponse(res, 500, 'AI chapter image editing failed', {
+        storyId,
+        chapterNumber,
+        error: editError instanceof Error ? editError.message : String(editError)
       });
       return;
     }
 
-    // 6. Create image generation prompt
-    const imagePrompt = `Chapter illustration for "${targetChapter.title}" from "${storyContext.story.title}". ${userRequest}. Style: ${storyContext.story.graphicalStyle || 'colorful and vibrant illustration'}.`;
-
-    // 7. Generate new image using AI
-    const aiContext = {
-      authorId: story.authorId,
-      storyId: storyId,
-      action: 'image_generation' as const
-    };
-
-    const imageBuffer = await aiGateway.getImageService(aiContext).generate(imagePrompt, {
-      width: 1024,
-      height: 1024, // Square format for chapter illustration
-      imageType: 'chapter',
-      bookTitle: storyContext.story.title,
-      graphicalStyle: storyContext.story.graphicalStyle
-    });
-
-    // 8. Upload new image to storage
+    // 10. Upload new image to storage
     const newImageUrl = await storageService.uploadFile(newImageFilename, imageBuffer, 'image/jpeg');
 
     logger.info('Chapter image edit completed', {
       storyId,
       chapterNumber,
-      originalUri: currentImageUri,
+      originalUri: originalImageUri,
       newUri: newImageUrl,
       newFilename: newImageFilename
     });
 
-    // 9. Return the new image URL
+    // 8. Return the new image URL
     res.json({
       success: true,
       storyId,
@@ -396,23 +452,20 @@ router.patch('/stories/:storyId/chapters/:chapterNumber/image', async (req, res)
       imageType: 'chapter',
       newImageUrl,
       metadata: {
-        originalUri: currentImageUri,
+        originalUri: originalImageUri,
         filename: newImageFilename,
         size: imageBuffer.length,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        userRequest,
+        dimensions
       }
     });
 
   } catch (error) {
-    logger.error('Chapter image edit request failed', {
-      error: error instanceof Error ? error.message : String(error),
+    sendErrorResponse(res, 500, 'Chapter image editing failed', {
       storyId: req.params?.storyId,
-      chapterNumber: req.params?.chapterNumber
-    });
-
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Chapter image editing failed'
+      chapterNumber: req.params?.chapterNumber,
+      error: error instanceof Error ? error.message : String(error)
     });
   }
 });

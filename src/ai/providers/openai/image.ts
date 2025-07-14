@@ -554,7 +554,8 @@ export class OpenAIImageService implements IImageGenerationService {
 
   private getSizeString(width?: number, height?: number): string {
     if (!width && !height) {
-      return '1024x1536'; // Default to portrait format
+      const env = getEnvironment();
+      return `${env.IMAGE_DEFAULT_WIDTH}x${env.IMAGE_DEFAULT_HEIGHT}`; // Use environment configuration
     }
     
     // Valid sizes for OpenAI Responses API
@@ -577,6 +578,7 @@ export class OpenAIImageService implements IImageGenerationService {
       }
     }
     
-    return '1024x1536'; // Default to portrait format
+    const env = getEnvironment();
+    return `${env.IMAGE_DEFAULT_WIDTH}x${env.IMAGE_DEFAULT_HEIGHT}`; // Use environment configuration
   }
 }
