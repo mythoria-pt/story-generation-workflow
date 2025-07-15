@@ -73,7 +73,7 @@ app.use('/api/workflow', workflowRoutes);
 app.use('/ai', aiRouter);
 app.use('/audio', audioRouter);
 app.use('/internal', internalRouter);
-app.use('/story-edit', storyEditRouter);
+app.use('/api/story-edit', storyEditRouter);
 app.use('/image-edit', imageEditRouter);
 app.use('/pdf', pdfRouter);
 app.use('/', pingRouter);  // Mount ping routes at root level
