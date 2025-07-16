@@ -132,11 +132,6 @@ class JobManager {
       // Increment progress but don't exceed 95%
       currentJob.progress = Math.min(95, currentJob.progress + progressIncrement);
       this.jobs.set(jobId, currentJob);
-
-      logger.debug('Job progress updated', {
-        jobId,
-        progress: currentJob.progress
-      });
     }, updateInterval);
 
     this.progressIntervals.set(jobId, interval);
