@@ -1,25 +1,13 @@
 /**
  * Image Edit API Routes
- * RESTful endpoints for editing existing story    }
-
-    // 2. Download original image using provided URI
-    const originalImageFilename = extractFilenameFromUri(originalImageUri);
-    let originalImageBuffer: Buffer;
-    
-    try {
-      originalImageBuffer = await storageService.downloadFileAsBuffer(originalImageFilename);
-    } catch (downloadError) {
-      sendErrorResponse(res, 500, 'Failed to download original image', {
-        storyId,
-        originalImageUri,
-        originalImageFilename,
-        error: downloadError instanceof Error ? downloadError.message : String(downloadError)
-      });
-      return;
-    }
-
-    // 3. Generate new image filename with incremented version
-    const newBackcoverFilename = extractFilenameFromUri(generateNextVersionFilename(originalImageUri)); New database-driven approach using chapters table
+ * RESTful endpoints for editing existing story images using AI
+ * 
+ * @deprecated These routes are deprecated and will be removed in a future version.
+ *             Use the async job API (/api/jobs/image-edit) instead for better performance 
+ *             and user experience. The async API provides real-time progress tracking
+ *             and prevents timeout issues.
+ * 
+ * TODO: Remove these routes after all clients have migrated to the async job API.
  */
 
 import { Router } from 'express';

@@ -68,6 +68,7 @@ import { imageEditRouter } from './routes/image-edit.js';
 import { audioRouter } from './routes/audio.js';
 import { pdfRouter } from './routes/pdf.js';
 import { pingRouter } from './routes/ping.js';
+import { asyncJobRouter } from './routes/async-jobs.js';
 
 app.use('/api/workflow', workflowRoutes);
 app.use('/ai', aiRouter);
@@ -76,6 +77,7 @@ app.use('/internal', internalRouter);
 app.use('/api/story-edit', storyEditRouter);
 app.use('/image-edit', imageEditRouter);
 app.use('/pdf', pdfRouter);
+app.use('/api/jobs', asyncJobRouter);
 app.use('/', pingRouter);  // Mount ping routes at root level
 
 // Error handling middleware
