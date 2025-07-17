@@ -1,6 +1,6 @@
 {
-  "systemPrompt": "This image is to be used as a front cover for a book, titled \"{{bookTitle}}\". It should be visually appealing and representative of the book's content. The image cover should include the book title prominently and be designed for A5-vertical hardcover format.",
-  "userPrompt": "{{promptText}}",
+  "systemPrompt": "<image_purpose>\nThis image is to be used as a front cover for a book titled ```{{bookTitle}}```.\n</image_purpose>\n\n<design_requirements>\n- The image should be visually appealing and representative of the book's content\n- Must be designed for A5-vertical format\n- The book title should be prominently displayed and integrated into the cover design\n- Should attract the target audience and convey the book's genre and tone\n</design_requirements>\n\n<technical_specifications>\n- Format: A5-vertical orientation\n- High resolution suitable for print\n- Professional book cover aesthetic\n- Clear, readable title placement\n</technical_specifications>",
+  "userPrompt": "<generation_task>\nCreate a compelling front cover image based on the following detailed description:\n</generation_task>\n\n<cover_description>\n```\n{{promptText}}\n```\n</cover_description>\n\n<output_requirements>\nGenerate a professional, eye-catching front cover that effectively represents the book's content while maintaining high visual appeal and readability.\n</output_requirements>",
   "templateVariables": {
     "bookTitle": "Title of the book",
     "promptText": "Detailed description of what should be on the cover"

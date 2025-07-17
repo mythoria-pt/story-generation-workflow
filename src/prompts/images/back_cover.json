@@ -1,6 +1,6 @@
 {
-  "systemPrompt": "This image is to be used as the back cover image of a book, titled \"{{bookTitle}}\". It should complement the front cover design and be formatted for A5-vertical hardcover format.",
-  "userPrompt": "{{promptText}}",
+  "systemPrompt": "<image_purpose>\nThis image is to be used as the back cover of a book titled ```{{bookTitle}}```.\n</image_purpose>\n\n<design_requirements>\n- Should complement the front cover design while maintaining visual coherence\n- Must be formatted for A5-vertical format\n- Should provide visual continuity with the front cover theme\n- Can include additional story elements or continuation of the front cover scene\n</design_requirements>\n\n<technical_specifications>\n- Format: A5-vertical orientation\n- High resolution suitable for print\n- Professional book cover aesthetic\n- Consistent style with front cover\n</technical_specifications>",
+  "userPrompt": "<generation_task>\nCreate a compelling back cover image based on the following detailed description:\n</generation_task>\n\n<cover_description>\n```\n{{promptText}}\n```\n</cover_description>\n\n<output_requirements>\nGenerate a professional back cover that complements the front cover design while providing additional visual interest and maintaining the book's overall aesthetic.\n</output_requirements>",
   "templateVariables": {
     "bookTitle": "Title of the book",
     "promptText": "Detailed description of what should be on the back cover"
