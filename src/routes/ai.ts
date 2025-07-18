@@ -11,6 +11,7 @@ import {
   formatImageError
 } from './ai-image-utils.js';
 import { StoryService } from '@/services/story.js';
+import { workflowErrorHandler } from '@/shared/workflow-error-handler.js';
 import type { StoryContext } from '@/services/story.js';
 import { PromptService } from '@/services/prompt.js';
 import { SchemaService } from '@/services/schema.js';
@@ -174,13 +175,15 @@ function isOutlineData(data: unknown): data is OutlineData {
 router.post('/text/outline', async (req, res) => {  try {
     const { storyId, runId } = OutlineRequestSchema.parse(req.body);
 
-    // Load story context from database
+    // Load story context from database with enhanced error handling
     const storyContext = await storyService.getStoryContext(storyId);
     if (!storyContext) {
-      res.status(404).json({
-        success: false,
-        error: `Story not found: ${storyId}`
-      });
+      // Use the workflow error handler for better diagnostics
+      const workflowError = await workflowErrorHandler.handleStoryNotFound(storyId, runId);
+      workflowErrorHandler.logWorkflowError(workflowError);
+      
+      const statusCode = workflowError.type === 'ORPHANED_RUN' ? 404 : 500;
+      res.status(statusCode).json(workflowErrorHandler.createErrorResponse(workflowError));
       return;
     }    // Load prompt template and prepare variables
     const promptTemplate = await PromptService.loadPrompt('en-US', 'text-outline');    // Use the chapterCount from the database, fallback to 6 if not available

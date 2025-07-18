@@ -223,6 +223,10 @@ export class StoryContextService {
       systemPrompt += `\n- Additional Requirements: ${story.additionalRequests}`;
     }
 
+    if (story.imageGenerationInstructions) {
+      systemPrompt += `\n- Image Generation Instructions: ${story.imageGenerationInstructions}`;
+    }
+
     systemPrompt += `\n\n**Characters:**`;
     
     characters.forEach((char, index) => {
@@ -256,13 +260,31 @@ export class StoryContextService {
 4. Show character growth and use of their unique abilities
 5. Provide a satisfying resolution
 
-The outline should be engaging for the target audience and incorporate all the character details provided.`;
+**Character Appearance Guidelines:**
+When describing characters in the outline, include detailed physical descriptions that will help with visual generation:
+- Detailed descriptions of hair color, style, and length
+- Eye color and distinctive facial features
+- Height, build, and general appearance
+- Clothing style and colors that reflect their personality
+- Any distinctive accessories, jewelry, or unique characteristics
+- Age-appropriate appearance details for the target audience
+
+**Visual Scene Descriptions:**
+For each major plot point or chapter, include:
+- Detailed descriptions of settings and environments
+- Lighting conditions (bright daylight, sunset, moonlight, etc.)
+- Weather and atmospheric details
+- Key visual elements that would make compelling illustrations
+- Character positioning and interactions in scenes
+- Emotional expressions and body language
+
+The outline should be engaging for the target audience and incorporate all the character details provided, with enhanced visual descriptions suitable for AI image generation.`;
 
     if (additionalPrompt) {
       prompt += `\n\nAdditional requirements: ${additionalPrompt}`;
     }
 
-    prompt += `\n\nPlease provide the outline in a clear, structured format.`;
+    prompt += `\n\nPlease provide the outline in a clear, structured format with rich visual descriptions.`;
 
     return prompt;
   }

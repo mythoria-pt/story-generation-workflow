@@ -20,6 +20,7 @@ export interface StoryContext {
     synopsis?: string | undefined;
     place?: string | undefined;
     additionalRequests?: string | undefined;
+    imageGenerationInstructions?: string | undefined;
     targetAudience?: string | undefined;
     novelStyle?: string | undefined;
     graphicalStyle?: string | undefined;
@@ -42,10 +43,44 @@ export class StoryService {
   private db = getDatabase();
 
   /**
+   * Check if a story exists in the database
+   */
+  async storyExists(storyId: string): Promise<boolean> {
+    try {
+      if (!storyId || typeof storyId !== 'string') {
+        return false;
+      }
+
+      const [story] = await this.db
+        .select({ storyId: stories.storyId })
+        .from(stories)
+        .where(eq(stories.storyId, storyId))
+        .limit(1);
+
+      return !!story;
+    } catch (error) {
+      logger.error('Failed to check story existence', {
+        error: error instanceof Error ? error.message : String(error),
+        storyId
+      });
+      return false;
+    }
+  }
+
+  /**
    * Get complete story context including characters
    */
   async getStoryContext(storyId: string): Promise<StoryContext | null> {
     try {
+      // Validate input
+      if (!storyId || typeof storyId !== 'string') {
+        logger.error('Invalid storyId provided to getStoryContext', { 
+          storyId: String(storyId),
+          type: typeof storyId 
+        });
+        return null;
+      }
+
       // Get story details
       const [story] = await this.db
         .select()
@@ -53,7 +88,11 @@ export class StoryService {
         .where(eq(stories.storyId, storyId));
 
       if (!story) {
-        logger.warn('Story not found', { storyId });
+        logger.warn('Story not found in getStoryContext', { 
+          storyId,
+          method: 'getStoryContext',
+          timestamp: new Date().toISOString()
+        });
         return null;
       }
 
@@ -76,7 +115,8 @@ export class StoryService {
       logger.info('Story context loaded successfully', {
         storyId,
         title: story.title,
-        charactersCount: storyCharactersData.length
+        charactersCount: storyCharactersData.length,
+        hasChapterCount: !!story.chapterCount
       });      return {
         story: {
           storyId: story.storyId,
@@ -286,7 +326,7 @@ export class StoryService {
   }) {
     try {
       const updateData: Record<string, unknown> = {
-        updatedAt: new Date().toISOString()
+        updatedAt: new Date()
       };
       
       if (updates.audiobookStatus !== undefined) {

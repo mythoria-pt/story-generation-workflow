@@ -1,5 +1,4 @@
 {
-{
     "cartoon": {
         "systemPrompt": "<art_style>cartoon</art_style>\n\n<technical_requirements>\n- Create vibrant, stylized cartoon illustrations with exaggerated features\n- Use bold colors, simplified forms, and clear outlines\n- Apply bright saturated colors and expressive character poses\n- Focus on clean lineart, rounded shapes, and family-friendly content\n</technical_requirements>\n\n<visual_emphasis>\n- Emphasize visual storytelling through dynamic compositions\n- Maintain cheerful, engaging aesthetics throughout\n- Use exaggerated features for emotional expression\n- Apply consistent cartoon-style proportions\n</visual_emphasis>",
         "style": "cartoon style, animated, colorful, simple shapes, bold outlines, expressive characters, vibrant colors"

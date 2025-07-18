@@ -22,9 +22,9 @@ coverage/
 **/*.test.js
 **/*.test.ts
 
-# TypeScript source files (build output is in /dist)
-/src/**/*.ts
-/src/**/*.js
+# TypeScript source files (commented out to include for build)
+# /src/**/*.ts
+# /src/**/*.js
 
 # Build artifacts
 /build/
