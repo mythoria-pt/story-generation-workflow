@@ -1,6 +1,7 @@
 import { readFile } from 'fs/promises';
 import { join } from 'path';
 import { logger } from '@/config/logger.js';
+import { getPromptsPath } from '../shared/path-utils.js';
 
 export interface AudioPromptConfig {
   systemPrompt: string;
@@ -31,7 +32,7 @@ export class AudioPromptService {
       }
 
       // Load from file
-      const promptPath = join(process.cwd(), 'src', 'prompts', 'audio', `${language}.json`);
+      const promptPath = join(getPromptsPath(), 'audio', `${language}.json`);
       const promptContent = await readFile(promptPath, 'utf-8');
       const promptConfig: AudioPromptConfig = JSON.parse(promptContent);
 

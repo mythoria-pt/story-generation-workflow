@@ -95,11 +95,11 @@ try {
 steps:
   # Build Docker image with simple Dockerfile
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', 'gcr.io/$PROJECT_ID/story-generation-workflow:latest', '-f', 'Dockerfile.simple', '.']
+    args: ['build', '-t', 'gcr.io/$ProjectId/story-generation-workflow:latest', '-f', 'Dockerfile', '.']
   
   # Push Docker image
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', 'gcr.io/$PROJECT_ID/story-generation-workflow:latest']
+    args: ['push', 'gcr.io/$ProjectId/story-generation-workflow:latest']
   
   # Deploy to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
@@ -108,7 +108,7 @@ steps:
       - 'run'
       - 'deploy'
       - 'story-generation-workflow'
-      - '--image=gcr.io/$PROJECT_ID/story-generation-workflow:latest'
+      - '--image=gcr.io/$ProjectId/story-generation-workflow:latest'
       - '--region=europe-west9'
       - '--platform=managed'
       - '--allow-unauthenticated'
@@ -116,7 +116,7 @@ steps:
       - '--memory=2Gi'
       - '--cpu=2'
       - '--min-instances=0'
-      - '--max-instances=10'
+      - '--max-instances=5'
       - '--timeout=300'
 
 options:

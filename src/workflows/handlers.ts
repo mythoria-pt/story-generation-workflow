@@ -7,6 +7,7 @@ import { StoryContextService } from '@/services/story-context.js';
 import { StoryService } from '@/services/story.js';
 import { StorageService } from '@/services/storage.js';
 import { logger } from '@/config/logger.js';
+import { getPromptsPath } from '../shared/path-utils.js';
 
 // Workflow step parameter types
 export interface StoryOutlineParams {
@@ -296,7 +297,7 @@ export class ImageGenerationHandler implements WorkflowStepHandler<ImageGenerati
     const { readFile } = await import('fs/promises');
     const { join } = await import('path');
     
-    const promptPath = join(process.cwd(), 'src', 'prompts', 'images', `${imageType}.json`);
+    const promptPath = join(getPromptsPath(), 'images', `${imageType}.json`);
     const promptContent = await readFile(promptPath, 'utf-8');
     return JSON.parse(promptContent);
   }
