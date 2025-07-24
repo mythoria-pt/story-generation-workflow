@@ -91,6 +91,20 @@ export class PromptService {
       processedTemplate = processedTemplate.replace(new RegExp(placeholder, 'g'), replacement);
     }
 
+    // Handle conditional sections (e.g., {{#customInstructions}}...{{/customInstructions}})
+    // Process all variables for conditional logic
+    for (const [key, value] of Object.entries(variables)) {
+      const conditionalPattern = new RegExp(`\\{\\{#${key}\\}\\}(.*?)\\{\\{\\/${key}\\}\\}`, 'gs');
+      
+      if (value && String(value).trim() !== '') {
+        // Replace conditional blocks with their content if value is truthy and not empty
+        processedTemplate = processedTemplate.replace(conditionalPattern, '$1');
+      } else {
+        // Remove conditional blocks if value is falsy or empty
+        processedTemplate = processedTemplate.replace(conditionalPattern, '');
+      }
+    }
+
     return processedTemplate;
   }
 

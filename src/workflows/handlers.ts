@@ -314,12 +314,12 @@ export class ImageGenerationHandler implements WorkflowStepHandler<ImageGenerati
     }
 
     // Handle conditional sections for custom instructions
-    if (variables.customInstructions) {
+    if (variables.customInstructions && variables.customInstructions.trim() !== '') {
       // Replace conditional blocks
       systemPrompt = systemPrompt.replace(/\{\{#customInstructions\}\}(.*?)\{\{\/customInstructions\}\}/gs, '$1');
       userPrompt = userPrompt.replace(/\{\{#customInstructions\}\}(.*?)\{\{\/customInstructions\}\}/gs, '$1');
     } else {
-      // Remove conditional blocks if no custom instructions
+      // Remove conditional blocks if no custom instructions or empty
       systemPrompt = systemPrompt.replace(/\{\{#customInstructions\}\}.*?\{\{\/customInstructions\}\}/gs, '');
       userPrompt = userPrompt.replace(/\{\{#customInstructions\}\}.*?\{\{\/customInstructions\}\}/gs, '');
     }
