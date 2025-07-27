@@ -6,8 +6,11 @@ import { AIGateway } from '@/ai/gateway.js';
 import { StoryContextService } from '@/services/story-context.js';
 import { StoryService } from '@/services/story.js';
 import { StorageService } from '@/services/storage.js';
+import { PrintService } from '@/services/print.js';
 import { logger } from '@/config/logger.js';
 import { getPromptsPath } from '../shared/path-utils.js';
+import { tmpdir } from 'os';
+import { join } from 'path';
 
 // Workflow step parameter types
 export interface StoryOutlineParams {
@@ -362,5 +365,133 @@ export class AudioRecordingHandler implements WorkflowStepHandler<AudioRecording
       duration: 300, // seconds
       status: 'completed'
     };
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Print Generation Handlers
+// -----------------------------------------------------------------------------
+
+export interface PrintGenerationParams {
+  storyId: string;
+  workflowId: string;
+}
+
+export interface PrintGenerationResult {
+  interiorPdfUrl: string;
+  coverPdfUrl: string;
+  status: string;
+}
+
+export class PrintGenerationHandler implements WorkflowStepHandler<PrintGenerationParams, PrintGenerationResult> {
+  private printService = new PrintService();
+  private storyService = new StoryService();
+  private storageService = new StorageService();
+
+  async execute(params: PrintGenerationParams): Promise<PrintGenerationResult> {
+    try {
+      logger.info(`Starting print generation for story ${params.storyId}`);
+
+      // Fetch story data
+      const storyData = await this.storyService.getStoryForPrint(params.storyId);
+      
+      if (!storyData) {
+        throw new Error(`Story not found: ${params.storyId}`);
+      }
+
+      logger.debug('Story data fetched for print generation', { 
+        storyId: params.storyId,
+        title: storyData.title,
+        chapterCount: storyData.chapters?.length || 0
+      });
+
+      // Calculate dimensions based on chapter count
+      const pageCount = this.estimatePageCount(storyData);
+      const dimensions = this.printService.calculateDimensions(pageCount);
+
+      // Generate interior PDF
+      const interiorHtml = await this.printService.generateInteriorHTML(storyData, dimensions);
+      const interiorPath = join(tmpdir(), `interior-${params.storyId}.pdf`);
+      
+      await this.printService.renderPDF(interiorHtml, {
+        width: dimensions.pageWidthMM,
+        height: dimensions.pageHeightMM,
+        outputPath: interiorPath
+      });
+
+      // Generate cover PDF
+      const coverHtml = await this.printService.generateCoverHTML(storyData, dimensions);
+      const coverPath = join(tmpdir(), `cover-${params.storyId}.pdf`);
+      
+      await this.printService.renderPDF(coverHtml, {
+        width: dimensions.coverSpreadWMM,
+        height: dimensions.coverSpreadHMM,
+        outputPath: coverPath
+      });
+
+      // Upload PDFs to storage
+      const fs = await import('fs');
+      const interiorBuffer = fs.readFileSync(interiorPath);
+      const coverBuffer = fs.readFileSync(coverPath);
+
+      const interiorPdfUrl = await this.storageService.uploadFile(
+        `${params.storyId}/print/interior.pdf`,
+        interiorBuffer,
+        'application/pdf'
+      );
+
+      const coverPdfUrl = await this.storageService.uploadFile(
+        `${params.storyId}/print/cover.pdf`,
+        coverBuffer,
+        'application/pdf'
+      );
+
+      // Upload HTML files for debugging and style adjustments
+      const interiorHtmlBuffer = Buffer.from(interiorHtml, 'utf-8');
+      const coverHtmlBuffer = Buffer.from(coverHtml, 'utf-8');
+
+      await this.storageService.uploadFile(
+        `${params.storyId}/print/interior.html`,
+        interiorHtmlBuffer,
+        'text/html'
+      );
+
+      await this.storageService.uploadFile(
+        `${params.storyId}/print/cover.html`,
+        coverHtmlBuffer,
+        'text/html'
+      );
+
+      // Update story with PDF URLs
+      await this.storyService.updateStoryPrintUrls(params.storyId, {
+        interiorPdfUri: interiorPdfUrl,
+        coverPdfUri: coverPdfUrl
+      });
+
+      logger.info(`Print generation completed for story ${params.storyId}`, {
+        interiorPdfUrl,
+        coverPdfUrl,
+        htmlFilesGenerated: true
+      });
+
+      return {
+        interiorPdfUrl,
+        coverPdfUrl,
+        status: 'completed'
+      };
+
+    } catch (error) {
+      logger.error(`Print generation failed for story ${params.storyId}:`, error);
+      throw error;
+    }
+  }
+
+  private estimatePageCount(storyData: any): number {
+    // Estimate pages: 5 front matter pages + ~2 pages per chapter + 1 blank final page
+    const frontMatterPages = 5;
+    const pagesPerChapter = 2;
+    const finalBlankPage = 1;
+    
+    return frontMatterPages + (storyData.chapters.length * pagesPerChapter) + finalBlankPage;
   }
 }

@@ -31,6 +31,8 @@ export interface Story {
   title?: string;
   description?: string;
   status: string;
+  interiorPdfUri?: string;
+  coverPdfUri?: string;
   createdAt: string;
   updatedAt: string;
 }

@@ -3,9 +3,9 @@
  * Handles database operations for stories and related data
  */
 
-import { eq } from 'drizzle-orm';
+import { eq, desc } from 'drizzle-orm';
 import { getDatabase } from '@/db/connection.js';
-import { stories, storyCharacters } from '@/db/schema/index.js';
+import { stories, storyCharacters, chapters } from '@/db/schema/index.js';
 import { characters } from '@/db/schema/characters.js';
 import { authors } from '@/db/schema/authors.js';
 import { retry } from '@/shared/utils.js';
@@ -396,6 +396,120 @@ export class StoryService {
       return true;
     } catch (error) {
       logger.error('Failed to update story cover URIs', {
+        error: error instanceof Error ? error.message : String(error),
+        storyId,
+        updates
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Get story data for print generation
+   */
+  async getStoryForPrint(storyId: string) {
+    try {
+      const [storyData] = await this.db
+        .select({
+          storyId: stories.storyId,
+          title: stories.title,
+          customAuthor: stories.customAuthor,
+          dedicationMessage: stories.dedicationMessage,
+          coverUri: stories.coverUri,
+          backcoverUri: stories.backcoverUri,
+          chapterCount: stories.chapterCount
+        })
+        .from(stories)
+        .where(eq(stories.storyId, storyId));
+
+      if (!storyData) {
+        return null;
+      }
+
+      // Get actual chapters data from the chapters table (latest versions only)
+      const allChapters = await this.db
+        .select({
+          chapterNumber: chapters.chapterNumber,
+          title: chapters.title,
+          content: chapters.htmlContent,
+          imageUri: chapters.imageUri,
+          version: chapters.version
+        })
+        .from(chapters)
+        .where(eq(chapters.storyId, storyId))
+        .orderBy(chapters.chapterNumber, desc(chapters.version));
+
+      // Group by chapter number and take the latest version
+      const chaptersMap = new Map();
+      for (const chapter of allChapters) {
+        if (!chaptersMap.has(chapter.chapterNumber)) {
+          chaptersMap.set(chapter.chapterNumber, chapter);
+        }
+      }
+
+      const chaptersFromDb = Array.from(chaptersMap.values())
+        .sort((a, b) => a.chapterNumber - b.chapterNumber);
+
+      // Transform chapters to the format expected by the print service
+      // Keep HTML formatting intact for print PDF generation
+      const chaptersForPrint = chaptersFromDb.map(chapter => ({
+        title: chapter.title,
+        content: chapter.content || 'No content available',
+        imageUri: chapter.imageUri
+      }));
+
+      logger.info('Story data fetched for print generation', {
+        storyId,
+        title: storyData.title,
+        chaptersFromDb: chaptersFromDb.length,
+        chaptersForPrint: chaptersForPrint.length
+      });
+
+      return {
+        ...storyData,
+        chapters: chaptersForPrint
+      };
+    } catch (error) {
+      logger.error('Failed to get story for print', {
+        error: error instanceof Error ? error.message : String(error),
+        storyId
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Update story with print PDF URLs
+   */
+  async updateStoryPrintUrls(storyId: string, updates: {
+    interiorPdfUri?: string;
+    coverPdfUri?: string;
+  }) {
+    try {
+      const updateData: Record<string, unknown> = {};
+      
+      if (updates.interiorPdfUri !== undefined) {
+        updateData.interiorPdfUri = updates.interiorPdfUri;
+      }
+      if (updates.coverPdfUri !== undefined) {
+        updateData.coverPdfUri = updates.coverPdfUri;
+      }
+      
+      await retry(async () => {
+        await this.db
+          .update(stories)
+          .set(updateData)
+          .where(eq(stories.storyId, storyId));
+      }, 3, 1000);
+
+      logger.info('Story print URLs updated successfully', {
+        storyId,
+        updates: Object.keys(updateData)
+      });
+
+      return true;
+    } catch (error) {
+      logger.error('Failed to update story print URLs', {
         error: error instanceof Error ? error.message : String(error),
         storyId,
         updates

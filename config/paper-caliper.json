@@ -1,0 +1,29 @@
+{
+  "paperTypes": {
+    "coated_115gsm": {
+      "name": "115 g/m² Coated",
+      "caliper": 0.09,
+      "description": "Standard coated paper for color printing"
+    },
+    "uncoated_90gsm": {
+      "name": "90 g/m² Uncoated",
+      "caliper": 0.11,
+      "description": "Standard uncoated paper for text"
+    },
+    "premium_130gsm": {
+      "name": "130 g/m² Premium",
+      "caliper": 0.12,
+      "description": "Premium coated paper"
+    }
+  },
+  "defaultPaperType": "coated_115gsm",
+  "bleedMM": {
+    "interior": 3,
+    "cover": 20
+  },
+  "safeZoneMM": 10,
+  "trimSize": {
+    "width": 170,
+    "height": 240
+  }
+}

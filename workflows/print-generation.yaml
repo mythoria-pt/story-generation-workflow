@@ -1,0 +1,91 @@
+# Mythoria – Print Generation Workflow
+# Trigger: Pub/Sub topic mythoria-print-requests
+#
+# Pub/Sub message (base-64 JSON):
+#   { "storyId": "<uuid>", "runId": "<uuid>" }
+#
+# Cloud Run base URL (internal API):
+#   https://story-generation-workflow-803421888801.europe-west9.run.app
+#
+main:
+  params: [event]
+
+  steps:
+    # ───────────────────────────────────────────────
+    # 0. Parse event & constants
+    # ───────────────────────────────────────────────
+    - init:
+        assign:
+          - payload:  ${json.decode(base64.decode(event.data.message.data))}
+          - storyId:  ${payload.storyId}
+          - runId:    ${payload.runId}
+          - baseUrl:  "https://story-generation-workflow-803421888801.europe-west9.run.app"
+          - now:      ${time.format(sys.now())}
+
+    # ───────────────────────────────────────────────
+    # 1-N. Print pipeline wrapped in one try/except
+    # ───────────────────────────────────────────────
+    - runPrintPipeline:
+        try:
+          steps:
+            # 1. Mark run → running / generate_print_pdfs
+            - markRunStarted:
+                call: http.request
+                args:
+                  url:    ${baseUrl + "/internal/runs/" + runId}
+                  method: PATCH
+                  auth:   { type: OIDC }
+                  body:
+                    storyId:      ${storyId}
+                    status:       "running"
+                    currentStep:  "generate_print_pdfs"
+                    startedAt:    ${time.format(sys.now())}
+
+            # 2. Generate print PDFs
+            - generatePrintPDFs:
+                call: http.request
+                args:
+                  url:    ${baseUrl + "/internal/print/generate"}
+                  method: POST
+                  auth:   { type: OIDC }
+                  body:
+                    storyId:    ${storyId}
+                    workflowId: ${runId}
+                result: printResult
+
+            # 3. Mark run → completed
+            - markRunCompleted:
+                call: http.request
+                args:
+                  url:    ${baseUrl + "/internal/runs/" + runId}
+                  method: PATCH
+                  auth:   { type: OIDC }
+                  body:
+                    storyId:    ${storyId}
+                    status:     "completed"
+                    currentStep: "completed"
+                    endedAt:    ${time.format(sys.now())}
+                    metadata:
+                      interiorPdfUrl: ${printResult.body.interiorPdfUrl}
+                      coverPdfUrl:    ${printResult.body.coverPdfUrl}
+
+        except:
+          as: e
+          steps:
+            # Mark run → failed
+            - markRunFailed:
+                call: http.request
+                args:
+                  url:    ${baseUrl + "/internal/runs/" + runId}
+                  method: PATCH
+                  auth:   { type: OIDC }
+                  body:
+                    storyId:      ${storyId}
+                    status:       "failed"
+                    currentStep:  "failed"
+                    endedAt:      ${time.format(sys.now())}
+                    errorMessage: ${e.message}
+
+            # Re-raise the exception
+            - raiseError:
+                raise: ${e}

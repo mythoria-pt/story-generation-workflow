@@ -46,6 +46,7 @@
     "node-html-parser": "^7.0.1",
     "openai": "^5.5.1",
     "pg": "^8.16.0",
+    "puppeteer": "^24.15.0",
     "puppeteer-html-pdf": "^4.0.8",
     "winston": "^3.11.0",
     "zod": "^3.25.0"

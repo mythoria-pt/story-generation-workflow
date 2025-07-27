@@ -67,6 +67,7 @@ import { storyEditRouter } from './routes/story-edit.js';
 import { imageEditRouter } from './routes/image-edit.js';
 import { audioRouter } from './routes/audio.js';
 import { pdfRouter } from './routes/pdf.js';
+import { printRouter } from './routes/print.js';
 import { pingRouter } from './routes/ping.js';
 import { asyncJobRouter } from './routes/async-jobs.js';
 
@@ -74,6 +75,7 @@ app.use('/api/workflow', workflowRoutes);
 app.use('/ai', aiRouter);
 app.use('/audio', audioRouter);
 app.use('/internal', internalRouter);
+app.use('/internal/print', printRouter);
 app.use('/api/story-edit', storyEditRouter);
 app.use('/image-edit', imageEditRouter);
 app.use('/pdf', pdfRouter);

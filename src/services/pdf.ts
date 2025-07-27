@@ -83,7 +83,8 @@ export class PDFService {
       const pdfOptions = { ...defaultOptions, ...options };
 
       // Create PDF generator instance
-      const pdfGenerator = new PuppeteerHTMLPDF();      // Set options for the PDF generator
+      const pdfGenerator = new PuppeteerHTMLPDF();
+      // Set options for the PDF generator
       await pdfGenerator.setOptions({
         format: pdfOptions.format || 'A4',
         margin: pdfOptions.margin || {
