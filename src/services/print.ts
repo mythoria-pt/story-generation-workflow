@@ -2,7 +2,6 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import puppeteer from 'puppeteer';
 import { logger } from '@/config/logger.js';
-import { StorageService } from './storage.js';
 
 interface PaperConfig {
   paperTypes: Record<string, {
@@ -38,12 +37,10 @@ interface RenderOptions {
 
 export class PrintService {
   private paperConfig: PaperConfig;
-  private storageService: StorageService;
 
   constructor() {
     const configPath = join(process.cwd(), 'config', 'paper-caliper.json');
     this.paperConfig = JSON.parse(readFileSync(configPath, 'utf-8'));
-    this.storageService = new StorageService();
   }
 
   /**
@@ -126,17 +123,9 @@ export class PrintService {
   /**
    * Generate interior PDF HTML
    */
-  async generateInteriorHTML(storyData: any, dimensions: PrintDimensions): Promise<string> {
+  generateInteriorHTML(storyData: any, dimensions: PrintDimensions): string {
     const { pageWidthMM, pageHeightMM } = dimensions;
     const { bleedMM, safeZoneMM } = this.paperConfig;
-
-    // Resolve all chapter image URIs to absolute URLs
-    const chaptersWithResolvedImages = await Promise.all(
-      storyData.chapters.map(async (chapter: any) => ({
-        ...chapter,
-        imageUri: await this.resolveImageUri(chapter.imageUri)
-      }))
-    );
 
     return `
 <!DOCTYPE html>
@@ -287,7 +276,7 @@ export class PrintService {
   <div class="page">
     <div class="toc">
       <h2>Table of Contents</h2>
-      ${chaptersWithResolvedImages.map((chapter: any, index: number) => `
+      ${storyData.chapters.map((chapter: any, index: number) => `
         <div class="toc-item">
           ${index + 1}. ${chapter.title}
         </div>
@@ -296,7 +285,7 @@ export class PrintService {
   </div>
 
   <!-- Chapters -->
-  ${chaptersWithResolvedImages.map((chapter: any, index: number) => `
+  ${storyData.chapters.map((chapter: any, index: number) => `
     <div class="chapter page">
       <div class="chapter-title">
         ${index + 1}. ${chapter.title}
@@ -321,13 +310,9 @@ export class PrintService {
   /**
    * Generate cover spread PDF HTML
    */
-  async generateCoverHTML(storyData: any, dimensions: PrintDimensions): Promise<string> {
+  generateCoverHTML(storyData: any, dimensions: PrintDimensions): string {
     const { coverSpreadWMM, coverSpreadHMM, spineWidthMM } = dimensions;
     const { bleedMM } = this.paperConfig;
-
-    // Resolve cover and backcover image URIs to absolute URLs
-    const resolvedCoverUri = await this.resolveImageUri(storyData.coverUri);
-    const resolvedBackcoverUri = await this.resolveImageUri(storyData.backcoverUri);
 
     return `
 <!DOCTYPE html>
@@ -362,7 +347,7 @@ export class PrintService {
     .back-cover {
       width: calc((100% - ${spineWidthMM}mm) / 2);
       height: 100%;
-      background: ${resolvedBackcoverUri ? `url("${resolvedBackcoverUri}")` : '#f5f5f5'};
+      background: ${storyData.backcoverUri ? `url("${storyData.backcoverUri}")` : '#f5f5f5'};
       background-size: cover;
       background-position: center;
     }
@@ -384,7 +369,7 @@ export class PrintService {
     .front-cover {
       width: calc((100% - ${spineWidthMM}mm) / 2);
       height: 100%;
-      background: ${resolvedCoverUri ? `url("${resolvedCoverUri}")` : '#e0e0e0'};
+      background: ${storyData.coverUri ? `url("${storyData.coverUri}")` : '#e0e0e0'};
       background-size: cover;
       background-position: center;
     }
@@ -401,50 +386,12 @@ export class PrintService {
   }
 
   private formatChapterContent(content: string): string {
-    // Check if content is already HTML formatted (contains HTML tags)
-    const hasHtmlTags = /<[^>]+>/.test(content);
-    
-    if (hasHtmlTags) {
-      // Content is already HTML formatted, return as-is
-      return content;
-    }
-    
-    // Content is plain text, format it with paragraph tags
+    // Split content into paragraphs and wrap each in <p> tags
     // All paragraphs should be indented (no special case for first paragraph)
     return content
       .split('\n\n')
       .filter(p => p.trim())
       .map(p => `<p>${p.trim()}</p>`)
       .join('');
-  }
-
-  /**
-   * Resolve image URI to absolute URL if it's relative
-   */
-  private async resolveImageUri(imageUri: string | null | undefined): Promise<string | null> {
-    if (!imageUri) {
-      return null;
-    }
-
-    // Check if URI is already absolute (starts with http:// or https://)
-    if (imageUri.startsWith('http://') || imageUri.startsWith('https://')) {
-      return imageUri;
-    }
-
-    // URI is relative, convert to absolute using StorageService
-    try {
-      const absoluteUrl = await this.storageService.getPublicUrl(imageUri);
-      logger.debug('Converted relative image URI to absolute', { 
-        relative: imageUri, 
-        absolute: absoluteUrl 
-      });
-      return absoluteUrl;
-    } catch (error) {
-      logger.warn('Failed to convert relative image URI to absolute, using original', { 
-        imageUri, 
-        error: error instanceof Error ? error.message : String(error) 
-      });
-      return imageUri; // Fall back to original relative URL
-    }
   }
 }

@@ -410,7 +410,7 @@ export class PrintGenerationHandler implements WorkflowStepHandler<PrintGenerati
       const dimensions = this.printService.calculateDimensions(pageCount);
 
       // Generate interior PDF
-      const interiorHtml = await this.printService.generateInteriorHTML(storyData, dimensions);
+      const interiorHtml = this.printService.generateInteriorHTML(storyData, dimensions);
       const interiorPath = join(tmpdir(), `interior-${params.storyId}.pdf`);
       
       await this.printService.renderPDF(interiorHtml, {
@@ -420,7 +420,7 @@ export class PrintGenerationHandler implements WorkflowStepHandler<PrintGenerati
       });
 
       // Generate cover PDF
-      const coverHtml = await this.printService.generateCoverHTML(storyData, dimensions);
+      const coverHtml = this.printService.generateCoverHTML(storyData, dimensions);
       const coverPath = join(tmpdir(), `cover-${params.storyId}.pdf`);
       
       await this.printService.renderPDF(coverHtml, {
@@ -435,13 +435,13 @@ export class PrintGenerationHandler implements WorkflowStepHandler<PrintGenerati
       const coverBuffer = fs.readFileSync(coverPath);
 
       const interiorPdfUrl = await this.storageService.uploadFile(
-        `${params.storyId}/print/interior.pdf`,
+        `mythoria-generated-stories/${params.storyId}/print/interior.pdf`,
         interiorBuffer,
         'application/pdf'
       );
 
       const coverPdfUrl = await this.storageService.uploadFile(
-        `${params.storyId}/print/cover.pdf`,
+        `mythoria-generated-stories/${params.storyId}/print/cover.pdf`,
         coverBuffer,
         'application/pdf'
       );
@@ -451,13 +451,13 @@ export class PrintGenerationHandler implements WorkflowStepHandler<PrintGenerati
       const coverHtmlBuffer = Buffer.from(coverHtml, 'utf-8');
 
       await this.storageService.uploadFile(
-        `${params.storyId}/print/interior.html`,
+        `mythoria-generated-stories/${params.storyId}/print/interior.html`,
         interiorHtmlBuffer,
         'text/html'
       );
 
       await this.storageService.uploadFile(
-        `${params.storyId}/print/cover.html`,
+        `mythoria-generated-stories/${params.storyId}/print/cover.html`,
         coverHtmlBuffer,
         'text/html'
       );

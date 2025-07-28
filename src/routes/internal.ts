@@ -7,7 +7,6 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { logger } from '@/config/logger.js';
 import { RunsService } from '@/services/runs.js';
-import { AssemblyService } from '@/services/assembly.js';
 import { TTSService } from '@/services/tts.js';
 import { StorageService } from '@/services/storage.js';
 import { ProgressTrackerService } from '@/services/progress-tracker.js';
@@ -32,7 +31,6 @@ const router = Router();
 
 // Initialize services
 const runsService = new RunsService();
-const assemblyService = new AssemblyService();
 const ttsService = new TTSService();
 const storageService = new StorageService();
 const progressTracker = new ProgressTrackerService();
@@ -484,48 +482,6 @@ router.get('/prompts/:runId/book-cover/:coverType', async (req, res) => {
       error: error instanceof Error ? error.message : String(error),
       runId: req.params.runId,
       coverType: req.params.coverType
-    });
-
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
-    });
-  }
-});
-
-/**
- * POST /internal/assemble/:runId
- * Assemble story into final formats (HTML, PDF)
- */
-router.post('/assemble/:runId', async (_req, res) => {
-  try {
-    const runId = _req.params.runId;
-
-    logger.info('Internal API: Assembling story', { runId });
-
-    const result = await assemblyService.assembleStory(runId);
-
-    await runsService.storeStepResult(runId, 'assemble', {
-      status: 'completed',
-      result
-    });
-
-    logger.info('Internal API: Story assembled successfully', {
-      runId,
-      formats: Object.keys(result.files)
-    });
-
-    res.json({
-      success: true,
-      runId,
-      result,
-      step: 'assemble'
-    });
-
-  } catch (error) {
-    logger.error('Internal API: Failed to assemble story', {
-      error: error instanceof Error ? error.message : String(error),
-      runId: _req.params.runId
     });
 
     res.status(500).json({

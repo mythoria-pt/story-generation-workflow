@@ -451,10 +451,11 @@ export class StoryService {
         .sort((a, b) => a.chapterNumber - b.chapterNumber);
 
       // Transform chapters to the format expected by the print service
-      // Keep HTML formatting intact for print PDF generation
       const chaptersForPrint = chaptersFromDb.map(chapter => ({
         title: chapter.title,
-        content: chapter.content || 'No content available',
+        content: chapter.content
+          ? chapter.content.replace(/<[^>]*>/g, '').replace(/&[^;]+;/g, ' ').trim()
+          : 'No content available',
         imageUri: chapter.imageUri
       }));
 
