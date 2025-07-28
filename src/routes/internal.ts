@@ -538,43 +538,19 @@ router.post('/assemble/:runId', async (_req, res) => {
 /**
  * POST /internal/tts/:runId
  * Generate audio narration for story (per chapter)
+ * @deprecated This route is deprecated. Use /internal/audiobook/chapter instead.
  */
 router.post('/tts/:runId', async (_req, res) => {
-  try {
-    const runId = _req.params.runId;
+  logger.warn('Deprecated TTS route called', { 
+    runId: _req.params.runId,
+    deprecationMessage: 'Use /internal/audiobook/chapter instead' 
+  });
 
-    logger.info('Internal API: Generating TTS', { runId });
-
-    const result = await ttsService.generateNarration(runId);
-
-    await runsService.storeStepResult(runId, 'tts', {
-      status: 'completed',
-      result
-    });    logger.info('Internal API: TTS request completed', {
-      runId,
-      audioUrls: result.audioUrls,
-      chaptersProcessed: result.metadata.chaptersProcessed,
-      audioGenerated: Object.keys(result.audioUrls).length > 0
-    });
-
-    res.json({
-      success: true,
-      runId,
-      result,
-      step: 'tts'
-    });
-
-  } catch (error) {
-    logger.error('Internal API: Failed to generate TTS', {
-      error: error instanceof Error ? error.message : String(error),
-      runId: _req.params.runId
-    });
-
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
-    });
-  }
+  res.status(410).json({
+    success: false,
+    error: 'This endpoint is deprecated. Use /internal/audiobook/chapter instead.',
+    deprecatedSince: '2025-01-28'
+  });
 });
 
 
