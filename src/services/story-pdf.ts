@@ -4,16 +4,14 @@
  */
 
 import * as path from 'path';
-import { fileURLToPath } from 'url';
-import { StorageService } from './storage.js';
-import { StoryService } from './story.js';
-import { PDFService } from './pdf.js';
-import { logger } from '@/config/logger.js';
-import { countWords } from '@/shared/utils.js';
-import { Story } from '@/db/schema/stories.js';
+import { StorageService } from './storage';
+import { StoryService } from './story';
+import { PDFService } from './pdf';
+import { logger } from '@/config/logger';
+import { countWords } from '@/shared/utils';
+import { Story } from '@/db/schema/stories';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// In CommonJS, __filename and __dirname are global variables
 
 export interface StoryPDFResult {
   pdfUri: string;

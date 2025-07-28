@@ -11,7 +11,8 @@ import {
   formatImageError
 } from './ai-image-utils.js';
 import { StoryService } from '@/services/story.js';
-import { StoryContext } from '@/shared/utils.js';
+import { workflowErrorHandler } from '@/shared/workflow-error-handler.js';
+import type { StoryContext } from '@/services/story.js';
 import { PromptService } from '@/services/prompt.js';
 import { SchemaService } from '@/services/schema.js';
 import { StorageService } from '@/services/storage.js';
@@ -21,7 +22,6 @@ import { logger } from '@/config/logger.js';
 import {
   formatTargetAudience,
   getLanguageName,
-  getStoryDescription,
   parseAIResponse
 } from '@/shared/utils.js';
 
@@ -30,6 +30,89 @@ const router = Router();
 const aiGateway = AIGatewayWithTokenTracking.fromEnvironment();
 const storyService = new StoryService();
 const storageService = new StorageService();
+
+/**
+ * Generate image prompts for a chapter based on its content
+ */
+async function generateImagePromptsForChapter(
+  chapterContent: string,
+  storyContext: StoryContext,
+  chapterNumber: number,
+  chapterTitle: string,
+  tokenTrackingContext: { authorId: string; storyId: string; action: 'chapter_writing' }
+): Promise<string[]> {
+  try {
+    // Create a focused prompt to generate image prompts from the chapter content
+    const imagePromptGenerationPrompt = `
+You are an expert at creating detailed image prompts for book illustrations. Based on the following chapter content, create 1-3 detailed image prompts that would make compelling illustrations for this chapter.
+
+Chapter Title: "${chapterTitle}"
+Chapter Number: ${chapterNumber}
+Story Genre: ${storyContext.story.novelStyle || 'adventure'}
+Target Audience: ${formatTargetAudience(storyContext.story.targetAudience)}
+
+Chapter Content:
+${chapterContent}
+
+Instructions:
+1. Create 1-3 detailed image prompts that capture the most visual and engaging moments from this chapter
+2. Focus on scenes with strong visual elements, character interactions, or dramatic moments
+3. Each prompt should be detailed enough for an AI image generator to create a compelling illustration
+4. Consider the target audience and genre when describing the visual style
+5. Include details about characters, settings, lighting, mood, and composition
+6. Each prompt should be 2-3 sentences long
+
+Format your response as a JSON array of strings, like this:
+["First detailed image prompt here", "Second detailed image prompt here", "Third detailed image prompt here"]
+
+Return only the JSON array, no other text.
+`;
+
+    const imagePromptsResponse = await aiGateway.getTextService(tokenTrackingContext).complete(
+      imagePromptGenerationPrompt,
+      {
+        maxTokens: 1024,
+        temperature: 0.7
+      }
+    );
+
+    // Parse the JSON response
+    try {
+      const imagePrompts = JSON.parse(imagePromptsResponse.trim()) as string[];
+      
+      // Validate that we got an array of strings
+      if (!Array.isArray(imagePrompts) || !imagePrompts.every(prompt => typeof prompt === 'string')) {
+        logger.warn('AI returned invalid image prompts format, falling back to default', {
+          chapterNumber,
+          response: imagePromptsResponse
+        });
+        return [`A scene from chapter ${chapterNumber}: "${chapterTitle}" of this ${storyContext.story.novelStyle || 'adventure'} story.`];
+      }
+
+      logger.debug('Generated image prompts for chapter', {
+        chapterNumber,
+        promptCount: imagePrompts.length
+      });
+
+      return imagePrompts;
+    } catch (parseError) {
+      logger.warn('Failed to parse AI image prompts response, falling back to default', {
+        chapterNumber,
+        error: parseError instanceof Error ? parseError.message : String(parseError),
+        response: imagePromptsResponse
+      });
+      return [`A scene from chapter ${chapterNumber}: "${chapterTitle}" of this ${storyContext.story.novelStyle || 'adventure'} story.`];
+    }
+  } catch (error) {
+    logger.error('Failed to generate image prompts for chapter', {
+      chapterNumber,
+      error: error instanceof Error ? error.message : String(error)
+    });
+    
+    // Return a fallback image prompt
+    return [`A scene from chapter ${chapterNumber}: "${chapterTitle}" of this ${storyContext.story.novelStyle || 'adventure'} story.`];
+  }
+}
 
 // Request schemas
 const OutlineRequestSchema = z.object({
@@ -92,13 +175,15 @@ function isOutlineData(data: unknown): data is OutlineData {
 router.post('/text/outline', async (req, res) => {  try {
     const { storyId, runId } = OutlineRequestSchema.parse(req.body);
 
-    // Load story context from database
+    // Load story context from database with enhanced error handling
     const storyContext = await storyService.getStoryContext(storyId);
     if (!storyContext) {
-      res.status(404).json({
-        success: false,
-        error: `Story not found: ${storyId}`
-      });
+      // Use the workflow error handler for better diagnostics
+      const workflowError = await workflowErrorHandler.handleStoryNotFound(storyId, runId);
+      workflowErrorHandler.logWorkflowError(workflowError);
+      
+      const statusCode = workflowError.type === 'ORPHANED_RUN' ? 404 : 500;
+      res.status(statusCode).json(workflowErrorHandler.createErrorResponse(workflowError));
       return;
     }    // Load prompt template and prepare variables
     const promptTemplate = await PromptService.loadPrompt('en-US', 'text-outline');    // Use the chapterCount from the database, fallback to 6 if not available
@@ -124,7 +209,7 @@ router.post('/text/outline', async (req, res) => {  try {
         2
       ),
       bookTitle: storyContext.story.title,
-      storyDescription: getStoryDescription(storyContext as StoryContext),
+      storyDescription: storyContext.story.plotDescription || storyContext.story.synopsis || 'No description provided',
       description: storyContext.story.plotDescription || 'No specific plot description provided.',
       graphicalStyle: storyContext.story.graphicalStyle || 'colorful and vibrant illustration',
       // Placeholder values for template completion
@@ -267,12 +352,22 @@ router.post('/text/chapter/:chapterNumber', async (req, res) => {
       temperature: 1
     });
 
+    // Generate image prompts based on the chapter content
+    const imagePrompts = await generateImagePromptsForChapter(
+      chapterText,
+      storyContext,
+      chapterNumber,
+      chapterTitle,
+      chapterContext
+    );
+
     res.json({
       success: true,
       storyId,
       runId: runId || null,
       chapterNumber,
-      chapter: chapterText.trim()
+      chapter: chapterText.trim(),
+      imagePrompts
     });
   } catch (error) {
     res.status(500).json({

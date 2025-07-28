@@ -7,9 +7,6 @@ param(
     [string]$ProjectId,
     
     [Parameter(Mandatory=$false)]
-    [string]$StorageBucketName,
-    
-    [Parameter(Mandatory=$false)]
     [string]$VertexAiModelId
 )
 
@@ -66,7 +63,6 @@ Import-EnvironmentVariables
 
 # Use loaded environment variables or command-line parameters (parameters take precedence)
 $ProjectId = if ($ProjectId) { $ProjectId } else { $env:GOOGLE_CLOUD_PROJECT_ID }
-$StorageBucketName = if ($StorageBucketName) { $StorageBucketName } else { $env:STORAGE_BUCKET_NAME }
 $VertexAiModelId = if ($VertexAiModelId) { $VertexAiModelId } else { $env:VERTEX_AI_MODEL_ID }
 
 # Additional secrets from environment
@@ -82,10 +78,6 @@ if (-not $ProjectId) {
     Write-Err "ProjectId not found in command-line parameters or GOOGLE_CLOUD_PROJECT_ID in .env.production file."
     exit 1
 }
-if (-not $StorageBucketName) {
-    Write-Err "STORAGE_BUCKET_NAME not found in .env.production file or command-line parameters."
-    exit 1
-}
 if (-not $VertexAiModelId) {
     Write-Err "VERTEX_AI_MODEL_ID not found in .env.production file or command-line parameters."
     exit 1
@@ -94,7 +86,6 @@ if (-not $VertexAiModelId) {
 # Display loaded configuration
 Write-Info "Configuration loaded:"
 Write-Host "  [OK] PROJECT_ID: $ProjectId" -ForegroundColor Green
-Write-Host "  [OK] STORAGE_BUCKET_NAME: $StorageBucketName" -ForegroundColor Green
 Write-Host "  [OK] VERTEX_AI_MODEL_ID: $VertexAiModelId" -ForegroundColor Green
 Write-Host "  [OK] VERTEX_AI_LOCATION: $VertexAiLocation" -ForegroundColor Green
 Write-Host "  [OK] GOOGLE_CLOUD_REGION: $WorkflowsLocation" -ForegroundColor Green
@@ -152,20 +143,6 @@ if ($env:GOOGLE_GENAI_API_KEY) {
     Remove-Item temp.txt
 }
 
-# Storage bucket name (configuration data that could be in Secret Manager for consistency)
-if ($StorageBucketName) {
-    Write-Info "Creating storage bucket name secret..."
-    $StorageBucketName | Set-Content -Path temp.txt -NoNewline
-    gcloud secrets create mythoria-storage-bucket --data-file=temp.txt 2>$null
-    if ($LASTEXITCODE -eq 0) {
-        Write-Success "Created mythoria-storage-bucket secret"
-    } else {
-        Write-Info "Secret mythoria-storage-bucket already exists - updating..."
-        gcloud secrets versions add mythoria-storage-bucket --data-file=temp.txt
-    }
-    Remove-Item temp.txt
-}
-
 Write-Info "All story-generation-workflow specific secrets have been created"
 
 # Grant permissions to Cloud Build service account for new secrets
@@ -175,8 +152,7 @@ $cloudBuildServiceAccount = "$projectNumber@cloudbuild.gserviceaccount.com"
 
 $storySecrets = @(
     "mythoria-openai-api-key",
-    "mythoria-google-genai-api-key",
-    "mythoria-storage-bucket"
+    "mythoria-google-genai-api-key"
 )
 
 foreach ($secret in $storySecrets) {
@@ -201,7 +177,6 @@ Write-Host ""
 Write-Host "Created new secrets for story-generation-workflow:" -ForegroundColor Cyan
 Write-Host "  - mythoria-openai-api-key" -ForegroundColor White
 Write-Host "  - mythoria-google-genai-api-key" -ForegroundColor White
-Write-Host "  - mythoria-storage-bucket" -ForegroundColor White
 
 Write-Host ""
 Write-Host "To verify all secrets were created, run:" -ForegroundColor Cyan

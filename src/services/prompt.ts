@@ -6,6 +6,7 @@
 import { readFile } from 'fs/promises';
 import { join } from 'path';
 import { logger } from '@/config/logger.js';
+import { getPromptsPath } from '../shared/path-utils.js';
 
 export interface PromptTemplate {
   systemPrompt?: string;
@@ -24,7 +25,7 @@ export interface ImageStylesCollection {
 }
 
 export class PromptService {
-  private static readonly PROMPTS_BASE_PATH = join(process.cwd(), 'src', 'prompts');
+  private static readonly PROMPTS_BASE_PATH = getPromptsPath();
 
   /**
    * Load a prompt template from JSON file

@@ -111,8 +111,16 @@ router.patch('/runs/:runId', async (req: Request, res: Response) => {
 
     // Update progress percentage whenever a run is updated
     try {
-      await progressTracker.updateStoryProgress(runId);
-      logger.debug('Progress percentage updated', { runId });
+      // Only update progress for active runs to avoid unnecessary processing
+      if (updatedRun.status === 'running' || updatedRun.status === 'completed') {
+        await progressTracker.updateStoryProgress(runId);
+        logger.debug('Progress percentage updated', { runId });
+      } else {
+        logger.debug('Skipping progress update for inactive run', { 
+          runId, 
+          status: updatedRun.status 
+        });
+      }
     } catch (progressError) {
       // Don't fail the entire request if progress update fails
       logger.warn('Failed to update progress percentage', {
@@ -783,7 +791,7 @@ router.get('/stories/:storyId', async (req: Request, res: Response): Promise<voi
 
 /**
  * GET /internal/stories/:storyId/html
- * Get story HTML and extract chapter content for TTS
+ * Get story details and chapter content from database for audiobook generation
  */
 router.get('/stories/:storyId/html', async (req: Request, res: Response): Promise<void> => {
   try {

@@ -1,6 +1,6 @@
-import { validateEnvironment } from './environment.js';
+import { validateEnvironment } from './environment';
 
 // Validate environment on startup
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (require.main === module) {
   validateEnvironment();
 }

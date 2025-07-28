@@ -5,12 +5,10 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { fileURLToPath } from 'url';
 import PuppeteerHTMLPDF from 'puppeteer-html-pdf';
-import { logger } from '@/config/logger.js';
+import { logger } from '@/config/logger';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// In CommonJS, __filename and __dirname are global variables
 
 export interface PDFGenerationOptions {
   format?: 'A4' | 'A3' | 'A5' | 'Letter' | 'Legal';

@@ -6,6 +6,7 @@
 import { readFile } from 'fs/promises';
 import { join } from 'path';
 import { logger } from '@/config/logger.js';
+import { getPromptsPath } from '../shared/path-utils.js';
 
 export class SchemaService {
   private static schemaCache = new Map<string, object>();
@@ -23,7 +24,7 @@ export class SchemaService {
     }
 
       // Load schema from file
-      const schemaPath = join(process.cwd(), 'src', 'prompts', 'schemas', `${schemaName}.json`);
+      const schemaPath = join(getPromptsPath(), 'schemas', `${schemaName}.json`);
       const schemaContent = await readFile(schemaPath, 'utf-8');
       const schema = JSON.parse(schemaContent);
 

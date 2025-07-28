@@ -43,13 +43,40 @@ export class ProgressTrackerService {
   constructor() {
     this.runsService = new RunsService();
     this.storyService = new StoryService();
+    
+    // Clean up expired cache entries periodically
+    setInterval(() => {
+      this.cleanupExpiredCache();
+    }, 5 * 60 * 1000); // Every 5 minutes
   }
+
+  /**
+   * Clean up expired cache entries
+   */
+  private cleanupExpiredCache(): void {
+    const now = Date.now();
+    for (const [runId, cached] of this.chapterCountCache) {
+      if (now - cached.timestamp > ProgressTrackerService.CACHE_TTL) {
+        this.chapterCountCache.delete(runId);
+      }
+    }
+  }
+
+  // Cache chapter counts to avoid repeated database queries
+  private chapterCountCache = new Map<string, { count: number; timestamp: number }>();
+  private static readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
   /**
    * Calculate the expected number of chapters from the outline or database
    */
   private async getChapterCount(runId: string): Promise<number> {
     try {
+      // Check cache first
+      const cached = this.chapterCountCache.get(runId);
+      if (cached && Date.now() - cached.timestamp < ProgressTrackerService.CACHE_TTL) {
+        return cached.count;
+      }
+
       // First, try to get chapter count from the outline
       const outlineStep = await this.runsService.getStepResult(runId, 'generate_outline');
       
@@ -63,7 +90,9 @@ export class ProgressTrackerService {
             runId, 
             chapterCount: outline.chapters.length 
           });
-          return outline.chapters.length;
+          const count = outline.chapters.length;
+          this.chapterCountCache.set(runId, { count, timestamp: Date.now() });
+          return count;
         }
         
         // Alternative: look for numbered chapters in the outline
@@ -74,7 +103,9 @@ export class ProgressTrackerService {
               runId, 
               chapterCount: chapterMatches.length 
             });
-            return chapterMatches.length;
+            const count = chapterMatches.length;
+            this.chapterCountCache.set(runId, { count, timestamp: Date.now() });
+            return count;
           }
         }
       }
@@ -91,20 +122,27 @@ export class ProgressTrackerService {
             storyId: run.storyId,
             chapterCount: story.chapterCount 
           });
-          return story.chapterCount;
+          const count = story.chapterCount;
+          this.chapterCountCache.set(runId, { count, timestamp: Date.now() });
+          return count;
         }
       }
       
       // Final fallback - typical children's book has 3-5 chapters
       logger.warn('Could not determine chapter count from outline or database, using default of 4', { runId });
-      return 4;
+      const count = 4;
+      this.chapterCountCache.set(runId, { count, timestamp: Date.now() });
+      return count;
       
     } catch (error) {
       logger.error('Failed to get chapter count', {
         error: error instanceof Error ? error.message : String(error),
         runId
       });
-      return 4; // Default fallback
+      // Cache the default value to prevent repeated failures
+      const count = 4;
+      this.chapterCountCache.set(runId, { count, timestamp: Date.now() });
+      return count;
     }
   }
 
@@ -230,16 +268,33 @@ export class ProgressTrackerService {
     }
   }
 
+  // Track ongoing progress updates to prevent concurrent updates for the same run
+  private activeUpdates = new Set<string>();
+
   /**
    * Update the story's completion percentage
    */
   async updateStoryProgress(runId: string): Promise<void> {
+    // Prevent concurrent updates for the same runId
+    if (this.activeUpdates.has(runId)) {
+      logger.debug('Progress update already in progress, skipping', { runId });
+      return;
+    }
+
+    this.activeUpdates.add(runId);
+    
     try {
       // Use retry logic for the entire progress update operation
       await retry(async () => {
         const run = await this.runsService.getRun(runId);
         if (!run) {
           throw new Error(`Run not found: ${runId}`);
+        }
+
+        // Skip progress updates for failed runs to avoid repetitive processing
+        if (run.status === 'failed') {
+          logger.debug('Skipping progress update for failed run', { runId, status: run.status });
+          return;
         }
 
         const progress = await this.calculateProgress(runId);
@@ -278,6 +333,8 @@ export class ProgressTrackerService {
         runId
       });
       throw error;
+    } finally {
+      this.activeUpdates.delete(runId);
     }
   }  /**
    * Get the estimated completion percentage for a specific step

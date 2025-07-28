@@ -4,17 +4,11 @@ import { StoryService } from '@/services/story.js';
 import { StorageService } from '@/services/storage.js';
 import { TTSService } from '@/services/tts.js';
 import { GoogleCloudWorkflowsAdapter } from '@/adapters/google-cloud/workflows-adapter.js';
-import { parse, HTMLElement } from 'node-html-parser';
 
 const router = express.Router();
 const storyService = new StoryService();
 const storageService = new StorageService();
 const workflowsAdapter = new GoogleCloudWorkflowsAdapter();
-
-interface ChapterContent {
-  title: string;
-  content: string;
-}
 
 /**
  * POST /audio/create-audiobook
@@ -73,104 +67,6 @@ router.post('/create-audiobook', async (req: express.Request, res: express.Respo
     logger.error('Audio API: Failed to create audiobook', {
       error: error instanceof Error ? error.message : String(error),
       storyId: req.body.storyId
-    });
-
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
-    });
-  }
-});
-
-/**
- * GET /internal/stories/:storyId/html
- * Get story HTML and extract chapter content for TTS
- */
-router.get('/internal/stories/:storyId/html', async (req: express.Request, res: express.Response): Promise<void> => {
-  try {
-    const storyId = req.params.storyId;
-
-    if (!storyId) {
-      res.status(400).json({
-        success: false,
-        error: 'storyId parameter is required'
-      });
-      return;
-    }
-
-    logger.info('Internal API: Getting story HTML for audiobook', { storyId });
-
-    // Get story from database to fetch the correct HTML URI
-    const story = await storyService.getStory(storyId);
-    if (!story || !story.htmlUri) {
-      res.status(404).json({
-        success: false,
-        error: 'Story not found or HTML not generated yet'
-      });
-      return;
-    }
-
-    // Extract filename from the URI for storage service
-    // URI format: https://storage.googleapis.com/bucket-name/path/to/file
-    const url = new URL(story.htmlUri);
-    const pathParts = url.pathname.split('/').filter(part => part.length > 0);
-    // Skip bucket name (first part) and reconstruct the file path
-    const htmlFilename = pathParts.slice(1).join('/');
-
-    // Download HTML file from storage
-    const htmlContent = await storageService.downloadFile(htmlFilename);
-    
-    if (!htmlContent) {
-      res.status(404).json({
-        success: false,
-        error: 'Story HTML not found'
-      });
-      return;
-    }
-
-    // Parse HTML and extract chapters
-    const root = parse(htmlContent);
-    const chapters: ChapterContent[] = [];
-
-    // Extract chapters from HTML
-    const chapterElements = root.querySelectorAll('.mythoria-chapter');
-    
-    for (const chapterElement of chapterElements) {
-      const titleElement = chapterElement.querySelector('.mythoria-chapter-title');
-      const contentElement = chapterElement.querySelector('.mythoria-chapter-content');
-      
-      if (titleElement && contentElement) {
-        const title = titleElement.text.trim();        // Extract text content, removing HTML tags and cleaning up
-        const paragraphs = contentElement.querySelectorAll('.mythoria-chapter-paragraph');
-        const content = paragraphs
-          .map((p: HTMLElement) => p.text.trim())
-          .filter((text: string) => text && !text.startsWith('#')) // Remove markdown headers
-          .join('\n\n');
-
-        if (content) {
-          chapters.push({
-            title,
-            content
-          });
-        }
-      }
-    }
-
-    logger.info('Internal API: Extracted chapters from HTML', {
-      storyId,
-      chaptersFound: chapters.length
-    });
-
-    res.json({
-      success: true,
-      storyId,
-      chapters
-    });
-
-  } catch (error) {
-    logger.error('Internal API: Failed to get story HTML', {
-      error: error instanceof Error ? error.message : String(error),
-      storyId: req.params.storyId
     });
 
     res.status(500).json({
