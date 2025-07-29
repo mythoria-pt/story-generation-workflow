@@ -74,12 +74,10 @@ describe('Workflow Integration', () => {  describe('Google Cloud Workflows Struc
         { path: '/internal/runs/:runId/outline', method: 'POST', purpose: 'Save story outline' },
         { path: '/internal/runs/:runId/chapter/:chapterNum', method: 'POST', purpose: 'Save chapter content' },
         { path: '/internal/runs/:runId/chapter/:chapterNum/image', method: 'POST', purpose: 'Save image URI' },
-        { path: '/internal/runs/:runId/book-cover', method: 'POST', purpose: 'Save book cover image' },
-        { path: '/internal/assemble/:runId', method: 'POST', purpose: 'Assemble final story' },
-        { path: '/internal/tts/:runId', method: 'POST', purpose: 'Generate audio narration' }
+        { path: '/internal/runs/:runId/book-cover', method: 'POST', purpose: 'Save book cover image' }
       ];
 
-      expect(internalEndpoints).toHaveLength(10);
+      expect(internalEndpoints).toHaveLength(8);
       internalEndpoints.forEach(endpoint => {
         expect(endpoint.path).toMatch(/^\/internal\//);
         expect(['GET', 'POST', 'PATCH']).toContain(endpoint.method);

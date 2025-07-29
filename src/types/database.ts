@@ -61,16 +61,3 @@ export interface RunUpdateData {
   ended_at?: string;
   metadata?: Record<string, unknown>;
 }
-
-export interface AssemblyResult {
-  htmlUri: string;
-  pdfUri?: string;
-  success: boolean;
-  message?: string;
-}
-
-export interface TTSResult {
-  audioUri?: string;
-  success: boolean;
-  message?: string;
-}

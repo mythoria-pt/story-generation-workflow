@@ -5,8 +5,8 @@ This implementation adds PDF generation for print-ready books to the Mythoria st
 ## Overview
 
 The print service generates two PDF files per book:
-1. **Interior-block.pdf** - All numbered pages with 3mm bleed
-2. **Cover-spread.pdf** - Back cover + spine + front cover with 20mm bleed
+1. **Interior.pdf** - All numbered pages with no bleed
+2. **Cover.pdf** - Back cover + spine + front cover with 3mm bleed
 
 ## Components Added
 
@@ -31,8 +31,8 @@ The print service generates two PDF files per book:
 - Async PDF generation workflow
 
 ### 5. Configuration
-- Paper caliper settings: `config/paper-caliper.json`
-- Default: 170x240mm trim size, 3mm interior bleed, 20mm cover bleed
+- Paper caliper settings: `src/config/paper-caliper.json`
+- Default: 170x240mm trim size, no interior bleed, 3mm cover bleed
 
 ## Usage
 
@@ -50,7 +50,7 @@ PDFs are automatically generated when users place print orders through the webap
 
 ## Key Features
 
-- **Proper bleed handling** (3mm interior, 20mm cover)
+- **Proper bleed handling** (no interior bleed, 3mm cover bleed)
 - **Spine width calculation** based on page count and paper caliper
 - **Professional typography** with serif fonts
 - **Table of contents** with page numbers
@@ -65,7 +65,7 @@ PDFs are automatically generated when users place print orders through the webap
 ## File Structure
 
 ```
-config/
+src/config/
   paper-caliper.json          # Paper specifications
 src/services/
   print.ts                    # Core print service
@@ -92,8 +92,8 @@ The system uses a simple paper caliper configuration that can be updated by admi
   },
   "defaultPaperType": "coated_115gsm",
   "bleedMM": {
-    "interior": 3,
-    "cover": 20
+    "interior": 0,
+    "cover": 3
   },
   "safeZoneMM": 10,
   "trimSize": {

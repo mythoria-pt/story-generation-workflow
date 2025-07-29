@@ -8,7 +8,6 @@ import { z } from 'zod';
 import { logger } from '@/config/logger.js';
 import { RunsService } from '@/services/runs.js';
 import { TTSService } from '@/services/tts.js';
-import { StorageService } from '@/services/storage.js';
 import { ProgressTrackerService } from '@/services/progress-tracker.js';
 import { StoryService } from '@/services/story.js';
 import { ChaptersService } from '@/services/chapters.js';
@@ -32,7 +31,6 @@ const router = Router();
 // Initialize services
 const runsService = new RunsService();
 const ttsService = new TTSService();
-const storageService = new StorageService();
 const progressTracker = new ProgressTrackerService();
 const storyService = new StoryService();
 const chaptersService = new ChaptersService();
@@ -487,90 +485,6 @@ router.get('/prompts/:runId/book-cover/:coverType', async (req, res) => {
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error'
-    });
-  }
-});
-
-/**
- * POST /internal/tts/:runId
- * Generate audio narration for story (per chapter)
- * @deprecated This route is deprecated. Use /internal/audiobook/chapter instead.
- */
-router.post('/tts/:runId', async (_req, res) => {
-  logger.warn('Deprecated TTS route called', { 
-    runId: _req.params.runId,
-    deprecationMessage: 'Use /internal/audiobook/chapter instead' 
-  });
-
-  res.status(410).json({
-    success: false,
-    error: 'This endpoint is deprecated. Use /internal/audiobook/chapter instead.',
-    deprecatedSince: '2025-01-28'
-  });
-});
-
-
-/**
- * GET /storage/test
- * Test storage connection and configuration
- */
-router.get('/storage/test', async (_req, res) => {
-  try {
-    logger.info('Testing storage connection');
-    
-    const testResult = await storageService.testConnection();
-    
-    if (testResult.success) {
-      logger.info('Storage test successful', testResult.details);
-      res.json({
-        success: true,
-        message: 'Storage connection test passed',
-        details: testResult.details
-      });
-    } else {
-      logger.warn('Storage test failed', testResult.details);
-      res.status(500).json({
-        success: false,
-        message: 'Storage connection test failed',
-        details: testResult.details
-      });
-    }
-  } catch (error) {
-    logger.error('Storage test endpoint error', {
-      error: error instanceof Error ? error.message : String(error)
-    });
-    
-    res.status(500).json({
-      success: false,
-      message: 'Storage test failed with exception',
-      error: error instanceof Error ? error.message : String(error)
-    });
-  }
-});
-
-/**
- * GET /storage/info
- * Get bucket configuration and setup recommendations
- */
-router.get('/storage/info', async (_req, res) => {
-  try {
-    logger.info('Getting storage bucket info');
-    
-    const bucketInfo = await storageService.getBucketInfo();
-    
-    res.json({
-      success: true,
-      ...bucketInfo
-    });
-  } catch (error) {
-    logger.error('Storage info endpoint error', {
-      error: error instanceof Error ? error.message : String(error)
-    });
-    
-    res.status(500).json({
-      success: false,
-      message: 'Failed to get storage info',
-      error: error instanceof Error ? error.message : String(error)
     });
   }
 });

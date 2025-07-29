@@ -18,19 +18,9 @@ export interface IImageGenerationService {
   generateImage(prompt: string, style: string): Promise<Buffer>;
 }
 
-export interface IStorageService {
-  uploadFile(fileName: string, content: Buffer, mimeType: string): Promise<string>;
-  getFileUrl(fileName: string): Promise<string>;
-  deleteFile(fileName: string): Promise<void>;
-}
-
 export interface IWorkflowService {
   executeWorkflow(workflowId: string, parameters: Record<string, unknown>): Promise<string>;
   getWorkflowExecution(executionId: string): Promise<WorkflowExecutionResult>;
-}
-
-export interface IPdfService {
-  generatePdf(htmlContent: string): Promise<Buffer>;
 }
 
 export interface IAudioService {

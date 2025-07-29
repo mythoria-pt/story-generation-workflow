@@ -435,13 +435,13 @@ export class PrintGenerationHandler implements WorkflowStepHandler<PrintGenerati
       const coverBuffer = fs.readFileSync(coverPath);
 
       const interiorPdfUrl = await this.storageService.uploadFile(
-        `mythoria-generated-stories/${params.storyId}/print/interior.pdf`,
+        `${params.storyId}/print/interior.pdf`,
         interiorBuffer,
         'application/pdf'
       );
 
       const coverPdfUrl = await this.storageService.uploadFile(
-        `mythoria-generated-stories/${params.storyId}/print/cover.pdf`,
+        `${params.storyId}/print/cover.pdf`,
         coverBuffer,
         'application/pdf'
       );
@@ -451,13 +451,13 @@ export class PrintGenerationHandler implements WorkflowStepHandler<PrintGenerati
       const coverHtmlBuffer = Buffer.from(coverHtml, 'utf-8');
 
       await this.storageService.uploadFile(
-        `mythoria-generated-stories/${params.storyId}/print/interior.html`,
+        `${params.storyId}/print/interior.html`,
         interiorHtmlBuffer,
         'text/html'
       );
 
       await this.storageService.uploadFile(
-        `mythoria-generated-stories/${params.storyId}/print/cover.html`,
+        `${params.storyId}/print/cover.html`,
         coverHtmlBuffer,
         'text/html'
       );

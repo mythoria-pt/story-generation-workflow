@@ -18,12 +18,12 @@
   },
   "defaultPaperType": "coated_115gsm",
   "bleedMM": {
-    "interior": 3,
-    "cover": 20
+    "interior": 0,
+    "cover": 3
   },
   "safeZoneMM": 10,
   "trimSize": {
-    "width": 170,
-    "height": 240
+    "width": 148,
+    "height": 210
   }
 }

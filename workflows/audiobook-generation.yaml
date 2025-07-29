@@ -1,12 +1,5 @@
 # Mythoria – Audiobook Generation Workflow
-# T                  # Get story details and chapters from database
-                  - getStoryData:
-                      call: http.request
-                      args:
-                        url:    ${baseUrl + "/internal/stories/" + storyId + "/html"}
-                        method: GET
-                        auth:   { type: OIDC }
-                      result: storyDataRespopic mythoria-audiobook-requests
+# Trigger: Pub/Sub topic mythoria-audiobook-requests
 #
 # Pub/Sub message (base-64 JSON):
 #   { "storyId": "<uuid>", "runId": "<uuid>", "voice": "<voice>", "timestamp": "<iso-string>" }
@@ -28,7 +21,7 @@ main:
           - storyId:  ${payload.storyId}
           - runId:    ${payload.runId}
           - voice:    ${default(payload.voice, "coral")}
-          - baseUrl:  "https://91c4beeda346.ngrok-free.app"
+          - baseUrl:  "https://story-generation-workflow-803421888801.europe-west9.run.app"
           - now:      ${time.format(sys.now())}
 
     # ───────────────────────────────────────────────
@@ -61,22 +54,22 @@ main:
                         auth:   { type: OIDC }
                       result: storyResp
 
-                  # Get story details and chapters from database
+                  # Download and parse story HTML from storage
                   - getStoryHtml:
                       call: http.request
                       args:
-                        url:    ${baseUrl + "/internal/stories/" + storyId}
+                        url:    ${baseUrl + "/internal/stories/" + storyId + "/html"}
                         method: GET
                         auth:   { type: OIDC }
-                      result: storyResp
+                      result: htmlResp
 
                   - extractStoryContent:
                       assign:
-                        - storyTitle: ${storyDataResp.body.title}
-                        - storyAuthor: ${default(storyDataResp.body.author, "")}
-                        - dedicatoryMessage: ${default(storyDataResp.body.dedicationMessage, "")}
-                        - storyLanguage: ${default(storyDataResp.body.storyLanguage, "en-US")}
-                        - chapters: ${storyDataResp.body.chapters}  # Chapters from database
+                        - storyTitle: ${storyResp.body.title}
+                        - storyAuthor: ${default(htmlResp.body.author, "")}
+                        - dedicatoryMessage: ${default(htmlResp.body.dedicationMessage, "")}
+                        - storyLanguage: ${default(storyResp.body.storyLanguage, "en-US")}
+                        - chapters: ${htmlResp.body.chapters}  # Chapters from database
 
             # 3. Generate audio for each chapter sequentially
             - generateChapterAudios:

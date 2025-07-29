@@ -86,6 +86,26 @@ export function generateNextVersionFilename(currentUri: string): string {
 }
 
 /**
+ * Convert relative image path to absolute URL
+ * @param imagePath - Image path (can be relative starting with / or absolute with http)
+ * @returns Absolute URL for the image
+ */
+export function convertToAbsoluteImagePath(imagePath: string): string {
+  // If already absolute (starts with http), return as-is
+  if (imagePath.startsWith('http')) {
+    return imagePath;
+  }
+  
+  // If relative path (starts with /), prepend the domain
+  if (imagePath.startsWith('/')) {
+    return `https://storage.googleapis.com/mythoria-generated-stories${imagePath}`;
+  }
+  
+  // If no leading slash, add it and prepend domain
+  return `https://storage.googleapis.com/mythoria-generated-stories/${imagePath}`;
+}
+
+/**
  * Build image editing prompt with proper structure and style integration
  * @param userRequest - User's editing request
  * @param graphicalStyle - Style from imageStyles.json

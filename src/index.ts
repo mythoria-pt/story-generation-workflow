@@ -60,25 +60,18 @@ app.get('/', (_req, res) => {
 });
 
 // Import and mount API routes
-import { router as workflowRoutes } from './routes/workflow.js';
 import { aiRouter } from './routes/ai.js';
 import { internalRouter } from './routes/internal.js';
 import { storyEditRouter } from './routes/story-edit.js';
-import { imageEditRouter } from './routes/image-edit.js';
 import { audioRouter } from './routes/audio.js';
-import { pdfRouter } from './routes/pdf.js';
 import { printRouter } from './routes/print.js';
 import { pingRouter } from './routes/ping.js';
 import { asyncJobRouter } from './routes/async-jobs.js';
-
-app.use('/api/workflow', workflowRoutes);
 app.use('/ai', aiRouter);
 app.use('/audio', audioRouter);
 app.use('/internal', internalRouter);
 app.use('/internal/print', printRouter);
 app.use('/api/story-edit', storyEditRouter);
-app.use('/image-edit', imageEditRouter);
-app.use('/pdf', pdfRouter);
 app.use('/api/jobs', asyncJobRouter);
 app.use('/', pingRouter);  // Mount ping routes at root level
 

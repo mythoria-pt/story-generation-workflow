@@ -2,6 +2,9 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import puppeteer from 'puppeteer';
 import { logger } from '@/config/logger.js';
+import { getTemplatesPath } from '@/shared/path-utils.js';
+import { getPrintTranslations, formatPublishDate } from '@/utils/print-translations.js';
+import { convertToAbsoluteImagePath } from '@/utils/imageUtils.js';
 
 interface PaperConfig {
   paperTypes: Record<string, {
@@ -39,8 +42,79 @@ export class PrintService {
   private paperConfig: PaperConfig;
 
   constructor() {
-    const configPath = join(process.cwd(), 'config', 'paper-caliper.json');
+    const configPath = join(process.cwd(), 'src', 'config', 'paper-caliper.json');
     this.paperConfig = JSON.parse(readFileSync(configPath, 'utf-8'));
+  }
+
+  /**
+   * Load a template file and replace variables
+   */
+  private loadTemplate(templateName: string, variables: Record<string, string>): string {
+    const templatePath = join(getTemplatesPath(), templateName);
+    let template = readFileSync(templatePath, 'utf-8');
+    
+    // Replace all {{variable}} placeholders with actual values
+    for (const [key, value] of Object.entries(variables)) {
+      const placeholder = `{{${key}}}`;
+      template = template.replace(new RegExp(placeholder, 'g'), value);
+    }
+    
+    return template;
+  }
+
+  /**
+   * Generate table of contents HTML
+   */
+  private generateTableOfContents(chapters: any[]): string {
+    return chapters.map((chapter: any) => {
+      // Extract just the title after the colon, handling translated chapter prefixes
+      let cleanTitle = chapter.title;
+      
+      // Look for colon and extract everything after it (trimmed)
+      // If no colon is found, return the original title
+      const colonIndex = cleanTitle.indexOf(':');
+      if (colonIndex !== -1) {
+        cleanTitle = cleanTitle.substring(colonIndex + 1).trim();
+      }
+      
+      return `
+      <div class="toc-item">
+        <span class="toc-chapter-title">${cleanTitle}</span>
+      </div>
+    `;
+    }).join('');
+  }
+
+  /**
+   * Generate chapters HTML with two-page spread design
+   */
+  private generateChaptersHTML(chapters: any[], _storyLanguage: string): string {
+    return chapters.map((chapter: any, index: number) => {      
+      // Convert relative image paths to absolute URLs
+      let imageUrl = '';
+      if (chapter.imageUri) {
+        imageUrl = convertToAbsoluteImagePath(chapter.imageUri);
+      }
+      
+      return `
+      <!-- Chapter ${index + 1} Image Page (Even/Left) -->
+      <div class="chapter-image-page">
+        <div class="chapter-image">
+          ${imageUrl ? `<img src="${imageUrl}" alt="Chapter ${index + 1} illustration" />` : ''}
+        </div>
+      </div>
+      
+      <!-- Chapter ${index + 1} Content Page (Odd/Right) -->
+      <div class="chapter-content-page">
+        <div class="chapter-content-wrapper">
+          <div class="chapter-title">${chapter.title}</div>
+          <div class="chapter-content">
+            ${this.formatChapterContent(chapter.content)}
+          </div>
+        </div>
+      </div>
+    `;
+    }).join('');
   }
 
   /**
@@ -122,189 +196,52 @@ export class PrintService {
 
   /**
    * Generate interior PDF HTML
+   * 
+   * Margin Strategy:
+   * - Chapter images: Full bleed to page edges (0mm margin)
+   * - Text content: Within 1cm (10mm) safe zone for reliable printing
    */
   generateInteriorHTML(storyData: any, dimensions: PrintDimensions): string {
     const { pageWidthMM, pageHeightMM } = dimensions;
     const { bleedMM, safeZoneMM } = this.paperConfig;
+    
+    // Get translations for the story language
+    const storyLanguage = storyData.storyLanguage || 'en';
+    const translations = getPrintTranslations(storyLanguage);
 
-    return `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${storyData.title}</title>
-  <style>
-    @page {
-      size: ${pageWidthMM}mm ${pageHeightMM}mm;
-      margin: 0;
-      bleed: ${bleedMM.interior}mm;
-      marks: crop cross;
-    }
+    const variables = {
+      title: storyData.title || '',
+      pageWidthMM: pageWidthMM.toString(),
+      pageHeightMM: pageHeightMM.toString(),
+      interiorBleedMM: bleedMM.interior.toString(),
+      // Legacy variables (for backward compatibility with existing templates)
+      safeZoneMM: safeZoneMM.toString(),
+      totalMarginMM: ((bleedMM.interior + safeZoneMM) * 2).toString(),
+      // New semantic variables for different content types
+      imageMarginMM: '0', // Images bleed to edges - no margin
+      textSafeZoneMM: safeZoneMM.toString(), // Text stays within 1cm safe zone
+      textTotalMarginMM: (safeZoneMM * 2).toString(), // Total margin for text content
+      dedicationMessage: storyData.dedicationMessage || '',
+      customAuthor: storyData.customAuthor || 'Anonymous',
+      publishDate: formatPublishDate(storyData.createdAt, storyLanguage),
+      synopsis: storyData.synopsis || '',
+      qrCodeImage: 'https://storage.googleapis.com/mythoria-generated-stories/qr-code.png',
+      tableOfContents: this.generateTableOfContents(storyData.chapters),
+      chapters: this.generateChaptersHTML(storyData.chapters, storyLanguage),
+      // Translation variables
+      titleLabel: translations.titleLabel,
+      authorLabel: translations.authorLabel,
+      publishDateLabel: translations.publishDateLabel,
+      editingCompanyLabel: translations.editingCompanyLabel,
+      websiteLabel: translations.websiteLabel,
+      copyrightLabel: translations.copyrightLabel,
+      copyrightText: translations.copyrightText,
+      promotionText: translations.promotionText,
+      synopsisTitle: translations.synopsisTitle,
+      tocTitle: translations.tocTitle
+    };
 
-    body {
-      margin: ${bleedMM.interior}mm;
-      padding: ${safeZoneMM}mm;
-      font-family: 'Times New Roman', 'Liberation Serif', serif;
-      font-size: 11pt;
-      line-height: 1.5;
-      text-align: justify;
-      font-display: block;
-    }
-
-    .page {
-      page-break-after: always;
-      min-height: calc(100vh - ${(bleedMM.interior + safeZoneMM) * 2}mm);
-      display: flex;
-      flex-direction: column;
-    }
-
-    .page:last-child {
-      page-break-after: avoid;
-    }
-
-    .title-page {
-      justify-content: center;
-      align-items: center;
-      text-align: center;
-    }
-
-    .title-page h1 {
-      font-size: 24pt;
-      font-weight: bold;
-      margin: 0;
-    }
-
-    .dedication-page {
-      justify-content: space-between;
-      text-align: center;
-    }
-
-    .dedication-content {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-    }
-
-    .dedication-author {
-      text-align: right;
-      font-style: italic;
-      margin-top: 20px;
-    }
-
-    .mythoria-credit {
-      text-align: center;
-      font-size: 9pt;
-      color: #666;
-    }
-
-    .toc {
-      padding: 20px 0;
-    }
-
-    .toc h2 {
-      text-align: center;
-      font-size: 18pt;
-      margin-bottom: 30px;
-    }
-
-    .toc-item {
-      margin-bottom: 8px;
-      text-align: left;
-    }
-
-    .chapter {
-      break-before: right !important;
-      margin-top: 0;
-    }
-
-    .chapter-title {
-      text-align: center;
-      font-size: 16pt;
-      font-weight: bold;
-      margin-bottom: 30px;
-    }
-
-    .chapter-image {
-      text-align: center;
-      margin: 20px 0 30px 0;
-      width: 100%;
-    }
-
-    .chapter-image img {
-      width: 100%;
-      height: auto;
-      image-rendering: pixelated;
-      display: block;
-      margin: 0 auto;
-    }
-
-    .chapter-content p {
-      text-indent: 1em;
-      margin-bottom: 0.5em;
-    }
-  </style>
-</head>
-<body>
-  <!-- Page 1: Title -->
-  <div class="page title-page">
-    <h1>${storyData.title}</h1>
-  </div>
-
-  <!-- Page 2: Empty -->
-  <div class="page"></div>
-
-  <!-- Page 3: Dedication -->
-  <div class="page dedication-page">
-    <div class="dedication-content">
-      <div>${storyData.dedicationMessage || ''}</div>
-      <div class="dedication-author">- ${storyData.customAuthor || 'Anonymous'}</div>
-    </div>
-    <div class="mythoria-credit">
-      <p>Story imagined by: ${storyData.customAuthor || 'Anonymous'}.</p>
-      <p>This story was created by:</p>
-      <p><strong>Mythoria</strong></p>
-      <p>Create your own story at mythoria.pt</p>
-    </div>
-  </div>
-
-  <!-- Page 4: Empty -->
-  <div class="page"></div>
-
-  <!-- Page 5: Table of Contents -->
-  <div class="page">
-    <div class="toc">
-      <h2>Table of Contents</h2>
-      ${storyData.chapters.map((chapter: any, index: number) => `
-        <div class="toc-item">
-          ${index + 1}. ${chapter.title}
-        </div>
-      `).join('')}
-    </div>
-  </div>
-
-  <!-- Chapters -->
-  ${storyData.chapters.map((chapter: any, index: number) => `
-    <div class="chapter page">
-      <div class="chapter-title">
-        ${index + 1}. ${chapter.title}
-      </div>
-      ${chapter.imageUri ? `
-        <div class="chapter-image">
-          <img src="${chapter.imageUri}" alt="Chapter ${index + 1} illustration" />
-        </div>
-      ` : ''}
-      <div class="chapter-content">
-        ${this.formatChapterContent(chapter.content)}
-      </div>
-    </div>
-  `).join('')}
-
-  <!-- Final empty page to end on recto -->
-  <div class="page"></div>
-</body>
-</html>`;
+    return this.loadTemplate('interior-default.html', variables);
   }
 
   /**
@@ -314,84 +251,22 @@ export class PrintService {
     const { coverSpreadWMM, coverSpreadHMM, spineWidthMM } = dimensions;
     const { bleedMM } = this.paperConfig;
 
-    return `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${storyData.title} - Cover</title>
-  <style>
-    @page {
-      size: ${coverSpreadWMM}mm ${coverSpreadHMM}mm;
-      margin: 0;
-      bleed: ${bleedMM.cover}mm;
-    }
+    const variables = {
+      title: storyData.title || '',
+      coverSpreadWMM: coverSpreadWMM.toString(),
+      coverSpreadHMM: coverSpreadHMM.toString(),
+      coverBleedMM: bleedMM.cover.toString(),
+      spineWidthMM: spineWidthMM.toString(),
+      backcoverBackground: storyData.backcoverUri ? `url("${storyData.backcoverUri}")` : '#f5f5f5',
+      frontcoverBackground: storyData.coverUri ? `url("${storyData.coverUri}")` : '#e0e0e0'
+    };
 
-    body {
-      margin: 0;
-      padding: 0;
-      font-family: 'Times New Roman', 'Liberation Serif', serif;
-      width: 100%;
-      height: 100vh;
-      display: flex;
-    }
-
-    .cover {
-      position: relative;
-      width: 100%;
-      height: 100%;
-      display: flex;
-    }
-
-    .back-cover {
-      width: calc((100% - ${spineWidthMM}mm) / 2);
-      height: 100%;
-      background: ${storyData.backcoverUri ? `url("${storyData.backcoverUri}")` : '#f5f5f5'};
-      background-size: cover;
-      background-position: center;
-    }
-
-    .spine {
-      width: ${spineWidthMM}mm;
-      height: 100%;
-      background: #333;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      writing-mode: vertical-lr;
-      text-orientation: mixed;
-      color: white;
-      font-size: 12pt;
-      font-weight: bold;
-    }
-
-    .front-cover {
-      width: calc((100% - ${spineWidthMM}mm) / 2);
-      height: 100%;
-      background: ${storyData.coverUri ? `url("${storyData.coverUri}")` : '#e0e0e0'};
-      background-size: cover;
-      background-position: center;
-    }
-  </style>
-</head>
-<body>
-  <div class="cover">
-    <div class="back-cover"></div>
-    <div class="spine">${storyData.title}</div>
-    <div class="front-cover"></div>
-  </div>
-</body>
-</html>`;
+    return this.loadTemplate('cover-default.html', variables);
   }
 
   private formatChapterContent(content: string): string {
-    // Split content into paragraphs and wrap each in <p> tags
-    // All paragraphs should be indented (no special case for first paragraph)
-    return content
-      .split('\n\n')
-      .filter(p => p.trim())
-      .map(p => `<p>${p.trim()}</p>`)
-      .join('');
+    // Content is already formatted HTML from the database
+    // Return as-is to preserve HTML formatting
+    return content;
   }
 }

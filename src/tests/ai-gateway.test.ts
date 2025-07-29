@@ -150,8 +150,6 @@ The adventure was about to begin.`;
         'OUTLINE_GENERATION_FAILED',
         'CHAPTER_GENERATION_FAILED',
         'IMAGE_GENERATION_FAILED',
-        'ASSEMBLY_FAILED',
-        'TTS_FAILED',
         'DATABASE_ERROR',
         'AI_PROVIDER_ERROR'
       ];

@@ -2,7 +2,7 @@ import { join } from 'path';
 import { existsSync } from 'fs';
 
 /**
- * Gets the correct base path for static resources (prompts, messages, templates)
+ * Gets the correct base path for static resources (prompts, messages)
  * In development: uses src/ folder
  * In production: uses dist/ folder (after build with copyfiles -u 1 which strips the src/ prefix)
  */
@@ -51,3 +51,5 @@ export function getMessagesPath(): string {
 export function getTemplatesPath(): string {
   return join(getResourceBasePath(), 'templates');
 }
+
+

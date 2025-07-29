@@ -417,7 +417,10 @@ export class StoryService {
           dedicationMessage: stories.dedicationMessage,
           coverUri: stories.coverUri,
           backcoverUri: stories.backcoverUri,
-          chapterCount: stories.chapterCount
+          chapterCount: stories.chapterCount,
+          storyLanguage: stories.storyLanguage,
+          createdAt: stories.createdAt,
+          synopsis: stories.synopsis
         })
         .from(stories)
         .where(eq(stories.storyId, storyId));
@@ -453,9 +456,7 @@ export class StoryService {
       // Transform chapters to the format expected by the print service
       const chaptersForPrint = chaptersFromDb.map(chapter => ({
         title: chapter.title,
-        content: chapter.content
-          ? chapter.content.replace(/<[^>]*>/g, '').replace(/&[^;]+;/g, ' ').trim()
-          : 'No content available',
+        content: chapter.content || 'No content available',
         imageUri: chapter.imageUri
       }));
 

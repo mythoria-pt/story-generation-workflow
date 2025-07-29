@@ -29,7 +29,6 @@ describe('Audiobook Generation Workflow', () => {
     // Check for main workflow sections
     expect(workflowContent).toContain('validateStory:');
     expect(workflowContent).toContain('generateChapterAudios:');
-    expect(workflowContent).toContain('processChapters:');
     expect(workflowContent).toContain('finalizeAudiobook:');
     
     // Check for error handling
