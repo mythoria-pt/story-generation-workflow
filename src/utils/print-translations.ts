@@ -26,9 +26,9 @@ export function getPrintTranslations(storyLanguage: string): PrintTranslations {
     titleLabel: isPortuguese ? 'Título' : 'Title',
     authorLabel: isPortuguese ? 'Autor' : 'Author',
     publishDateLabel: isPortuguese ? 'Data de Publicação' : 'Publish Date',
-    editingCompanyLabel: isPortuguese ? 'Empresa de Edição' : 'Editing Company',
+    editingCompanyLabel: isPortuguese ? 'Editora' : 'Editing Company',
     websiteLabel: isPortuguese ? 'Website' : 'Website',
-    copyrightLabel: isPortuguese ? 'Direitos Autorais' : 'Copyright',
+    copyrightLabel: isPortuguese ? 'Direitos de Autor' : 'Copyright',
     copyrightText: isPortuguese 
       ? 'Todos os direitos reservados. Nenhuma parte desta publicação pode ser reproduzida, distribuída ou transmitida de qualquer forma ou por qualquer meio sem a permissão prévia por escrito do autor.'
       : 'All rights reserved. No part of this publication may be reproduced, distributed, or transmitted in any form or by any means without the prior written permission of the author.',

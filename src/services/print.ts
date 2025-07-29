@@ -107,7 +107,7 @@ export class PrintService {
       <!-- Chapter ${index + 1} Content Page (Odd/Right) -->
       <div class="chapter-content-page">
         <div class="chapter-content-wrapper">
-          <div class="chapter-title">${chapter.title}</div>
+          <div class="chapter-title"><br/><br/>${chapter.title}</div>
           <div class="chapter-content">
             ${this.formatChapterContent(chapter.content)}
           </div>
@@ -179,7 +179,8 @@ export class PrintService {
         height: `${options.height}mm`,
         margin: { top: '0mm', right: '0mm', bottom: '0mm', left: '0mm' },
         preferCSSPageSize: true,
-        displayHeaderFooter: false
+        displayHeaderFooter: false,
+        omitBackground: false
       });
 
       logger.info(`PDF generated successfully: ${options.outputPath}`);

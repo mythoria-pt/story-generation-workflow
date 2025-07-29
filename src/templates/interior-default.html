@@ -13,6 +13,23 @@
       marks: crop cross;
     }
 
+    /* Named page for chapter content with consistent margins */
+    @page chapter {
+      size: {{pageWidthMM}}mm {{pageHeightMM}}mm;
+      margin-top: {{safeZoneMM}}mm;
+      margin-bottom: {{safeZoneMM}}mm;
+      margin-left: {{safeZoneMM}}mm;
+      margin-right: {{safeZoneMM}}mm;
+      @top-center {
+        content: none;
+      }
+    }
+
+    /* Special rule for first page of chapter with extra space for title */
+    @page chapter:first {
+      margin-top: 40mm; /* Extra space for chapter title */
+    }
+
     body {
       margin: 0;
       padding: 0;
@@ -93,7 +110,7 @@
     }
 
     .copyright-text {
-      margin: 1.5em 0;
+      margin: 1em 0;
       text-align: justify;
     }
 
@@ -193,6 +210,7 @@
     }
 
     .toc-chapter-title {
+      margin-top: 20mm !important;
       font-size: 12pt;
       font-weight: bold;
       color: #000;
@@ -243,34 +261,35 @@
 
     /* Chapter content page (odd page - right side) */
     .chapter-content-page {
+      page: chapter; /* Apply named page for consistent margins */
       page-break-before: avoid;
-      page-break-after: always;
-      width: {{pageWidthMM}}mm;
-      height: {{pageHeightMM}}mm;
+      page-break-after: auto; /* Changed from 'always' to allow content flow */
+      width: 100%; /* Use 100% since @page handles margins */
+      height: auto; /* Changed from fixed height to allow natural flow */
       box-sizing: border-box;
       margin: 0;
-      padding: {{interiorBleedMM}}mm;
+      padding: 0; /* Remove padding since @page handles margins */
       position: relative;
     }
 
     /* Add consistent padding to all chapter content pages */
     .chapter-content-wrapper {
-      height: 100%;
+      /* @page margins handle spacing now */
       box-sizing: border-box;
-      padding: {{safeZoneMM}}mm;
-      padding-top: 40mm; /* Extra top padding for chapter pages */
+      padding: 0; /* @page margins handle spacing now */
       display: flex;
       flex-direction: column;
+      height: 100%;
     }
 
-    /* First page of a chapter (with title) - already has good spacing */
+    /* First page of a chapter (with title) - @page chapter:first handles margins */
     .chapter-first-page .chapter-content-wrapper {
-      /* Title already has proper spacing from padding-top: 40mm */
+      /* @page chapter:first handles extra top margin for title */
     }
 
-    /* Continuation pages (without title) - needs adjusted top margin */
+    /* Continuation pages - @page chapter handles consistent margins automatically */
     .chapter-continuation-page .chapter-content-wrapper {
-      padding-top: {{safeZoneMM}}mm; /* Standard top margin for continuation pages */
+      /* @page chapter handles standard margins for continuation pages */
     }
 
     .chapter-number {
@@ -294,8 +313,8 @@
       line-height: 14pt;
       orphans: 3;
       widows: 3;
-      flex: 1; /* Allow content to expand and fill available space */
-      overflow: hidden; /* Prevent content overflow */
+      /* Remove flex: 1 and overflow: hidden */
+      /* Let content flow naturally across pages */
     }
 
     .chapter-content p {
@@ -332,21 +351,16 @@
       color: #333;
     }
 
-    /* Green: Chapter text elements */
-    .chapter-content-page {
-      border: 1px solid #00FF00 !important;
-    }
-
-    .chapter-content-wrapper {
-      border: 1px solid #ff00b7 !important; /* Add debug border for wrapper */
-    }
-
-    body {
-      border: 1px solid #000000 !important;
-    }
-
-    .page-content {
-      border: 1px solid #ff0000 !important;
+    /* Media print rules for proper multi-page content flow */
+    @media print {
+      .chapter-content-page {
+        height: auto;
+      }
+      
+      /* Ensure content flows naturally */
+      .chapter-content-wrapper {
+        height: auto;
+      }
     }
   </style>
 </head>
