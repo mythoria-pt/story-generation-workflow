@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-profile" content="CMYK">
   <title>{{title}}</title>
+  <link rel="stylesheet" href="https://use.typekit.net/lda8yth.css">
   <style>
     @page {
       size: {{pageWidthMM}}mm {{pageHeightMM}}mm;
@@ -16,7 +17,7 @@
     /* Named page for chapter content with consistent margins */
     @page chapter {
       size: {{pageWidthMM}}mm {{pageHeightMM}}mm;
-      margin-top: {{safeZoneMM}}mm;
+      margin-top: {{chapterTopMarginMM}}mm; /* Increased by 1cm */
       margin-bottom: {{safeZoneMM}}mm;
       margin-left: {{safeZoneMM}}mm;
       margin-right: {{safeZoneMM}}mm;
@@ -27,15 +28,15 @@
 
     /* Special rule for first page of chapter with extra space for title */
     @page chapter:first {
-      margin-top: 40mm; /* Extra space for chapter title */
+      margin-top: {{chapterFirstPageTopMarginMM}}mm; /* Increased by 1cm */
     }
 
     body {
       margin: 0;
       padding: 0;
-      font-family: 'Times New Roman', 'Liberation Serif', serif;
-      font-size: 10.5pt;
-      line-height: 14pt;
+      font-family: 'source-serif-4', 'Times New Roman', 'Liberation Serif', serif;
+      font-size: 11.5pt;
+      line-height: 15.3pt;
       text-align: justify;
       font-display: block;
       orphans: 3;
@@ -84,6 +85,7 @@
       font-weight: bold;
       margin: 0;
       text-align: right;
+      line-height: 1.25;
     }
 
     .copyright-page .page-content {
@@ -110,7 +112,7 @@
     }
 
     .copyright-text {
-      margin: 1em 0;
+      margin: 0em 0;
       text-align: justify;
     }
 
@@ -170,13 +172,13 @@
       font-size: 18pt;
       font-weight: bold;
       text-align: center;
-      margin-top: 50px;
-      margin-bottom: 20px;
+      margin-top: 80px;
+      margin-bottom: 40px;
     }
 
     .synopsis-content {
-      font-size: 10.5pt;
-      line-height: 14pt;
+      font-size: 11.5pt;
+      line-height: 15.3pt;
       text-align: left;
       max-width: 100%;
       orphans: 3;
@@ -185,7 +187,7 @@
 
     .toc {
       flex: 1;
-      margin-top: 30px;
+      margin-top: 70px;
       display: flex;
       flex-direction: column;
       text-align: center; /* Center align everything */
@@ -210,7 +212,7 @@
     }
 
     .toc-chapter-title {
-      margin-top: 20mm !important;
+      margin-top: 50mm !important;
       font-size: 12pt;
       font-weight: bold;
       color: #000;
@@ -222,7 +224,6 @@
 
     /* Chapter image page (even page - left side) */
     .chapter-image-page {
-      page-break-before: always;
       page-break-after: always;
       margin: 0;
       padding: 0;
@@ -230,11 +231,6 @@
       height: {{pageHeightMM}}mm;
       overflow: hidden;
       position: relative;
-    }
-
-    /* Ensure chapter image starts on even page */
-    .chapter-image-page:nth-of-type(even) {
-      break-before: left;
     }
 
     .chapter-image {
@@ -262,7 +258,6 @@
     /* Chapter content page (odd page - right side) */
     .chapter-content-page {
       page: chapter; /* Apply named page for consistent margins */
-      page-break-before: avoid;
       page-break-after: auto; /* Changed from 'always' to allow content flow */
       width: 100%; /* Use 100% since @page handles margins */
       height: auto; /* Changed from fixed height to allow natural flow */
@@ -309,20 +304,56 @@
     }
 
     .chapter-content {
-      font-size: 10.5pt;
-      line-height: 14pt;
+      font-size: 11pt;
+      line-height: 15pt;
       orphans: 3;
       widows: 3;
       /* Remove flex: 1 and overflow: hidden */
       /* Let content flow naturally across pages */
     }
 
+    /* Target audience specific font sizes */
+    .chapter-content.target-children-0-2 {
+      font-size: 20pt;
+      line-height: 26pt;
+    }
+
+    .chapter-content.target-children-3-6 {
+      font-size: 18pt;
+      line-height: 24pt;
+    }
+
+    .chapter-content.target-children-7-10 {
+      font-size: 14pt;
+      line-height: 18pt;
+    }
+
+    .chapter-content.target-children-11-14 {
+      font-size: 12pt;
+      line-height: 16pt;
+    }
+
+    .chapter-content.target-young-adult-15-17 {
+      font-size: 11pt;
+      line-height: 15pt;
+    }
+
+    .chapter-content.target-adult-18-plus {
+      font-size: 10pt;
+      line-height: 14pt;
+    }
+
+    .chapter-content.target-all-ages {
+      font-size: 11pt;
+      line-height: 15pt;
+    }
+
     .chapter-content p {
-      margin-bottom: 14pt;
+      margin-bottom: 15.3pt;
       text-align: justify;
       orphans: 3;
       widows: 3;
-      page-break-inside: avoid; /* Prevent breaking inside paragraphs */
+      page-break-inside: auto; /* Prevent breaking inside paragraphs */
     }
 
     /* Ensure proper page breaks between paragraphs */
@@ -361,6 +392,16 @@
       .chapter-content-wrapper {
         height: auto;
       }
+    }
+
+    /* Blank page for even/odd page alignment */
+    .blank-page {
+      page-break-after: always;
+      width: {{pageWidthMM}}mm;
+      height: {{pageHeightMM}}mm;
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
     }
   </style>
 </head>

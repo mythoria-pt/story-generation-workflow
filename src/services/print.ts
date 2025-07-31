@@ -5,6 +5,7 @@ import { logger } from '@/config/logger.js';
 import { getTemplatesPath } from '@/shared/path-utils.js';
 import { getPrintTranslations, formatPublishDate } from '@/utils/print-translations.js';
 import { convertToAbsoluteImagePath } from '@/utils/imageUtils.js';
+import { calculateChapterLayout } from '@/utils/page-estimation.js';
 
 interface PaperConfig {
   paperTypes: Record<string, {
@@ -88,33 +89,83 @@ export class PrintService {
   /**
    * Generate chapters HTML with two-page spread design
    */
-  private generateChaptersHTML(chapters: any[], _storyLanguage: string): string {
-    return chapters.map((chapter: any, index: number) => {      
+  private generateChaptersHTML(chapters: any[], _storyLanguage: string, targetAudience?: string): string {
+    let html = '';
+    
+    // Map target audience to CSS class
+    const getTargetAudienceClass = (audience?: string): string => {
+      if (!audience) return '';
+      
+      const classMap: Record<string, string> = {
+        'children_0-2': 'target-children-0-2',
+        'children_3-6': 'target-children-3-6',
+        'children_7-10': 'target-children-7-10',
+        'children_11-14': 'target-children-11-14',
+        'young_adult_15-17': 'target-young-adult-15-17',
+        'adult_18+': 'target-adult-18-plus',
+        'all_ages': 'target-all-ages'
+      };
+      
+      return classMap[audience] || '';
+    };
+    
+    const audienceClass = getTargetAudienceClass(targetAudience);
+    
+    // Calculate optimal chapter layout using page estimation
+    const layout = calculateChapterLayout(chapters, targetAudience);
+    
+    // Log layout information if needed
+    if (process.env.NODE_ENV === 'development') {
+      logger.debug(`Chapter layout calculated for ${targetAudience}:`, {
+        totalChapters: chapters.length,
+        totalPages: layout.totalPages,
+        finalPageIsOdd: layout.finalPageIsOdd
+      });
+    }
+    
+    // Generate HTML based on calculated layout
+    layout.layouts.forEach(({ chapterIndex, needsBlankPage, imagePageNumber }) => {
+      const chapter = chapters[chapterIndex];
+      
       // Convert relative image paths to absolute URLs
       let imageUrl = '';
       if (chapter.imageUri) {
         imageUrl = convertToAbsoluteImagePath(chapter.imageUri);
       }
       
-      return `
-      <!-- Chapter ${index + 1} Image Page (Even/Left) -->
+      // Add blank page if needed to ensure chapter image starts on even page
+      if (needsBlankPage) {
+        html += `
+      <!-- Blank page to ensure chapter ${chapterIndex + 1} image starts on even page -->
+      <div class="blank-page"></div>
+      `;
+      }
+      
+      // Add chapter image (on even page)
+      html += `
+      <!-- Chapter ${chapterIndex + 1} Image Page ${imagePageNumber} (Even/Left) -->
       <div class="chapter-image-page">
         <div class="chapter-image">
-          ${imageUrl ? `<img src="${imageUrl}" alt="Chapter ${index + 1} illustration" />` : ''}
+          ${imageUrl ? `<img src="${imageUrl}" alt="Chapter ${chapterIndex + 1} illustration" />` : ''}
         </div>
       </div>
+      `;
       
-      <!-- Chapter ${index + 1} Content Page (Odd/Right) -->
+      // Add chapter content (starting on odd page)
+      html += `
+      <!-- Chapter ${chapterIndex + 1} Content Pages -->
       <div class="chapter-content-page">
         <div class="chapter-content-wrapper">
           <div class="chapter-title"><br/><br/>${chapter.title}</div>
-          <div class="chapter-content">
+          <div class="chapter-content ${audienceClass}">
             ${this.formatChapterContent(chapter.content)}
           </div>
         </div>
       </div>
-    `;
-    }).join('');
+      `;
+    });
+    
+    return html;
   }
 
   /**
@@ -200,7 +251,7 @@ export class PrintService {
    * 
    * Margin Strategy:
    * - Chapter images: Full bleed to page edges (0mm margin)
-   * - Text content: Within 1cm (10mm) safe zone for reliable printing
+   * - Text content: Within safe zone with additional 1cm top margin
    */
   generateInteriorHTML(storyData: any, dimensions: PrintDimensions): string {
     const { pageWidthMM, pageHeightMM } = dimensions;
@@ -209,6 +260,10 @@ export class PrintService {
     // Get translations for the story language
     const storyLanguage = storyData.storyLanguage || 'en';
     const translations = getPrintTranslations(storyLanguage);
+
+    // Calculate chapter margins with additional 1cm (10mm) top margin
+    const chapterTopMarginMM = safeZoneMM + 10; // Add 1cm to standard safe zone
+    const chapterFirstPageTopMarginMM = 40 + 10; // Add 1cm to existing 40mm
 
     const variables = {
       title: storyData.title || '',
@@ -222,13 +277,16 @@ export class PrintService {
       imageMarginMM: '0', // Images bleed to edges - no margin
       textSafeZoneMM: safeZoneMM.toString(), // Text stays within 1cm safe zone
       textTotalMarginMM: (safeZoneMM * 2).toString(), // Total margin for text content
+      // Chapter-specific margins
+      chapterTopMarginMM: chapterTopMarginMM.toString(),
+      chapterFirstPageTopMarginMM: chapterFirstPageTopMarginMM.toString(),
       dedicationMessage: storyData.dedicationMessage || '',
       customAuthor: storyData.customAuthor || 'Anonymous',
       publishDate: formatPublishDate(storyData.createdAt, storyLanguage),
       synopsis: storyData.synopsis || '',
       qrCodeImage: 'https://storage.googleapis.com/mythoria-generated-stories/qr-code.png',
       tableOfContents: this.generateTableOfContents(storyData.chapters),
-      chapters: this.generateChaptersHTML(storyData.chapters, storyLanguage),
+      chapters: this.generateChaptersHTML(storyData.chapters, storyLanguage, storyData.targetAudience),
       // Translation variables
       titleLabel: translations.titleLabel,
       authorLabel: translations.authorLabel,
@@ -259,7 +317,8 @@ export class PrintService {
       coverBleedMM: bleedMM.cover.toString(),
       spineWidthMM: spineWidthMM.toString(),
       backcoverBackground: storyData.backcoverUri ? `url("${storyData.backcoverUri}")` : '#f5f5f5',
-      frontcoverBackground: storyData.coverUri ? `url("${storyData.coverUri}")` : '#e0e0e0'
+      frontcoverBackground: storyData.coverUri ? `url("${storyData.coverUri}")` : '#e0e0e0',
+      graphicalStyle: storyData.graphicalStyle || 'cartoon'
     };
 
     return this.loadTemplate('cover-default.html', variables);

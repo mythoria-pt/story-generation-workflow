@@ -28,11 +28,50 @@
     }
 
     .back-cover {
+      position: relative;
       width: calc((100% - {{spineWidthMM}}mm) / 2);
       height: 100%;
       background: {{backcoverBackground}};
       background-size: cover;
       background-position: center;
+    }
+
+    .info-rectangle {
+      position: absolute;
+      left: -{{coverBleedMM}}mm; /* Include bleed area */
+      bottom: 10%;
+      width: calc(40% + {{coverBleedMM}}mm);
+      height: 11%;
+      background-color: #F5E6D3; /* Light pastel beige */
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 10px;
+      box-sizing: border-box;
+    }
+
+    .info-content {
+      display: flex;
+      align-items: center;
+      gap: 15px;
+      height: 90%;
+    }
+
+    .logo-img {
+      margin-left: 5mm;;
+    }
+
+    .logo-img, .qr-img {
+      height: 100%;
+      width: auto;
+      border: 1px solid #BBB; /* Very thin light grey border */
+      box-sizing: border-box;
+    }
+
+    .separator-line {
+      width: 1px;
+      height: 100%;
+      background-color: #BBB; /* Dark grey */
     }
 
     .spine {
@@ -60,7 +99,15 @@
 </head>
 <body>
   <div class="cover">
-    <div class="back-cover"></div>
+    <div class="back-cover">
+      <div class="info-rectangle">
+        <div class="info-content">
+          <img class="logo-img" src="https://storage.googleapis.com/mythoria-generated-stories/logo/{{graphicalStyle}}.jpg" alt="Mythoria Logo">
+          <div class="separator-line"></div>
+          <img class="qr-img" src="https://storage.googleapis.com/mythoria-generated-stories/qr-code.png" alt="QR Code">
+        </div>
+      </div>
+    </div>
     <div class="spine"></div>
     <div class="front-cover"></div>
   </div>

@@ -420,7 +420,9 @@ export class StoryService {
           chapterCount: stories.chapterCount,
           storyLanguage: stories.storyLanguage,
           createdAt: stories.createdAt,
-          synopsis: stories.synopsis
+          synopsis: stories.synopsis,
+          graphicalStyle: stories.graphicalStyle,
+          targetAudience: stories.targetAudience
         })
         .from(stories)
         .where(eq(stories.storyId, storyId));
