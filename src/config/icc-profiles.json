@@ -1,0 +1,41 @@
+{
+  "profiles": {
+    "PSOCoatedNPscreen": {
+      "name": "PSO Coated NPscreen ISO12647 (ECI)",
+      "filename": "PSO_Coated_NPscreen_ISO12647_eci.icc",
+      "description": "Glossy and matte coated paper, FM screen - Modern PSO standard",
+      "colorSpace": "CMYK",
+      "outputIntent": "PSO Coated NPscreen ISO12647",
+      "registryName": "http://www.eci.org",
+      "info": "FOGRA43L"
+    },
+    "ISOCoatedV2": {
+      "name": "ISO Coated v2 (ECI)",
+      "filename": "ISOcoated_v2_eci.icc",
+      "description": "Standard for glossy and matte coated paper - Legacy fallback",
+      "colorSpace": "CMYK",
+      "outputIntent": "ISO Coated v2",
+      "registryName": "http://www.eci.org",
+      "info": "FOGRA39L"
+    },
+    "PSOUncoated": {
+      "name": "PSO Uncoated ISO12647 (ECI)",
+      "filename": "PSO_Uncoated_ISO12647_eci.icc",
+      "description": "Uncoated white natural paper",
+      "colorSpace": "CMYK",
+      "outputIntent": "PSO Uncoated ISO12647",
+      "registryName": "http://www.eci.org",
+      "info": "FOGRA47L"
+    }
+  },
+  "defaultProfile": "PSOCoatedNPscreen",
+  "ghostscriptSettings": {
+    "device": "pdfwrite",
+    "colorConversionStrategy": "CMYK",
+    "processColorModel": "DeviceCMYK",
+    "compatibilityLevel": "1.4",
+    "pdfx": true,
+    "blackPointCompensation": true,
+    "preserveBlacks": true
+  }
+}

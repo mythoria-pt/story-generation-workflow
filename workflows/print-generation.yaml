@@ -51,6 +51,7 @@ main:
                   body:
                     storyId:    ${storyId}
                     workflowId: ${runId}
+                    generateCMYK: true
                 result: printResult
 
             # 3. Mark run → completed
@@ -68,6 +69,8 @@ main:
                     metadata:
                       interiorPdfUrl: ${printResult.body.interiorPdfUrl}
                       coverPdfUrl:    ${printResult.body.coverPdfUrl}
+                      interiorCmykPdfUrl: ${printResult.body.interiorCmykPdfUrl}
+                      coverCmykPdfUrl: ${printResult.body.coverCmykPdfUrl}
 
         except:
           as: e

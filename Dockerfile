@@ -19,22 +19,65 @@ RUN npm run build
 # Remove dev dependencies after build
 RUN npm prune --omit=dev
 
-# Production stage with distroless image (Node.js 20)
-FROM gcr.io/distroless/nodejs20-debian12
+# Production stage with Debian-based image for Ghostscript support
+FROM node:20-slim
+
+# Install system dependencies for PDF processing
+RUN apt-get update && apt-get install -y \
+    ghostscript \
+    wget \
+    gnupg \
+    && wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - \
+    && sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list' \
+    && apt-get update \
+    && apt-get install -y google-chrome-stable fonts-ipafont-gothic fonts-wqy-zenhei fonts-thai-tlwg fonts-kacst fonts-freefont-ttf libxss1 \
+    --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app
+
+# Create directories for ICC profiles and temp files
+RUN mkdir -p /app/icc-profiles /tmp/mythoria-print
 
 # Copy built application and node_modules from builder stage
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./package.json
 
-# Use non-root user for security (node user in distroless is uid 65532)
-USER 65532
+# Copy ICC profile configuration
+COPY src/config/icc-profiles.json ./dist/config/
+
+# Copy paper caliper configuration
+COPY src/config/paper-caliper.json ./dist/config/
+
+# Copy local ICC profiles to the container
+COPY icc-profiles/ /app/icc-profiles/
+
+# Set environment variables for PDF processing
+ENV GHOSTSCRIPT_BINARY=gs
+ENV TEMP_DIR=/tmp/mythoria-print
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
+ENV HOME=/home/mythoria
+
+# Create non-root user for security
+RUN groupadd -r mythoria && useradd -r -g mythoria mythoria
+
+# Create home directory and necessary subdirectories for mythoria user
+RUN mkdir -p /home/mythoria/.cache/puppeteer \
+    && mkdir -p /home/mythoria/.local/share/applications \
+    && mkdir -p /home/mythoria/.config
+
+# Set ownership and permissions
+RUN chown -R mythoria:mythoria /app /tmp/mythoria-print /home/mythoria
+RUN chmod 755 /tmp/mythoria-print
+
+# Use non-root user
+USER mythoria
 
 # Expose port
 EXPOSE 8080
 
 # Start the application
-CMD ["dist/index.js"]
+CMD ["node", "dist/index.js"]

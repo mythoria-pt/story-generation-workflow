@@ -48,6 +48,10 @@ const envSchema = z.object({
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_IMAGE_MODEL: z.string().optional().default('gpt-4.1'),
   OPENAI_IMAGE_QUALITY: z.enum(['low', 'standard', 'high']).optional().default('low'),
+  
+  // Temp directory configuration
+  TEMP_DIR: z.string().optional(),
+  GHOSTSCRIPT_BINARY: z.string().optional(),
 
   // Google GenAI Configuration
   GOOGLE_GENAI_API_KEY: z.string().optional(),

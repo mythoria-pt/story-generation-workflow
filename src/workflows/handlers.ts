@@ -375,11 +375,14 @@ export class AudioRecordingHandler implements WorkflowStepHandler<AudioRecording
 export interface PrintGenerationParams {
   storyId: string;
   workflowId: string;
+  generateCMYK?: boolean;
 }
 
 export interface PrintGenerationResult {
   interiorPdfUrl: string;
   coverPdfUrl: string;
+  interiorCmykPdfUrl?: string;
+  coverCmykPdfUrl?: string;
   status: string;
 }
 
@@ -390,7 +393,9 @@ export class PrintGenerationHandler implements WorkflowStepHandler<PrintGenerati
 
   async execute(params: PrintGenerationParams): Promise<PrintGenerationResult> {
     try {
-      logger.info(`Starting print generation for story ${params.storyId}`);
+      logger.info(`Starting print generation for story ${params.storyId}`, {
+        generateCMYK: params.generateCMYK || false
+      });
 
       // Fetch story data
       const storyData = await this.storyService.getStoryForPrint(params.storyId);
@@ -405,34 +410,22 @@ export class PrintGenerationHandler implements WorkflowStepHandler<PrintGenerati
         chapterCount: storyData.chapters?.length || 0
       });
 
-      // Calculate dimensions based on chapter count
-      const pageCount = this.estimatePageCount(storyData);
-      const dimensions = this.printService.calculateDimensions(pageCount);
-
-      // Generate interior PDF
-      const interiorHtml = this.printService.generateInteriorHTML(storyData, dimensions);
+      // Generate temporary file paths
       const interiorPath = join(tmpdir(), `interior-${params.storyId}.pdf`);
-      
-      await this.printService.renderPDF(interiorHtml, {
-        width: dimensions.pageWidthMM,
-        height: dimensions.pageHeightMM,
-        outputPath: interiorPath
-      });
-
-      // Generate cover PDF
-      const coverHtml = this.printService.generateCoverHTML(storyData, dimensions);
       const coverPath = join(tmpdir(), `cover-${params.storyId}.pdf`);
-      
-      await this.printService.renderPDF(coverHtml, {
-        width: dimensions.coverSpreadWMM,
-        height: dimensions.coverSpreadHMM,
-        outputPath: coverPath
-      });
 
-      // Upload PDFs to storage
+      // Use the new generatePrintSet method that handles both RGB and CMYK
+      const printResult = await this.printService.generatePrintSet(
+        storyData,
+        interiorPath,
+        coverPath,
+        { generateCMYK: params.generateCMYK !== false }
+      );
+
+      // Upload RGB PDFs to storage
       const fs = await import('fs');
-      const interiorBuffer = fs.readFileSync(interiorPath);
-      const coverBuffer = fs.readFileSync(coverPath);
+      const interiorBuffer = fs.readFileSync(printResult.interiorPdfPath);
+      const coverBuffer = fs.readFileSync(printResult.coverPdfPath);
 
       const interiorPdfUrl = await this.storageService.uploadFile(
         `${params.storyId}/print/interior.pdf`,
@@ -445,6 +438,45 @@ export class PrintGenerationHandler implements WorkflowStepHandler<PrintGenerati
         coverBuffer,
         'application/pdf'
       );
+
+      // Prepare result
+      const result: PrintGenerationResult = {
+        interiorPdfUrl,
+        coverPdfUrl,
+        status: 'completed'
+      };
+
+      // Upload CMYK PDFs if they were generated
+      if (printResult.interiorCmykPdfPath && printResult.coverCmykPdfPath) {
+        const interiorCmykBuffer = fs.readFileSync(printResult.interiorCmykPdfPath);
+        const coverCmykBuffer = fs.readFileSync(printResult.coverCmykPdfPath);
+
+        const interiorCmykPdfUrl = await this.storageService.uploadFile(
+          `${params.storyId}/print/interior-cmyk.pdf`,
+          interiorCmykBuffer,
+          'application/pdf'
+        );
+
+        const coverCmykPdfUrl = await this.storageService.uploadFile(
+          `${params.storyId}/print/cover-cmyk.pdf`,
+          coverCmykBuffer,
+          'application/pdf'
+        );
+
+        result.interiorCmykPdfUrl = interiorCmykPdfUrl;
+        result.coverCmykPdfUrl = coverCmykPdfUrl;
+
+        logger.info('CMYK PDFs uploaded successfully', {
+          interiorCmykPdfUrl,
+          coverCmykPdfUrl
+        });
+      }
+
+      // Generate HTML for debugging purposes
+      const pageCount = this.estimatePageCount(storyData);
+      const dimensions = this.printService.calculateDimensions(pageCount);
+      const interiorHtml = this.printService.generateInteriorHTML(storyData, dimensions);
+      const coverHtml = this.printService.generateCoverHTML(storyData, dimensions);
 
       // Upload HTML files for debugging and style adjustments
       const interiorHtmlBuffer = Buffer.from(interiorHtml, 'utf-8');
@@ -464,21 +496,19 @@ export class PrintGenerationHandler implements WorkflowStepHandler<PrintGenerati
 
       // Update story with PDF URLs
       await this.storyService.updateStoryPrintUrls(params.storyId, {
-        interiorPdfUri: interiorPdfUrl,
-        coverPdfUri: coverPdfUrl
+        interiorPdfUri: result.interiorPdfUrl,
+        coverPdfUri: result.coverPdfUrl
       });
 
       logger.info(`Print generation completed for story ${params.storyId}`, {
-        interiorPdfUrl,
-        coverPdfUrl,
+        interiorPdfUrl: result.interiorPdfUrl,
+        coverPdfUrl: result.coverPdfUrl,
+        interiorCmykPdfUrl: result.interiorCmykPdfUrl,
+        coverCmykPdfUrl: result.coverCmykPdfUrl,
         htmlFilesGenerated: true
       });
 
-      return {
-        interiorPdfUrl,
-        coverPdfUrl,
-        status: 'completed'
-      };
+      return result;
 
     } catch (error) {
       logger.error(`Print generation failed for story ${params.storyId}:`, error);

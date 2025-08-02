@@ -6,6 +6,7 @@ import { getTemplatesPath } from '@/shared/path-utils.js';
 import { getPrintTranslations, formatPublishDate } from '@/utils/print-translations.js';
 import { convertToAbsoluteImagePath } from '@/utils/imageUtils.js';
 import { calculateChapterLayout } from '@/utils/page-estimation.js';
+import { CMYKConversionService } from './cmyk-conversion.js';
 
 interface PaperConfig {
   paperTypes: Record<string, {
@@ -39,12 +40,23 @@ interface RenderOptions {
   outputPath: string;
 }
 
+interface PrintResult {
+  interiorPdfPath: string;
+  coverPdfPath: string;
+  interiorCmykPdfPath?: string;
+  coverCmykPdfPath?: string;
+}
+
 export class PrintService {
   private paperConfig: PaperConfig;
+  private cmykService: CMYKConversionService;
 
   constructor() {
-    const configPath = join(process.cwd(), 'src', 'config', 'paper-caliper.json');
+    const configPath = process.env.NODE_ENV === 'production' 
+      ? join(process.cwd(), 'dist', 'config', 'paper-caliper.json')
+      : join(process.cwd(), 'src', 'config', 'paper-caliper.json');
     this.paperConfig = JSON.parse(readFileSync(configPath, 'utf-8'));
+    this.cmykService = new CMYKConversionService();
   }
 
   /**
@@ -207,14 +219,30 @@ export class PrintService {
       outputPath: options.outputPath 
     });
 
-    const browser = await puppeteer.launch({
+    const launchOptions: any = {
       headless: true,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
-        '--disable-color-correct-rendering'
+        '--disable-color-correct-rendering',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--disable-extensions',
+        '--disable-background-timer-throttling',
+        '--disable-backgrounding-occluded-windows',
+        '--disable-renderer-backgrounding',
+        '--disable-features=TranslateUI',
+        '--disable-crash-reporter',
+        '--disable-breakpad'
       ]
-    });
+    };
+
+    // In production, use system Chrome
+    if (process.env.NODE_ENV === 'production') {
+      launchOptions.executablePath = '/usr/bin/google-chrome-stable';
+    }
+
+    const browser = await puppeteer.launch(launchOptions);
 
     try {
       const page = await browser.newPage();
@@ -328,5 +356,108 @@ export class PrintService {
     // Content is already formatted HTML from the database
     // Return as-is to preserve HTML formatting
     return content;
+  }
+
+  /**
+   * Convert RGB PDFs to CMYK/PDF-X format
+   */
+  async convertToCMYK(
+    interiorPdfPath: string, 
+    coverPdfPath: string, 
+    storyData: any
+  ): Promise<{ interiorCmykPath: string; coverCmykPath: string }> {
+    logger.info('Starting CMYK conversion for print files', {
+      interior: interiorPdfPath,
+      cover: coverPdfPath,
+      storyId: storyData.id
+    });
+
+    try {
+      const metadata = {
+        title: storyData.title || 'Mythoria Story',
+        author: storyData.customAuthor || 'Mythoria',
+        subject: 'Print-ready story book',
+        creator: 'Mythoria Print Service'
+      };
+
+      const result = await this.cmykService.convertPrintSetToCMYK(
+        interiorPdfPath,
+        coverPdfPath,
+        metadata
+      );
+
+      logger.info('CMYK conversion completed successfully', {
+        interiorCmyk: result.interiorCMYK,
+        coverCmyk: result.coverCMYK,
+        storyId: storyData.id
+      });
+
+      return {
+        interiorCmykPath: result.interiorCMYK,
+        coverCmykPath: result.coverCMYK
+      };
+    } catch (error) {
+      logger.error('CMYK conversion failed', {
+        error: error instanceof Error ? error.message : String(error),
+        storyId: storyData.id
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Generate complete print set with both RGB and CMYK versions
+   */
+  async generatePrintSet(
+    storyData: any,
+    interiorOutputPath: string,
+    coverOutputPath: string,
+    options: { generateCMYK?: boolean } = {}
+  ): Promise<PrintResult> {
+    const pageCount = storyData.chapters?.length * 4 + 8; // Rough estimate
+    const dimensions = this.calculateDimensions(pageCount);
+
+    // Generate RGB PDFs first
+    const interiorHTML = this.generateInteriorHTML(storyData, dimensions);
+    const coverHTML = this.generateCoverHTML(storyData, dimensions);
+
+    // Render RGB PDFs
+    await Promise.all([
+      this.renderPDF(interiorHTML, {
+        width: dimensions.pageWidthMM,
+        height: dimensions.pageHeightMM,
+        outputPath: interiorOutputPath
+      }),
+      this.renderPDF(coverHTML, {
+        width: dimensions.coverSpreadWMM,
+        height: dimensions.coverSpreadHMM,
+        outputPath: coverOutputPath
+      })
+    ]);
+
+    const result: PrintResult = {
+      interiorPdfPath: interiorOutputPath,
+      coverPdfPath: coverOutputPath
+    };
+
+    // Generate CMYK versions if requested
+    if (options.generateCMYK !== false) {
+      try {
+        const cmykResult = await this.convertToCMYK(
+          interiorOutputPath,
+          coverOutputPath,
+          storyData
+        );
+        
+        result.interiorCmykPdfPath = cmykResult.interiorCmykPath;
+        result.coverCmykPdfPath = cmykResult.coverCmykPath;
+      } catch (error) {
+        logger.warn('CMYK conversion failed, continuing with RGB only', {
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+    }
+
+    return result;
   }
 }
