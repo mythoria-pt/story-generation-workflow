@@ -22,8 +22,8 @@ const PAGE_CAPACITIES: Record<string, PageCapacity> = {
     fullPage: 800
   },
   'children-7-10': {
-    firstPage: 1030,
-    fullPage: 1300
+    firstPage: 917,
+    fullPage: 1159
   },
   'children-11-14': {
     firstPage: 1255,
