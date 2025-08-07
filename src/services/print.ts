@@ -5,8 +5,8 @@ import { logger } from '@/config/logger.js';
 import { getTemplatesPath } from '@/shared/path-utils.js';
 import { getPrintTranslations, formatPublishDate } from '@/utils/print-translations.js';
 import { convertToAbsoluteImagePath } from '@/utils/imageUtils.js';
-import { calculateChapterLayout } from '@/utils/page-estimation.js';
 import { CMYKConversionService } from './cmyk-conversion.js';
+import { PDFPageProcessor } from './pdf-page-processor.js';
 
 interface PaperConfig {
   paperTypes: Record<string, {
@@ -43,6 +43,8 @@ interface RenderOptions {
 interface PrintResult {
   interiorPdfPath: string;
   coverPdfPath: string;
+  interiorPreProcessedPdfPath?: string;
+  interiorPostProcessedPdfPath?: string;
   interiorCmykPdfPath?: string;
   coverCmykPdfPath?: string;
 }
@@ -50,6 +52,7 @@ interface PrintResult {
 export class PrintService {
   private paperConfig: PaperConfig;
   private cmykService: CMYKConversionService;
+  private pageProcessor: PDFPageProcessor;
 
   constructor() {
     const configPath = process.env.NODE_ENV === 'production' 
@@ -57,6 +60,7 @@ export class PrintService {
       : join(process.cwd(), 'src', 'config', 'paper-caliper.json');
     this.paperConfig = JSON.parse(readFileSync(configPath, 'utf-8'));
     this.cmykService = new CMYKConversionService();
+    this.pageProcessor = new PDFPageProcessor();
   }
 
   /**
@@ -123,39 +127,28 @@ export class PrintService {
     
     const audienceClass = getTargetAudienceClass(targetAudience);
     
-    // Calculate optimal chapter layout using page estimation
-    const layout = calculateChapterLayout(chapters, targetAudience);
-    
-    // Log layout information if needed
-    if (process.env.NODE_ENV === 'development') {
-      logger.debug(`Chapter layout calculated for ${targetAudience}:`, {
-        totalChapters: chapters.length,
-        totalPages: layout.totalPages,
-        finalPageIsOdd: layout.finalPageIsOdd
-      });
-    }
-    
-    // Generate HTML based on calculated layout
-    layout.layouts.forEach(({ chapterIndex, needsBlankPage, imagePageNumber }) => {
-      const chapter = chapters[chapterIndex];
-      
+    // Generate HTML for each chapter
+    chapters.forEach((chapter: any, chapterIndex: number) => {
       // Convert relative image paths to absolute URLs
       let imageUrl = '';
       if (chapter.imageUri) {
         imageUrl = convertToAbsoluteImagePath(chapter.imageUri);
       }
       
-      // Add blank page if needed to ensure chapter image starts on even page
-      if (needsBlankPage) {
+      // For all chapters except the first one, add a page break before the chapter image
+      // This ensures we have an empty page before each chapter image (except chapter 1)
+      if (chapterIndex > 0) {
         html += `
-      <!-- Blank page to ensure chapter ${chapterIndex + 1} image starts on even page -->
-      <div class="blank-page"></div>
+      <!-- Page break before Chapter ${chapterIndex + 1} image -->
+      <div class="page-break">
+        <span style="color: #FEFEFE; font-size: 6px;">--.--</span>
+      </div>
       `;
       }
       
       // Add chapter image (on even page)
       html += `
-      <!-- Chapter ${chapterIndex + 1} Image Page ${imagePageNumber} (Even/Left) -->
+      <!-- Chapter ${chapterIndex + 1} Image Page (Even/Left) -->
       <div class="chapter-image-page">
         <div class="chapter-image">
           ${imageUrl ? `<img src="${imageUrl}" alt="Chapter ${chapterIndex + 1} illustration" />` : ''}
@@ -359,6 +352,27 @@ export class PrintService {
   }
 
   /**
+   * Process PDF to ensure proper page layout
+   */
+  async processPageLayout(inputPath: string, outputPath: string) {
+    logger.info('Processing PDF page layout', {
+      input: inputPath,
+      output: outputPath
+    });
+
+    const result = await this.pageProcessor.processPages(inputPath, outputPath);
+    
+    logger.info('PDF page processing completed', {
+      originalPages: result.originalPageCount,
+      finalPages: result.finalPageCount,
+      pagesDeleted: result.pagesDeleted,
+      deletedPageNumbers: result.deletedPageNumbers
+    });
+
+    return result;
+  }
+
+  /**
    * Convert RGB PDFs to CMYK/PDF-X format
    */
   async convertToCMYK(
@@ -421,12 +435,16 @@ export class PrintService {
     const interiorHTML = this.generateInteriorHTML(storyData, dimensions);
     const coverHTML = this.generateCoverHTML(storyData, dimensions);
 
-    // Render RGB PDFs
+    // Create paths for different PDF versions
+    const interiorPreProcessedPath = interiorOutputPath.replace('.pdf', '_pre-page-processing.pdf');
+    const interiorPostProcessedPath = interiorOutputPath.replace('.pdf', '_post-page-processing.pdf');
+
+    // Render initial RGB PDFs
     await Promise.all([
       this.renderPDF(interiorHTML, {
         width: dimensions.pageWidthMM,
         height: dimensions.pageHeightMM,
-        outputPath: interiorOutputPath
+        outputPath: interiorPreProcessedPath // Save as pre-processed version first
       }),
       this.renderPDF(coverHTML, {
         width: dimensions.coverSpreadWMM,
@@ -435,16 +453,21 @@ export class PrintService {
       })
     ]);
 
+    // Process the interior PDF to fix page layout
+    await this.processPageLayout(interiorPreProcessedPath, interiorPostProcessedPath);
+
     const result: PrintResult = {
-      interiorPdfPath: interiorOutputPath,
-      coverPdfPath: coverOutputPath
+      interiorPdfPath: interiorPostProcessedPath, // Use post-processed version as main
+      coverPdfPath: coverOutputPath,
+      interiorPreProcessedPdfPath: interiorPreProcessedPath,
+      interiorPostProcessedPdfPath: interiorPostProcessedPath
     };
 
-    // Generate CMYK versions if requested
+    // Generate CMYK versions if requested (using post-processed PDF)
     if (options.generateCMYK !== false) {
       try {
         const cmykResult = await this.convertToCMYK(
-          interiorOutputPath,
+          interiorPostProcessedPath, // Use post-processed version for CMYK
           coverOutputPath,
           storyData
         );

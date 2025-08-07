@@ -427,6 +427,7 @@ export class PrintGenerationHandler implements WorkflowStepHandler<PrintGenerati
       const interiorBuffer = fs.readFileSync(printResult.interiorPdfPath);
       const coverBuffer = fs.readFileSync(printResult.coverPdfPath);
 
+      // Upload post-processed interior PDF
       const interiorPdfUrl = await this.storageService.uploadFile(
         `${params.storyId}/print/interior.pdf`,
         interiorBuffer,
@@ -450,26 +451,17 @@ export class PrintGenerationHandler implements WorkflowStepHandler<PrintGenerati
       if (printResult.interiorCmykPdfPath && printResult.coverCmykPdfPath) {
         const interiorCmykBuffer = fs.readFileSync(printResult.interiorCmykPdfPath);
         const coverCmykBuffer = fs.readFileSync(printResult.coverCmykPdfPath);
-
-        const interiorCmykPdfUrl = await this.storageService.uploadFile(
-          `${params.storyId}/print/interior-cmyk.pdf`,
+        const interiorCmykUrl = await this.storageService.uploadFile(
+          `${params.storyId}/print/interior_cmyk.pdf`,
           interiorCmykBuffer,
-          'application/pdf'
+            'application/pdf'
         );
-
-        const coverCmykPdfUrl = await this.storageService.uploadFile(
-          `${params.storyId}/print/cover-cmyk.pdf`,
+        const coverCmykUrl = await this.storageService.uploadFile(
+          `${params.storyId}/print/cover_cmyk.pdf`,
           coverCmykBuffer,
           'application/pdf'
         );
-
-        result.interiorCmykPdfUrl = interiorCmykPdfUrl;
-        result.coverCmykPdfUrl = coverCmykPdfUrl;
-
-        logger.info('CMYK PDFs uploaded successfully', {
-          interiorCmykPdfUrl,
-          coverCmykPdfUrl
-        });
+        Object.assign(result, { interiorCmykUrl, coverCmykUrl });
       }
 
       // Generate HTML for debugging purposes
