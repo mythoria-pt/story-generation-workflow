@@ -93,7 +93,13 @@ export class PDFPageProcessor {
           if (await this.rawStreamHasMarker(pdfDoc, pageNumber - 1, marker)) {
             hasMarker = true;
           }
-        } catch {}
+        } catch (e) {
+          // Swallowing parse errors is intentional here; log at debug level for traceability
+          logger.debug('PDF raw stream fallback failed during marker check', {
+            pageNumber,
+            error: e instanceof Error ? e.message : String(e)
+          });
+        }
       }
 
       return hasMarker;
