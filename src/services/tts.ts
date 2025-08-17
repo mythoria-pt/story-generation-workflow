@@ -6,6 +6,7 @@
 
 import { StoryService } from './story.js';
 import { StorageService } from './storage.js';
+import { getStorageService } from './storage-singleton.js';
 import { ChaptersService } from './chapters.js';
 import { tokenUsageTrackingService } from './token-usage-tracking.js';
 import { AudioPromptService } from './audio-prompt.js';
@@ -45,7 +46,7 @@ export class TTSService {
 
   constructor() {
     this.storyService = new StoryService();
-    this.storageService = new StorageService();
+  this.storageService = getStorageService();
     this.chaptersService = new ChaptersService();
     
     // Initialize OpenAI client if API key is available

@@ -1,13 +1,13 @@
 import express from 'express';
 import { logger } from '@/config/logger.js';
 import { StoryService } from '@/services/story.js';
-import { StorageService } from '@/services/storage.js';
+import { getStorageService } from '@/services/storage-singleton.js';
 import { TTSService } from '@/services/tts.js';
 import { GoogleCloudWorkflowsAdapter } from '@/adapters/google-cloud/workflows-adapter.js';
 
 const router = express.Router();
 const storyService = new StoryService();
-const storageService = new StorageService();
+const storageService = getStorageService();
 const workflowsAdapter = new GoogleCloudWorkflowsAdapter();
 
 /**

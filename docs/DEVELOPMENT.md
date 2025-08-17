@@ -252,6 +252,26 @@ npm run type-check
 }
 ```
 
+## Service Singletons
+
+The AI Gateway and Storage Service are exposed via lazy singletons to prevent repeated initialization and duplicated logs.
+
+- AI Gateway: `getAIGateway()` from `src/ai/gateway-singleton.ts`
+- Storage: `getStorageService()` from `src/services/storage-singleton.ts`
+
+Use these getters instead of constructing instances directly in routes/services/workers. This centralizes configuration, reduces CPU/GC churn, and avoids import-time side effects.
+
+The server performs an optional warm-up during startup to initialize these singletons. If warm-up fails, the server still starts, and initialization occurs on first use.
+
+### Test Utilities
+
+Reset helpers are available for tests that require fresh instances:
+
+- `resetAIGatewayForTests()`
+- `resetStorageForTests()`
+
+Call them in test setup/teardown as needed.
+
 ## Architecture Patterns
 
 ### Clean Architecture Implementation

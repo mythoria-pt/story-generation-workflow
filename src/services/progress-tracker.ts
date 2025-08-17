@@ -81,7 +81,6 @@ export class ProgressTrackerService {
       const outlineStep = await this.runsService.getStepResult(runId, 'generate_outline');
       
       if (outlineStep?.detailJson && typeof outlineStep.detailJson === 'object') {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const outline = outlineStep.detailJson as any;
         
         // Try to extract chapter count from outline structure

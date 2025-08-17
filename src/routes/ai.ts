@@ -15,21 +15,24 @@ import { workflowErrorHandler } from '@/shared/workflow-error-handler.js';
 import type { StoryContext } from '@/services/story.js';
 import { PromptService } from '@/services/prompt.js';
 import { SchemaService } from '@/services/schema.js';
-import { StorageService } from '@/services/storage.js';
 import { getImageDimensions } from '@/utils/imageUtils.js';
-import { AIGatewayWithTokenTracking } from '@/ai/gateway-with-tracking-v2.js';
+import { getAIGatewayWithTokenTracking } from '@/ai/gateway-with-tracking-v2.js';
+import { getStorageService } from '@/services/storage-singleton.js';
 import { logger } from '@/config/logger.js';
 import {
   formatTargetAudience,
   getLanguageName,
   parseAIResponse
 } from '@/shared/utils.js';
+import { CharacterService } from '@/services/characters.js';
+import { eq } from 'drizzle-orm';
 
 // Initialize services
 const router = Router();
-const aiGateway = AIGatewayWithTokenTracking.fromEnvironment();
+const aiGateway = getAIGatewayWithTokenTracking();
 const storyService = new StoryService();
-const storageService = new StorageService();
+const storageService = getStorageService();
+const characterService = new CharacterService();
 
 /**
  * Generate image prompts for a chapter based on its content
@@ -284,6 +287,284 @@ router.post('/text/outline', async (req, res) => {  try {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error'
     });
+  }
+});
+
+/**
+ * POST /ai/text/structure
+ * Generate structured story + characters from free text (text-only for now)
+ */
+router.post('/text/structure', async (req, res) => {
+  try {
+  const RequestSchema = z.object({
+      storyId: z.string().uuid(),
+      userDescription: z.string().optional(),
+      imageData: z.string().nullable().optional(), // legacy base64 (discouraged)
+      audioData: z.string().nullable().optional(), // legacy base64 (discouraged)
+      imageObjectPath: z.string().optional(), // preferred: object path in bucket
+      audioObjectPath: z.string().optional()
+    });
+
+  const { storyId, userDescription, imageObjectPath, audioObjectPath, imageData, audioData } = RequestSchema.parse(req.body);
+    logger.info('AI Text Structure: request received', {
+      storyId,
+      hasText: !!userDescription,
+      hasImage: !!req.body?.imageData || !!imageObjectPath,
+      hasAudio: !!req.body?.audioData || !!audioObjectPath
+    });
+
+    // Get story and author
+    const storyContext = await storyService.getStoryContext(storyId);
+    if (!storyContext) {
+      logger.warn('AI Text Structure: story not found', { storyId });
+      res.status(404).json({ success: false, error: 'Story not found' });
+      return;
+    }
+
+    // Load existing author characters
+    const existingCharacters = await characterService.getCharactersByAuthor(storyContext.story.authorId);
+
+    // Build prompt
+    const promptTemplate = await PromptService.loadPrompt('en-US', 'text-structure');
+    const templateVars = {
+      authorName: '',
+      userDescription: userDescription ?? '',
+      existingCharacters: JSON.stringify(
+        existingCharacters.map(c => ({
+          characterId: c.characterId,
+          name: c.name,
+          type: c.type ?? undefined,
+          role: undefined,
+          characteristics: c.characteristics ?? undefined,
+          physicalDescription: c.physicalDescription ?? undefined
+        }))
+      )
+    };
+    const finalPrompt = PromptService.buildPrompt(promptTemplate, templateVars);
+    const structSchema = await SchemaService.loadSchema('story-structure');
+
+    // Model selection
+    let model: string;
+    const textProvider = process.env.TEXT_PROVIDER || 'google-genai';
+    if (textProvider === 'openai') {
+      model = process.env.OPENAI_TEXT_MODEL || 'gpt-4.1';
+    } else {
+      model = process.env.GOOGLE_GENAI_MODEL || 'gemini-2.5-flash';
+    }
+
+    // Token tracking context
+    const aiContext = {
+      authorId: storyContext.story.authorId,
+      storyId,
+      action: 'story_structure' as const
+    };
+
+    // Build media parts if we can use Gemini multimodal
+    let aiResponse: string;
+    const hasB64Image = typeof imageData === 'string' && imageData.length > 0;
+    const hasB64Audio = typeof audioData === 'string' && audioData.length > 0;
+    const canUseGemini = (textProvider === 'google-genai') && (imageObjectPath || audioObjectPath || hasB64Image || hasB64Audio);
+    if (canUseGemini) {
+  const storage = getStorageService();
+      const mediaParts: Array<{ mimeType: string; data: Buffer | string }> = [];
+      if (imageObjectPath) {
+        const meta = await storage.getFileMetadata(imageObjectPath).catch(() => ({ contentType: 'image/jpeg' }));
+        const buf = await storage.downloadFileAsBuffer(imageObjectPath);
+        mediaParts.push({ mimeType: meta.contentType || 'image/jpeg', data: buf });
+      }
+      if (audioObjectPath) {
+        const meta = await storage.getFileMetadata(audioObjectPath).catch(() => ({ contentType: 'audio/wav' }));
+        const buf = await storage.downloadFileAsBuffer(audioObjectPath);
+        mediaParts.push({ mimeType: meta.contentType || 'audio/wav', data: buf });
+      }
+      // Fallback: attach base64 media directly (dev-friendly, no GCS needed)
+      if (hasB64Image) {
+        const str = imageData as string;
+        let mime = 'image/jpeg';
+        let b64 = str;
+        const match = /^data:([^;]+);base64,(.*)$/.exec(str);
+        if (match) {
+          mime = (match[1] as string) || mime;
+          b64 = (match[2] as string) || b64;
+        }
+        mediaParts.push({ mimeType: mime, data: Buffer.from(b64, 'base64') });
+      }
+      if (hasB64Audio) {
+        const str = audioData as string;
+        let mime = 'audio/wav';
+        let b64 = str;
+        const match = /^data:([^;]+);base64,(.*)$/.exec(str);
+        if (match) {
+          mime = (match[1] as string) || mime;
+          b64 = (match[2] as string) || b64;
+        }
+        mediaParts.push({ mimeType: mime, data: Buffer.from(b64, 'base64') });
+      }
+      aiResponse = await aiGateway.getTextService(aiContext).complete(finalPrompt, {
+        maxTokens: 16384,
+        temperature: 0.8,
+        model,
+        jsonSchema: structSchema,
+        mediaParts
+      } as any);
+    } else {
+      aiResponse = await aiGateway.getTextService(aiContext).complete(finalPrompt, {
+        maxTokens: 16384,
+        temperature: 0.8,
+        model,
+        jsonSchema: structSchema
+      });
+    }
+
+    const parsed = parseAIResponse(aiResponse) as any;
+
+    if (!parsed || typeof parsed !== 'object' || !parsed.story || !Array.isArray(parsed.characters)) {
+      logger.error('Invalid structure response', { receivedKeys: parsed ? Object.keys(parsed) : null });
+      res.status(500).json({ success: false, error: 'Invalid structured response from AI' });
+      return;
+    }
+
+    // Persist story fields (subset already used by app)
+    const updates: Record<string, unknown> = {};
+    if (parsed.story.title) updates.title = parsed.story.title;
+    if (parsed.story.plotDescription) updates.plotDescription = parsed.story.plotDescription;
+    if (parsed.story.synopsis) updates.synopsis = parsed.story.synopsis;
+    if (parsed.story.place) updates.place = parsed.story.place;
+    if (parsed.story.additionalRequests) updates.additionalRequests = parsed.story.additionalRequests;
+    if (parsed.story.targetAudience) updates.targetAudience = parsed.story.targetAudience;
+    if (parsed.story.novelStyle) updates.novelStyle = parsed.story.novelStyle;
+    if (parsed.story.graphicalStyle) updates.graphicalStyle = parsed.story.graphicalStyle;
+    if (parsed.story.storyLanguage) updates.storyLanguage = parsed.story.storyLanguage;
+
+    // Direct DB update via webapp schema synced to SGW
+    try {
+      const { getDatabase } = await import('@/db/connection.js');
+      const { stories } = await import('@/db/schema/index.js');
+      await getDatabase()
+        .update(stories)
+        .set({ ...updates, updatedAt: new Date() })
+        .where(eq(stories.storyId, storyId));
+    } catch (dbErr) {
+      logger.error('Failed updating story with structured fields', { error: dbErr instanceof Error ? dbErr.message : String(dbErr) });
+      // Continue; characters can still be created/linked
+    }
+
+    // Characters create/reuse + link
+    const processedCharacters: any[] = [];
+    for (const ch of parsed.characters as any[]) {
+      let record: any | null = null;
+      // Only accept UUIDs; models may emit placeholders like "character_1"
+      const isUuid = typeof ch.characterId === 'string' && /^(?!00000000-0000-0000-0000-000000000000)[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/.test(ch.characterId);
+      if (isUuid) {
+        try {
+          record = await characterService.getCharacterById(ch.characterId);
+        } catch (e) {
+          logger.warn('Invalid or not found characterId; creating new character', { providedId: ch.characterId, error: e instanceof Error ? e.message : String(e) });
+        }
+      }
+      if (!record) {
+        // Keep photoUrl only if it points to our GCS bucket; drop external links (e.g., imgur)
+        let safePhotoUrl: string | undefined;
+        if (typeof ch.photoUrl === 'string') {
+          try {
+            const u = new URL(ch.photoUrl);
+            const isGcs = u.hostname === 'storage.googleapis.com';
+            const bucket = process.env.STORAGE_BUCKET_NAME;
+            if (isGcs && bucket && u.pathname.startsWith(`/${bucket}/`)) {
+              safePhotoUrl = ch.photoUrl;
+            }
+          } catch {
+            // ignore invalid URLs
+          }
+        }
+        const createPayload: any = {
+          name: ch.name,
+          authorId: storyContext.story.authorId,
+          type: ch.type,
+          role: ch.role,
+          age: ch.age,
+          traits: Array.isArray(ch.traits) ? ch.traits : undefined,
+          characteristics: ch.characteristics,
+          physicalDescription: ch.physicalDescription,
+        };
+        if (safePhotoUrl) createPayload.photoUrl = safePhotoUrl;
+        record = await characterService.createCharacter(createPayload);
+      }
+      if (record) {
+        try {
+          await characterService.addCharacterToStory(storyId, record.characterId, ch.role);
+        } catch (linkErr) {
+          logger.warn('Character may already be linked to story', { storyId, characterId: record.characterId, error: linkErr instanceof Error ? linkErr.message : String(linkErr) });
+        }
+        processedCharacters.push({ ...record, role: ch.role ?? undefined });
+      }
+    }
+
+    res.json({
+      success: true,
+      storyId,
+      story: { ...updates, storyId },
+      characters: processedCharacters,
+      originalInput: userDescription ?? '',
+      hasImageInput: false,
+      hasAudioInput: false,
+      message: 'Story structure generated successfully.'
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * POST /ai/media/signed-upload
+ * Request a V4 signed URL for direct browser upload to GCS
+ * Body: { storyId: uuid, filename?: string, contentType: string, kind: 'image'|'audio' }
+ * Stores under mythoria-generated-stories/{storyId}/inputs/<filename>
+ */
+/**
+ * POST /ai/media/upload
+ * Server-side upload: accepts base64 data and stores in GCS. No signed URLs.
+ * Body: { storyId: uuid, kind: 'image'|'audio', contentType: string, filename?: string, dataUrl: string }
+ */
+router.post('/media/upload', async (req, res) => {
+  try {
+    const Schema = z.object({
+      storyId: z.string().uuid(),
+      kind: z.enum(['image', 'audio']),
+      contentType: z.string().min(3),
+      filename: z.string().optional(),
+      dataUrl: z.string().min(10)
+    });
+    const { storyId, kind, contentType, filename, dataUrl } = Schema.parse(req.body);
+
+    // Ensure story exists
+    const storyContext = await storyService.getStoryContext(storyId);
+    if (!storyContext) {
+      res.status(404).json({ success: false, error: 'Story not found' });
+      return;
+    }
+
+    // Decode data URL or raw base64
+    let mime = contentType;
+    let b64 = dataUrl;
+    const match = /^data:([^;]+);base64,(.*)$/.exec(dataUrl);
+    if (match) {
+      mime = (match[1] as string) || contentType;
+      b64 = (match[2] as string) || dataUrl;
+    }
+    const buffer = Buffer.from(b64, 'base64');
+
+    // Build object path and upload
+    const folder = `${storyId}/inputs`;
+    const defaultExt = kind === 'image' ? 'jpg' : 'wav';
+    const safeName = filename && filename.trim().length > 0 ? filename : `${kind}-${Date.now()}.${defaultExt}`;
+    const objectPath = `${folder}/${safeName}`;
+
+    const publicUrl = await storageService.uploadFile(objectPath, buffer, mime);
+
+    res.json({ success: true, storyId, kind, objectPath, publicUrl });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
   }
 });
 

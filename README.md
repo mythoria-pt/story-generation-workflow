@@ -120,6 +120,19 @@ The service will automatically try ports 8081, 8082, etc. if 8080 is unavailable
 - **Missing environment variables**: Copy `.env.example` to `.env` and configure
 
 ## AI Debugging
+## Singleton Services (AI Gateway and Storage)
+
+To reduce startup overhead and duplicated logs, the service uses lazy singletons:
+
+- AI Gateway singleton: `getAIGateway()` from `src/ai/gateway-singleton.ts`
+- Storage singleton: `getStorageService()` from `src/services/storage-singleton.ts`
+
+These are initialized on first use and optionally warmed up during server start to avoid first-request latency. Avoid constructing these services directly (e.g., `AIGateway.fromEnvironment()` or `new StorageService()`), and use the getters instead.
+
+Testing helpers:
+
+- `resetAIGatewayForTests()` and `resetStorageForTests()` allow resetting singletons between tests.
+
 
 The service includes comprehensive debugging capabilities to help diagnose AI-related issues.
 

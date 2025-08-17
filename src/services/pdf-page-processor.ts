@@ -93,7 +93,11 @@ export class PDFPageProcessor {
           if (await this.rawStreamHasMarker(pdfDoc, pageNumber - 1, marker)) {
             hasMarker = true;
           }
-        } catch {}
+        } catch (err) {
+          logger.debug('Failed to load PDF for raw stream inspection', {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
       }
 
       return hasMarker;

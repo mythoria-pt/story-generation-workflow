@@ -3,16 +3,14 @@
  * Provides easy access to AI services with automatic token usage tracking
  */
 
-import { AIGatewayWithTokenTracking, AICallContext } from '@/ai/gateway-with-tracking-v2.js';
+import { getAIGatewayWithTokenTracking, AICallContext } from '@/ai/gateway-with-tracking-v2.js';
 import { ITextGenerationService, IImageGenerationService, TextGenerationOptions, ImageGenerationOptions } from '@/ai/interfaces.js';
 import { logger } from '@/config/logger.js';
 
 export class AIServiceHelper {
-  private aiGateway: AIGatewayWithTokenTracking;
-
-  constructor() {
-    this.aiGateway = AIGatewayWithTokenTracking.fromEnvironment();
-  }
+  private aiGateway = getAIGatewayWithTokenTracking();
+  // No-op constructor; uses lazy singleton getter
+  constructor() {}
 
   /**
    * Get text generation service with token tracking

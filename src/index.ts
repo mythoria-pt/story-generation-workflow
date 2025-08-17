@@ -67,13 +67,17 @@ import { audioRouter } from './routes/audio.js';
 import { printRouter } from './routes/print.js';
 import { pingRouter } from './routes/ping.js';
 import { asyncJobRouter } from './routes/async-jobs.js';
-app.use('/ai', aiRouter);
-app.use('/audio', audioRouter);
-app.use('/internal', internalRouter);
+import { getAIGateway } from '@/ai/gateway-singleton.js';
+import { getStorageService } from '@/services/storage-singleton.js';
+import apiKeyAuth from './middleware/apiKeyAuth.js';
+// Protect external-facing APIs with x-api-key
+app.use('/ai', apiKeyAuth, aiRouter);
+app.use('/audio', apiKeyAuth, audioRouter);
+app.use('/internal', internalRouter); // keep internal open or handle separately
 app.use('/internal/print', printRouter);
-app.use('/api/story-edit', storyEditRouter);
-app.use('/api/jobs', asyncJobRouter);
-app.use('/', pingRouter);  // Mount ping routes at root level
+app.use('/api/story-edit', apiKeyAuth, storyEditRouter);
+app.use('/api/jobs', apiKeyAuth, asyncJobRouter);
+app.use('/', apiKeyAuth, pingRouter);  // ping/test endpoints protected as well
 
 // Error handling middleware
 app.use((error: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
@@ -101,6 +105,14 @@ async function startServer() {
         logger.info(`📍 Environment: ${env.NODE_ENV}`);
         logger.info(`🔌 Port: ${portToTry}`);
         logger.info(`🏢 Project: ${env.GOOGLE_CLOUD_PROJECT_ID}`);
+        // Optional warm-up: initialize lazy singletons to fail-fast and reduce first-request latency
+        try {
+          getAIGateway();
+          getStorageService();
+          logger.info('Warm-up: core singletons initialized');
+        } catch (warmErr) {
+          logger.error('Warm-up failed (continuing):', warmErr);
+        }
         resolve(server);
       });      server.on('error', (err: NodeJS.ErrnoException) => {
         if (err.code === 'EADDRINUSE') {

@@ -41,7 +41,7 @@
     "@google/generative-ai": "^0.24.1",
     "@types/pg": "^8.15.2",
     "dotenv": "^16.5.0",
-    "drizzle-kit": "^0.31.1",
+    "drizzle-kit": "^0.18.1",
     "drizzle-orm": "^0.43.1",
     "express": "^4.21.2",
     "helmet": "^8.0.0",

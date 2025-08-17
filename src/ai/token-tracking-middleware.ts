@@ -43,7 +43,8 @@ export class TextGenerationMiddleware implements ITextGenerationService {
       const tokenUsage = this.estimateTokenUsage(prompt, result);
       
       // Record the usage asynchronously to avoid blocking the response
-      this.recordUsageAsync({
+    const sanitizedOptions = this.sanitizeOptions(options);
+    this.recordUsageAsync({
         authorId: this.context.authorId,
         storyId: this.context.storyId,
         action: this.context.action,
@@ -52,7 +53,7 @@ export class TextGenerationMiddleware implements ITextGenerationService {
         outputTokens: tokenUsage.outputTokens,
         inputPromptJson: {
           prompt,
-          options: options || {},
+      options: sanitizedOptions,
           timestamp: new Date().toISOString(),
           processingTimeMs,
           resultLength: result.length
@@ -78,6 +79,31 @@ export class TextGenerationMiddleware implements ITextGenerationService {
       });
       throw error;
     }
+  }
+
+  /**
+   * Remove/condense large binary fields from options before storing/logging
+   */
+  private sanitizeOptions(options?: TextGenerationOptions): Record<string, unknown> {
+    if (!options) return {};
+    const { mediaParts, ...rest } = options as any;
+    const sanitized: Record<string, unknown> = { ...rest };
+    if (Array.isArray(mediaParts)) {
+      sanitized.mediaParts = mediaParts.map((mp: any) => {
+        const isString = typeof mp?.data === 'string';
+        let sizeBytes = 0;
+        if (isString) {
+          // If data URL/base64 string, estimate decoded size
+          const str: string = mp.data;
+          const b64 = /^data:[^;]+;base64,(.*)$/.exec(str)?.[1] || str;
+          try { sizeBytes = Buffer.byteLength(Buffer.from(b64, 'base64')); } catch { sizeBytes = b64.length; }
+        } else if (mp?.data && typeof mp.data.length === 'number') {
+          sizeBytes = mp.data.length;
+        }
+        return { mimeType: mp?.mimeType, sizeBytes };
+      });
+    }
+    return sanitized;
   }
 
   async initializeContext?(contextId: string, systemPrompt: string, previousContent?: string[]): Promise<void> {

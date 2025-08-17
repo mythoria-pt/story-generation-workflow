@@ -9,9 +9,9 @@ import { jobManager } from '@/services/job-manager.js';
 // Import the existing image edit route logic
 import { StoryService } from '@/services/story.js';
 import { ChaptersService } from '@/services/chapters.js';
-import { StorageService } from '@/services/storage.js';
+import { getStorageService } from '@/services/storage-singleton.js';
 import { PromptService } from '@/services/prompt.js';
-import { AIGatewayWithTokenTracking } from '@/ai/gateway-with-tracking-v2.js';
+import { getAIGatewayWithTokenTracking } from '@/ai/gateway-with-tracking-v2.js';
 import { 
   extractFilenameFromUri, 
   generateNextVersionFilename, 
@@ -22,8 +22,8 @@ import {
 // Initialize services
 const storyService = new StoryService();
 const chaptersService = new ChaptersService();
-const storageService = new StorageService();
-const aiGateway = AIGatewayWithTokenTracking.fromEnvironment();
+const storageService = getStorageService();
+const aiGateway = getAIGatewayWithTokenTracking();
 
 interface ImageEditJobParams {
   storyId: string;

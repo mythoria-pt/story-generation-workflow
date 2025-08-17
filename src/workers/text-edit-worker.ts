@@ -10,13 +10,13 @@ import { jobManager } from '@/services/job-manager.js';
 import { StoryService, StoryContext } from '@/services/story.js';
 import { ChaptersService } from '@/services/chapters.js';
 import { PromptService } from '@/services/prompt.js';
-import { AIGatewayWithTokenTracking } from '@/ai/gateway-with-tracking-v2.js';
+import { getAIGatewayWithTokenTracking } from '@/ai/gateway-with-tracking-v2.js';
 import { formatTargetAudience, getLanguageName } from '@/shared/utils.js';
 
 // Initialize services
 const storyService = new StoryService();
 const chaptersService = new ChaptersService();
-const aiGateway = AIGatewayWithTokenTracking.fromEnvironment();
+const aiGateway = getAIGatewayWithTokenTracking();
 
 interface TextEditJobParams {
   storyId: string;
