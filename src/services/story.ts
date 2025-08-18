@@ -208,6 +208,7 @@ export class StoryService {
   async updateStoryUris(storyId: string, updates: {
     audiobookUri?: object;
     hasAudio?: boolean;
+  htmlUri?: string;
     interiorPdfUri?: string;
     coverPdfUri?: string;
   }) {

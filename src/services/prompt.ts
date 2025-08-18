@@ -4,7 +4,7 @@
  */
 
 import { readFile } from 'fs/promises';
-import { join } from 'path';
+import { posix as pathPosix } from 'path';
 import { logger } from '@/config/logger.js';
 import { getPromptsPath } from '../shared/path-utils.js';
 
@@ -32,7 +32,7 @@ export class PromptService {
    */
   static async loadPrompt(locale: string, promptName: string): Promise<PromptTemplate> {
     try {
-      const promptPath = join(this.PROMPTS_BASE_PATH, locale, `${promptName}.json`);
+  const promptPath = pathPosix.join(this.PROMPTS_BASE_PATH, locale, `${promptName}.json`);
       const promptContent = await readFile(promptPath, 'utf-8');
       const promptTemplate = JSON.parse(promptContent) as PromptTemplate;
 
@@ -59,7 +59,7 @@ export class PromptService {
    */
   static async loadImagePrompt(imageType: string): Promise<PromptTemplate> {
     try {
-      const promptPath = join(this.PROMPTS_BASE_PATH, 'images', `${imageType}.json`);
+  const promptPath = pathPosix.join(this.PROMPTS_BASE_PATH, 'images', `${imageType}.json`);
       const promptContent = await readFile(promptPath, 'utf-8');
       const promptTemplate = JSON.parse(promptContent) as PromptTemplate;
 
@@ -131,7 +131,7 @@ export class PromptService {
    */
   static async loadImageStyles(): Promise<ImageStylesCollection> {
     try {
-      const stylesPath = join(this.PROMPTS_BASE_PATH, 'imageStyles.json');
+  const stylesPath = pathPosix.join(this.PROMPTS_BASE_PATH, 'imageStyles.json');
       const stylesContent = await readFile(stylesPath, 'utf-8');
       const imageStyles = JSON.parse(stylesContent) as ImageStylesCollection;
 
