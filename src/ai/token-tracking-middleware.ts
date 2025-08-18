@@ -143,7 +143,7 @@ export class TextGenerationMiddleware implements ITextGenerationService {
     // Fallback to environment configuration
     const provider = process.env.TEXT_PROVIDER || 'vertex';
     if (provider === 'openai') {
-      return process.env.OPENAI_MODEL || 'gpt-4o';
+  return process.env.OPENAI_TEXT_MODEL || 'gpt-4o';
     } else if (provider === 'vertex') {
       return process.env.VERTEX_AI_MODEL_ID || 'gemini-2.0-flash';
     }

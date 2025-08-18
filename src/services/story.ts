@@ -175,8 +175,6 @@ export class StoryService {
           deliveryAddress: stories.deliveryAddress,
           customAuthor: stories.customAuthor,
           dedicationMessage: stories.dedicationMessage,
-          htmlUri: stories.htmlUri,
-          pdfUri: stories.pdfUri,
           audiobookUri: stories.audiobookUri,
           coverUri: stories.coverUri,
           backcoverUri: stories.backcoverUri,
@@ -208,25 +206,25 @@ export class StoryService {
    * Update story with URI fields
    */
   async updateStoryUris(storyId: string, updates: {
-    htmlUri?: string;
-    pdfUri?: string;
     audiobookUri?: object;
     hasAudio?: boolean;
+    interiorPdfUri?: string;
+    coverPdfUri?: string;
   }) {
     try {
       const updateData: Record<string, unknown> = {};
       
-      if (updates.htmlUri !== undefined) {
-        updateData.htmlUri = updates.htmlUri;
-      }
-      if (updates.pdfUri !== undefined) {
-        updateData.pdfUri = updates.pdfUri;
-      }
       if (updates.audiobookUri !== undefined) {
         updateData.audiobookUri = updates.audiobookUri;
       }
       if (updates.hasAudio !== undefined) {
         updateData.hasAudio = updates.hasAudio;
+      }
+      if (updates.interiorPdfUri !== undefined) {
+        updateData.interiorPdfUri = updates.interiorPdfUri;
+      }
+      if (updates.coverPdfUri !== undefined) {
+        updateData.coverPdfUri = updates.coverPdfUri;
       }
       
       // Use retry logic for database connection timeouts

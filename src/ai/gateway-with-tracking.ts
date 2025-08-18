@@ -96,7 +96,7 @@ class TextGenerationServiceWrapper implements ITextGenerationService {
   private getDefaultModel(): string {
     // Try to determine the model from common patterns
     if (process.env.TEXT_PROVIDER === 'openai') {
-      return process.env.OPENAI_MODEL || 'gpt-4o';
+  return process.env.OPENAI_TEXT_MODEL || 'gpt-4o';
     } else if (process.env.TEXT_PROVIDER === 'vertex') {
       return process.env.VERTEX_AI_MODEL_ID || 'gemini-2.0-flash';
     }
