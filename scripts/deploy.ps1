@@ -6,7 +6,9 @@ param(
     [string]$ProjectId,
     
     [Parameter(Mandatory=$false)]
-    [switch]$SkipSecretsCheck
+    [switch]$SkipSecretsCheck,
+    
+    [switch]$Fast
 )
 
 # Console helper functions
@@ -62,6 +64,9 @@ Import-EnvironmentVariables
 
 # Use loaded environment variables or command-line parameters (parameters take precedence)
 $ProjectId = if ($ProjectId) { $ProjectId } else { $env:GOOGLE_CLOUD_PROJECT_ID }
+$Region = "europe-west9"
+$ServiceName = "story-generation-workflow"
+$ImageName = "gcr.io/$ProjectId/$ServiceName"
 
 Write-Host "Deploying Story Generation Workflow to Google Cloud..." -ForegroundColor Green
 Write-Host "Project: $ProjectId" -ForegroundColor Cyan
@@ -131,31 +136,51 @@ foreach ($api in $requiredApis) {
 Push-Location $PSScriptRoot\..
 
 try {
-    # Submit the build
-    Write-Info "Submitting build to Google Cloud Build..."
-    Write-Host "This may take several minutes..." -ForegroundColor Yellow
-    
-    $buildResult = gcloud builds submit --config cloudbuild.yaml 2>&1
-    $buildExitCode = $LASTEXITCODE
-    
-    if ($buildExitCode -eq 0) {
-        Write-Success "Deployment completed successfully!"
-        Write-Host ""
-        Write-Host "Your Story Generation Workflow is now deployed!" -ForegroundColor Green
-        Write-Host ""
-        Write-Host "Next steps:" -ForegroundColor Cyan
-        Write-Host "1. Verify the deployment: .\scripts\verify-setup.ps1"
-        Write-Host "2. Test the workflow: .\scripts\test-workflow.ps1"
-        Write-Host "3. Check the Cloud Run service: gcloud run services describe story-generation-workflow --region=europe-west9"
-        Write-Host ""
-        Write-Host "Cloud Run URL:" -ForegroundColor Cyan
-        gcloud run services describe story-generation-workflow --region=europe-west9 --format="value(status.url)"
+    if ($Fast) {
+        Write-Info "Fast deploy: reusing last built image"
+        $digest = (gcloud container images list-tags $ImageName --format="get(digest)" --limit=1 --sort-by=~timestamp 2>$null)
+        if (-not $digest) {
+            Write-Err "No prior image found for $ImageName. Fast deploy requires an existing image."
+            exit 1
+        }
+        $imageRef = "$ImageName@sha256:$digest"
+        Write-Info "Deploying $imageRef to $ServiceName in $Region"
+        gcloud run deploy $ServiceName --image $imageRef --region $Region --platform managed --quiet
     } else {
-        Write-Err "Deployment failed!"
-        Write-Host "Build output:" -ForegroundColor Red
-        Write-Host $buildResult -ForegroundColor Red
-        exit 1
+        Write-Info "Installing dependencies (npm ci)"
+        npm ci
+        if ($LASTEXITCODE -ne 0) { Write-Err "npm ci failed"; exit 1 }
+        Write-Info "Linting (npm run lint)"
+        npm run lint
+        if ($LASTEXITCODE -ne 0) { Write-Err "Lint failed"; exit 1 }
+        Write-Info "Typecheck (npm run typecheck)"
+        npm run typecheck
+        if ($LASTEXITCODE -ne 0) { Write-Err "Typecheck failed"; exit 1 }
+        Write-Info "Tests (npm test)"
+        npm test
+        if ($LASTEXITCODE -ne 0) { Write-Err "Tests failed"; exit 1 }
+        Write-Info "Building (npm run build)"
+        npm run build
+        if ($LASTEXITCODE -ne 0) { Write-Err "Build failed"; exit 1 }
+        # Submit the build
+        Write-Info "Submitting build to Google Cloud Build (beta)..."
+        Write-Host "This may take several minutes..." -ForegroundColor Yellow
+        
+        $buildResult = gcloud beta builds submit --config cloudbuild.yaml 2>&1
+        $buildExitCode = $LASTEXITCODE
+        
+        if ($buildExitCode -ne 0) {
+            Write-Err "Deployment failed"
+            Write-Host "Build output:" -ForegroundColor Red
+            Write-Host $buildResult -ForegroundColor Red
+            exit 1
+        }
     }
+
+    Write-Success "Deployment completed successfully!"
+    Write-Host ""
+    Write-Host "Cloud Run URL:" -ForegroundColor Cyan
+    gcloud run services describe $ServiceName --region=$Region --format="value(status.url)"
 }
 finally {
     Pop-Location

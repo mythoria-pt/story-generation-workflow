@@ -1,5 +1,5 @@
-# Use official Node.js 20 LTS Alpine image for build stage (pinned version for stability)
-FROM node:20-alpine AS builder
+# Use official Node.js 22 LTS Alpine image for build stage (pinned version for stability)
+FROM node:22.12.0-alpine AS builder
 
 # Set working directory
 WORKDIR /app

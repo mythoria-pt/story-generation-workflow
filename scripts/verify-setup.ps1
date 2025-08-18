@@ -120,6 +120,6 @@ Write-Host "Your Google Cloud Workflow 'story-generation' is ready to use." -For
 Write-Host ""
 Write-Host "Next steps:" -ForegroundColor Yellow
 Write-Host "1. Run secrets setup: .\scripts\setup-secrets.ps1"
-Write-Host "2. Deploy your Cloud Run service: gcloud builds submit --config cloudbuild.yaml"
+Write-Host "2. Deploy your Cloud Run service: gcloud beta builds submit --config cloudbuild.yaml"
 Write-Host "3. Test the workflow: .\scripts\test-workflow.ps1"
 Write-Host "4. Execute with custom data: .\scripts\execute-workflow.ps1 -StoryId 'test' -Prompt 'Your prompt'"

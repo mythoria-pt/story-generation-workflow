@@ -19,7 +19,7 @@ main:
           - payload:  ${json.decode(base64.decode(event.data.message.data))}
           - storyId:  ${payload.storyId}
           - runId:    ${payload.runId}
-          - baseUrl:  "https://91c4beeda346.ngrok-free.app"
+          - baseUrl:  "https://story-generation-workflow-x2qrlilyyq-od.a.run.app"
           - now:      ${time.format(sys.now())}
 
     # ───────────────────────────────────────────────
