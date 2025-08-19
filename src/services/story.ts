@@ -520,4 +520,55 @@ export class StoryService {
       throw error;
     }
   }
+
+  /**
+   * Update story language and selected text fields
+   * - Will update updatedAt automatically
+   */
+  async updateStoryLanguageAndTexts(
+    storyId: string,
+    updates: {
+      storyLanguage: string;
+      title?: string;
+      synopsis?: string;
+      plotDescription?: string;
+    }
+  ) {
+    try {
+      const updateData: Record<string, unknown> = {
+        storyLanguage: updates.storyLanguage,
+        updatedAt: new Date()
+      };
+
+      if (typeof updates.title === 'string') {
+        updateData.title = updates.title;
+      }
+      if (typeof updates.synopsis === 'string') {
+        updateData.synopsis = updates.synopsis;
+      }
+      if (typeof updates.plotDescription === 'string') {
+        updateData.plotDescription = updates.plotDescription;
+      }
+
+      await retry(async () => {
+        await this.db
+          .update(stories)
+          .set(updateData)
+          .where(eq(stories.storyId, storyId));
+      }, 3, 1000);
+
+      logger.info('Story language/texts updated successfully', {
+        storyId,
+        fields: Object.keys(updateData)
+      });
+
+      return true;
+    } catch (error) {
+      logger.error('Failed to update story language/texts', {
+        error: error instanceof Error ? error.message : String(error),
+        storyId
+      });
+      throw error;
+    }
+  }
 }

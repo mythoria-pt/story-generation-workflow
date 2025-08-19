@@ -11,6 +11,9 @@ import { jobManager, getEstimatedDuration } from '@/services/job-manager.js';
 // Import existing processing functions (we'll create these)
 import { processTextEditJob } from '@/workers/text-edit-worker.js';
 import { processImageEditJob } from '@/workers/image-edit-worker.js';
+import { processTranslationJob } from '@/workers/translation-worker.js';
+import { StoryService } from '@/services/story.js';
+import { ChaptersService } from '@/services/chapters.js';
 
 const router = Router();
 
@@ -29,6 +32,20 @@ const ImageEditJobSchema = z.object({
   userRequest: z.string().min(1).max(2000),
   chapterNumber: z.number().int().min(1).optional(),
   graphicalStyle: z.string().optional()
+});
+
+const TranslationJobSchema = z.object({
+  storyId: z.string().min(1),
+  targetLocale: z.enum([
+    'en-US', 'en-GB',
+    'pt-PT', 'pt-BR',
+    'es-ES',
+    'fr-FR',
+    'it-IT',
+    'de-DE',
+    'nl-NL',
+    'pl-PL'
+  ])
 });
 
 /**
@@ -201,6 +218,75 @@ router.post('/image-edit', async (req, res) => {
       });
     } else {
       sendErrorResponse(res, 500, 'Failed to create image edit job', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+});
+
+/**
+ * POST /jobs/translate-text
+ * Create an async full story translation job
+ */
+router.post('/translate-text', async (req, res) => {
+  try {
+    const { storyId, targetLocale } = TranslationJobSchema.parse(req.body);
+
+    const storyService = new StoryService();
+    const chaptersService = new ChaptersService();
+
+    // Load story and validate locale
+    const story = await storyService.getStory(storyId);
+    if (!story) {
+      sendErrorResponse(res, 404, 'Story not found', { storyId });
+      return;
+    }
+    if (story.storyLanguage === targetLocale) {
+      sendErrorResponse(res, 400, 'Target locale matches current storyLanguage', {
+        storyLanguage: story.storyLanguage,
+        targetLocale
+      });
+      return;
+    }
+
+    // Determine chapter count for estimation
+    const chapters = await chaptersService.getStoryChapters(storyId);
+    const chapterCount = chapters.length || 1;
+
+    // Estimate duration
+    const estimatedDuration = getEstimatedDuration('text_translate', { chapterCount, operationType: 'story' });
+
+    const metadata: any = {
+      storyId,
+      operationType: 'story',
+      chapterCount,
+      targetLocale
+    };
+
+    const jobId = jobManager.createJob('text_translate', metadata, estimatedDuration);
+
+    // Start background processing
+    processTranslationJob(jobId, { storyId, targetLocale }).catch((error: any) => {
+      logger.error('Translation job processing failed', {
+        jobId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      jobManager.updateJobStatus(jobId, 'failed', undefined,
+        error instanceof Error ? error.message : 'Processing failed'
+      );
+    });
+
+    res.json({
+      success: true,
+      jobId,
+      estimatedDuration,
+      message: 'Translation job created successfully'
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      sendErrorResponse(res, 400, 'Invalid request parameters', { validationErrors: error.errors });
+    } else {
+      sendErrorResponse(res, 500, 'Failed to create translation job', {
         error: error instanceof Error ? error.message : String(error)
       });
     }
