@@ -6,7 +6,7 @@
 import { randomUUID } from 'crypto';
 import { logger } from '@/config/logger.js';
 
-export type JobType = 'text_edit' | 'image_edit';
+export type JobType = 'text_edit' | 'image_edit' | 'text_translate';
 export type JobStatus = 'pending' | 'processing' | 'completed' | 'failed';
 
 export interface Job {
@@ -205,6 +205,12 @@ export function getEstimatedDuration(type: JobType, params: {
     case 'image_edit':
       // Image edit: 90 seconds
       return 90 * 1000;
+    case 'text_translate':
+      // Translation: assume 60 seconds per chapter
+      if (params.chapterCount && params.chapterCount > 0) {
+        return params.chapterCount * 60 * 1000;
+      }
+      return 60 * 1000;
     
     default:
       return 60 * 1000; // Default fallback

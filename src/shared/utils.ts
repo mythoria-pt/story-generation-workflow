@@ -122,12 +122,13 @@ export function getLanguageName(languageCode: string): string {
     'de-AT': 'German from Austria',
     'it-IT': 'Italian from Italy',
     'nl-NL': 'Dutch from Netherlands',
+  'pl-PL': 'Polish from Poland',
     'zh-CN': 'Chinese (Simplified)',
     'zh-TW': 'Chinese (Traditional)',
     'ja-JP': 'Japanese from Japan',
     'ko-KR': 'Korean from South Korea',
     'ru-RU': 'Russian from Russia',
-    'ar-SA': 'Arabic from Saudi Arabia'
+  'ar-SA': 'Arabic from Saudi Arabia'
   };
   
   return languageMap[languageCode] || 'English';
