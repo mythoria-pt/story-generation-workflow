@@ -64,6 +64,20 @@ const StoreImageRequestSchema = z.object({
   metadata: z.record(z.unknown()).optional()
 });
 
+/**
+ * GET /internal/auth/status
+ * Returns whether the API key is configured (no secret value leakage)
+ */
+router.get('/auth/status', async (_req, res) => {
+  const raw = process.env.STORY_GENERATION_WORKFLOW_API_KEY || '';
+  const trimmed = raw.trim();
+  res.json({
+    success: true,
+    apiKeyConfigured: trimmed.length > 0,
+    keyLength: trimmed.length
+  });
+});
+
 
 
 /**

@@ -383,8 +383,8 @@ export interface PrintGenerationParams {
 export interface PrintGenerationResult {
   interiorPdfUrl: string;
   coverPdfUrl: string;
-  interiorCmykPdfUrl?: string;
-  coverCmykPdfUrl?: string;
+  interiorCmykPdfUrl?: string | null;
+  coverCmykPdfUrl?: string | null;
   status: string;
 }
 
@@ -446,6 +446,8 @@ export class PrintGenerationHandler implements WorkflowStepHandler<PrintGenerati
       const result: PrintGenerationResult = {
         interiorPdfUrl,
         coverPdfUrl,
+  interiorCmykPdfUrl: null,
+  coverCmykPdfUrl: null,
         status: 'completed'
       };
 
@@ -463,7 +465,8 @@ export class PrintGenerationHandler implements WorkflowStepHandler<PrintGenerati
           coverCmykBuffer,
           'application/pdf'
         );
-        Object.assign(result, { interiorCmykUrl, coverCmykUrl });
+        result.interiorCmykPdfUrl = interiorCmykUrl;
+        result.coverCmykPdfUrl = coverCmykUrl;
       }
 
       // Generate HTML for debugging purposes
@@ -488,10 +491,10 @@ export class PrintGenerationHandler implements WorkflowStepHandler<PrintGenerati
         'text/html'
       );
 
-      // Update story with PDF URLs
+      // Update story with preferred PDF URLs (prefer CMYK when available)
       await this.storyService.updateStoryPrintUrls(params.storyId, {
-        interiorPdfUri: result.interiorPdfUrl,
-        coverPdfUri: result.coverPdfUrl
+        interiorPdfUri: result.interiorCmykPdfUrl ?? result.interiorPdfUrl,
+        coverPdfUri: result.coverCmykPdfUrl ?? result.coverPdfUrl
       });
 
       logger.info(`Print generation completed for story ${params.storyId}`, {

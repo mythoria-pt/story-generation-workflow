@@ -7,7 +7,7 @@ export const printRouter = express.Router();
 // Print generation endpoint
 printRouter.post('/generate', async (req: express.Request, res: express.Response): Promise<void> => {
   try {
-    const { storyId, workflowId } = req.body;
+  const { storyId, workflowId, generateCMYK } = req.body;
 
     if (!storyId || !workflowId) {
       res.status(400).json({
@@ -19,8 +19,8 @@ printRouter.post('/generate', async (req: express.Request, res: express.Response
 
     logger.info('Print generation request received', { storyId, workflowId });
 
-    const handler = new PrintGenerationHandler();
-    const result = await handler.execute({ storyId, workflowId });
+  const handler = new PrintGenerationHandler();
+  const result = await handler.execute({ storyId, workflowId, generateCMYK });
 
     res.json(result);
   } catch (error) {

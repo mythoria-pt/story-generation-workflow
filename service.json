@@ -1,0 +1,266 @@
+{
+  "apiVersion": "serving.knative.dev/v1",
+  "kind": "Service",
+  "metadata": {
+    "annotations": {
+      "run.googleapis.com/client-name": "gcloud",
+      "run.googleapis.com/client-version": "535.0.0",
+      "run.googleapis.com/ingress": "all",
+      "run.googleapis.com/ingress-status": "all",
+      "run.googleapis.com/operation-id": "9f118c06-db38-4565-9014-750269bc41e4",
+      "run.googleapis.com/urls": "[\"https://story-generation-workflow-803421888801.europe-west9.run.app\",\"https://story-generation-workflow-x2qrlilyyq-od.a.run.app\"]",
+      "serving.knative.dev/creator": "803421888801-compute@developer.gserviceaccount.com",
+      "serving.knative.dev/lastModifier": "803421888801-compute@developer.gserviceaccount.com"
+    },
+    "creationTimestamp": "2025-06-16T16:18:04.417585Z",
+    "generation": 43,
+    "labels": {
+      "cloud.googleapis.com/location": "europe-west9",
+      "run.googleapis.com/satisfiesPzs": "true"
+    },
+    "name": "story-generation-workflow",
+    "namespace": "803421888801",
+    "resourceVersion": "AAY81GVuxWA",
+    "selfLink": "/apis/serving.knative.dev/v1/namespaces/803421888801/services/story-generation-workflow",
+    "uid": "fa4d1f92-9db2-4603-a255-ff5d6d026cd9"
+  },
+  "spec": {
+    "template": {
+      "metadata": {
+        "annotations": {
+          "autoscaling.knative.dev/maxScale": "5",
+          "run.googleapis.com/client-name": "gcloud",
+          "run.googleapis.com/client-version": "535.0.0",
+          "run.googleapis.com/network-interfaces": "[{\"network\":\"default\",\"subnetwork\":\"default\"}]",
+          "run.googleapis.com/startup-cpu-boost": "true",
+          "run.googleapis.com/vpc-access-egress": "all-traffic"
+        },
+        "labels": {
+          "client.knative.dev/nonce": "ksdfjjsyrf",
+          "run.googleapis.com/startupProbeType": "Default"
+        }
+      },
+      "spec": {
+        "containerConcurrency": 10,
+        "containers": [
+          {
+            "env": [
+              {
+                "name": "NODE_ENV",
+                "value": "production"
+              },
+              {
+                "name": "DB_PORT",
+                "value": "5432"
+              },
+              {
+                "name": "DB_NAME",
+                "value": "mythoria_db"
+              },
+              {
+                "name": "WORKFLOWS_DB",
+                "value": "workflows_db"
+              },
+              {
+                "name": "GOOGLE_CLOUD_PROJECT_ID",
+                "value": "oceanic-beach-460916-n5"
+              },
+              {
+                "name": "GOOGLE_CLOUD_REGION",
+                "value": "europe-west9"
+              },
+              {
+                "name": "STORAGE_BUCKET_NAME",
+                "value": "mythoria-generated-stories"
+              },
+              {
+                "name": "TEXT_PROVIDER",
+                "value": "google-genai"
+              },
+              {
+                "name": "IMAGE_PROVIDER",
+                "value": "openai"
+              },
+              {
+                "name": "GOOGLE_GENAI_MODEL",
+                "value": "gemini-2.5-pro"
+              },
+              {
+                "name": "OPENAI_IMAGE_MODEL",
+                "value": "gpt-4.1"
+              },
+              {
+                "name": "OPENAI_IMAGE_QUALITY",
+                "value": "high"
+              },
+              {
+                "name": "OPENAI_TEXT_MODEL",
+                "value": "gpt-4.1"
+              },
+              {
+                "name": "OPENAI_MODEL",
+                "value": "gpt-4.1"
+              },
+              {
+                "name": "OPENAI_USE_RESPONSES_API",
+                "value": "false"
+              },
+              {
+                "name": "TTS_PROVIDER",
+                "value": "openai"
+              },
+              {
+                "name": "TTS_MODEL",
+                "value": "gpt-4o-mini-tts"
+              },
+              {
+                "name": "TTS_VOICE",
+                "value": "coral"
+              },
+              {
+                "name": "TTS_SPEED",
+                "value": "1"
+              },
+              {
+                "name": "TTS_LANGUAGE",
+                "value": "en-US"
+              },
+              {
+                "name": "VERTEX_AI_MODEL_ID",
+                "value": "gemini-2.5-pro"
+              },
+              {
+                "name": "DEBUG_AI_FULL_PROMPTS",
+                "value": "false"
+              },
+              {
+                "name": "DEBUG_AI_FULL_RESPONSES",
+                "value": "false"
+              },
+              {
+                "name": "LOG_LEVEL",
+                "value": "warn"
+              },
+              {
+                "name": "DB_HOST",
+                "valueFrom": {
+                  "secretKeyRef": {
+                    "key": "latest",
+                    "name": "mythoria-db-host"
+                  }
+                }
+              },
+              {
+                "name": "DB_USER",
+                "valueFrom": {
+                  "secretKeyRef": {
+                    "key": "latest",
+                    "name": "mythoria-db-user"
+                  }
+                }
+              },
+              {
+                "name": "DB_PASSWORD",
+                "valueFrom": {
+                  "secretKeyRef": {
+                    "key": "latest",
+                    "name": "mythoria-db-password"
+                  }
+                }
+              },
+              {
+                "name": "OPENAI_API_KEY",
+                "valueFrom": {
+                  "secretKeyRef": {
+                    "key": "latest",
+                    "name": "mythoria-openai-api-key"
+                  }
+                }
+              },
+              {
+                "name": "GOOGLE_GENAI_API_KEY",
+                "valueFrom": {
+                  "secretKeyRef": {
+                    "key": "latest",
+                    "name": "mythoria-google-genai-api-key"
+                  }
+                }
+              },
+              {
+                "name": "STORY_GENERATION_WORKFLOW_API_KEY",
+                "valueFrom": {
+                  "secretKeyRef": {
+                    "key": "latest",
+                    "name": "STORY_GENERATION_WORKFLOW_API_KEY"
+                  }
+                }
+              }
+            ],
+            "image": "gcr.io/oceanic-beach-460916-n5/story-generation-workflow:latest",
+            "ports": [
+              {
+                "containerPort": 8080,
+                "name": "http1"
+              }
+            ],
+            "resources": {
+              "limits": {
+                "cpu": "2",
+                "memory": "2Gi"
+              }
+            },
+            "startupProbe": {
+              "failureThreshold": 1,
+              "periodSeconds": 240,
+              "tcpSocket": {
+                "port": 8080
+              },
+              "timeoutSeconds": 240
+            }
+          }
+        ],
+        "serviceAccountName": "803421888801-compute@developer.gserviceaccount.com",
+        "timeoutSeconds": 3600
+      }
+    },
+    "traffic": [
+      {
+        "latestRevision": true,
+        "percent": 100
+      }
+    ]
+  },
+  "status": {
+    "address": {
+      "url": "https://story-generation-workflow-x2qrlilyyq-od.a.run.app"
+    },
+    "conditions": [
+      {
+        "lastTransitionTime": "2025-08-20T23:33:12.755552Z",
+        "status": "True",
+        "type": "Ready"
+      },
+      {
+        "lastTransitionTime": "2025-08-20T23:33:11.500908Z",
+        "status": "True",
+        "type": "ConfigurationsReady"
+      },
+      {
+        "lastTransitionTime": "2025-08-20T23:33:12.721453Z",
+        "status": "True",
+        "type": "RoutesReady"
+      }
+    ],
+    "latestCreatedRevisionName": "story-generation-workflow-00043-7tx",
+    "latestReadyRevisionName": "story-generation-workflow-00043-7tx",
+    "observedGeneration": 43,
+    "traffic": [
+      {
+        "latestRevision": true,
+        "percent": 100,
+        "revisionName": "story-generation-workflow-00043-7tx"
+      }
+    ],
+    "url": "https://story-generation-workflow-x2qrlilyyq-od.a.run.app"
+  }
+}

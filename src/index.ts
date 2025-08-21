@@ -69,8 +69,13 @@ import { pingRouter } from './routes/ping.js';
 import { asyncJobRouter } from './routes/async-jobs.js';
 import { getAIGateway } from '@/ai/gateway-singleton.js';
 import { getStorageService } from '@/services/storage-singleton.js';
+import { CMYKConversionService } from '@/services/cmyk-conversion.js';
 import apiKeyAuth from './middleware/apiKeyAuth.js';
 // Protect external-facing APIs with x-api-key
+{
+  const hasKey = Boolean((process.env.STORY_GENERATION_WORKFLOW_API_KEY || '').trim());
+  logger.info(`API key configured for external routes: ${hasKey}`);
+}
 app.use('/ai', apiKeyAuth, aiRouter);
 app.use('/audio', apiKeyAuth, audioRouter);
 app.use('/internal', internalRouter); // keep internal open or handle separately
@@ -109,6 +114,18 @@ async function startServer() {
         try {
           getAIGateway();
           getStorageService();
+          // Best-effort Ghostscript validation so container logs confirm CMYK readiness
+          (async () => {
+            try {
+              const cmyk = new CMYKConversionService();
+              const ok = await cmyk.validateGhostscript();
+              if (!ok) {
+                logger.warn('Ghostscript not available; CMYK conversion will be skipped');
+              }
+            } catch (e) {
+              logger.warn('Ghostscript validation encountered an error', { error: e instanceof Error ? e.message : String(e) });
+            }
+          })();
           logger.info('Warm-up: core singletons initialized');
         } catch (warmErr) {
           logger.error('Warm-up failed (continuing):', warmErr);

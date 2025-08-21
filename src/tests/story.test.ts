@@ -120,7 +120,8 @@ describe('StoryService', () => {
     const setMock = jest.fn().mockReturnValue({ where: whereMock });
     mockDb.update.mockReturnValue({ set: setMock });
 
-    const updates = { htmlUri: 'html', hasAudio: true };
+    // htmlUri was removed from the schema; use supported fields instead
+    const updates = { interiorPdfUri: 'pdf://interior', hasAudio: true };
     const result = await service.updateStoryUris('s1', updates);
 
     expect(result).toBe(true);

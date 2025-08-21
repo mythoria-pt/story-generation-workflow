@@ -141,7 +141,7 @@ export class PrintService {
         html += `
       <!-- Page break before Chapter ${chapterIndex + 1} image -->
       <div class="page-break">
-        <span style="color: #FEFEFE; font-size: 6px;">--.--</span>
+        <span style="color: #F5F5F5; font-size: 6px;">EMPTY-PAGE-MARKER</span>
       </div>
       `;
       }
