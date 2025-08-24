@@ -595,28 +595,6 @@ contextLogger.info('Chapter generation started', {
 });
 ```
 
-### Request Timing & Metrics
-```typescript
-// Performance monitoring middleware
-export const performanceMiddleware = (req: Request, res: Response, next: NextFunction) => {
-  const start = process.hrtime.bigint();
-  
-  res.on('finish', () => {
-    const duration = Number(process.hrtime.bigint() - start) / 1_000_000; // Convert to ms
-    
-    logger.info('Request completed', {
-      method: req.method,
-      url: req.url,
-      status: res.statusCode,
-      duration,
-      userAgent: req.get('user-agent')
-    });
-  });
-  
-  next();
-};
-```
-
 ## Security & Best Practices
 
 ### Input Validation
@@ -925,7 +903,6 @@ interface ChapterContent {
 - Always use semicolons.
 - Interface names should be descriptive without prefixes (e.g., `StoryOutlineParams`, `ChapterWritingResult`).
 - Enum values should use UPPER_SNAKE_CASE for constants.
-- Always use strict equality (`===` and `!==`).
 - Use JSDoc-style comments for functions and complex logic.
 - Organize imports: external packages first, then internal imports with `@/` path mapping.
 - Prefer arrow functions for inline callbacks, regular functions for main declarations.
@@ -936,11 +913,5 @@ interface ChapterContent {
 - Implement comprehensive error handling with structured logging.
 - Use Zod for runtime type validation and schema parsing.
 - Follow clean architecture principles with clear separation of concerns.
-
-### Testing Rules
-1. Unit test business logic without external dependencies
-2. Use mocks for external service adapters
-3. Integration tests for database operations
-4. Coverage reporting for all source files
 
 This service is part of the larger Mythoria ecosystem and shares database schema with the main webapp while maintaining clear service boundaries and independent deployment capabilities.

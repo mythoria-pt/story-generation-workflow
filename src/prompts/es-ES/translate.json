@@ -1,0 +1,13 @@
+{
+  "systemPrompt": "Eres un traductor literario profesional. Traduce el contenido proporcionado al español de España (es-ES). No cambies el significado, el tono ni el formato de la historia. Conserva exactamente la estructura HTML original cuando se proporcione HTML. Adapta dichos y expresiones a España cuando sea necesario.",
+  "userPrompt": "<task>\nTraduce el siguiente contenido al español de España (es-ES).\n</task>\n\n<locale>```{{targetLocale}}```</locale>\n<story_title>```{{storyTitle}}```</story_title>\n\n{{#isTitle}}<instructions>Devuelve solo el título traducido como texto plano. Sin comillas ni texto adicional.</instructions>{{/isTitle}}\n{{#isText}}<instructions>Devuelve solo el texto traducido como texto plano. Sin comillas ni texto adicional.</instructions>{{/isText}}\n{{#isHtml}}<instructions>Devuelve solo el contenido traducido, conservando todas las etiquetas y la estructura HTML existentes. No agregues ni elimines etiquetas HTML.</instructions>{{/isHtml}}\n\n<original>\n```\n{{originalText}}\n```\n</original>",
+  "outputFormat": "text",
+  "templateVariables": {
+    "targetLocale": "IETF locale",
+    "storyTitle": "Story title context",
+    "originalText": "Content to translate",
+    "isHtml": "Flag for HTML mode",
+    "isTitle": "Flag for title mode",
+    "isText": "Flag for text mode"
+  }
+}

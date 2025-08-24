@@ -175,8 +175,6 @@ export class StoryService {
           deliveryAddress: stories.deliveryAddress,
           customAuthor: stories.customAuthor,
           dedicationMessage: stories.dedicationMessage,
-          htmlUri: stories.htmlUri,
-          pdfUri: stories.pdfUri,
           audiobookUri: stories.audiobookUri,
           coverUri: stories.coverUri,
           backcoverUri: stories.backcoverUri,
@@ -189,7 +187,9 @@ export class StoryService {
           storyGenerationStatus: stories.storyGenerationStatus,
           storyGenerationCompletedPercentage: stories.storyGenerationCompletedPercentage,
           audiobookStatus: stories.audiobookStatus,
-          author: authors.displayName, // Join to get author's display name
+          author: authors.displayName, // display name
+          authorEmail: authors.email,
+          authorPreferredLocale: authors.preferredLocale,
         })
         .from(stories)
         .innerJoin(authors, eq(stories.authorId, authors.authorId))
@@ -208,25 +208,26 @@ export class StoryService {
    * Update story with URI fields
    */
   async updateStoryUris(storyId: string, updates: {
-    htmlUri?: string;
-    pdfUri?: string;
     audiobookUri?: object;
     hasAudio?: boolean;
+  htmlUri?: string;
+    interiorPdfUri?: string;
+    coverPdfUri?: string;
   }) {
     try {
       const updateData: Record<string, unknown> = {};
       
-      if (updates.htmlUri !== undefined) {
-        updateData.htmlUri = updates.htmlUri;
-      }
-      if (updates.pdfUri !== undefined) {
-        updateData.pdfUri = updates.pdfUri;
-      }
       if (updates.audiobookUri !== undefined) {
         updateData.audiobookUri = updates.audiobookUri;
       }
       if (updates.hasAudio !== undefined) {
         updateData.hasAudio = updates.hasAudio;
+      }
+      if (updates.interiorPdfUri !== undefined) {
+        updateData.interiorPdfUri = updates.interiorPdfUri;
+      }
+      if (updates.coverPdfUri !== undefined) {
+        updateData.coverPdfUri = updates.coverPdfUri;
       }
       
       // Use retry logic for database connection timeouts
@@ -517,6 +518,57 @@ export class StoryService {
         error: error instanceof Error ? error.message : String(error),
         storyId,
         updates
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Update story language and selected text fields
+   * - Will update updatedAt automatically
+   */
+  async updateStoryLanguageAndTexts(
+    storyId: string,
+    updates: {
+      storyLanguage: string;
+      title?: string;
+      synopsis?: string;
+      plotDescription?: string;
+    }
+  ) {
+    try {
+      const updateData: Record<string, unknown> = {
+        storyLanguage: updates.storyLanguage,
+        updatedAt: new Date()
+      };
+
+      if (typeof updates.title === 'string') {
+        updateData.title = updates.title;
+      }
+      if (typeof updates.synopsis === 'string') {
+        updateData.synopsis = updates.synopsis;
+      }
+      if (typeof updates.plotDescription === 'string') {
+        updateData.plotDescription = updates.plotDescription;
+      }
+
+      await retry(async () => {
+        await this.db
+          .update(stories)
+          .set(updateData)
+          .where(eq(stories.storyId, storyId));
+      }, 3, 1000);
+
+      logger.info('Story language/texts updated successfully', {
+        storyId,
+        fields: Object.keys(updateData)
+      });
+
+      return true;
+    } catch (error) {
+      logger.error('Failed to update story language/texts', {
+        error: error instanceof Error ? error.message : String(error),
+        storyId
       });
       throw error;
     }

@@ -214,7 +214,6 @@ export class GoogleGenAITextService implements ITextGenerationService {
           // For stateful conversation with JSON schema, we need to create a new model
           // since chat instances don't support changing responseSchema on the fly
           if (options?.jsonSchema) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const generationConfig: any = {
               maxOutputTokens: options?.maxTokens || 4096,
               temperature: options?.temperature || 0.7,
@@ -236,7 +235,20 @@ export class GoogleGenAITextService implements ITextGenerationService {
               hasJsonSchema: true
             });
 
-            response = await generativeModel.generateContent(prompt);
+              if (options?.mediaParts && options.mediaParts.length > 0) {
+                // Build content parts with media attachments
+                const parts: any[] = [{ text: prompt }];
+                for (const mp of options.mediaParts) {
+                  if (typeof mp.data === 'string') {
+                    parts.push({ inlineData: { data: Buffer.from(mp.data).toString('base64'), mimeType: mp.mimeType } });
+                  } else {
+                    parts.push({ inlineData: { data: mp.data.toString('base64'), mimeType: mp.mimeType } });
+                  }
+                }
+                response = await generativeModel.generateContent({ contents: [{ role: 'user', parts }] });
+              } else {
+                response = await generativeModel.generateContent(prompt);
+              }
           } else {
             // Use existing chat instance for stateful conversation without JSON schema
             logger.info('Google GenAI Debug - Using stateful chat', {
@@ -250,7 +262,6 @@ export class GoogleGenAITextService implements ITextGenerationService {
       }
         // If no chat instance exists, create a new one for stateless generation
       if (!response) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const generationConfig: any = {
           maxOutputTokens: options?.maxTokens || 8192,
           temperature: options?.temperature || 0.7,
@@ -265,7 +276,7 @@ export class GoogleGenAITextService implements ITextGenerationService {
           generationConfig.responseSchema = this.convertJsonSchemaToGenAISchema(options.jsonSchema);
           
           logger.info('Google GenAI Debug - Using structured output', {
-            schema: generationConfig.responseSchema,
+            hasSchema: true,
             contextId: options?.contextId
           });
         }
@@ -278,14 +289,27 @@ export class GoogleGenAITextService implements ITextGenerationService {
         logger.info('Google GenAI Debug - Using stateless generation', {
           model: options?.model || this.model,
           contextId: options?.contextId || 'none',
-          hasJsonSchema: !!options?.jsonSchema
+          hasJsonSchema: !!options?.jsonSchema,
+          hasMediaParts: !!options?.mediaParts && options.mediaParts.length > 0
         });
 
-        response = await generativeModel.generateContent(prompt);
+        // If media parts are provided, send as inlineData parts alongside the prompt
+        if (options?.mediaParts && options.mediaParts.length > 0) {
+          const parts: any[] = [{ text: prompt }];
+          for (const mp of options.mediaParts) {
+            if (typeof mp.data === 'string') {
+              parts.push({ inlineData: { data: Buffer.from(mp.data).toString('base64'), mimeType: mp.mimeType } });
+            } else {
+              parts.push({ inlineData: { data: mp.data.toString('base64'), mimeType: mp.mimeType } });
+            }
+          }
+          response = await generativeModel.generateContent({ contents: [{ role: 'user', parts }] });
+        } else {
+          response = await generativeModel.generateContent(prompt);
+        }
       }
       
       // Extract the text response
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const candidate = (response as any).response.candidates?.[0];
       if (!candidate) {
         throw new Error('No candidates returned from Google GenAI');

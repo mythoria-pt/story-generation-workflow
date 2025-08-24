@@ -52,6 +52,7 @@ export interface TextGenerationOptions {
   model?: string;
   contextId?: string; // For context preservation across requests
   jsonSchema?: object; // JSON schema for structured output
+  mediaParts?: Array<{ mimeType: string; data: Buffer | string }>; // Optional media attachments for multimodal
 }
 
 export interface ImageGenerationOptions {

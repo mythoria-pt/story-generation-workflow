@@ -1,6 +1,4 @@
-# Enhanced deployment script with CMYK/PDF support
 param(
-    [switch]$SkipBuild,
     [switch]$SkipTests,
     [switch]$DryRun
 )
@@ -21,7 +19,7 @@ Write-Host "Service: $serviceName" -ForegroundColor Yellow
 Write-Host "Region: $region" -ForegroundColor Yellow
 
 # 1. Setup ICC profiles
-Write-Host "`n📄 Setting up ICC profiles..." -ForegroundColor Green
+Write-Host "Setting up ICC profiles..." -ForegroundColor Green
 if (-not $DryRun) {
     & "$PSScriptRoot\setup-icc-profiles.ps1"
     if ($LASTEXITCODE -ne 0) {
@@ -29,90 +27,40 @@ if (-not $DryRun) {
     }
 }
 
-# 2. Build and test (existing functionality)
-if (-not $SkipBuild) {
-    Write-Host "`n🔨 Building application..." -ForegroundColor Green
-    if (-not $DryRun) {
-        npm run build
-        if ($LASTEXITCODE -ne 0) {
-            Write-Error "Build failed!"
-            exit 1
-        }
-    }
-}
-
+# 2. Optional tests
 if (-not $SkipTests) {
-    Write-Host "`n🧪 Running tests..." -ForegroundColor Green
+    Write-Host "Running tests..." -ForegroundColor Green
     if (-not $DryRun) {
         npm test
         if ($LASTEXITCODE -ne 0) {
-            Write-Warning "Tests failed, but continuing with deployment"
+            Write-Warning "Tests failed, continuing with deployment"
         }
     }
 }
 
-# 3. Build Docker image with Ghostscript support
-Write-Host "`n🐳 Building Docker image with CMYK support..." -ForegroundColor Green
-$dockerTag = "gcr.io/$projectId/$serviceName"
-
+# 3. Submit build and deploy via Cloud Build (cloudbuild.yaml)
+Write-Host "Submitting build and deploy via Cloud Build (cloudbuild.yaml)..." -ForegroundColor Green
 if (-not $DryRun) {
-    docker build -t $dockerTag .
+    gcloud beta builds submit --config cloudbuild.yaml
     if ($LASTEXITCODE -ne 0) {
-        Write-Error "Docker build failed!"
-        exit 1
-    }
-    
-    Write-Host "✅ Docker image built successfully" -ForegroundColor Green
-    
-    # Push to Container Registry
-    Write-Host "`n📤 Pushing to Google Container Registry..." -ForegroundColor Green
-    docker push $dockerTag
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error "Docker push failed!"
+        Write-Error "Cloud Build submission failed!"
         exit 1
     }
 }
 
-# 4. Deploy to Cloud Run
-Write-Host "`n🚀 Deploying to Cloud Run..." -ForegroundColor Green
-
-$deployArgs = @(
-    "run", "deploy", $serviceName,
-    "--image", $dockerTag,
-    "--platform", "managed",
-    "--region", $region,
-    "--allow-unauthenticated",
-    "--memory", "2Gi",
-    "--cpu", "2",
-    "--timeout", "900",
-    "--concurrency", "10",
-    "--max-instances", "5",
-    "--set-env-vars", "NODE_ENV=production,GHOSTSCRIPT_BINARY=gs,TEMP_DIR=/tmp/mythoria-print"
-)
-
-if ($DryRun) {
-    Write-Host "Would execute: gcloud $($deployArgs -join ' ')" -ForegroundColor Yellow
-} else {
-    & gcloud @deployArgs
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error "Cloud Run deployment failed!"
-        exit 1
-    }
-}
-
-Write-Host "`n✅ Deployment completed successfully!" -ForegroundColor Green
-Write-Host "`n📋 CMYK Features Added:" -ForegroundColor Cyan
-Write-Host "  • Ghostscript integration for PDF/X-1a conversion" -ForegroundColor White
-Write-Host "  • CoatedFOGRA39 ICC profile support" -ForegroundColor White
-Write-Host "  • RGB to CMYK color space conversion" -ForegroundColor White
-Write-Host "  • Both RGB and CMYK PDF outputs" -ForegroundColor White
-Write-Host "  • Enhanced Docker container with print tools" -ForegroundColor White
+Write-Host "Deployment completed successfully!" -ForegroundColor Green
+Write-Host "CMYK Features Added:" -ForegroundColor Cyan
+Write-Host "  - Ghostscript integration for PDF/X-1a conversion" -ForegroundColor White
+Write-Host "  - CoatedFOGRA39 ICC profile support" -ForegroundColor White
+Write-Host "  - RGB to CMYK color space conversion" -ForegroundColor White
+Write-Host "  - Both RGB and CMYK PDF outputs" -ForegroundColor White
+Write-Host "  - Enhanced Docker container with print tools" -ForegroundColor White
 
 if (-not $DryRun) {
     $serviceUrl = gcloud run services describe $serviceName --region=$region --format="value(status.url)" 2>$null
     if ($serviceUrl) {
-        Write-Host "`n🌐 Service URL: $serviceUrl" -ForegroundColor Green
-        Write-Host "`n🧪 Test CMYK conversion endpoint:" -ForegroundColor Yellow
+        Write-Host "Service URL: $serviceUrl" -ForegroundColor Green
+        Write-Host "Test CMYK conversion endpoint:" -ForegroundColor Yellow
         Write-Host "  POST $serviceUrl/internal/print/generate" -ForegroundColor White
         Write-Host "  { ""storyId"": ""test-id"", ""workflowId"": ""test-workflow"", ""generateCMYK"": true }" -ForegroundColor Gray
     }

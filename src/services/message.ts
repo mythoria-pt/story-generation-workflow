@@ -4,7 +4,7 @@
  */
 
 import { readFileSync } from 'fs';
-import { join } from 'path';
+import { posix as pathPosix } from 'path';
 import { logger } from '@/config/logger.js';
 import { getMessagesPath } from '../shared/path-utils.js';
 
@@ -37,7 +37,7 @@ export class MessageService {
       // Convert locale format (en-US -> en-US, pt -> pt-PT, etc.)
       const normalizedLocale = this.normalizeLocale(locale);
       
-      const messagesPath = join(getMessagesPath(), normalizedLocale, 'common.json');
+  const messagesPath = pathPosix.join(getMessagesPath(), normalizedLocale, 'common.json');
       const messagesContent = readFileSync(messagesPath, 'utf-8');
       const messages = JSON.parse(messagesContent) as MessageData;
 

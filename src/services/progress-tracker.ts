@@ -7,6 +7,8 @@ import { RunsService } from './runs.js';
 import { StoryService } from './story.js';
 import { logger } from '@/config/logger.js';
 import { retry } from '@/shared/utils.js';
+import { sendStoryCreatedEmail } from './notification-client.js';
+import { eventService } from './event.js';
 
 export interface WorkflowStep {
   stepName: string;
@@ -81,7 +83,6 @@ export class ProgressTrackerService {
       const outlineStep = await this.runsService.getStepResult(runId, 'generate_outline');
       
       if (outlineStep?.detailJson && typeof outlineStep.detailJson === 'object') {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const outline = outlineStep.detailJson as any;
         
         // Try to extract chapter count from outline structure
@@ -301,7 +302,7 @@ export class ProgressTrackerService {
         
         // If the run is completed, ensure 100% completion
         let finalPercentage = progress.completedPercentage;
-        if (run.status === 'completed' && run.currentStep === 'done') {
+  if (run.status === 'completed') {
           finalPercentage = 100;
         }
         
@@ -312,18 +313,27 @@ export class ProgressTrackerService {
         );
 
         // If the run is completed, update story status to published
-        if (run.status === 'completed' && run.currentStep === 'done') {
+        if (run.status === 'completed') {
+          logger.info('Story run completed, updating status to published and dispatching email', { 
+            runId, 
+            storyId: run.storyId,
+            finalPercentage 
+          });
+          
           await this.storyService.updateStoryStatus(run.storyId, 'published');
-        }
-
-        logger.info('Story progress updated', {
+          
+          // Fire-and-forget story-created email (non-blocking)
+          void this.dispatchStoryCreatedEmail(run.storyId).catch(err => {
+            logger.error('Failed dispatching story-created email', { storyId: run.storyId, error: err instanceof Error ? err.message : String(err) });
+          });
+        }        logger.info('Story progress updated', {
           runId,
           storyId: run.storyId,
           completedPercentage: finalPercentage,
           currentStep: progress.currentStep,
           completedSteps: progress.completedSteps.length,
           totalSteps: progress.totalSteps,
-          storyStatus: run.status === 'completed' && run.currentStep === 'done' ? 'published' : 'unchanged'
+          storyStatus: run.status === 'completed' ? 'published' : 'unchanged'
         });
       }, 3, 1000); // 3 retries, starting with 1s delay
 
@@ -336,7 +346,69 @@ export class ProgressTrackerService {
     } finally {
       this.activeUpdates.delete(runId);
     }
-  }  /**
+  }
+
+  private async dispatchStoryCreatedEmail(storyId: string): Promise<void> {
+    const EVENT_TYPE = 'story.created.email_sent';
+    
+    logger.info('Starting story-created email dispatch process', { storyId });
+    
+    const already = await eventService.hasEvent(EVENT_TYPE, storyId);
+    if (already) {
+      logger.debug('Story-created email already sent (event exists)', { storyId });
+      return;
+    }
+    
+    logger.info('Fetching story details for email dispatch', { storyId });
+    const story = await this.storyService.getStory(storyId);
+    if (!story) {
+      logger.warn('Cannot send story-created email; story not found', { storyId });
+      return;
+    }
+    if (!story.authorEmail) {
+      logger.warn('Cannot send story-created email; author email missing', { storyId, story: { storyId: story.storyId, title: story.title } });
+      return;
+    }
+    
+    const language = (story.authorPreferredLocale && ['en-US','pt-PT','es-ES'].includes(story.authorPreferredLocale)) ? story.authorPreferredLocale : 'en-US';
+    const baseLocalePath = 'en-US'; // requirement: always use en-US paths
+    const readStoryURL = `https://mythoria.pt/${baseLocalePath}/stories/read/${storyId}`;
+    const shareStoryURL = readStoryURL;
+    const orderPrintURL = `https://mythoria.pt/${baseLocalePath}/stories/print/${storyId}`;
+    const variables = {
+      name: story.author,
+      StoryTitle: story.title,
+      CoverImageURL: story.coverUri || '', // OK to be empty
+      Synopsis: story.synopsis || '',
+      readStoryURL,
+      shareStoryURL,
+      orderPrintURL
+    };
+    
+    logger.info('Prepared email variables for story-created notification', { 
+      storyId, 
+      recipient: story.authorEmail,
+      language,
+      variables 
+    });
+    
+    const sent = await sendStoryCreatedEmail({
+      templateId: 'story-created',
+      recipients: [{ email: story.authorEmail, name: story.author, language }],
+      variables,
+      priority: 'normal',
+      metadata: { storyId }
+    });
+    
+    if (sent) {
+      logger.info('Story-created email sent successfully, recording event', { storyId, authorId: story.authorId });
+      await eventService.recordEvent(EVENT_TYPE, story.authorId, { storyId });
+    } else {
+      logger.error('Failed to send story-created email', { storyId, authorEmail: story.authorEmail });
+    }
+  }
+
+  /**
    * Get the estimated completion percentage for a specific step
    * This is useful for real-time updates during step execution
    */

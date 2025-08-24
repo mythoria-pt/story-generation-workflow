@@ -73,7 +73,7 @@ $sharedSecrets = @{
 $storySecrets = @{
     "mythoria-openai-api-key" = "OpenAI API key for image and text generation"
     "mythoria-google-genai-api-key" = "Google GenAI API key for text generation"
-    "mythoria-storage-bucket" = "Google Cloud Storage bucket name for story assets"
+    "STORY_GENERATION_WORKFLOW_API_KEY" = "API key for story-generation-workflow authentication"
 }
 
 # Combine all secrets into one hashtable

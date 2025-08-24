@@ -1,9 +1,47 @@
-# Test Ghostscript CMYK conversion without ICC profile
 param(
     [string]$InputPDF = ""
 )
 
 Write-Host "Testing Ghostscript CMYK conversion..." -ForegroundColor Green
+
+function Resolve-GhostscriptBinary {
+    # 1) Respect explicit env var
+    if ($env:GHOSTSCRIPT_BINARY -and (Test-Path $env:GHOSTSCRIPT_BINARY)) { return $env:GHOSTSCRIPT_BINARY }
+    
+    # 2) Try PATH
+    $names = @('gswin64c.exe','gswin32c.exe','gs.exe')
+    foreach ($n in $names) {
+        $p = (Get-Command $n -ErrorAction SilentlyContinue | Select-Object -First 1).Path
+        if ($p) { return $p }
+    }
+
+    # 3) Search common install locations
+    $roots = @()
+    if ($env:ProgramFiles) { $roots += (Join-Path $env:ProgramFiles 'gs') }
+    if (${env:ProgramFiles(x86)}) { $roots += (Join-Path ${env:ProgramFiles(x86)} 'gs') }
+
+    foreach ($root in $roots) {
+        if (-not (Test-Path $root)) { continue }
+        $bins = Get-ChildItem -Path $root -Directory -ErrorAction SilentlyContinue |
+            Sort-Object Name -Descending |
+            ForEach-Object { Join-Path $_.FullName 'bin' } |
+            Where-Object { Test-Path $_ }
+
+        foreach ($bin in $bins) {
+            foreach ($n in $names) {
+                $candidate = Join-Path $bin $n
+                if (Test-Path $candidate) { return $candidate }
+            }
+        }
+    }
+    return $null
+}
+
+$gs = Resolve-GhostscriptBinary
+if (-not $gs) {
+    Write-Error "Ghostscript not found. Install it or set GHOSTSCRIPT_BINARY to the full path of gswin64c.exe."
+    exit 1
+}
 
 # Create a simple test PDF if none provided
 if (-not $InputPDF -or -not (Test-Path $InputPDF)) {
@@ -26,27 +64,28 @@ showpage
     
     $testPS | Out-File -FilePath $testPSFile -Encoding ASCII
     
-    # Convert PS to PDF
-    & gswin64c.exe -dNOPAUSE -dBATCH -dSAFER -sDEVICE=pdfwrite -sOutputFile="$testPDFFile" "$testPSFile"
-    
-    if (Test-Path $testPDFFile) {
-        Write-Host "Test PDF created: $testPDFFile" -ForegroundColor Green
-        $InputPDF = $testPDFFile
-    } else {
-        Write-Error "Failed to create test PDF"
+    # Convert PS to PDF using resolved Ghostscript
+    & $gs -dNOPAUSE -dBATCH -sDEVICE=pdfwrite -o "$testPDFFile" "$testPSFile"
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $testPDFFile)) {
+        Write-Error "Failed to create test PDF (Ghostscript exit code $LASTEXITCODE)"
         exit 1
     }
+    Write-Host "Test PDF created: $testPDFFile" -ForegroundColor Green
+    $InputPDF = $testPDFFile
 }
 
-# Test CMYK conversion
-$outputCMYK = [System.IO.Path]::ChangeExtension($InputPDF, "-cmyk.pdf")
+# Build CMYK output path properly (test-rgb.pdf -> test-rgb-cmyk.pdf)
+$dir  = [System.IO.Path]::GetDirectoryName($InputPDF)
+$name = [System.IO.Path]::GetFileNameWithoutExtension($InputPDF)
+$ext  = [System.IO.Path]::GetExtension($InputPDF)
+$outputCMYK = Join-Path $dir ("$name-cmyk$ext")
 
 Write-Host "Converting to CMYK: $InputPDF -> $outputCMYK" -ForegroundColor Yellow
+
 
 $gsArgs = @(
     "-dNOPAUSE",
     "-dBATCH", 
-    "-dSAFER",
     "-sDEVICE=pdfwrite",
     "-dCompatibilityLevel=1.4",
     "-sColorConversionStrategy=CMYK",
@@ -54,15 +93,15 @@ $gsArgs = @(
     "-dOverrideICC=true",
     "-dRenderIntent=0",
     "-dDeviceGrayToK=true",
-    "-sOutputFile=`"$outputCMYK`"",
-    "`"$InputPDF`""
+    "-o", "$outputCMYK",
+    "$InputPDF"
 )
 
-$command = "gswin64c.exe " + ($gsArgs -join " ")
+$command = "`"$gs`" " + ($gsArgs -join " ")
 Write-Host "Command: $command" -ForegroundColor Gray
 
 try {
-    & gswin64c.exe @gsArgs
+    & $gs @gsArgs
     
     if (Test-Path $outputCMYK) {
         $size = (Get-Item $outputCMYK).Length
@@ -70,10 +109,12 @@ try {
         Write-Host "File size: $([math]::Round($size/1KB, 1))KB" -ForegroundColor Green
     } else {
         Write-Error "CMYK PDF was not created"
+        exit 1
     }
 }
 catch {
     Write-Error "Ghostscript conversion failed: $($_.Exception.Message)"
+    exit 1
 }
 
 Write-Host "Test complete!" -ForegroundColor Cyan

@@ -285,6 +285,60 @@ POST /api/images/edit
 - `422`: User request exceeds character limit
 - `500`: Image editing failed
 
+## Translation API
+
+### Translate Story (Async)
+
+Translate the entire story (all chapters) into a new locale. This preserves chapter HTML structure and translates chapter titles, synopsis, plot description, and the main story title. Dedication message is not translated. The story's `storyLanguage` is updated only if all chapter translations succeed.
+
+```http
+POST /api/jobs/translate-text
+```
+
+**Request Body:**
+```json
+{
+  "storyId": "uuid-string",
+  "targetLocale": "en-US | en-GB | pt-PT | pt-BR | es-ES | fr-FR | it-IT | de-DE | nl-NL | pl-PL"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "jobId": "uuid-string",
+  "estimatedDuration": 180000,
+  "message": "Translation job created successfully"
+}
+```
+
+Use `GET /api/jobs/{jobId}` to retrieve status and results.
+
+**Job Result (on completion):**
+```json
+{
+  "success": true,
+  "type": "full_story_translation",
+  "storyId": "uuid",
+  "targetLocale": "pt-PT",
+  "updatedChapters": [
+    { "chapterNumber": 1, "titleTranslated": "...", "htmlLengthBefore": 1200, "htmlLengthAfter": 1215 },
+    { "chapterNumber": 2, "error": "..." }
+  ],
+  "totalChapters": 6,
+  "successfulTranslations": 5,
+  "failedTranslations": 1,
+  "metadataUpdated": false,
+  "timestamp": "2025-08-19T12:00:00Z"
+}
+```
+
+**Validation & Errors:**
+- `400`: Target locale equals current story language
+- `404`: Story not found
+- `500`: Translation job creation failed
+
 ## Text-to-Speech API
 
 ### Generate Audio

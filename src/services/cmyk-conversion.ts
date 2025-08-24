@@ -1,11 +1,9 @@
-import { exec, spawn } from 'child_process';
-import { promisify } from 'util';
-import { readFileSync, existsSync, statSync } from 'fs';
+import { spawn } from 'child_process';
+import { readFileSync, existsSync, statSync, readdirSync } from 'fs';
 import { join, dirname, basename, extname } from 'path';
 import { logger } from '@/config/logger.js';
 import { getEnvironment } from '@/config/environment.js';
 
-const execAsync = promisify(exec);
 
 interface ICCProfileConfig {
   profiles: Record<string, {
@@ -56,10 +54,16 @@ export class CMYKConversionService {
     // Set Ghostscript binary path based on environment
     const env = getEnvironment();
     if (env.GHOSTSCRIPT_BINARY) {
-      this.ghostscriptBinary = env.GHOSTSCRIPT_BINARY;
+      // Strip surrounding quotes if provided in env var
+      const bin = env.GHOSTSCRIPT_BINARY.trim();
+      this.ghostscriptBinary = (bin.startsWith('"') && bin.endsWith('"')) ? bin.slice(1, -1) : bin;
     } else {
-      // Default paths for different environments
-      this.ghostscriptBinary = process.platform === 'win32' ? 'gswin64c.exe' : 'gs';
+      // Default binary name, with Windows auto-discovery fallback
+      if (process.platform === 'win32') {
+        this.ghostscriptBinary = this.findGhostscriptOnWindows() || 'gswin64c.exe';
+      } else {
+        this.ghostscriptBinary = 'gs';
+      }
     }
 
     // Set ICC profiles path - in production this will be in the container
@@ -75,17 +79,73 @@ export class CMYKConversionService {
   }
 
   /**
+   * Attempt to discover Ghostscript installation on Windows
+   */
+  private findGhostscriptOnWindows(): string | null {
+    try {
+      const programFiles = process.env["ProgramFiles"] || 'C:\\\\Program Files';
+      const programFilesX86 = process.env["ProgramFiles(x86)"] || 'C:\\\\Program Files (x86)';
+      const candidates: string[] = [];
+      const versionsToCheck = [
+        // Common recent versions first; we also do a directory scan below
+        'gs10.04.0', 'gs10.03.1', 'gs10.02.1', 'gs10.01.2', 'gs10.00.0'
+      ];
+
+      for (const base of [programFiles, programFilesX86]) {
+        for (const ver of versionsToCheck) {
+          candidates.push(join(base, 'gs', ver, 'bin', 'gswin64c.exe'));
+          candidates.push(join(base, 'gs', ver, 'bin', 'gswin32c.exe'));
+        }
+        // Also check generic wildcard-like locations for the latest installed version
+        try {
+          const gsRoot = join(base, 'gs');
+          if (existsSync(gsRoot)) {
+            const dirs = readdirSync(gsRoot)
+              .filter((d: string) => d.startsWith('gs'))
+              .sort() // lexicographic; good enough to pick last as newest
+              .reverse();
+            for (const d of dirs) {
+              candidates.push(join(gsRoot, d, 'bin', 'gswin64c.exe'));
+              candidates.push(join(gsRoot, d, 'bin', 'gswin32c.exe'));
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      for (const c of candidates) {
+        if (existsSync(c)) return c;
+      }
+    } catch {
+      // ignore
+    }
+    return null;
+  }
+
+  /**
    * Validate Ghostscript installation
    */
   async validateGhostscript(): Promise<boolean> {
     try {
-      const { stdout } = await execAsync(`${this.ghostscriptBinary} --version`);
-      logger.info('Ghostscript validation successful', { version: stdout.trim() });
+      const version = await new Promise<string>((resolve, reject) => {
+        const child = spawn(this.ghostscriptBinary, ['--version'], { stdio: ['ignore', 'pipe', 'pipe'] });
+        let out = '';
+        let err = '';
+        child.stdout?.on('data', d => { out += d.toString(); });
+        child.stderr?.on('data', d => { err += d.toString(); });
+        child.on('error', e => reject(e));
+        child.on('close', code => {
+          if (code === 0) resolve(out.trim());
+          else reject(new Error(err || `exit ${code}`));
+        });
+      });
+      logger.info('Ghostscript validation successful', { version });
       return true;
     } catch (error) {
-      logger.error('Ghostscript validation failed', { 
+      logger.error('Ghostscript validation failed', {
         error: error instanceof Error ? error.message : String(error),
-        binary: this.ghostscriptBinary 
+        binary: this.ghostscriptBinary
       });
       return false;
     }

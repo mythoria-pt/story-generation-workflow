@@ -1,162 +1,166 @@
-﻿# Deploy Story Generation Workflow to Google Cloud
-# This script deploys the application using Google Cloud Build and the updated cloudbuild.yaml configuration
+﻿<#
+PowerShell deployment script for Story Generation Workflow to Google Cloud Run
+Usage: .\deploy.ps1 [-Staging] [-Fast] [-Help]
 
+Modes:
+ - Normal (default): installs deps, lint, typecheck, tests, build, then deploy via Cloud Build
+ - Fast: reuses the last built image (no build/lint/tests) and deploys directly to Cloud Run
+#>
+
+[CmdletBinding()]
 param(
-    [Parameter(Mandatory=$false)]
-    [string]$ProjectId,
-    
-    [Parameter(Mandatory=$false)]
-    [switch]$SkipSecretsCheck
+    [switch]$Staging,
+    [switch]$Fast,
+    [switch]$SkipLint,
+    [switch]$Help
 )
 
-# Console helper functions
-function Write-Info     { param([string]$Msg) Write-Host "[INFO] $Msg" -ForegroundColor Blue  }
+# Treat non-terminating errors as terminating so that try/catch works
+$ErrorActionPreference = 'Stop'
+
+# ---- Configuration ----------------------------------------------------------
+$PROJECT_ID        = 'oceanic-beach-460916-n5'
+$BASE_SERVICE_NAME = 'story-generation-workflow'
+$SERVICE_NAME      = if ($Staging) { "$BASE_SERVICE_NAME-staging" } else { $BASE_SERVICE_NAME }
+$REGION            = 'europe-west9'
+$IMAGE_NAME        = "gcr.io/$PROJECT_ID/$SERVICE_NAME"
+# -----------------------------------------------------------------------------
+
+function Show-Help {
+    Write-Host "Usage: .\deploy.ps1 [-Staging] [-Fast] [-SkipLint] [-Help]" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "Options:" -ForegroundColor Yellow
+    Write-Host "  -Staging     Deploy to the staging service ($BASE_SERVICE_NAME-staging)" -ForegroundColor White
+    Write-Host "  -Fast        Reuse last built image (skip build/lint/tests) and deploy to Cloud Run" -ForegroundColor White
+    Write-Host "  -SkipLint    Skip ESLint during full build (use if lint already ran in CI)" -ForegroundColor White
+    Write-Host "  -Help        Show this help message" -ForegroundColor White
+    Write-Host ""
+    Write-Host "Note: This script now uses Google Secret Manager for sensitive data." -ForegroundColor Cyan
+    Write-Host "Run .\scripts\setup-secrets.ps1 first if you haven't set up secrets yet." -ForegroundColor Cyan
+}
+
+# --- Console helpers ---------------------------------------------------------
+function Write-Info     { param([string]$Msg) Write-Host "[INFO] $Msg" -ForegroundColor Blue }
 function Write-Success  { param([string]$Msg) Write-Host "[SUCCESS] $Msg" -ForegroundColor Green }
 function Write-Warn     { param([string]$Msg) Write-Host "[WARN] $Msg" -ForegroundColor Yellow }
-function Write-Err      { param([string]$Msg) Write-Host "[ERROR] $Msg" -ForegroundColor Red   }
+function Write-Err      { param([string]$Msg) Write-Host "[ERROR] $Msg" -ForegroundColor Red }
+# -----------------------------------------------------------------------------
 
-function Import-EnvironmentVariables {
-    Write-Info "Loading environment variables from .env.production..."
-    
-    # Change to project root directory
-    Push-Location $PSScriptRoot\..
-    
+function Test-Prerequisites {
+    Write-Info "Checking prerequisites..."
+
     try {
-        $envFile = '.env.production'
-        
-        if (Test-Path $envFile) {
-            Write-Info "Loading environment variables from: $envFile"
-            
-            # Read and parse the environment file
-            Get-Content $envFile | Where-Object { 
-                $_.Trim() -and -not $_.StartsWith('#') 
-            } | ForEach-Object {
-                if ($_ -match '^([^=]+)=(.*)$') {
-                    $name = $matches[1].Trim()
-                    $value = $matches[2].Trim()
-                    
-                    # Remove quotes if present
-                    if (($value.StartsWith('"') -and $value.EndsWith('"')) -or 
-                        ($value.StartsWith("'") -and $value.EndsWith("'"))) {
-                        $value = $value.Substring(1, $value.Length - 2)
-                    }
-                    
-                    # Set environment variable for current session
-                    Set-Item -Path "env:$name" -Value $value
-                    Write-Host "  [OK] Loaded: $name" -ForegroundColor Green
-                }
-            }
-            
-            Write-Success "Environment variables loaded from $envFile"
-        } else {
-            Write-Warn "No .env.production file found. Using command-line parameters only."
+        & gcloud --version  | Out-Null
+        Write-Success "Google Cloud CLI is available"
+    } catch {
+        Write-Err "Google Cloud CLI is not installed or not on PATH."
+        throw
+    }
+
+    try {
+        $account = (& gcloud auth list --filter=status:ACTIVE --format="value(account)") | Select-Object -First 1
+        if (-not $account) {
+            Write-Err "Not authenticated with Google Cloud — run 'gcloud auth login' first."
+            throw "Unauthenticated"
         }
+        Write-Success "Authenticated as $account"
+    } catch {
+        throw
     }
-    finally {
-        Pop-Location
-    }
+
+    & gcloud config set project $PROJECT_ID | Out-Null
+    Write-Success "Using project $PROJECT_ID"
 }
 
-# Load environment variables first
-Import-EnvironmentVariables
-
-# Use loaded environment variables or command-line parameters (parameters take precedence)
-$ProjectId = if ($ProjectId) { $ProjectId } else { $env:GOOGLE_CLOUD_PROJECT_ID }
-
-Write-Host "Deploying Story Generation Workflow to Google Cloud..." -ForegroundColor Green
-Write-Host "Project: $ProjectId" -ForegroundColor Cyan
-
-# Validate required environment variables
-if (-not $ProjectId) {
-    Write-Err "ProjectId not found in command-line parameters or GOOGLE_CLOUD_PROJECT_ID in .env.production file."
-    exit 1
-}
-
-# Set the Google Cloud project
-Write-Info "Setting Google Cloud project..."
-gcloud config set project $ProjectId
-
-# Check if secrets exist (unless skipped)
-if (-not $SkipSecretsCheck) {
-    Write-Info "Checking required secrets..."
-    $requiredSecrets = @(
-        "mythoria-db-host",
-        "mythoria-db-user",
-        "mythoria-db-password",
-        "mythoria-storage-bucket",
-        "mythoria-vertex-ai-model",
-        "mythoria-vertex-ai-location",
-        "mythoria-workflows-location"
+function Build-Application {
+    param(
+        [switch]$SkipLint
     )
-    
-    $missingSecrets = @()
-    foreach ($secret in $requiredSecrets) {
+    Write-Info "Installing dependencies (npm ci)"
+    & npm ci
+    if (-not $SkipLint) {
+        Write-Info "Linting (npm run lint)"
+        # Ensure dev dependencies (eslint) available even if caller exported NODE_ENV=production
+        $originalNodeEnv = $env:NODE_ENV
+        $env:NODE_ENV = 'development'
         try {
-            $exists = gcloud secrets describe $secret --format="value(name)" 2>$null
-            if (-not $exists) {
-                $missingSecrets += $secret
-            } else {
-                Write-Host "  [OK] $secret" -ForegroundColor Green
-            }
-        } catch {
-            $missingSecrets += $secret
+            & npm run lint
+        } finally {
+            if ($null -ne $originalNodeEnv) { $env:NODE_ENV = $originalNodeEnv } else { Remove-Item Env:NODE_ENV -ErrorAction SilentlyContinue }
         }
+    } else {
+        Write-Warn "Skipping lint (SkipLint flag provided)"
     }
-    
-    if ($missingSecrets.Count -gt 0) {
-        Write-Err "Missing required secrets: $($missingSecrets -join ', ')"
-        Write-Info "Run .\scripts\setup-secrets.ps1 first to create the secrets"
-        exit 1
-    }
-    
-    Write-Success "All required secrets found"
+    Write-Info "Typecheck (npm run typecheck)"
+    & npm run typecheck
+    Write-Info "Running tests (npm test)"
+    & npm test
+    Write-Info "Building production bundle (npm run build)"
+    & npm run build
+    Write-Success "Build completed"
 }
 
-# Enable required APIs
-Write-Info "Enabling required APIs..."
-$requiredApis = @(
-    "cloudbuild.googleapis.com",
-    "run.googleapis.com",
-    "workflows.googleapis.com",
-    "secretmanager.googleapis.com",
-    "aiplatform.googleapis.com"
-)
-
-foreach ($api in $requiredApis) {
-    Write-Host "  Enabling $api..." -ForegroundColor Yellow
-    gcloud services enable $api
+function Deploy-With-CloudBuild {
+    Write-Info "Starting Cloud Build submission (beta)"
+    # Pass service name and region as substitutions
+    & gcloud beta builds submit --config cloudbuild.yaml --substitutions "_SERVICE_NAME=$SERVICE_NAME,_REGION=$REGION"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Err "Cloud Build submission failed"
+        throw "Cloud Build failed"
+    }
+    Write-Success "Cloud Build finished"
 }
 
-# Change to project root directory for build
-Push-Location $PSScriptRoot\..
+function Deploy-Fast {
+    Write-Info "Fast deploy: reusing last built image from Container Registry"
+    $digest = (& gcloud container images list-tags $IMAGE_NAME --format="get(digest)" --limit=1 --sort-by=~timestamp 2>$null)
+    if (-not $digest) {
+        Write-Err "No prior image found for $IMAGE_NAME. Fast deploy requires an existing image."
+        throw "Missing image"
+    }
+    $imageRef = "$IMAGE_NAME@sha256:$digest"
+    Write-Info "Deploying image $imageRef to Cloud Run service $SERVICE_NAME in $REGION"
+    & gcloud run deploy $SERVICE_NAME --image $imageRef --region $REGION --platform managed --quiet
+    Write-Success "Fast deploy submitted"
+}
+
+function Test-Deployment {
+    Write-Info "Fetching service URL"
+    $serviceUrl = & gcloud run services describe $SERVICE_NAME --region $REGION --format="value(status.url)"
+
+    if ($serviceUrl) {
+        Write-Success "Deployment successful"
+        Write-Host ""
+        Write-Host "Service URL: $serviceUrl" -ForegroundColor Cyan
+        Write-Host "Console: https://console.cloud.google.com/run/detail/$REGION/$SERVICE_NAME" -ForegroundColor Cyan
+        Write-Host ""
+    } else {
+        Write-Err "Unable to determine service URL"
+        throw "Describe failed"
+    }
+}
+
+function Main {
+    if ($Help) { Show-Help; return }
+
+    Write-Host "Deploying Story Generation Workflow ($SERVICE_NAME)..." -ForegroundColor Magenta
+    Write-Host ""
+
+    Test-Prerequisites
+    if ($Fast) {
+        Deploy-Fast
+    } else {
+    Build-Application -SkipLint:$SkipLint
+        Deploy-With-CloudBuild
+    }
+
+    Test-Deployment
+    Write-Success "All done"
+}
 
 try {
-    # Submit the build
-    Write-Info "Submitting build to Google Cloud Build..."
-    Write-Host "This may take several minutes..." -ForegroundColor Yellow
-    
-    $buildResult = gcloud builds submit --config cloudbuild.yaml 2>&1
-    $buildExitCode = $LASTEXITCODE
-    
-    if ($buildExitCode -eq 0) {
-        Write-Success "Deployment completed successfully!"
-        Write-Host ""
-        Write-Host "Your Story Generation Workflow is now deployed!" -ForegroundColor Green
-        Write-Host ""
-        Write-Host "Next steps:" -ForegroundColor Cyan
-        Write-Host "1. Verify the deployment: .\scripts\verify-setup.ps1"
-        Write-Host "2. Test the workflow: .\scripts\test-workflow.ps1"
-        Write-Host "3. Check the Cloud Run service: gcloud run services describe story-generation-workflow --region=europe-west9"
-        Write-Host ""
-        Write-Host "Cloud Run URL:" -ForegroundColor Cyan
-        gcloud run services describe story-generation-workflow --region=europe-west9 --format="value(status.url)"
-    } else {
-        Write-Err "Deployment failed!"
-        Write-Host "Build output:" -ForegroundColor Red
-        Write-Host $buildResult -ForegroundColor Red
-        exit 1
-    }
-}
-finally {
-    Pop-Location
+    Main
+} catch {
+    Write-Err "Deployment failed:`n$($_.Exception.Message)"
+    exit 1
 }

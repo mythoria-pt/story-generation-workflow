@@ -167,3 +167,5 @@ export const printRequestsRelations = relations(printRequests, ({ one }) => ({
     references: [addresses.addressId],
   }),
 }));
+
+// Blog relations removed: blog schema not present in this service

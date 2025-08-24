@@ -1,0 +1,117 @@
+{
+  "type": "object",
+  "properties": {
+    "story": {
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "plotDescription": { "type": "string" },
+        "synopsis": { "type": "string" },
+        "place": { "type": "string" },
+        "additionalRequests": { "type": "string" },
+        "targetAudience": {
+          "type": "string",
+          "enum": [
+            "children_0-2",
+            "children_3-6",
+            "children_7-10",
+            "children_11-14",
+            "young_adult_15-17",
+            "adult_18+",
+            "all_ages"
+          ]
+        },
+        "novelStyle": {
+          "type": "string",
+          "enum": [
+            "adventure",
+            "fantasy",
+            "mystery",
+            "romance",
+            "science_fiction",
+            "historical",
+            "contemporary",
+            "fairy_tale",
+            "comedy",
+            "drama",
+            "horror",
+            "thriller",
+            "biography",
+            "educational",
+            "poetry",
+            "sports_adventure"
+          ]
+        },
+        "graphicalStyle": {
+          "type": "string",
+          "enum": [
+            "cartoon",
+            "realistic",
+            "watercolor",
+            "digital_art",
+            "hand_drawn",
+            "minimalist",
+            "vintage",
+            "comic_book",
+            "anime",
+            "pixar_style",
+            "disney_style",
+            "sketch",
+            "oil_painting",
+            "colored_pencil"
+          ]
+        },
+        "storyLanguage": { "type": "string" }
+      },
+      "required": ["title", "plotDescription"]
+    },
+    "characters": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "characterId": { "type": ["string", "null"] },
+          "name": { "type": "string" },
+          "type": {
+            "type": "string",
+            "enum": [
+              "boy", "girl", "man", "woman", "person",
+              "dog", "cat", "bird", "other_animal",
+              "dragon", "elf_fairy_mythical", "robot_cyborg", "alien_extraterrestrial", "other_creature",
+              "other"
+            ]
+          },
+          "age": {
+            "type": "string",
+            "enum": [
+              "infant", "toddler", "preschool", "school_age", "teenage", "emerging_adult", "seasoned_adult", "midlife_mentor", "elder",
+              "youngling", "adult", "senior"
+            ]
+          },
+          "traits": {
+            "type": "array",
+            "maxItems": 5,
+            "items": {
+              "type": "string",
+              "enum": [
+                "adaptable", "brave", "compassionate", "courageous", "curious", "decisive", "empathetic", "generous", "honest", "imaginative", "loyal", "optimistic", "patient", "practical", "pragmatic", "resourceful", "self-disciplined", "sincere", "witty", "kind", "conscientious", "energetic",
+                "arrogant", "callous", "cowardly", "cynical", "deceitful", "impulsive", "jealous", "lazy", "manipulative", "moody", "reckless", "selfish", "vengeful",
+                "aloof", "blunt", "cautious", "methodical"
+              ]
+            }
+          },
+          "characteristics": { "type": "string" },
+          "physicalDescription": { "type": "string" },
+          "role": {
+            "type": "string",
+            "enum": [
+              "protagonist", "antagonist", "supporting", "mentor", "comic_relief", "love_interest", "sidekick", "narrator", "other"
+            ]
+          }
+        },
+        "required": ["name"]
+      }
+    }
+  },
+  "required": ["story", "characters"]
+}

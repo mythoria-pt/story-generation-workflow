@@ -43,8 +43,19 @@ export class AIGatewayWithTokenTracking {
   }
 }
 
-// Export a singleton instance for convenience
-export const aiGatewayWithTokenTracking = AIGatewayWithTokenTracking.fromEnvironment();
+// Lazy singleton getter to avoid import-time side effects
+let _trackedGatewaySingleton: AIGatewayWithTokenTracking | null = null;
+export function getAIGatewayWithTokenTracking(): AIGatewayWithTokenTracking {
+  if (!_trackedGatewaySingleton) {
+    _trackedGatewaySingleton = AIGatewayWithTokenTracking.fromEnvironment();
+  }
+  return _trackedGatewaySingleton;
+}
+
+// Test-only helper to reset the singleton between tests
+export function resetAIGatewayWithTokenTrackingForTests(): void {
+  _trackedGatewaySingleton = null;
+}
 
 // Re-export the AICallContext interface for convenience
 export type { AICallContext } from '@/ai/token-tracking-middleware.js';

@@ -116,6 +116,7 @@ try {
 # Create story-generation-workflow specific secrets
 Write-Info "Creating story-specific secrets..."
 
+
 # API Keys (sensitive data that belongs in Secret Manager)
 if ($env:OPENAI_API_KEY) {
     Write-Info "Creating OpenAI API key secret..."
@@ -143,6 +144,39 @@ if ($env:GOOGLE_GENAI_API_KEY) {
     Remove-Item temp.txt
 }
 
+# Create or update STORY_GENERATION_WORKFLOW_API_KEY secret
+if ($env:STORY_GENERATION_WORKFLOW_API_KEY) {
+    $keyName = "STORY_GENERATION_WORKFLOW_API_KEY"
+    $existing = gcloud secrets describe $keyName --format="value(name)" 2>$null
+    $cleanKey = $env:STORY_GENERATION_WORKFLOW_API_KEY.Trim()
+
+    if ($cleanKey -eq "") {
+        Write-Warn "$keyName is empty. Skipping."
+    } elseif (-not $existing) {
+        Write-Info "Creating $keyName secret..."
+        $cleanKey | Set-Content -Path temp.txt -NoNewline
+        gcloud secrets create $keyName --data-file=temp.txt --replication-policy='automatic'
+        if ($LASTEXITCODE -eq 0) {
+            Write-Success "Created $keyName secret"
+        } else {
+            Write-Err "Failed to create $keyName secret."
+        }
+        Remove-Item temp.txt
+    } else {
+        Write-Info "$keyName already exists. Adding a new version with the provided value..."
+        $cleanKey | Set-Content -Path temp.txt -NoNewline
+        gcloud secrets versions add $keyName --data-file=temp.txt
+        if ($LASTEXITCODE -eq 0) {
+            Write-Success "Updated $keyName with a new secret version"
+        } else {
+            Write-Err "Failed to add a new version for $keyName."
+        }
+        Remove-Item temp.txt
+    }
+} else {
+    Write-Warn "STORY_GENERATION_WORKFLOW_API_KEY not found in environment."
+}
+
 Write-Info "All story-generation-workflow specific secrets have been created"
 
 # Grant permissions to Cloud Build service account for new secrets
@@ -152,7 +186,8 @@ $cloudBuildServiceAccount = "$projectNumber@cloudbuild.gserviceaccount.com"
 
 $storySecrets = @(
     "mythoria-openai-api-key",
-    "mythoria-google-genai-api-key"
+    "mythoria-google-genai-api-key",
+    "STORY_GENERATION_WORKFLOW_API_KEY"
 )
 
 foreach ($secret in $storySecrets) {

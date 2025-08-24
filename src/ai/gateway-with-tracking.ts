@@ -96,7 +96,7 @@ class TextGenerationServiceWrapper implements ITextGenerationService {
   private getDefaultModel(): string {
     // Try to determine the model from common patterns
     if (process.env.TEXT_PROVIDER === 'openai') {
-      return process.env.OPENAI_MODEL || 'gpt-4o';
+  return process.env.OPENAI_TEXT_MODEL || 'gpt-4o';
     } else if (process.env.TEXT_PROVIDER === 'vertex') {
       return process.env.VERTEX_AI_MODEL_ID || 'gemini-2.0-flash';
     }
@@ -201,5 +201,16 @@ export class AIGatewayWithTokenTracking {
   }
 }
 
-// Export a singleton instance for convenience
-export const aiGatewayWithTokenTracking = AIGatewayWithTokenTracking.fromEnvironment();
+// Lazy singleton getter to avoid import-time side effects
+let _trackedGatewaySingleton: AIGatewayWithTokenTracking | null = null;
+export function getAIGatewayWithTokenTracking(): AIGatewayWithTokenTracking {
+  if (!_trackedGatewaySingleton) {
+    _trackedGatewaySingleton = AIGatewayWithTokenTracking.fromEnvironment();
+  }
+  return _trackedGatewaySingleton;
+}
+
+// Test-only helper to reset the singleton between tests
+export function resetAIGatewayWithTokenTrackingForTests(): void {
+  _trackedGatewaySingleton = null;
+}

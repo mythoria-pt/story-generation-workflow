@@ -26,6 +26,69 @@ export class StorageService {
   }
 
   /**
+   * Generate a V4 signed URL for uploading a file directly to GCS
+   */
+  async generateSignedUploadUrl(filename: string, contentType: string, expiresInSeconds = 900): Promise<{ uploadUrl: string; publicUrl: string }>{
+    try {
+      const bucket = this.storage.bucket(this.bucketName);
+      const file = bucket.file(filename);
+
+      const expires = Date.now() + expiresInSeconds * 1000;
+      const [url] = await file.getSignedUrl({
+        version: 'v4',
+        action: 'write',
+        contentType,
+        expires
+      });
+
+      const publicUrl = `https://storage.googleapis.com/${this.bucketName}/${filename}`;
+      logger.info('Generated signed upload URL', { filename, expires });
+      return { uploadUrl: url, publicUrl };
+    } catch (error) {
+      const errorDetails = handleGCSError(error, {
+        filename,
+        contentType,
+        bucketName: this.bucketName,
+        operation: 'generateSignedUploadUrl'
+      });
+      logger.error('Failed to generate signed upload URL', errorDetails);
+      throw error;
+    }
+  }
+
+  /**
+   * Get file metadata (e.g., contentType, size) from GCS
+   */
+  async getFileMetadata(filename: string): Promise<{ contentType?: string; size?: number }>{
+    try {
+      const bucket = this.storage.bucket(this.bucketName);
+      const file = bucket.file(filename);
+      const [exists] = await file.exists();
+      if (!exists) {
+        throw new Error(`File ${filename} does not exist in bucket ${this.bucketName}`);
+      }
+      const [metadata] = await file.getMetadata();
+      const sizeStr = metadata.size as unknown as string | undefined;
+      const result: { contentType?: string; size?: number } = {};
+      if (typeof metadata.contentType === 'string') {
+        result.contentType = metadata.contentType;
+      }
+      if (sizeStr) {
+        const parsed = parseInt(sizeStr);
+        if (!Number.isNaN(parsed)) result.size = parsed;
+      }
+      return result;
+    } catch (error) {
+      const errorDetails = handleGCSError(error, {
+        filename,
+        bucketName: this.bucketName,
+        operation: 'getFileMetadata'
+      });
+      logger.error('Failed to get file metadata', errorDetails);
+      throw error;
+    }
+  }
+  /**
    * Upload a file to Google Cloud Storage
    */
   async uploadFile(filename: string, buffer: Buffer, contentType: string): Promise<string> {

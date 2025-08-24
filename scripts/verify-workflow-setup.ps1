@@ -201,7 +201,7 @@ if ($allGood) {
     Write-Host "🎉 All prerequisites met! Ready to deploy." -ForegroundColor Green
     Write-Host ""
     Write-Host "▶️  Run deployment script:" -ForegroundColor Cyan
-    Write-Host "   .\scripts\deploy-workflow.ps1" -ForegroundColor Gray
+    Write-Host "   npm run deploy" -ForegroundColor Gray
 } else {
     Write-Host "❌ Some prerequisites are missing. Please fix the issues above before deployment." -ForegroundColor Red
 }

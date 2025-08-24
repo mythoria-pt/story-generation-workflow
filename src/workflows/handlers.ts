@@ -2,10 +2,12 @@
 // Workflow Step Handlers - Individual step implementations
 // -----------------------------------------------------------------------------
 
-import { AIGateway } from '@/ai/gateway.js';
+// AI Gateway accessed via singleton getter
+import { getAIGateway } from '@/ai/gateway-singleton.js';
 import { StoryContextService } from '@/services/story-context.js';
 import { StoryService } from '@/services/story.js';
-import { StorageService } from '@/services/storage.js';
+// Storage service accessed via singleton getter
+import { getStorageService } from '@/services/storage-singleton.js';
 import { PrintService } from '@/services/print.js';
 import { logger } from '@/config/logger.js';
 import { getPromptsPath } from '../shared/path-utils.js';
@@ -83,7 +85,7 @@ export class StoryOutlineHandler implements WorkflowStepHandler<StoryOutlinePara
   async execute(params: StoryOutlineParams): Promise<StoryOutlineResult> {
     try {
       // Create AI Gateway from environment
-      const aiGateway = AIGateway.fromEnvironment();
+  const aiGateway = getAIGateway();
       
       // Initialize story session with context
       const session = await this.storyContextService.initializeStorySession(
@@ -143,7 +145,7 @@ export class ChapterWritingHandler implements WorkflowStepHandler<ChapterWriting
   async execute(params: ChapterWritingParams): Promise<ChapterWritingResult> {
     try {
       // Create AI Gateway from environment
-      const aiGateway = AIGateway.fromEnvironment();
+  const aiGateway = getAIGateway();
       
       // Create context ID from story and workflow ID
       const contextId = `${params.storyId}-${params.workflowId}`;
@@ -234,7 +236,7 @@ export class ImageGenerationHandler implements WorkflowStepHandler<ImageGenerati
       const customInstructions = storyContext.story.imageGenerationInstructions;
 
       // Create AI Gateway from environment
-      const aiGateway = AIGateway.fromEnvironment();
+  const aiGateway = getAIGateway();
 
       // Determine image type and load appropriate prompt template
       let imageType: 'front_cover' | 'back_cover' | 'chapter';
@@ -268,7 +270,7 @@ export class ImageGenerationHandler implements WorkflowStepHandler<ImageGenerati
       });
 
       // Upload to storage
-      const storageService = new StorageService();
+  const storageService = getStorageService();
       const filename = this.generateImageFilename(params.storyId, imageType);
       const imageUrl = await storageService.uploadFile(filename, imageBuffer, 'image/jpeg');
 
@@ -381,15 +383,15 @@ export interface PrintGenerationParams {
 export interface PrintGenerationResult {
   interiorPdfUrl: string;
   coverPdfUrl: string;
-  interiorCmykPdfUrl?: string;
-  coverCmykPdfUrl?: string;
+  interiorCmykPdfUrl?: string | null;
+  coverCmykPdfUrl?: string | null;
   status: string;
 }
 
 export class PrintGenerationHandler implements WorkflowStepHandler<PrintGenerationParams, PrintGenerationResult> {
   private printService = new PrintService();
   private storyService = new StoryService();
-  private storageService = new StorageService();
+  private storageService = getStorageService();
 
   async execute(params: PrintGenerationParams): Promise<PrintGenerationResult> {
     try {
@@ -444,6 +446,8 @@ export class PrintGenerationHandler implements WorkflowStepHandler<PrintGenerati
       const result: PrintGenerationResult = {
         interiorPdfUrl,
         coverPdfUrl,
+  interiorCmykPdfUrl: null,
+  coverCmykPdfUrl: null,
         status: 'completed'
       };
 
@@ -461,7 +465,8 @@ export class PrintGenerationHandler implements WorkflowStepHandler<PrintGenerati
           coverCmykBuffer,
           'application/pdf'
         );
-        Object.assign(result, { interiorCmykUrl, coverCmykUrl });
+        result.interiorCmykPdfUrl = interiorCmykUrl;
+        result.coverCmykPdfUrl = coverCmykUrl;
       }
 
       // Generate HTML for debugging purposes
@@ -486,10 +491,10 @@ export class PrintGenerationHandler implements WorkflowStepHandler<PrintGenerati
         'text/html'
       );
 
-      // Update story with PDF URLs
+      // Update story with preferred PDF URLs (prefer CMYK when available)
       await this.storyService.updateStoryPrintUrls(params.storyId, {
-        interiorPdfUri: result.interiorPdfUrl,
-        coverPdfUri: result.coverPdfUrl
+        interiorPdfUri: result.interiorCmykPdfUrl ?? result.interiorPdfUrl,
+        coverPdfUri: result.coverCmykPdfUrl ?? result.coverPdfUrl
       });
 
       logger.info(`Print generation completed for story ${params.storyId}`, {
