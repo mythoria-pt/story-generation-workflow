@@ -22,6 +22,18 @@ main:
           - baseUrl:  "https://story-generation-workflow-x2qrlilyyq-od.a.run.app"
           - now:      ${time.format(sys.now())}
 
+    # Fetch API key secret (returns base64-encoded data)
+    - fetchApiKey:
+        call: googleapis.secretmanager.v1.projects.secrets.versions.access
+        args:
+          name: projects/803421888801/secrets/STORY_GENERATION_WORKFLOW_API_KEY/versions/latest
+        result: apiKeySecret
+
+    # Decode secret payload
+    - decodeApiKey:
+        assign:
+          - apiKey: ${text.decode(base64.decode(apiKeySecret.payload.data))}
+
     # ───────────────────────────────────────────────
     # 1-N. Pipeline wrapped in one try/except
     # ───────────────────────────────────────────────
@@ -48,6 +60,8 @@ main:
                   url:    ${baseUrl + "/ai/text/outline"}
                   method: POST
                   auth:   { type: OIDC }
+                  headers:
+                    x-api-key: ${apiKey}
                   body:
                     storyId: ${storyId}
                     runId: ${runId}
@@ -93,6 +107,8 @@ main:
                           url:    ${baseUrl + "/ai/text/chapter/" + string(chapterNum)}
                           method: POST
                           auth:   { type: OIDC }
+                          headers:
+                            x-api-key: ${apiKey}
                           body:
                             storyId: ${storyId}
                             runId: ${runId}
@@ -138,6 +154,8 @@ main:
                   url:    ${baseUrl + "/ai/image"}
                   method: POST
                   auth:   { type: OIDC }
+                  headers:
+                    x-api-key: ${apiKey}
                   body:
                     storyId: ${storyId}
                     runId: ${runId}
@@ -183,6 +201,8 @@ main:
                   url:    ${baseUrl + "/ai/image"}
                   method: POST
                   auth:   { type: OIDC }
+                  headers:
+                    x-api-key: ${apiKey}
                   body:
                     storyId: ${storyId}
                     runId: ${runId}
@@ -232,6 +252,8 @@ main:
                           url:    ${baseUrl + "/ai/image"}
                           method: POST
                           auth:   { type: OIDC }
+                          headers:
+                            x-api-key: ${apiKey}
                           body:
                             storyId: ${storyId}
                             runId: ${runId}

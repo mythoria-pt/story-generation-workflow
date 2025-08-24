@@ -31,7 +31,8 @@ if (nodeEnv === 'production') {
 
 // Environment schema based on .env.schema.json
 const envSchema = z.object({
-  NODE_ENV: z.enum(['development', 'staging', 'production']),
+  // Added 'test' to support Jest and other test runners without failing validation
+  NODE_ENV: z.enum(['development', 'staging', 'production', 'test']),
   PORT: z.string().transform(Number).default('8080'),
   DB_HOST: z.string(), DB_PORT: z.string().transform(Number),
   DB_USER: z.string(),
@@ -62,7 +63,11 @@ const envSchema = z.object({
   TTS_MODEL: z.string().optional().default('gpt-4o-mini-tts'),
   TTS_VOICE: z.string().optional().default('nova'),
   TTS_SPEED: z.string().optional().default('0.9'),
-  TTS_LANGUAGE: z.string().optional().default('en-US'),
+    TTS_LANGUAGE: z.string().optional().default('en-US'),
+
+    // Notification Engine
+    NOTIFICATION_ENGINE_URL: z.string().optional(),
+    NOTIFICATION_ENGINE_API_KEY: z.string().optional(),
 
   // Image Size Configuration
   IMAGE_DEFAULT_WIDTH: z.string().transform(Number).optional().default('1024'),

@@ -187,7 +187,9 @@ export class StoryService {
           storyGenerationStatus: stories.storyGenerationStatus,
           storyGenerationCompletedPercentage: stories.storyGenerationCompletedPercentage,
           audiobookStatus: stories.audiobookStatus,
-          author: authors.displayName, // Join to get author's display name
+          author: authors.displayName, // display name
+          authorEmail: authors.email,
+          authorPreferredLocale: authors.preferredLocale,
         })
         .from(stories)
         .innerJoin(authors, eq(stories.authorId, authors.authorId))

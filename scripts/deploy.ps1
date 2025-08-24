@@ -11,6 +11,7 @@ Modes:
 param(
     [switch]$Staging,
     [switch]$Fast,
+    [switch]$SkipLint,
     [switch]$Help
 )
 
@@ -26,11 +27,12 @@ $IMAGE_NAME        = "gcr.io/$PROJECT_ID/$SERVICE_NAME"
 # -----------------------------------------------------------------------------
 
 function Show-Help {
-    Write-Host "Usage: .\deploy.ps1 [-Staging] [-Fast] [-Help]" -ForegroundColor Cyan
+    Write-Host "Usage: .\deploy.ps1 [-Staging] [-Fast] [-SkipLint] [-Help]" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "Options:" -ForegroundColor Yellow
     Write-Host "  -Staging     Deploy to the staging service ($BASE_SERVICE_NAME-staging)" -ForegroundColor White
     Write-Host "  -Fast        Reuse last built image (skip build/lint/tests) and deploy to Cloud Run" -ForegroundColor White
+    Write-Host "  -SkipLint    Skip ESLint during full build (use if lint already ran in CI)" -ForegroundColor White
     Write-Host "  -Help        Show this help message" -ForegroundColor White
     Write-Host ""
     Write-Host "Note: This script now uses Google Secret Manager for sensitive data." -ForegroundColor Cyan
@@ -71,10 +73,24 @@ function Test-Prerequisites {
 }
 
 function Build-Application {
+    param(
+        [switch]$SkipLint
+    )
     Write-Info "Installing dependencies (npm ci)"
     & npm ci
-    Write-Info "Linting (npm run lint)"
-    & npm run lint
+    if (-not $SkipLint) {
+        Write-Info "Linting (npm run lint)"
+        # Ensure dev dependencies (eslint) available even if caller exported NODE_ENV=production
+        $originalNodeEnv = $env:NODE_ENV
+        $env:NODE_ENV = 'development'
+        try {
+            & npm run lint
+        } finally {
+            if ($null -ne $originalNodeEnv) { $env:NODE_ENV = $originalNodeEnv } else { Remove-Item Env:NODE_ENV -ErrorAction SilentlyContinue }
+        }
+    } else {
+        Write-Warn "Skipping lint (SkipLint flag provided)"
+    }
     Write-Info "Typecheck (npm run typecheck)"
     & npm run typecheck
     Write-Info "Running tests (npm test)"
@@ -134,7 +150,7 @@ function Main {
     if ($Fast) {
         Deploy-Fast
     } else {
-        Build-Application
+    Build-Application -SkipLint:$SkipLint
         Deploy-With-CloudBuild
     }
 
