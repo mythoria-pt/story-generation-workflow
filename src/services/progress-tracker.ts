@@ -370,7 +370,7 @@ export class ProgressTrackerService {
       return;
     }
     
-    const language = (story.authorPreferredLocale && ['en-US','pt-PT','es-ES'].includes(story.authorPreferredLocale)) ? story.authorPreferredLocale : 'en-US';
+    const language = (story.authorPreferredLocale && ['en-US','pt-PT','es-ES','fr-FR'].includes(story.authorPreferredLocale)) ? story.authorPreferredLocale : 'en-US';
     const baseLocalePath = 'en-US'; // requirement: always use en-US paths
     const readStoryURL = `https://mythoria.pt/${baseLocalePath}/stories/read/${storyId}`;
     const shareStoryURL = readStoryURL;

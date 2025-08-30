@@ -120,6 +120,10 @@ export class MessageService {
       'pt': 'pt-PT',
       'portuguese': 'pt-PT',
       'pt-BR': 'pt-PT', // Use pt-PT as fallback for Brazilian Portuguese
+      'french': 'fr-FR',
+      'fr': 'fr-FR',
+      'es': 'es-ES',
+      'spanish': 'es-ES'
     };
 
     const normalized = localeMap[locale.toLowerCase()] || locale;
