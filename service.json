@@ -79,31 +79,15 @@
               },
               {
                 "name": "IMAGE_PROVIDER",
-                "value": "openai"
+                "value": "google-genai"
               },
               {
                 "name": "GOOGLE_GENAI_MODEL",
                 "value": "gemini-2.5-pro"
               },
               {
-                "name": "OPENAI_IMAGE_MODEL",
-                "value": "gpt-4.1"
-              },
-              {
-                "name": "OPENAI_IMAGE_QUALITY",
-                "value": "high"
-              },
-              {
-                "name": "OPENAI_TEXT_MODEL",
-                "value": "gpt-4.1"
-              },
-              {
-                "name": "OPENAI_MODEL",
-                "value": "gpt-4.1"
-              },
-              {
-                "name": "OPENAI_USE_RESPONSES_API",
-                "value": "false"
+                "name": "GOOGLE_GENAI_IMAGE_MODEL",
+                "value": "imagen-4.0-ultra-generate-001"
               },
               {
                 "name": "TTS_PROVIDER",

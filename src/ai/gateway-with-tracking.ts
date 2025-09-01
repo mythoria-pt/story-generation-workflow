@@ -3,16 +3,30 @@
  * Extends the AI Gateway with automatic token usage tracking
  */
 
-import { AIGateway } from '@/ai/gateway.js';
-import { ITextGenerationService, IImageGenerationService, TextGenerationOptions, ImageGenerationOptions } from '@/ai/interfaces.js';
-import { tokenUsageTrackingService } from '@/services/token-usage-tracking.js';
-import { logger } from '@/config/logger.js';
+import { AIGateway } from "@/ai/gateway.js";
+import {
+  ITextGenerationService,
+  IImageGenerationService,
+  TextGenerationOptions,
+  ImageGenerationOptions,
+} from "@/ai/interfaces.js";
+import { tokenUsageTrackingService } from "@/services/token-usage-tracking.js";
+import { logger } from "@/config/logger.js";
 
 export interface AICallContext {
   authorId: string;
   storyId: string;
-  action: 'story_structure' | 'story_outline' | 'chapter_writing' | 'image_generation' | 
-          'story_review' | 'character_generation' | 'story_enhancement' | 'audio_generation' | 'content_validation' | 'test';
+  action:
+    | "story_structure"
+    | "story_outline"
+    | "chapter_writing"
+    | "image_generation"
+    | "story_review"
+    | "character_generation"
+    | "story_enhancement"
+    | "audio_generation"
+    | "content_validation"
+    | "test";
 }
 
 /**
@@ -21,19 +35,22 @@ export interface AICallContext {
 class TextGenerationServiceWrapper implements ITextGenerationService {
   constructor(
     private baseService: ITextGenerationService,
-    private context: AICallContext
+    private context: AICallContext,
   ) {}
 
-  async complete(prompt: string, options?: TextGenerationOptions): Promise<string> {
+  async complete(
+    prompt: string,
+    options?: TextGenerationOptions,
+  ): Promise<string> {
     const startTime = Date.now();
-    
+
     try {
       // Make the actual AI call
       const result = await this.baseService.complete(prompt, options);
-      
+
       // Extract token usage information
       const tokenUsage = this.extractTokenUsage(prompt, result, options);
-      
+
       // Record the usage
       await tokenUsageTrackingService.recordUsage({
         authorId: this.context.authorId,
@@ -46,24 +63,32 @@ class TextGenerationServiceWrapper implements ITextGenerationService {
           prompt,
           options: options || {},
           timestamp: new Date().toISOString(),
-          processingTimeMs: Date.now() - startTime
-        }
+          processingTimeMs: Date.now() - startTime,
+        },
       });
 
       return result;
     } catch (error) {
-      logger.error('Text generation failed with token tracking', {
+      logger.error("Text generation failed with token tracking", {
         error: error instanceof Error ? error.message : String(error),
         context: this.context,
-        promptLength: prompt.length
+        promptLength: prompt.length,
       });
       throw error;
     }
   }
 
-  async initializeContext?(contextId: string, systemPrompt: string, previousContent?: string[]): Promise<void> {
+  async initializeContext?(
+    contextId: string,
+    systemPrompt: string,
+    previousContent?: string[],
+  ): Promise<void> {
     if (this.baseService.initializeContext) {
-      return this.baseService.initializeContext(contextId, systemPrompt, previousContent);
+      return this.baseService.initializeContext(
+        contextId,
+        systemPrompt,
+        previousContent,
+      );
     }
   }
 
@@ -78,7 +103,11 @@ class TextGenerationServiceWrapper implements ITextGenerationService {
    * Since we don't have direct access to token counts from some providers,
    * we estimate based on text length using a rough approximation
    */
-  private extractTokenUsage(prompt: string, result: string, _options?: TextGenerationOptions): {
+  private extractTokenUsage(
+    prompt: string,
+    result: string,
+    _options?: TextGenerationOptions,
+  ): {
     inputTokens: number;
     outputTokens: number;
   } {
@@ -89,18 +118,18 @@ class TextGenerationServiceWrapper implements ITextGenerationService {
 
     return {
       inputTokens,
-      outputTokens
+      outputTokens,
     };
   }
 
   private getDefaultModel(): string {
     // Try to determine the model from common patterns
-    if (process.env.TEXT_PROVIDER === 'openai') {
-  return process.env.OPENAI_TEXT_MODEL || 'gpt-4o';
-    } else if (process.env.TEXT_PROVIDER === 'vertex') {
-      return process.env.VERTEX_AI_MODEL_ID || 'gemini-2.0-flash';
+    if (process.env.TEXT_PROVIDER === "openai") {
+      return process.env.OPENAI_TEXT_MODEL || "gpt-4o";
+    } else if (process.env.TEXT_PROVIDER === "vertex") {
+      return process.env.VERTEX_AI_MODEL_ID || "gemini-2.0-flash";
     }
-    return 'unknown';
+    return "unknown";
   }
 }
 
@@ -110,22 +139,25 @@ class TextGenerationServiceWrapper implements ITextGenerationService {
 class ImageGenerationServiceWrapper implements IImageGenerationService {
   constructor(
     private baseService: IImageGenerationService,
-    private context: AICallContext
+    private context: AICallContext,
   ) {}
 
-  async generate(prompt: string, options?: ImageGenerationOptions): Promise<Buffer> {
+  async generate(
+    prompt: string,
+    options?: ImageGenerationOptions,
+  ): Promise<Buffer> {
     const startTime = Date.now();
-    
+
     try {
       // Make the actual AI call
       const result = await this.baseService.generate(prompt, options);
-      
+
       // For image generation, we estimate token usage differently
       // Input tokens are based on prompt length
       // Output "tokens" represent the computational cost (we use a fixed value per image)
       const inputTokens = Math.ceil(prompt.length / 4);
       const outputTokens = 1000; // Fixed cost per image generation
-      
+
       // Record the usage
       await tokenUsageTrackingService.recordUsage({
         authorId: this.context.authorId,
@@ -139,16 +171,16 @@ class ImageGenerationServiceWrapper implements IImageGenerationService {
           options: options || {},
           timestamp: new Date().toISOString(),
           processingTimeMs: Date.now() - startTime,
-          imageSizeBytes: result.length
-        }
+          imageSizeBytes: result.length,
+        },
       });
 
       return result;
     } catch (error) {
-      logger.error('Image generation failed with token tracking', {
+      logger.error("Image generation failed with token tracking", {
         error: error instanceof Error ? error.message : String(error),
         context: this.context,
-        promptLength: prompt.length
+        promptLength: prompt.length,
       });
       throw error;
     }
@@ -156,12 +188,14 @@ class ImageGenerationServiceWrapper implements IImageGenerationService {
 
   private getDefaultModel(): string {
     // Try to determine the model from common patterns
-    if (process.env.IMAGE_PROVIDER === 'openai') {
-      return process.env.OPENAI_IMAGE_MODEL || 'gpt-4.1';
-    } else if (process.env.IMAGE_PROVIDER === 'vertex') {
-      return 'imagen-3.0-generate-001';
+    if (process.env.IMAGE_PROVIDER === "openai") {
+      return process.env.OPENAI_IMAGE_MODEL || "gpt-4.1";
+    } else if (process.env.IMAGE_PROVIDER === "google-genai") {
+      return (
+        process.env.GOOGLE_GENAI_IMAGE_MODEL || "imagen-4.0-ultra-generate-001"
+      );
     }
-    return 'unknown';
+    return "unknown";
   }
 }
 

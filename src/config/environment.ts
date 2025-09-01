@@ -51,7 +51,10 @@ const envSchema = z.object({
     .enum(["openai", "google-genai"])
     .optional()
     .default("google-genai"),
-  IMAGE_PROVIDER: z.enum(["openai"]).optional().default("openai"),
+  IMAGE_PROVIDER: z
+    .enum(["openai", "google-genai"])
+    .optional()
+    .default("google-genai"),
 
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_IMAGE_MODEL: z.string().optional().default("gpt-4.1"),
@@ -67,6 +70,10 @@ const envSchema = z.object({
   // Google GenAI Configuration
   GOOGLE_GENAI_API_KEY: z.string().optional(),
   GOOGLE_GENAI_MODEL: z.string().optional().default("gemini-2.5-flash"),
+  GOOGLE_GENAI_IMAGE_MODEL: z
+    .string()
+    .optional()
+    .default("imagen-4.0-ultra-generate-001"),
 
   // TTS Configuration
   TTS_PROVIDER: z.enum(["openai", "vertex"]).optional().default("openai"),
@@ -130,6 +137,8 @@ export function validateEnvironment(): void {
     console.log(`🎨 Image Provider: ${env.IMAGE_PROVIDER}`);
     if (env.IMAGE_PROVIDER === "openai") {
       console.log(`🤖 OpenAI Image Model: ${env.OPENAI_IMAGE_MODEL}`);
+    } else if (env.IMAGE_PROVIDER === "google-genai") {
+      console.log(`🖼️ Google Imagen Model: ${env.GOOGLE_GENAI_IMAGE_MODEL}`);
     }
   } catch (error) {
     console.error("❌ Environment validation failed");
