@@ -110,10 +110,6 @@
                 "value": "en-US"
               },
               {
-                "name": "VERTEX_AI_MODEL_ID",
-                "value": "gemini-2.5-pro"
-              },
-              {
                 "name": "DEBUG_AI_FULL_PROMPTS",
                 "value": "false"
               },

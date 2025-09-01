@@ -41,6 +41,7 @@ const envSchema = z.object({
   DB_NAME: z.string(),
   GOOGLE_CLOUD_PROJECT_ID: z.string(),
   GOOGLE_CLOUD_REGION: z.string(),
+  GOOGLE_GENAI_CLOUD_REGION: z.string().optional().default('global'),
   STORAGE_BUCKET_NAME: z.string(),
   IMAGE_GENERATION_MODEL: z.string().optional(),
   LOG_LEVEL: z
@@ -73,10 +74,11 @@ const envSchema = z.object({
   GOOGLE_GENAI_IMAGE_MODEL: z
     .string()
     .optional()
-    .default("imagen-4.0-ultra-generate-001"),
+  .default("gemini-2.5-flash-image-preview"),
 
   // TTS Configuration
-  TTS_PROVIDER: z.enum(["openai", "vertex"]).optional().default("openai"),
+  // Vertex removed; only OpenAI supported currently for TTS
+  TTS_PROVIDER: z.enum(["openai"]).optional().default("openai"),
   TTS_MODEL: z.string().optional().default("gpt-4o-mini-tts"),
   TTS_VOICE: z.string().optional().default("nova"),
   TTS_SPEED: z.string().optional().default("0.9"),
@@ -110,7 +112,8 @@ export function getEnvironment(): Environment {
       ...process.env,
       PORT: process.env.PORT || "8080",
       // Ensure backward compatibility with GOOGLE_CLOUD_REGION
-      GOOGLE_CLOUD_REGION: process.env.GOOGLE_CLOUD_REGION,
+  GOOGLE_CLOUD_REGION: process.env.GOOGLE_CLOUD_REGION,
+  GOOGLE_GENAI_CLOUD_REGION: process.env.GOOGLE_GENAI_CLOUD_REGION || 'global',
     };
 
     cachedEnv = envSchema.parse(envVars);

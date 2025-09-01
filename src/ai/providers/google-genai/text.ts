@@ -2,7 +2,8 @@
  * Google GenAI Text Generation Service
  */
 
-import { GoogleGenerativeAI } from '@google/generative-ai';
+// Switched to @google/genai package
+import { GoogleGenAI } from '@google/genai';
 import { ITextGenerationService, TextGenerationOptions } from '../../interfaces.js';
 import { contextManager } from '../../context-manager.js';
 import { logger } from '@/config/logger.js';
@@ -41,12 +42,54 @@ interface GenAISchemaType {
 }
 
 export class GoogleGenAITextService implements ITextGenerationService {
-  private genAI: GoogleGenerativeAI;
+  private genAI: any;
   private model: string;
 
   constructor(config: GoogleGenAITextConfig) {
-    this.genAI = new GoogleGenerativeAI(config.apiKey);
+    this.genAI = new GoogleGenAI({ apiKey: config.apiKey });
     this.model = config.model || 'gemini-2.5-flash';
+
+    // Backwards compatibility shim to mimic @google/generative-ai API used in rest of file
+    const anyClient = this.genAI as any;
+    if (typeof anyClient.getGenerativeModel !== 'function') {
+      anyClient.getGenerativeModel = ({ model, generationConfig }: { model: string; generationConfig?: any }) => {
+        return {
+          generateContent: (input: any) => {
+            // Normalize to { model, contents, config }
+            if (typeof input === 'string') {
+              return anyClient.models.generateContent({
+                model,
+                contents: [{ role: 'user', parts: [{ text: input }] }],
+                config: generationConfig
+              });
+            }
+            if (input && typeof input === 'object' && input.contents) {
+              return anyClient.models.generateContent({
+                model,
+                ...input,
+                config: generationConfig || input.config
+              });
+            }
+            return anyClient.models.generateContent({
+              model,
+              contents: [{ role: 'user', parts: [{ text: String(input) }] }],
+              config: generationConfig
+            });
+          }
+        };
+      };
+    }
+    if (typeof anyClient.startChat !== 'function') {
+      anyClient.startChat = ({ model, generationConfig }: { model: string; generationConfig?: any }) => {
+        return {
+          sendMessage: (prompt: string) => anyClient.models.generateContent({
+            model,
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            config: generationConfig
+          })
+        };
+      };
+    }
     
     logger.info('Google GenAI Text Service initialized', {
       model: this.model
@@ -310,13 +353,30 @@ export class GoogleGenAITextService implements ITextGenerationService {
       }
       
       // Extract the text response
-      const candidate = (response as any).response.candidates?.[0];
+  const raw = response as any;
+  const candidateList = raw?.response?.candidates || raw?.candidates;
+  const candidate = Array.isArray(candidateList) ? candidateList[0] : undefined;
       if (!candidate) {
         throw new Error('No candidates returned from Google GenAI');
       }
 
-      const textContent = candidate.content?.parts?.[0]?.text;
+      let textContent = candidate.content?.parts?.[0]?.text as string | undefined;
+      if (!textContent && Array.isArray(candidate.content?.parts)) {
+        // Fallback: concatenate any parts that have text
+        const combined = candidate.content.parts
+          .map((p: any) => p.text)
+          .filter((t: any) => typeof t === 'string' && t.length > 0)
+          .join('\n');
+        if (combined.length > 0) {
+          textContent = combined;
+        }
+      }
       if (!textContent) {
+        logger.error('Google GenAI Debug - No text content. Raw candidate snapshot', {
+          hasResponse: !!(response as any).response,
+          keys: Object.keys(candidate || {}),
+          partTypes: Array.isArray(candidate.content?.parts) ? candidate.content.parts.map((p: any) => Object.keys(p)) : 'none',
+        });
         throw new Error('No text content in Google GenAI response');
       }
 

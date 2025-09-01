@@ -126,8 +126,8 @@ class TextGenerationServiceWrapper implements ITextGenerationService {
     // Try to determine the model from common patterns
     if (process.env.TEXT_PROVIDER === "openai") {
       return process.env.OPENAI_TEXT_MODEL || "gpt-4o";
-    } else if (process.env.TEXT_PROVIDER === "vertex") {
-      return process.env.VERTEX_AI_MODEL_ID || "gemini-2.0-flash";
+    } else if (process.env.TEXT_PROVIDER === "google-genai") {
+      return process.env.GOOGLE_GENAI_MODEL || "gemini-2.5-flash";
     }
     return "unknown";
   }
@@ -192,7 +192,7 @@ class ImageGenerationServiceWrapper implements IImageGenerationService {
       return process.env.OPENAI_IMAGE_MODEL || "gpt-4.1";
     } else if (process.env.IMAGE_PROVIDER === "google-genai") {
       return (
-        process.env.GOOGLE_GENAI_IMAGE_MODEL || "imagen-4.0-ultra-generate-001"
+        process.env.GOOGLE_GENAI_IMAGE_MODEL || "gemini-2.5-flash-image-preview"
       );
     }
     return "unknown";

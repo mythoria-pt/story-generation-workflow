@@ -176,11 +176,11 @@ export class TextGenerationMiddleware implements ITextGenerationService {
     }
 
     // Fallback to environment configuration
-    const provider = process.env.TEXT_PROVIDER || "vertex";
+    const provider = process.env.TEXT_PROVIDER || "google-genai";
     if (provider === "openai") {
-      return process.env.OPENAI_TEXT_MODEL || "gpt-4o";
-    } else if (provider === "vertex") {
-      return process.env.VERTEX_AI_MODEL_ID || "gemini-2.0-flash";
+      return process.env.OPENAI_TEXT_MODEL || "gpt-4.1";
+    } else if (provider === "google-genai") {
+      return process.env.GOOGLE_GENAI_MODEL || "gemini-2.5-flash";
     }
 
     return "unknown";
@@ -371,7 +371,7 @@ export class ImageGenerationMiddleware implements IImageGenerationService {
       return process.env.OPENAI_IMAGE_MODEL || "gpt-4.1";
     } else if (provider === "google-genai") {
       return (
-        process.env.GOOGLE_GENAI_IMAGE_MODEL || "imagen-4.0-ultra-generate-001"
+        process.env.GOOGLE_GENAI_IMAGE_MODEL || "gemini-2.5-flash-image-preview"
       );
     }
 

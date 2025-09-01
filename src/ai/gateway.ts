@@ -71,18 +71,32 @@ export class AIGateway {
           model: this.config.credentials.openaiImageModel || "gpt-4.1",
         });
 
-      case "google-genai":
+      case "google-genai": {
         if (!this.config.credentials.googleGenAIApiKey) {
           throw new Error(
             "Google GenAI API Key is required for Google Imagen service",
           );
         }
-        return new GoogleGenAIImageService({
+        const legacyEnvModel = process.env.IMAGE_GENERATION_MODEL;
+        let selectedModel =
+          legacyEnvModel ||
+          this.config.credentials.googleGenAIImageModel ||
+          "gemini-2.5-flash-image-preview"; // default to current Gemini image generation model
+        if (selectedModel.startsWith('imagen-')) {
+          logger.warn('AI Gateway - legacy imagen-* model configured; remapping to gemini-2.5-flash-image-preview', { selectedModel });
+          selectedModel = 'gemini-2.5-flash-image-preview';
+        }
+        const service = new GoogleGenAIImageService({
           apiKey: this.config.credentials.googleGenAIApiKey,
-          model:
-            this.config.credentials.googleGenAIImageModel ||
-            "imagen-4.0-ultra-generate-001",
+          model: selectedModel,
         });
+        logger.debug('AI Gateway - Google Imagen model resolved', {
+          selectedModel,
+          legacyEnvModel: !!legacyEnvModel,
+          configuredModel: this.config.credentials.googleGenAIImageModel,
+        });
+        return service;
+      }
 
       default:
         throw new Error(

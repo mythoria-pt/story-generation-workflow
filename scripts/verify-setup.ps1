@@ -64,8 +64,7 @@ $requiredSecrets = @(
     "mythoria-db-user", 
     "mythoria-db-password",
     "mythoria-storage-bucket",
-    "mythoria-vertex-ai-model",
-    "mythoria-vertex-ai-location",
+    # Deprecated vertex ai secrets removed
     "mythoria-workflows-location"
 )
 
