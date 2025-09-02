@@ -189,7 +189,7 @@ class ImageGenerationServiceWrapper implements IImageGenerationService {
   private getDefaultModel(): string {
     // Try to determine the model from common patterns
     if (process.env.IMAGE_PROVIDER === "openai") {
-      return process.env.OPENAI_IMAGE_MODEL || "gpt-4.1";
+      return process.env.OPENAI_IMAGE_MODEL || "gpt-5";
     } else if (process.env.IMAGE_PROVIDER === "google-genai") {
       return (
         process.env.GOOGLE_GENAI_IMAGE_MODEL || "gemini-2.5-flash-image-preview"

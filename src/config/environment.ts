@@ -58,7 +58,7 @@ const envSchema = z.object({
     .default("google-genai"),
 
   OPENAI_API_KEY: z.string().optional(),
-  OPENAI_IMAGE_MODEL: z.string().optional().default("gpt-4.1"),
+  OPENAI_IMAGE_MODEL: z.string().optional().default("gpt-5"),
   OPENAI_IMAGE_QUALITY: z
     .enum(["low", "standard", "high"])
     .optional()
@@ -95,6 +95,14 @@ const envSchema = z.object({
   IMAGE_CHAPTER_HEIGHT: z.string().transform(Number).optional().default("1536"),
   IMAGE_COVER_WIDTH: z.string().transform(Number).optional().default("1024"),
   IMAGE_COVER_HEIGHT: z.string().transform(Number).optional().default("1536"),
+  // Story generation contextual memory cap (characters). Controls how much outline + summaries + last chapters we include.
+  STORY_CONTEXT_MAX_CHARS: z
+    .string()
+    .optional()
+    .transform((v) => {
+      const n = v ? parseInt(v, 10) : 12000;
+      return Number.isNaN(n) ? 12000 : n;
+    }),
 });
 
 export type Environment = z.infer<typeof envSchema>;

@@ -278,11 +278,11 @@ router.post("/text/outline", async (req, res) => {
     const textProvider = process.env.TEXT_PROVIDER || "google-genai";
 
     if (textProvider === "openai") {
-      outlineModel = process.env.OPENAI_TEXT_MODEL || "gpt-4.1";
+      outlineModel = process.env.OPENAI_TEXT_MODEL || "gpt-5";
     } else if (textProvider === "google-genai") {
       outlineModel = process.env.GOOGLE_GENAI_MODEL || "gemini-2.5-flash";
     } else {
-      outlineModel = "gpt-4.1";
+      outlineModel = "gpt-5";
     }
     const requestOptions = {
       maxTokens: 16384,
@@ -296,9 +296,15 @@ router.post("/text/outline", async (req, res) => {
       action: "story_outline" as const,
     };
 
+    // Use a deterministic contextId across the workflow (storyId + runId)
+    const contextId = `${storyId}:${runId}`;
+
     const outline = await aiGateway
       .getTextService(aiContext)
-      .complete(finalPrompt, requestOptions);
+      .complete(finalPrompt, {
+        ...requestOptions,
+        contextId, // ensure the outline response (as first turn) is bound to a context
+      });
 
     // Parse and validate the AI response
     const parsedData = parseAIResponse(outline);
@@ -322,6 +328,28 @@ router.post("/text/outline", async (req, res) => {
 
     const outlineData = parsedData;
 
+    // Initialize chat context after successful outline (system prompt = condensed outline summary)
+    try {
+      const condensedOutline = `BOOK TITLE: ${outlineData.bookTitle}\nCHAPTERS: ${outlineData.chapters.map(c => `${c.chapterNumber}. ${c.chapterTitle}`).join(" | ")}`.slice(0, 3500);
+      // Initialize generic context manager (in-memory) then provider-specific chat
+      const { contextManager } = await import("@/ai/context-manager.js");
+      const textProvider = process.env.TEXT_PROVIDER || "google-genai";
+      await contextManager.initializeContext(contextId, storyId, condensedOutline);
+      if (textProvider === "google-genai") {
+        // Initialize provider chat instance (will attach to existing context)
+        const textService = aiGateway.getTextService(aiContext) as any;
+        if (typeof textService.initializeContext === "function") {
+          await textService.initializeContext(contextId, condensedOutline);
+        }
+      }
+    } catch (ctxErr) {
+      logger.warn("Failed to initialize outline context", {
+        error: ctxErr instanceof Error ? ctxErr.message : String(ctxErr),
+        storyId,
+        runId,
+      });
+    }
+
     res.json({
       success: true,
       storyId,
@@ -330,6 +358,7 @@ router.post("/text/outline", async (req, res) => {
       storyContext: {
         title: storyContext.story.title,
         charactersCount: storyContext.characters.length,
+        contextId,
       },
     });
   } catch (error) {
@@ -409,7 +438,7 @@ router.post("/text/structure", async (req, res) => {
     let model: string;
     const textProvider = process.env.TEXT_PROVIDER || "google-genai";
     if (textProvider === "openai") {
-      model = process.env.OPENAI_TEXT_MODEL || "gpt-4.1";
+      model = process.env.OPENAI_TEXT_MODEL || "gpt-5";
     } else {
       model = process.env.GOOGLE_GENAI_MODEL || "gemini-2.5-flash";
     }
@@ -705,6 +734,7 @@ router.post("/text/chapter/:chapterNumber", async (req, res) => {
     const requestData = { ...req.body, chapterNumber };
     const { storyId, runId, chapterTitle, chapterSynopses, chapterCount } =
       ChapterRequestSchema.parse(requestData);
+  const contextId = `${storyId}:${runId}`;
 
     // Validate chapter number if outline is provided
     if (
@@ -754,11 +784,49 @@ router.post("/text/chapter/:chapterNumber", async (req, res) => {
       hookInstruction: hookInstruction,
     };
 
-    // Build the complete prompt
-    const chapterPrompt = PromptService.buildPrompt(
+    // Build dynamic memory (previous chapters) heuristic: fetch saved chapters < current
+    let memoryPrefix = "";
+    try {
+      if (chapterNumber > 1) {
+        const { ChaptersService } = await import("@/services/chapters.js");
+        const chaptersService = new ChaptersService();
+        const existing = await chaptersService.getStoryChapters(storyId);
+        const prior = existing.filter(c => c.chapterNumber < chapterNumber);
+        // Summaries for all but last two, full text for last two
+        prior.sort((a,b)=> a.chapterNumber - b.chapterNumber);
+        const lastTwo = prior.slice(-2);
+        const earlier = prior.slice(0, Math.max(0, prior.length - 2));
+        const summarize = (html: string) => {
+          const plain = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g,' ').trim();
+          // Heuristic summary: first ~450 chars or first 3 sentences
+          const sentences = plain.split(/(?<=[.!?])\s+/).slice(0,3).join(' ');
+            const snippet = sentences.length > 120 && sentences.length < 500 ? sentences : plain.slice(0,450);
+          return snippet;
+        };
+        const earlierSummaries = earlier.map(c => `Ch${c.chapterNumber} Summary: ${summarize(c.htmlContent)}`);
+        const lastTwoFull = lastTwo.map(c => `Ch${c.chapterNumber} Full: ${c.htmlContent.replace(/<[^>]+>/g,' ').trim()}`);
+        const outlineChapters = req.body.outline?.chapters ? req.body.outline.chapters.map((c: any)=> `${c.chapterNumber}.${c.chapterTitle}`).join(' | ') : '';
+        const parts = [
+          outlineChapters && `Outline Chapters: ${outlineChapters}`,
+          earlierSummaries.join('\n'),
+          lastTwoFull.join('\n'),
+          `You are now writing Chapter ${chapterNumber}. Maintain continuity with prior chapters.`
+        ].filter(Boolean);
+        const rawMemory = parts.join('\n\n');
+        // Enforce env-based char cap
+        const maxChars = parseInt(process.env.STORY_CONTEXT_MAX_CHARS || '12000',10);
+        memoryPrefix = rawMemory.slice(-maxChars); // keep tail (most recent) if overflow
+      }
+    } catch (memErr) {
+      logger.warn('Failed building chapter memory', { storyId, runId, chapterNumber, error: memErr instanceof Error ? memErr.message : String(memErr) });
+    }
+
+    // Build the complete prompt with memory prefix
+    const basePrompt = PromptService.buildPrompt(
       promptTemplate,
       templateVariables,
     );
+    const chapterPrompt = memoryPrefix ? `${memoryPrefix}\n\n${basePrompt}` : basePrompt;
 
     // Create context for token tracking
     const chapterContext = {
@@ -773,6 +841,7 @@ router.post("/text/chapter/:chapterNumber", async (req, res) => {
       .complete(chapterPrompt, {
         maxTokens: 16384,
         temperature: 1,
+        contextId,
       });
 
     // Generate image prompts based on the chapter content
@@ -791,12 +860,39 @@ router.post("/text/chapter/:chapterNumber", async (req, res) => {
       chapterNumber,
       chapter: chapterText.trim(),
       imagePrompts,
+      contextId,
     });
   } catch (error) {
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : "Unknown error",
     });
+  }
+});
+
+// Endpoint to clear context explicitly (used at workflow completion)
+router.post('/text/context/clear', async (req, res) => {
+  try {
+    const Schema = z.object({ storyId: z.string().uuid(), runId: z.string().uuid() });
+    const { storyId, runId } = Schema.parse(req.body);
+    const contextId = `${storyId}:${runId}`;
+    const { contextManager } = await import('@/ai/context-manager.js');
+    await contextManager.clearContext(contextId);
+    // Provider-specific cleanup (google genai)
+    const textProvider = process.env.TEXT_PROVIDER || 'google-genai';
+    if (textProvider === 'google-genai') {
+      try {
+  const service: any = aiGateway.getTextService({ authorId: 'n/a', storyId, action: 'story_outline' });
+        if (typeof service.clearContext === 'function') {
+          await service.clearContext(contextId);
+        }
+      } catch (provErr) {
+        logger.warn('Provider clearContext failed', { contextId, error: provErr instanceof Error ? provErr.message : String(provErr) });
+      }
+    }
+    res.json({ success: true, contextId });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error instanceof Error ? error.message : 'Invalid request' });
   }
 });
 

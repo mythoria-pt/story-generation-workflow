@@ -68,7 +68,7 @@ export class AIGateway {
         }
         return new OpenAIImageService({
           apiKey: this.config.credentials.openaiApiKey,
-          model: this.config.credentials.openaiImageModel || "gpt-4.1",
+          model: this.config.credentials.openaiImageModel || "gpt-5",
         });
 
       case "google-genai": {

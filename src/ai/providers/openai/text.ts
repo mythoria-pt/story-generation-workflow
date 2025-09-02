@@ -66,7 +66,7 @@ export class OpenAITextService implements ITextGenerationService {
 
   constructor(config: OpenAITextConfig) {
     this.apiKey = config.apiKey;
-    this.model = config.model || 'gpt-4.1';
+    this.model = config.model || 'gpt-5';
     this.baseURL = config.baseURL || 'https://api.openai.com/v1';
     
     logger.info('OpenAI Text Service initialized (Responses API only)', {
