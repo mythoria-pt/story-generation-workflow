@@ -41,6 +41,7 @@ const envSchema = z.object({
   DB_NAME: z.string(),
   GOOGLE_CLOUD_PROJECT_ID: z.string(),
   GOOGLE_CLOUD_REGION: z.string(),
+  GOOGLE_GENAI_CLOUD_REGION: z.string().optional().default('global'),
   STORAGE_BUCKET_NAME: z.string(),
   IMAGE_GENERATION_MODEL: z.string().optional(),
   LOG_LEVEL: z
@@ -51,10 +52,13 @@ const envSchema = z.object({
     .enum(["openai", "google-genai"])
     .optional()
     .default("google-genai"),
-  IMAGE_PROVIDER: z.enum(["openai"]).optional().default("openai"),
+  IMAGE_PROVIDER: z
+    .enum(["openai", "google-genai"])
+    .optional()
+    .default("google-genai"),
 
   OPENAI_API_KEY: z.string().optional(),
-  OPENAI_IMAGE_MODEL: z.string().optional().default("gpt-4.1"),
+  OPENAI_IMAGE_MODEL: z.string().optional().default("gpt-5"),
   OPENAI_IMAGE_QUALITY: z
     .enum(["low", "standard", "high"])
     .optional()
@@ -67,9 +71,14 @@ const envSchema = z.object({
   // Google GenAI Configuration
   GOOGLE_GENAI_API_KEY: z.string().optional(),
   GOOGLE_GENAI_MODEL: z.string().optional().default("gemini-2.5-flash"),
+  GOOGLE_GENAI_IMAGE_MODEL: z
+    .string()
+    .optional()
+  .default("gemini-2.5-flash-image-preview"),
 
   // TTS Configuration
-  TTS_PROVIDER: z.enum(["openai", "vertex"]).optional().default("openai"),
+  // Vertex removed; only OpenAI supported currently for TTS
+  TTS_PROVIDER: z.enum(["openai"]).optional().default("openai"),
   TTS_MODEL: z.string().optional().default("gpt-4o-mini-tts"),
   TTS_VOICE: z.string().optional().default("nova"),
   TTS_SPEED: z.string().optional().default("0.9"),
@@ -86,6 +95,14 @@ const envSchema = z.object({
   IMAGE_CHAPTER_HEIGHT: z.string().transform(Number).optional().default("1536"),
   IMAGE_COVER_WIDTH: z.string().transform(Number).optional().default("1024"),
   IMAGE_COVER_HEIGHT: z.string().transform(Number).optional().default("1536"),
+  // Story generation contextual memory cap (characters). Controls how much outline + summaries + last chapters we include.
+  STORY_CONTEXT_MAX_CHARS: z
+    .string()
+    .optional()
+    .transform((v) => {
+      const n = v ? parseInt(v, 10) : 12000;
+      return Number.isNaN(n) ? 12000 : n;
+    }),
 });
 
 export type Environment = z.infer<typeof envSchema>;
@@ -103,7 +120,8 @@ export function getEnvironment(): Environment {
       ...process.env,
       PORT: process.env.PORT || "8080",
       // Ensure backward compatibility with GOOGLE_CLOUD_REGION
-      GOOGLE_CLOUD_REGION: process.env.GOOGLE_CLOUD_REGION,
+  GOOGLE_CLOUD_REGION: process.env.GOOGLE_CLOUD_REGION,
+  GOOGLE_GENAI_CLOUD_REGION: process.env.GOOGLE_GENAI_CLOUD_REGION || 'global',
     };
 
     cachedEnv = envSchema.parse(envVars);
@@ -130,6 +148,8 @@ export function validateEnvironment(): void {
     console.log(`🎨 Image Provider: ${env.IMAGE_PROVIDER}`);
     if (env.IMAGE_PROVIDER === "openai") {
       console.log(`🤖 OpenAI Image Model: ${env.OPENAI_IMAGE_MODEL}`);
+    } else if (env.IMAGE_PROVIDER === "google-genai") {
+      console.log(`🖼️ Google Imagen Model: ${env.GOOGLE_GENAI_IMAGE_MODEL}`);
     }
   } catch (error) {
     console.error("❌ Environment validation failed");

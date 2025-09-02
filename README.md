@@ -12,7 +12,7 @@
 
 ## Service Overview
 
-The **Story Generation Workflow Service** is a Google Cloud Run microservice that orchestrates the complete story generation process using Google Cloud Workflows and multiple AI providers (Vertex AI, OpenAI, Stability AI).
+The **Story Generation Workflow Service** is a Google Cloud Run microservice that orchestrates the complete story generation process using Google Cloud Workflows and multiple AI providers (Google GenAI, OpenAI).
 
 ### Key Features
 
@@ -47,7 +47,7 @@ npm test
 - **[Architecture Guide](./docs/ARCHITECTURE.md)** - System design, workflows, and component architecture with Mermaid diagrams
 - **[Deployment Guide](./docs/DEPLOYMENT.md)** - Google Cloud services setup, configuration, and deployment procedures  
 - **[Development Guide](./docs/DEVELOPMENT.md)** - Development environment, coding standards, testing, and contribution guidelines
-- **[TTS Implementation](./docs/TTS_IMPLEMENTATION.md)** - Text-to-Speech audiobook generation with OpenAI and Vertex AI
+- **[TTS Implementation](./docs/TTS_IMPLEMENTATION.md)** - Text-to-Speech audiobook generation with OpenAI
 - **[Progress Tracking](./docs/PROGRESS_TRACKING_IMPLEMENTATION.md)** - Real-time story generation progress updates and completion percentage calculation
 
 ### 🤖 AI Agent Documentation
@@ -72,7 +72,7 @@ src/
 - **Runtime**: Node.js 20+ with TypeScript and ES Modules
 - **Framework**: Express.js with Helmet security middleware
 - **Database**: PostgreSQL with Drizzle ORM (shared schema)
-- **AI Providers**: Vertex AI, OpenAI, Stability AI
+- **AI Providers**: Google GenAI, OpenAI
 - **Cloud Platform**: Google Cloud (Run, Workflows, Storage, Secret Manager)
 - **Testing**: Jest with comprehensive unit and integration tests
 
@@ -172,7 +172,7 @@ Remove-Item Env:DEBUG_AI_FULL_RESPONSES -ErrorAction SilentlyContinue
 The service logs the following information to help diagnose AI issues:
 
 #### Request Level (INFO)
-- AI provider being used (Vertex AI, OpenAI)
+- AI provider being used (Google GenAI, OpenAI)
 - Model name and parameters (temperature, max tokens, etc.)
 - Prompt length and preview (first 500 characters)
 - Whether JSON schema is being used
@@ -209,12 +209,12 @@ The error `Failed to parse outline JSON` typically occurs when the AI returns te
 The service will automatically extract JSON from `\`\`\`json` blocks, but you can see this process in the debug logs.
 
 #### Model Configuration Issues
-- **Wrong model**: Check the `VERTEX_AI_OUTLINE_MODEL` environment variable
+- **Wrong model**: Check the `GOOGLE_GENAI_MODEL` environment variable
 - **JSON schema support**: Ensure the model supports structured output
 - **Rate limits**: Monitor the debug logs for rate limiting responses
 
 #### Provider Authentication Issues  
-- **Vertex AI**: Ensure `GOOGLE_CLOUD_PROJECT_ID` is set and authentication is configured
+- **Google GenAI**: Ensure `GOOGLE_CLOUD_PROJECT_ID` is set and authentication is configured
 - **OpenAI**: Verify `OPENAI_API_KEY` is valid and has sufficient credits
 
 ### Log Analysis
@@ -232,7 +232,7 @@ grep "AI Response Debug" logs/app.log
 grep "Failed to parse outline JSON" logs/app.log
 
 # Provider-specific logs
-grep "Vertex AI Debug" logs/app.log
+grep "Google GenAI Debug" logs/app.log
 grep "OpenAI.*Debug" logs/app.log
 ```
 
@@ -244,8 +244,7 @@ This service uses a hybrid approach for configuration:
 
 **Environment Variables** (non-sensitive configuration):
 - `STORAGE_BUCKET_NAME` - Google Cloud Storage bucket name
-- `VERTEX_AI_MODEL_ID` - Vertex AI model identifier  
-- `VERTEX_AI_LOCATION` - Vertex AI service location
+- `GOOGLE_GENAI_MODEL` - Google GenAI model identifier  
 - `GOOGLE_CLOUD_REGION` - Google Cloud Workflows location
 - `IMAGE_GENERATION_MODEL` - Image generation model name
 - `AUDIO_GENERATION_MODEL` - Audio generation model name
@@ -271,8 +270,8 @@ If you have existing secrets from a previous version, you can clean them up:
 
 ```env
 # AI Provider Selection
-TEXT_PROVIDER=vertex         # vertex|openai  
-IMAGE_PROVIDER=vertex        # vertex|openai|stability
+TEXT_PROVIDER=google-genai         # google-genai|openai  
+IMAGE_PROVIDER=google-genai        # google-genai|openai
 
 # Database (shared with mythoria-webapp)
 DB_HOST=localhost
@@ -280,7 +279,7 @@ DB_PASSWORD=your_password
 
 # Google Cloud Configuration  
 GOOGLE_CLOUD_PROJECT_ID=your-project-id
-VERTEX_AI_LOCATION=europe-west9
+GOOGLE_CLOUD_REGION=europe-west9
 STORAGE_BUCKET_NAME=your-bucket-name
 ```
 

@@ -275,12 +275,19 @@ main:
                             metadata:
                               format: ${imageResp.body.image.format}
                               size: ${imageResp.body.image.size}
-            # 7. Assembly step removed from workflow execution
-            # The assembly service is still available for future PDF generation
-            # but is no longer part of the main story generation workflow
-            # as chapters are now stored directly in the database
             
             # 8. Mark run completed
+            - clearContext:
+                call: http.request
+                args:
+                  url:    ${baseUrl + "/ai/text/context/clear"}
+                  method: POST
+                  auth:   { type: OIDC }
+                  headers:
+                    x-api-key: ${apiKey}
+                  body:
+                    storyId: ${storyId}
+                    runId: ${runId}
             - markCompleted:
                 call: http.request
                 args:

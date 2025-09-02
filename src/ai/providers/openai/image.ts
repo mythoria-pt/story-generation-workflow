@@ -42,7 +42,7 @@ export class OpenAIImageService implements IImageGenerationService {
       apiKey: config.apiKey,
       baseURL: config.baseURL,
     });
-    this.model = config.model || 'gpt-4.1';
+    this.model = config.model || 'gpt-5';
     // maxRetries will be used in future retry logic
     // this.maxRetries = config.maxRetries || 3;
   }

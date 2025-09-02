@@ -14,11 +14,13 @@ This guide covers deploying the Story Generation Workflow service to Google Clou
 ## Google Cloud Platform Setup
 
 ### Project Information
+
 - **Project ID**: `oceanic-beach-460916-n5`
 - **Region**: `europe-west9` (Paris)
 - **Service Account**: `wf-story-gen-sa@oceanic-beach-460916-n5.iam.gserviceaccount.com`
 
 ### Required Google Cloud APIs
+
 ```bash
 # Enable required APIs
 gcloud services enable cloudbuild.googleapis.com
@@ -33,11 +35,13 @@ gcloud services enable pubsub.googleapis.com
 ## Cloud Run Service
 
 ### Service Configuration
+
 - **Service Name**: `story-generation-workflow`
 - **Full URL**: `https://story-generation-workflow-803421888801.europe-west9.run.app`
 - **Container Registry**: `europe-west9-docker.pkg.dev/oceanic-beach-460916-n5/mythoria/story-generation-workflow`
 
 ### Environment Variables (Production)
+
 ```yaml
 # Database Connection
 DB_HOST: ${SECRET:mythoria-db-host}
@@ -50,10 +54,11 @@ DB_PORT: 5432
 GOOGLE_CLOUD_PROJECT_ID: oceanic-beach-460916-n5
 
 # AI Configuration
-TEXT_PROVIDER: vertex
-IMAGE_PROVIDER: vertex
-VERTEX_AI_LOCATION: europe-west9
-VERTEX_AI_MODEL_ID: ${SECRET:mythoria-vertex-ai-model}
+TEXT_PROVIDER: google-genai
+IMAGE_PROVIDER: google-genai
+GOOGLE_GENAI_API_KEY: ${SECRET:mythoria-genai-api-key}
+GOOGLE_GENAI_MODEL: gemini-2.5-flash
+GOOGLE_GENAI_IMAGE_MODEL: imagen-4.0-ultra-generate-001
 
 # TTS Configuration
 TTS_PROVIDER: openai
@@ -75,6 +80,7 @@ PORT: 8080
 ```
 
 ### Service Account Permissions
+
 ```bash
 # Cloud Run service account roles
 gcloud projects add-iam-policy-binding oceanic-beach-460916-n5 \
@@ -101,12 +107,14 @@ gcloud projects add-iam-policy-binding oceanic-beach-460916-n5 \
 ## Google Cloud Workflows
 
 ### Workflow Configuration
+
 - **Workflow Name**: `story-generation`
 - **Location**: `europe-west9`
 - **Trigger**: Pub/Sub topic `mythoria-story-requests`
 - **Definition File**: `workflows/story-generation.yaml`
 
 ### Workflow Deployment
+
 ```bash
 # Deploy workflow using gcloud
 gcloud workflows deploy story-generation \
@@ -116,6 +124,7 @@ gcloud workflows deploy story-generation \
 ```
 
 ### Pub/Sub Configuration
+
 ```bash
 # Create topic for story requests
 gcloud pubsub topics create mythoria-story-requests
@@ -137,10 +146,12 @@ gcloud eventarc triggers create story-generation-trigger \
 ## Google Cloud Storage
 
 ### Storage Buckets
+
 - **Primary Bucket**: `mythoria-story-assets-europe-west9`
 - **Backup Bucket**: `mythoria-story-assets-backup-europe-west9`
 
 ### Bucket Configuration
+
 ```bash
 # Create primary storage bucket
 gsutil mb -p oceanic-beach-460916-n5 -c STANDARD -l europe-west9 gs://mythoria-story-assets-europe-west9
@@ -153,6 +164,7 @@ gsutil iam ch serviceAccount:wf-story-gen-sa@oceanic-beach-460916-n5.iam.gservic
 ```
 
 ### Storage Structure
+
 ```
 gs://mythoria-story-assets-europe-west9/
 ├── {storyId}/
@@ -177,6 +189,7 @@ gs://mythoria-story-assets-europe-west9/
 ## Secret Manager Configuration
 
 ### Shared Secrets (from mythoria-webapp)
+
 ```bash
 # Database credentials
 gcloud secrets create mythoria-db-host --data-file=<(echo "your-db-host")
@@ -185,28 +198,27 @@ gcloud secrets create mythoria-db-password --data-file=<(echo "your-db-password"
 ```
 
 ### Story Generation Specific Secrets
+
 ```bash
 # Storage configuration
 gcloud secrets create mythoria-storage-bucket --data-file=<(echo "mythoria-story-assets-europe-west9")
 
 # AI model configuration
-gcloud secrets create mythoria-vertex-ai-model --data-file=<(echo "gemini-2.5-flash")
+gcloud secrets create mythoria-genai-image-model --data-file=<(echo "imagen-4.0-ultra-generate-001")
 
 # Optional: OpenAI API key for multi-provider support and TTS
 gcloud secrets create mythoria-openai-api-key --data-file=<(echo "your-openai-api-key")
-
-# Optional: Stability AI API key
-gcloud secrets create mythoria-stability-api-key --data-file=<(echo "your-stability-api-key")
 ```
 
 ### Secret Access Permissions
+
 ```bash
 # Grant access to secrets
 gcloud secrets add-iam-policy-binding mythoria-storage-bucket \
     --member="serviceAccount:wf-story-gen-sa@oceanic-beach-460916-n5.iam.gserviceaccount.com" \
     --role="roles/secretmanager.secretAccessor"
 
-gcloud secrets add-iam-policy-binding mythoria-vertex-ai-model \
+gcloud secrets add-iam-policy-binding mythoria-genai-image-model \
     --member="serviceAccount:wf-story-gen-sa@oceanic-beach-460916-n5.iam.gserviceaccount.com" \
     --role="roles/secretmanager.secretAccessor"
 ```
@@ -214,15 +226,18 @@ gcloud secrets add-iam-policy-binding mythoria-vertex-ai-model \
 ## Database Configuration
 
 ### Shared Database Schema
+
 The service shares the PostgreSQL database with `mythoria-webapp` using Drizzle ORM migrations.
 
 **Connection Details:**
+
 - **Host**: Managed through `mythoria-db-host` secret
 - **Database**: `mythoria`
 - **Port**: `5432`
 - **SSL**: Required in production
 
 ### Migration Management
+
 ```bash
 # Migrations are managed by mythoria-webapp
 # SGW imports the schema from the parent application
@@ -235,76 +250,97 @@ npm run db:migrate
 ```
 
 ### Required Tables
+
 - `stories` - Main story records
 - `story_generation_runs` - Workflow execution tracking
 - `chapters` - Chapter content and metadata
 - `drizzle_migrations` - Migration history (shared)
 
-## Vertex AI Configuration
+## Google GenAI Configuration
 
 ### Model Configuration
-- **Primary Model**: `gemini-2.5-flash`
-- **Location**: `europe-west9`
-- **Backup Model**: `gemini-2.0-flash`
 
-### Model Endpoints
-```bash
-# Text Generation
-projects/oceanic-beach-460916-n5/locations/europe-west9/publishers/google/models/gemini-2.5-flash
+- **Text Model**: `gemini-2.5-flash`
+- **Image Model**: `imagen-4.0-ultra-generate-001`
 
-# Image Generation
-projects/oceanic-beach-460916-n5/locations/europe-west9/publishers/google/models/imagegeneration@001
-```
+### API Endpoint
+
+Google GenAI is accessed via the Generative Language API.
 
 ### Quota Requirements
+
 - **Text Generation**: 1000 requests/minute, 10M tokens/minute
 - **Image Generation**: 100 requests/minute, 500 images/minute
 
 ## CI/CD Pipeline (Cloud Build)
 
 ### Build Configuration (`cloudbuild.yaml`)
+
 ```yaml
-steps:  # Build container image
-  - name: 'gcr.io/cloud-builders/docker'
-    args: [
-      'build', 
-      '-t', 'europe-west9-docker.pkg.dev/oceanic-beach-460916-n5/mythoria/story-generation-workflow:${COMMIT_SHA}',
-      '-t', 'europe-west9-docker.pkg.dev/oceanic-beach-460916-n5/mythoria/story-generation-workflow:latest',
-      '.'
-    ]
-  
+steps: # Build container image
+  - name: "gcr.io/cloud-builders/docker"
+    args:
+      [
+        "build",
+        "-t",
+        "europe-west9-docker.pkg.dev/oceanic-beach-460916-n5/mythoria/story-generation-workflow:${COMMIT_SHA}",
+        "-t",
+        "europe-west9-docker.pkg.dev/oceanic-beach-460916-n5/mythoria/story-generation-workflow:latest",
+        ".",
+      ]
+
   # Push to Artifact Registry
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', '--all-tags', 'europe-west9-docker.pkg.dev/oceanic-beach-460916-n5/mythoria/story-generation-workflow']
-  
+  - name: "gcr.io/cloud-builders/docker"
+    args:
+      [
+        "push",
+        "--all-tags",
+        "europe-west9-docker.pkg.dev/oceanic-beach-460916-n5/mythoria/story-generation-workflow",
+      ]
+
   # Deploy to Cloud Run
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    entrypoint: 'gcloud'
-    args: [
-      'run', 'deploy', 'story-generation-workflow',
-      '--image', 'europe-west9-docker.pkg.dev/oceanic-beach-460916-n5/mythoria/story-generation-workflow:${COMMIT_SHA}',
-      '--region', 'europe-west9',
-      '--platform', 'managed',
-      '--service-account', 'wf-story-gen-sa@oceanic-beach-460916-n5.iam.gserviceaccount.com',
-      '--set-env-vars', 'GOOGLE_CLOUD_PROJECT_ID=oceanic-beach-460916-n5,NODE_ENV=production',
-      '--set-secrets', '/etc/secrets/db-host=mythoria-db-host:latest,/etc/secrets/db-password=mythoria-db-password:latest'
-    ]
-  
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "gcloud"
+    args:
+      [
+        "run",
+        "deploy",
+        "story-generation-workflow",
+        "--image",
+        "europe-west9-docker.pkg.dev/oceanic-beach-460916-n5/mythoria/story-generation-workflow:${COMMIT_SHA}",
+        "--region",
+        "europe-west9",
+        "--platform",
+        "managed",
+        "--service-account",
+        "wf-story-gen-sa@oceanic-beach-460916-n5.iam.gserviceaccount.com",
+        "--set-env-vars",
+        "GOOGLE_CLOUD_PROJECT_ID=oceanic-beach-460916-n5,NODE_ENV=production",
+        "--set-secrets",
+        "/etc/secrets/db-host=mythoria-db-host:latest,/etc/secrets/db-password=mythoria-db-password:latest",
+      ]
+
   # Deploy workflow
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    entrypoint: 'gcloud'
-    args: [
-      'workflows', 'deploy', 'story-generation',
-      '--source', 'workflows/story-generation.yaml',
-      '--location', 'europe-west9'
-    ]
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "gcloud"
+    args:
+      [
+        "workflows",
+        "deploy",
+        "story-generation",
+        "--source",
+        "workflows/story-generation.yaml",
+        "--location",
+        "europe-west9",
+      ]
 
 options:
   logging: CLOUD_LOGGING_ONLY
-  machineType: 'E2_HIGHCPU_8'
+  machineType: "E2_HIGHCPU_8"
 ```
 
 ### Artifact Registry
+
 ```bash
 # Create repository
 gcloud artifacts repositories create mythoria \
@@ -316,6 +352,7 @@ gcloud artifacts repositories create mythoria \
 ## Deployment Commands
 
 ### Automated Deployment (Recommended)
+
 ```bash
 # Deploy using Cloud Build
 gcloud builds submit --config cloudbuild.yaml
@@ -325,6 +362,7 @@ npm run gcp:deploy
 ```
 
 ### Manual Deployment
+
 ```bash
 # 1. Build and push container
 docker build -t europe-west9-docker.pkg.dev/oceanic-beach-460916-n5/mythoria/story-generation-workflow:latest .
@@ -344,6 +382,7 @@ gcloud workflows deploy story-generation \
 ```
 
 ### Local Development Setup
+
 ```bash
 # 1. Install dependencies
 npm install
@@ -365,11 +404,13 @@ curl http://localhost:3000/health
 ## Monitoring and Observability
 
 ### Cloud Logging
+
 - **Log Name**: `story-generation-workflow`
 - **Structured JSON logging** with Winston
 - **Log Levels**: ERROR, WARN, INFO, DEBUG
 
 ### Cloud Monitoring
+
 ```bash
 # Create alerting policy for errors
 gcloud alpha monitoring policies create \
@@ -377,11 +418,13 @@ gcloud alpha monitoring policies create \
 ```
 
 ### Health Checks
+
 - **Endpoint**: `GET /health`
 - **Checks**: Database connectivity, Internet access, AI provider status
 - **Response Format**: Structured JSON with component status
 
 ### Error Tracking
+
 - Google Cloud Error Reporting integration
 - Structured error logging with stack traces
 - Workflow execution monitoring
@@ -389,21 +432,24 @@ gcloud alpha monitoring policies create \
 ## Security Configuration
 
 ### Service Account Security
+
 ```bash
 # Principle of least privilege - only required permissions
 gcloud projects add-iam-policy-binding oceanic-beach-460916-n5 \
     --member="serviceAccount:wf-story-gen-sa@oceanic-beach-460916-n5.iam.gserviceaccount.com" \
     --role="roles/aiplatform.user"
-    
+
 # No broad admin roles
 ```
 
 ### Network Security
+
 - **HTTPS only** for all external communications
 - **VPC Connector** for private database access (optional)
 - **Firewall rules** for restricted access
 
 ### Data Security
+
 - **Encryption at rest** for Cloud Storage
 - **Encryption in transit** for all API calls
 - **Secret Manager** for sensitive configuration
@@ -412,11 +458,13 @@ gcloud projects add-iam-policy-binding oceanic-beach-460916-n5 \
 ## Disaster Recovery
 
 ### Backup Strategy
+
 - **Database backups** managed by mythoria-webapp
 - **Storage bucket backups** to coldline storage
 - **Container image backups** in Artifact Registry
 
 ### Recovery Procedures
+
 ```bash
 # 1. Restore from backup bucket
 gsutil -m cp -r gs://mythoria-story-assets-backup-europe-west9/* gs://mythoria-story-assets-europe-west9/
@@ -435,12 +483,14 @@ gcloud workflows deploy story-generation \
 ## Cost Optimization
 
 ### Resource Optimization
+
 - **Cloud Run**: Auto-scaling with minimum 0 instances
-- **Vertex AI**: Efficient model selection (Flash vs Pro)
+- **Google GenAI**: Efficient model selection (Flash vs Pro)
 - **Storage**: Lifecycle policies for old content
 - **Workflows**: Pay-per-execution model
 
 ### Cost Monitoring
+
 ```bash
 # Set up budget alerts
 gcloud billing budgets create \
@@ -454,6 +504,7 @@ gcloud billing budgets create \
 ### Common Issues
 
 #### 1. Service Account Permissions
+
 ```bash
 # Check service account roles
 gcloud projects get-iam-policy oceanic-beach-460916-n5 \
@@ -463,12 +514,14 @@ gcloud projects get-iam-policy oceanic-beach-460916-n5 \
 ```
 
 #### 2. Secret Access Issues
+
 ```bash
 # Test secret access
 gcloud secrets versions access latest --secret="mythoria-db-host"
 ```
 
 #### 3. Workflow Execution Failures
+
 ```bash
 # List workflow executions
 gcloud workflows executions list \
@@ -482,6 +535,7 @@ gcloud workflows executions describe EXECUTION_ID \
 ```
 
 #### 4. Cloud Run Service Issues
+
 ```bash
 # Check service logs
 gcloud logs read "resource.type=cloud_run_revision AND resource.labels.service_name=story-generation-workflow" \
@@ -493,6 +547,7 @@ gcloud run services describe story-generation-workflow \
 ```
 
 ### Debug Commands
+
 ```bash
 # Test workflow execution
 gcloud workflows execute story-generation \

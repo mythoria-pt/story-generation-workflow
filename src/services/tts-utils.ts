@@ -8,7 +8,7 @@ import { countWords } from '@/shared/utils.js';
 import { AudioPromptService } from './audio-prompt.js';
 
 export interface TTSConfig {
-  provider: 'openai' | 'vertex';
+  provider: 'openai';
   model: string;
   voice: string;
   speed: number;
@@ -20,7 +20,7 @@ export interface TTSConfig {
  */
 export function getTTSConfig(): TTSConfig {
   return {
-    provider: (process.env.TTS_PROVIDER || 'openai') as 'openai' | 'vertex',
+    provider: 'openai',
     model: process.env.TTS_MODEL || 'gpt-4o-mini-tts',
     voice: process.env.TTS_VOICE || 'nova',
     speed: parseFloat(process.env.TTS_SPEED || '1.0'), // Updated to 1.0x

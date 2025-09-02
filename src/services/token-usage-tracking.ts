@@ -20,7 +20,7 @@ export interface TokenUsageRequest {
 }
 
 export interface CostEstimation {
-  provider: 'openai' | 'vertex' | 'unknown';
+  provider: 'openai' | 'google-genai' | 'unknown';
   model: string;
   inputTokens: number;
   outputTokens: number;
@@ -128,7 +128,7 @@ export class TokenUsageTrackingService {
         estimation.estimatedCostInEuros = totalCostUSD * 0.92; // Convert USD to EUR (approximate)
         return estimation;
       }
-    } else if (estimation.provider === 'vertex') {
+  } else if (estimation.provider === 'google-genai') {
       if (estimation.model.includes('gemini')) {
         if (estimation.model.includes('gemini-2.0-flash')) {
           // Gemini 2.0 Flash pricing
@@ -165,11 +165,11 @@ export class TokenUsageTrackingService {
   /**
    * Determine provider from model name
    */
-  private getProviderFromModel(model: string): 'openai' | 'vertex' | 'unknown' {
+  private getProviderFromModel(model: string): 'openai' | 'google-genai' | 'unknown' {
     if (model.includes('gpt') || model.includes('dall-e') || model.includes('tts-')) {
       return 'openai';
     } else if (model.includes('gemini') || model.includes('imagen')) {
-      return 'vertex';
+      return 'google-genai';
     }
     return 'unknown';
   }

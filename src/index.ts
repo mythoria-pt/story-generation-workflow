@@ -70,12 +70,15 @@ import { asyncJobRouter } from './routes/async-jobs.js';
 import { getAIGateway } from '@/ai/gateway-singleton.js';
 import { getStorageService } from '@/services/storage-singleton.js';
 import { CMYKConversionService } from '@/services/cmyk-conversion.js';
+import { debugImageRouter } from '@/routes/debug-image.js';
 import apiKeyAuth from './middleware/apiKeyAuth.js';
 // Protect external-facing APIs with x-api-key
 {
   const hasKey = Boolean((process.env.STORY_GENERATION_WORKFLOW_API_KEY || '').trim());
   logger.info(`API key configured for external routes: ${hasKey}`);
 }
+// Unauthenticated debug endpoint (non-production recommendation: secure or remove)
+app.use('/debug', debugImageRouter);
 app.use('/ai', apiKeyAuth, aiRouter);
 app.use('/audio', apiKeyAuth, audioRouter);
 app.use('/internal', internalRouter); // keep internal open or handle separately

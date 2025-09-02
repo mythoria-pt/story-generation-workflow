@@ -1,6 +1,6 @@
 /**
  * TTS (Text-to-Speech) Service
- * Handles generating audio narration for stories using OpenAI and Google Vertex AI
+ * Handles generating audio narration for stories using OpenAI
  * Generates audio per chapter to avoid character limits and provide better UX
  */
 
@@ -28,7 +28,7 @@ export interface TTSChapterResult {
   audioUrl: string;
   duration: number; // in seconds
   format: string;
-  provider: 'openai' | 'vertex';
+  provider: 'openai';
   voice: string;
   metadata: {
     totalWords: number;
