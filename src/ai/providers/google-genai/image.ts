@@ -4,6 +4,7 @@
 
 import { IImageGenerationService, ImageGenerationOptions } from "../../interfaces.js";
 import { logger } from "@/config/logger.js";
+import { ImageGenerationBlockedError } from '@/ai/errors.js';
 // Dynamic import to avoid Jest resolver issues unless Gemini models actually used
 type GoogleGenAIType = any; // Minimal typing to avoid adding types
 
@@ -25,6 +26,30 @@ export class GoogleGenAIImageService implements IImageGenerationService {
   private projectId: string | undefined;
   private location: string | undefined;
   private genAIClient?: GoogleGenAIType; // Only initialized for Gemini image models
+
+  /**
+   * Normalise Gemini / Google API error surfaces for better logging.
+   */
+  private static extractGoogleError(err: unknown) {
+    const out: Record<string, unknown> = {};
+    const anyErr: any = err;
+    const source = anyErr?.cause?.error || anyErr?.response?.error || anyErr?.error || anyErr;
+    if (source) {
+      if (source.code) out.code = source.code;
+      if (source.status) out.status = source.status;
+      if (source.message) out.apiMessage = source.message;
+      if (Array.isArray(source.details) && source.details.length) {
+        out.details = source.details.slice(0, 2);
+      }
+    }
+    if (!out.status && typeof anyErr?.message === 'string') {
+      const token = anyErr.message.split(/[ :]/)[0];
+      if (token && token === token.toUpperCase() && token.length < 40) {
+        out.statusGuess = token;
+      }
+    }
+    return out;
+  }
 
   constructor(config: GoogleGenAIImageConfig) {
     this.apiKey = config.apiKey;
@@ -85,10 +110,31 @@ export class GoogleGenAIImageService implements IImageGenerationService {
           promptPreview: prompt.slice(0, 120)
         });
 
+        // Build multimodal parts: optional reference images first, then instruction, then prompt text
+        const parts: any[] = [];
+        const referenceImages = options?.referenceImages ?? [];
+        const refCount = referenceImages.length;
+        if (refCount) {
+          for (const ref of referenceImages) {
+            try {
+              parts.push({
+                inlineData: {
+                  data: ref.buffer.toString('base64'),
+                  mimeType: ref.mimeType || 'image/jpeg'
+                }
+              });
+            } catch (e) {
+              logger.warn('Failed to encode reference image for Gemini', { error: e instanceof Error ? e.message : String(e) });
+            }
+          }
+          parts.push({ text: 'The preceding images are authoritative references for characters and artistic style. Maintain consistency in faces, proportions, palette, and clothing unless explicitly instructed otherwise.' });
+        }
+        parts.push({ text: prompt });
+
         // Non-streaming generate content per current docs for image generation
-  const response = await (this.genAIClient as any).models.generateContent({
+        const response = await (this.genAIClient as any).models.generateContent({
           model,
-          contents: [ prompt ]
+          contents: [ { role: 'user', parts } ]
         });
   logger.debug('Google Gemini Image Debug - raw response keys', { model, hasCandidates: !!response?.candidates, keys: response ? Object.keys(response) : [] });
         const candidates = response?.candidates || [];
@@ -104,15 +150,46 @@ export class GoogleGenAIImageService implements IImageGenerationService {
           if (imagePartBase64) break;
         }
         if (!imagePartBase64) {
-          logger.error('Google Gemini Image Debug - no inline image data in response', { model, candidateCount: candidates.length });
-          throw new Error('No image data returned from Gemini image model');
+          const candidateDiagnostics = candidates.map((c: any, idx: number) => ({
+            idx,
+            finishReason: c.finishReason,
+            hasContent: !!c.content,
+            partCount: c.content?.parts?.length || 0,
+            partSummaries: (c.content?.parts || []).map((p: any) => ({ keys: Object.keys(p), hasInline: !!p.inlineData, hasText: !!p.text }))
+          }));
+          const finishReasons = Array.from(
+            new Set(candidateDiagnostics.map((d: any) => d.finishReason).filter(Boolean))
+          ) as string[];
+          logger.error('Google Gemini Image Debug - no inline image data in response', {
+            model,
+            candidateCount: candidates.length,
+            candidateDiagnostics,
+            finishReasons
+          });
+          // If all candidates are blocked for prohibited content, surface a structured safety error
+          if (finishReasons.length && finishReasons.every(r => r === 'PROHIBITED_CONTENT')) {
+            throw new ImageGenerationBlockedError({
+              provider: 'google-genai',
+              finishReasons,
+              diagnostics: candidateDiagnostics,
+              message: 'Image generation blocked by Google safety filters (reason: PROHIBITED_CONTENT). Adjust prompt to comply with content policies.'
+            });
+          }
+          // Generic fallback error with finish reasons context
+          throw new Error(
+            'No image data returned from Gemini image model' +
+              (finishReasons.length ? ` (finishReasons=${finishReasons.join(',')})` : '')
+          );
         }
         const buffer = Buffer.from(imagePartBase64, 'base64');
-        logger.info('Google Gemini Image: image generated', { model, size: buffer.length });
+        logger.info('Google Gemini Image: image generated', { model, size: buffer.length, referenceImageCount: refCount });
         return buffer;
       }
 
       // Legacy Imagen REST path (imagen-* models)
+      if (options?.referenceImages?.length) {
+        logger.warn('Reference images provided but ignored for legacy Imagen REST model', { model, referenceImageCount: options.referenceImages.length });
+      }
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateImage?key=${this.apiKey}`;
       const body = {
         prompt: { text: prompt },
@@ -160,12 +237,19 @@ export class GoogleGenAIImageService implements IImageGenerationService {
       logger.info('Google Imagen: image generated', { model, promptLength: prompt.length, imageSize: buffer.length });
       return buffer;
     } catch (error) {
+      const structured = GoogleGenAIImageService.extractGoogleError(error);
       logger.error("Google Imagen image generation failed", {
         error: error instanceof Error ? error.message : String(error),
+        ...structured,
         promptLength: prompt.length,
-        model: this.model
+        model: this.model,
+        promptPreview: prompt.slice(0, 160)
       });
-      throw error;
+      if (error instanceof Error) {
+        throw error;
+      } else {
+        throw new Error(String(error));
+      }
     }
   }
 

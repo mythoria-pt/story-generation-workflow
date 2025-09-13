@@ -5,6 +5,7 @@
 // Switched to @google/genai package
 import { GoogleGenAI } from '@google/genai';
 import { ITextGenerationService, TextGenerationOptions } from '../../interfaces.js';
+import { getMaxOutputTokens } from '@/ai/model-limits.js';
 import { contextManager } from '../../context-manager.js';
 import { logger } from '@/config/logger.js';
 
@@ -45,6 +46,37 @@ export class GoogleGenAITextService implements ITextGenerationService {
   private genAI: any;
   private model: string;
 
+  /**
+   * Extract structured Google API / GenAI error information if present.
+   * The @google/genai client (and underlying fetch) may surface errors in different shapes:
+   * - error.cause.error (Vertex / REST style) { code, status, message, details[] }
+   * - error.response.error
+   * - direct { code, status, message }
+   * We normalise these so callers / logs get actionable context.
+   */
+  private static extractGoogleError(err: unknown) {
+    const out: Record<string, unknown> = {};
+    const anyErr: any = err;
+    const source = anyErr?.cause?.error || anyErr?.response?.error || anyErr?.error || anyErr;
+    if (source) {
+      if (source.code) out.code = source.code;
+      if (source.status) out.status = source.status;
+      if (source.message) out.apiMessage = source.message;
+      if (Array.isArray(source.details) && source.details.length) {
+        // Truncate very large details entries
+        out.details = source.details.slice(0, 3);
+      }
+    }
+    // Some SDK errors include status in message (e.g. "403 PERMISSION_DENIED: ...") – surface first token
+    if (!out.status && typeof anyErr?.message === 'string') {
+      const token = anyErr.message.split(/[ :]/)[0];
+      if (token && token === token.toUpperCase() && token.length < 40) {
+        out.statusGuess = token;
+      }
+    }
+    return out;
+  }
+
   constructor(config: GoogleGenAITextConfig) {
     this.genAI = new GoogleGenAI({ apiKey: config.apiKey });
     this.model = config.model || 'gemini-2.5-flash';
@@ -52,7 +84,8 @@ export class GoogleGenAITextService implements ITextGenerationService {
     // Backwards compatibility shim to mimic @google/generative-ai API used in rest of file
     const anyClient = this.genAI as any;
     if (typeof anyClient.getGenerativeModel !== 'function') {
-      anyClient.getGenerativeModel = ({ model, generationConfig }: { model: string; generationConfig?: any }) => {
+      anyClient.getGenerativeModel = ({ model, generationConfig, systemInstruction: _systemInstruction }: { model: string; generationConfig?: any; systemInstruction?: string }) => {
+        // Note: systemInstruction is accepted but not used in this shim - could be passed to API call if needed
         return {
           generateContent: (input: any) => {
             // Normalize to { model, contents, config }
@@ -75,6 +108,16 @@ export class GoogleGenAITextService implements ITextGenerationService {
               contents: [{ role: 'user', parts: [{ text: String(input) }] }],
               config: generationConfig
             });
+          },
+          startChat: ({ history: _history }: { history?: any[] }) => {
+            // Note: history is accepted but not used in this shim - stateless for now
+            return {
+              sendMessage: (prompt: string) => anyClient.models.generateContent({
+                model,
+                contents: [{ role: 'user', parts: [{ text: prompt }] }],
+                config: generationConfig
+              })
+            };
           }
         };
       };
@@ -186,14 +229,30 @@ export class GoogleGenAITextService implements ITextGenerationService {
     systemPrompt: string
   ): Promise<void> {
     try {
+      logger.info('Google GenAI Debug - Initializing context', {
+        contextId,
+        systemPromptLength: systemPrompt.length,
+        model: this.model,
+        hasGetGenerativeModel: typeof this.genAI.getGenerativeModel === 'function'
+      });
+
       // Create a chat instance for stateful conversations
       const generativeModel = this.genAI.getGenerativeModel({
         model: this.model,
         systemInstruction: systemPrompt
       });
 
+      logger.info('Google GenAI Debug - Created generative model', {
+        contextId,
+        hasStartChat: typeof generativeModel.startChat === 'function',
+        modelMethods: Object.getOwnPropertyNames(generativeModel)
+      });
+
       const chat = generativeModel.startChat({
         history: [], // Start with empty history, system prompt is handled by systemInstruction
+        generationConfig: {
+          maxOutputTokens: getMaxOutputTokens(this.model)
+        }
       });
 
       // Store the chat instance in context manager
@@ -213,7 +272,8 @@ export class GoogleGenAITextService implements ITextGenerationService {
     } catch (error) {
       logger.error('Failed to initialize Google GenAI context', {
         error: error instanceof Error ? error.message : String(error),
-        contextId
+        contextId,
+        stack: error instanceof Error ? error.stack : undefined
       });
       throw error;
     }
@@ -258,7 +318,8 @@ export class GoogleGenAITextService implements ITextGenerationService {
           // since chat instances don't support changing responseSchema on the fly
           if (options?.jsonSchema) {
             const generationConfig: any = {
-              maxOutputTokens: options?.maxTokens || 4096,
+              // Use caller override OR model maximum
+              maxOutputTokens: options?.maxTokens || getMaxOutputTokens(options?.model || this.model),
               temperature: options?.temperature || 0.7,
               topP: options?.topP || 0.9,
               topK: options?.topK || 40,
@@ -306,7 +367,7 @@ export class GoogleGenAITextService implements ITextGenerationService {
         // If no chat instance exists, create a new one for stateless generation
       if (!response) {
         const generationConfig: any = {
-          maxOutputTokens: options?.maxTokens || 8192,
+          maxOutputTokens: options?.maxTokens || getMaxOutputTokens(options?.model || this.model),
           temperature: options?.temperature || 0.7,
           topP: options?.topP || 0.9,
           topK: options?.topK || 40,
@@ -329,7 +390,7 @@ export class GoogleGenAITextService implements ITextGenerationService {
           generationConfig
         });
 
-        logger.info('Google GenAI Debug - Using stateless generation', {
+  logger.info('Google GenAI Debug - Using stateless generation', {
           model: options?.model || this.model,
           contextId: options?.contextId || 'none',
           hasJsonSchema: !!options?.jsonSchema,
@@ -355,29 +416,52 @@ export class GoogleGenAITextService implements ITextGenerationService {
       // Extract the text response
   const raw = response as any;
   const candidateList = raw?.response?.candidates || raw?.candidates;
-  const candidate = Array.isArray(candidateList) ? candidateList[0] : undefined;
-      if (!candidate) {
+  const firstCandidate = Array.isArray(candidateList) ? candidateList[0] : undefined;
+      if (!firstCandidate) {
         throw new Error('No candidates returned from Google GenAI');
       }
 
-      let textContent = candidate.content?.parts?.[0]?.text as string | undefined;
-      if (!textContent && Array.isArray(candidate.content?.parts)) {
-        // Fallback: concatenate any parts that have text
-        const combined = candidate.content.parts
-          .map((p: any) => p.text)
-          .filter((t: any) => typeof t === 'string' && t.length > 0)
-          .join('\n');
-        if (combined.length > 0) {
-          textContent = combined;
+      // Try to extract text from first candidate; if empty, scan other candidates
+      const extractTextFromCandidate = (cand: any): string | undefined => {
+        let tc = cand?.content?.parts?.[0]?.text as string | undefined;
+        if (!tc && Array.isArray(cand?.content?.parts)) {
+          const combined = cand.content.parts
+            .map((p: any) => p.text)
+            .filter((t: any) => typeof t === 'string' && t.length > 0)
+            .join('\n');
+          if (combined.length > 0) tc = combined;
+        }
+        return tc;
+      };
+
+      let textContent = extractTextFromCandidate(firstCandidate);
+      if (!textContent && Array.isArray(candidateList) && candidateList.length > 1) {
+        for (let i = 1; i < candidateList.length; i++) {
+          textContent = extractTextFromCandidate(candidateList[i]);
+          if (textContent) {
+            logger.warn('Google GenAI Debug - Fallback to later candidate with text', { pickedIndex: i, totalCandidates: candidateList.length });
+            break;
+          }
         }
       }
       if (!textContent) {
+        const candidate = firstCandidate; // for diagnostics naming
+        const finishReason = candidate.finishReason;
+        const safety = candidate.safetyRatings || candidate.safety || candidate.safetyFeedback;
+        const partDiagnostics = Array.isArray(candidate.content?.parts)
+          ? candidate.content.parts.map((p: any) => ({ keys: Object.keys(p), hasText: !!p.text, hasInlineData: !!p.inlineData, mime: p.inlineData?.mimeType }))
+          : [];
         logger.error('Google GenAI Debug - No text content. Raw candidate snapshot', {
           hasResponse: !!(response as any).response,
-          keys: Object.keys(candidate || {}),
-          partTypes: Array.isArray(candidate.content?.parts) ? candidate.content.parts.map((p: any) => Object.keys(p)) : 'none',
+          finishReason,
+          safetyRatings: safety,
+          partDiagnostics,
+          candidateKeys: Object.keys(candidate || {}),
+          model: options?.model || this.model,
+          totalCandidates: Array.isArray(candidateList) ? candidateList.length : 1
         });
-        throw new Error('No text content in Google GenAI response');
+        const reasonHint = finishReason ? ` finishReason=${finishReason}` : '';
+        throw new Error('No text content in Google GenAI response.' + reasonHint);
       }
 
       logger.info('Google GenAI Debug - Response received', {
@@ -389,13 +473,22 @@ export class GoogleGenAITextService implements ITextGenerationService {
       return textContent;
 
     } catch (error) {
+      const structured = GoogleGenAITextService.extractGoogleError(error);
       logger.error('Google GenAI text generation failed', {
         error: error instanceof Error ? error.message : String(error),
+        ...structured,
         promptLength: prompt.length,
         model: options?.model || this.model,
-        contextId: options?.contextId
+        contextId: options?.contextId,
+        // Provide a short prompt preview for correlation (avoid logging entire prompt for cost & potential PII)
+        promptPreview: prompt.slice(0, 160)
       });
-      throw error;
+      // Re-wrap with additional context while preserving original stack / message
+      if (error instanceof Error) {
+        throw error;
+      } else {
+        throw new Error(String(error));
+      }
     }
   }
 }

@@ -89,8 +89,17 @@ export class TextGenerationMiddleware implements ITextGenerationService {
 
       return result;
     } catch (error) {
+      const anyErr: any = error as any;
+      const structured = anyErr && (anyErr.cause?.error || anyErr.response?.error || anyErr.error)
+        ? {
+            apiCode: anyErr.cause?.error?.code || anyErr.response?.error?.code || anyErr.error?.code,
+            apiStatus: anyErr.cause?.error?.status || anyErr.response?.error?.status || anyErr.error?.status,
+            apiMessage: anyErr.cause?.error?.message || anyErr.response?.error?.message || anyErr.error?.message,
+          }
+        : {};
       logger.error("Text generation failed with token tracking", {
         error: error instanceof Error ? error.message : String(error),
+        ...structured,
         context: this.context,
         promptLength: prompt.length,
         processingTimeMs: Date.now() - startTime,
@@ -239,8 +248,11 @@ export class ImageGenerationMiddleware implements IImageGenerationService {
       const inputTokens = Math.ceil(prompt.length / 4);
       const outputTokens = 1000; // Fixed cost per image generation
 
-      // Record the usage asynchronously
-      this.recordUsageAsync({
+    // Sanitize options (remove raw buffers from reference images before persisting)
+    const sanitizedOptions = this.sanitizeImageOptions(options);
+
+    // Record the usage asynchronously with sanitized data only
+    this.recordUsageAsync({
         authorId: this.context.authorId,
         storyId: this.context.storyId,
         action: this.context.action,
@@ -249,7 +261,7 @@ export class ImageGenerationMiddleware implements IImageGenerationService {
         outputTokens,
         inputPromptJson: {
           prompt,
-          options: options || {},
+      options: sanitizedOptions,
           timestamp: new Date().toISOString(),
           processingTimeMs,
           imageSizeBytes: result.length,
@@ -267,8 +279,17 @@ export class ImageGenerationMiddleware implements IImageGenerationService {
 
       return result;
     } catch (error) {
+      const anyErr: any = error as any;
+      const structured = anyErr && (anyErr.cause?.error || anyErr.response?.error || anyErr.error)
+        ? {
+            apiCode: anyErr.cause?.error?.code || anyErr.response?.error?.code || anyErr.error?.code,
+            apiStatus: anyErr.cause?.error?.status || anyErr.response?.error?.status || anyErr.error?.status,
+            apiMessage: anyErr.cause?.error?.message || anyErr.response?.error?.message || anyErr.error?.message,
+          }
+        : {};
       logger.error("Image generation failed with token tracking", {
         error: error instanceof Error ? error.message : String(error),
+        ...structured,
         context: this.context,
         promptLength: prompt.length,
         processingTimeMs: Date.now() - startTime,
@@ -316,8 +337,11 @@ export class ImageGenerationMiddleware implements IImageGenerationService {
         Math.ceil(prompt.length / 4) + Math.ceil(originalImage.length / 1000); // Add image size factor
       const outputTokens = 1500; // Higher cost for image editing vs generation
 
-      // Record the usage asynchronously
-      this.recordUsageAsync({
+    // Sanitize options (strip raw reference image buffers)
+    const sanitizedOptions = this.sanitizeImageOptions(options);
+
+    // Record the usage asynchronously
+    this.recordUsageAsync({
         authorId: this.context.authorId,
         storyId: this.context.storyId,
         action: this.context.action,
@@ -326,7 +350,7 @@ export class ImageGenerationMiddleware implements IImageGenerationService {
         outputTokens,
         inputPromptJson: {
           prompt,
-          options: options || {},
+      options: sanitizedOptions,
           originalImageSize: originalImage.length,
           timestamp: new Date().toISOString(),
           processingTimeMs,
@@ -394,6 +418,24 @@ export class ImageGenerationMiddleware implements IImageGenerationService {
         });
       }
     });
+  }
+
+  /**
+   * Sanitize ImageGenerationOptions by replacing referenceImages buffers with size metadata only.
+   * Prevents large binary data from being logged or stored (privacy & storage efficiency).
+   */
+  private sanitizeImageOptions(options?: ImageGenerationOptions): Record<string, unknown> {
+    if (!options) return {};
+    const { referenceImages, ...rest } = options as any;
+    const sanitized: Record<string, unknown> = { ...rest };
+    if (Array.isArray(referenceImages)) {
+      sanitized.referenceImages = referenceImages.map((ri: any) => ({
+        mimeType: ri?.mimeType,
+        source: ri?.source,
+        sizeBytes: ri?.buffer ? (ri.buffer.length || 0) : 0
+      }));
+    }
+    return sanitized;
   }
 }
 

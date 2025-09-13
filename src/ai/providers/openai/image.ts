@@ -181,26 +181,38 @@ export class OpenAIImageService implements IImageGenerationService {
 
       const response = await this.client.responses.create({
         model: this.model,
-        input: [
-          {
-            "role": "system",
-            "content": [
-              {
-                "type": "input_text",
-                "text": systemMessage
+        input: (() => {
+          const input: any[] = [
+            {
+              role: 'system',
+              content: [ { type: 'input_text', text: systemMessage } ]
+            }
+          ];
+          const userContent: any[] = [];
+          const refImages = options?.referenceImages || [];
+          if (refImages.length) {
+            for (const ref of refImages) {
+              try {
+                // Reuse edit() style: supply data URI via image_url (Responses API expects image_url or image_base64?)
+                const dataUrl = `data:image/jpeg;base64,${ref.buffer.toString('base64')}`;
+                userContent.push({
+                  type: 'input_image',
+                  image_url: dataUrl,
+                  detail: 'high'
+                });
+              } catch (e) {
+                logger.warn('OpenAI: failed to encode reference image', { error: e instanceof Error ? e.message : String(e) });
               }
-            ]
-          },
-          {
-            "role": "user",
-            "content": [
-              {
-                "type": "input_text",
-                "text": prompt
-              }
-            ]
+            }
+            userContent.push({
+              type: 'input_text',
+              text: 'The images above are authoritative references for visual style and recurring characters. Maintain consistency (faces, palette, clothing) unless explicitly instructed otherwise. Now generate a new image for the described scene.'
+            });
           }
-        ],
+          userContent.push({ type: 'input_text', text: prompt });
+          input.push({ role: 'user', content: userContent });
+          return input;
+        })(),
         text: {
           "format": {
             "type": "text"
@@ -318,7 +330,9 @@ export class OpenAIImageService implements IImageGenerationService {
         imageSize: buffer.length,
         dimensions: finalSize,
         quality: finalQuality,
-        revisedPrompt: revisedPrompt?.substring(0, 100) + '...'
+  revisedPrompt: revisedPrompt?.substring(0, 100) + '...',
+  referenceImageCount: options?.referenceImages?.length || 0,
+  referenceImageSources: options?.referenceImages?.map(r => r.source) || []
       });
 
       return buffer;

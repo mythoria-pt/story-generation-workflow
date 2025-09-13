@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ImageGenerationBlockedError } from '@/ai/errors.js';
 
 // Schema for image generation requests
 export const ImageRequestSchema = z.object({
@@ -49,7 +50,7 @@ export function generateImageFilename(params: {
  * Format an error object with request context for logging and responses.
  */
 export function formatImageError(error: unknown, reqData: Partial<ImageRequest>, currentStep: string): Record<string, unknown> {
-  return {
+  const base: Record<string, any> = {
     message: error instanceof Error ? error.message : String(error),
     stack: error instanceof Error ? error.stack : undefined,
     name: error instanceof Error ? error.name : undefined,
@@ -64,5 +65,28 @@ export function formatImageError(error: unknown, reqData: Partial<ImageRequest>,
       style: reqData.style
     }
   };
+
+  // Enrich for safety blocked errors
+  if (error instanceof ImageGenerationBlockedError) {
+    base.code = error.code;
+    base.category = error.category;
+    base.provider = error.provider;
+    base.providerFinishReasons = error.providerFinishReasons;
+    base.suggestions = error.suggestions;
+    base.diagnostics = error.diagnostics?.slice(0, 3); // cap for payload size
+    if ((error as any).fallbackAttempted) {
+      base.fallbackAttempted = true;
+      if ((error as any).fallbackError) base.fallbackError = (error as any).fallbackError;
+    }
+    // Make message more human friendly for workflow logs
+    base.message = `SAFETY_BLOCKED: ${error.message}`;
+  } else if (typeof base.message === 'string' && base.message.includes('PROHIBITED_CONTENT')) {
+    // Heuristic fallback if upstream threw plain Error containing finish reason
+    base.category = 'safety_blocked';
+    base.code = 'IMAGE_SAFETY_BLOCKED';
+    base.providerFinishReasons = ['PROHIBITED_CONTENT'];
+  }
+
+  return base;
 }
 

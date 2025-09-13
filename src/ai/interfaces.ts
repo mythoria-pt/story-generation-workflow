@@ -73,6 +73,11 @@ export interface ImageGenerationOptions {
   bookTitle?: string;
   graphicalStyle?: string;
   imageType?: "front_cover" | "back_cover" | "chapter";
+  /**
+   * Up to two reference images (JPEG) to guide style/character consistency.
+   * Ordered oldest -> newest for narrative continuity.
+   */
+  referenceImages?: Array<{ buffer: Buffer; mimeType: string; source: string }>;
 }
 
 export interface AIProviderConfig {

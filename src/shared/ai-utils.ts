@@ -156,17 +156,14 @@ export function getAIModelConfig(modelType: 'outline' | 'chapter' | 'image' = 'o
   const configs = {
     outline: {
       model: defaultTextModel,
-      maxTokens: 8192,
       temperature: 1
     },
     chapter: {
       model: defaultTextModel,
-      maxTokens: 6000,
       temperature: 0.8
     },
     image: {
       model: defaultImageModel,
-      maxTokens: 4096,
       temperature: 0.7
     }
   } as const;

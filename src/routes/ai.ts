@@ -5,20 +5,22 @@
 
 import { Router } from "express";
 import { z } from "zod";
-import {
+import { 
   validateImageRequest,
   generateImageFilename,
-  formatImageError,
+  formatImageError
 } from "./ai-image-utils.js";
+import { generateNextVersionFilename, extractFilenameFromUri } from '@/utils/imageUtils.js';
 import { StoryService } from "@/services/story.js";
 import { workflowErrorHandler } from "@/shared/workflow-error-handler.js";
 import type { StoryContext } from "@/services/story.js";
 import { PromptService } from "@/services/prompt.js";
 import { SchemaService } from "@/services/schema.js";
 import { getImageDimensions } from "@/utils/imageUtils.js";
-import { getAIGatewayWithTokenTracking } from "@/ai/gateway-with-tracking-v2.js";
+import { getAIGatewayWithTokenTracking } from "@/ai/gateway-with-tracking.js";
 import { getStorageService } from "@/services/storage-singleton.js";
 import { logger } from "@/config/logger.js";
+import { getMaxOutputTokens } from "@/ai/model-limits.js";
 import {
   formatTargetAudience,
   getLanguageName,
@@ -75,10 +77,17 @@ Format your response as a JSON array of strings, like this:
 Return only the JSON array, no other text.
 `;
 
+    // Use a higher token ceiling (up to 64k) to avoid premature MAX_TOKENS truncation seen at 1024.
+    // Falls back to model limit if smaller. This addresses incidents where Gemini returned an empty
+    // candidate with finishReason=MAX_TOKENS before emitting any text parts.
+    const model = process.env.GOOGLE_GENAI_MODEL || process.env.OPENAI_TEXT_MODEL || "gemini-2.5-flash";
+    const modelCap = getMaxOutputTokens(model);
+    const maxTokens = Math.min(65536, modelCap); // hard ceiling at 64k as requested
+
     const imagePromptsResponse = await aiGateway
       .getTextService(tokenTrackingContext)
       .complete(imagePromptGenerationPrompt, {
-        maxTokens: 1024,
+        maxTokens,
         temperature: 0.7,
       });
 
@@ -285,7 +294,6 @@ router.post("/text/outline", async (req, res) => {
       outlineModel = "gpt-5";
     }
     const requestOptions = {
-      maxTokens: 16384,
       temperature: 1,
       model: outlineModel,
       jsonSchema: storyOutlineSchema,
@@ -382,6 +390,7 @@ router.post("/text/structure", async (req, res) => {
       audioData: z.string().nullable().optional(), // legacy base64 (discouraged)
       imageObjectPath: z.string().optional(), // preferred: object path in bucket
       audioObjectPath: z.string().optional(),
+      characterIds: z.array(z.string().uuid()).optional(), // optional array of character IDs to include
     });
 
     const {
@@ -391,12 +400,14 @@ router.post("/text/structure", async (req, res) => {
       audioObjectPath,
       imageData,
       audioData,
+      characterIds,
     } = RequestSchema.parse(req.body);
     logger.info("AI Text Structure: request received", {
       storyId,
       hasText: !!userDescription,
       hasImage: !!req.body?.imageData || !!imageObjectPath,
       hasAudio: !!req.body?.audioData || !!audioObjectPath,
+      characterIdsCount: characterIds?.length || 0,
     });
 
     // Get story and author
@@ -407,10 +418,24 @@ router.post("/text/structure", async (req, res) => {
       return;
     }
 
-    // Load existing author characters
-    const existingCharacters = await characterService.getCharactersByAuthor(
-      storyContext.story.authorId,
-    );
+    // Load specified characters (if any)
+    let existingCharacters: any[] = [];
+    if (characterIds && characterIds.length > 0) {
+      // Load only the specified characters and verify they belong to the author
+      const requestedCharacters = await characterService.getCharactersByIds(characterIds);
+      existingCharacters = requestedCharacters.filter(char => 
+        char.authorId === storyContext.story.authorId
+      );
+      
+      // Log if some characters were filtered out for security
+      if (existingCharacters.length !== characterIds.length) {
+        logger.warn("Some requested characters don't belong to the author", {
+          requestedCount: characterIds.length,
+          validCount: existingCharacters.length,
+          authorId: storyContext.story.authorId
+        });
+      }
+    }
 
     // Build prompt
     const promptTemplate = await PromptService.loadPrompt(
@@ -506,7 +531,6 @@ router.post("/text/structure", async (req, res) => {
       aiResponse = await aiGateway
         .getTextService(aiContext)
         .complete(finalPrompt, {
-          maxTokens: 16384,
           temperature: 0.8,
           model,
           jsonSchema: structSchema,
@@ -516,7 +540,6 @@ router.post("/text/structure", async (req, res) => {
       aiResponse = await aiGateway
         .getTextService(aiContext)
         .complete(finalPrompt, {
-          maxTokens: 16384,
           temperature: 0.8,
           model,
           jsonSchema: structSchema,
@@ -725,6 +748,75 @@ router.post("/media/upload", async (req, res) => {
 });
 
 /**
+ * POST /ai/media/story-image-upload
+ * Upload a user-provided image as a new versioned story image (front/back cover or chapter)
+ * Body: { storyId, imageType: 'cover'|'backcover'|'chapter', chapterNumber?, contentType, dataUrl, currentImageUrl? }
+ * - currentImageUrl: existing HTTPS (or gs://) URL used to compute next version; if absent uses _v001 baseline
+ * - Always stores under {storyId}/images/
+ */
+router.post('/media/story-image-upload', async (req, res) => {
+  try {
+    const Schema = z.object({
+      storyId: z.string().uuid(),
+      imageType: z.enum(['cover', 'backcover', 'chapter']),
+      chapterNumber: z.number().int().positive().optional(),
+      contentType: z.string().min(3),
+      dataUrl: z.string().min(10),
+      currentImageUrl: z.string().optional()
+    });
+    const { storyId, imageType, chapterNumber, contentType, dataUrl, currentImageUrl } = Schema.parse(req.body);
+
+    // Validate story
+    const storyContext = await storyService.getStoryContext(storyId);
+    if (!storyContext) {
+      res.status(404).json({ success: false, error: 'Story not found' });
+      return;
+    }
+    if (imageType === 'chapter' && !chapterNumber) {
+      res.status(400).json({ success: false, error: 'chapterNumber required for chapter image' });
+      return;
+    }
+
+    // Decode data URL
+    let mime = contentType;
+    let b64 = dataUrl;
+    const match = /^data:([^;]+);base64,(.*)$/.exec(dataUrl);
+    if (match) {
+      mime = (match[1] as string) || contentType;
+      b64 = (match[2] as string) || dataUrl;
+    }
+    const buffer = Buffer.from(b64, 'base64');
+
+    // Determine base filename
+    let nextFullUrl: string;
+    if (currentImageUrl && /_v\d{3}\./.test(currentImageUrl)) {
+      // Increment version using existing utility
+      nextFullUrl = generateNextVersionFilename(currentImageUrl);
+    } else {
+      // First version baseline (_v001)
+      const mappedType = imageType === 'cover' ? 'front_cover' : (imageType === 'backcover' ? 'back_cover' : 'chapter');
+      nextFullUrl = chapterNumber
+        ? generateImageFilename({ storyId, imageType: mappedType as any, chapterNumber })
+        : generateImageFilename({ storyId, imageType: mappedType as any });
+    }
+    // Extract object path (strip bucket/domain)
+    const objectPath = extractFilenameFromUri(nextFullUrl);
+    if (!objectPath.startsWith(`${storyId}/images/`)) {
+      // Safety guard: enforce images folder
+      const filename = objectPath.split('/').pop() || 'image_v001.jpg';
+      nextFullUrl = `https://storage.googleapis.com/${process.env.STORAGE_BUCKET_NAME || 'mythoria-generated-stories'}/${storyId}/images/${filename}`;
+    }
+    const finalObjectPath = extractFilenameFromUri(nextFullUrl);
+
+    const publicUrl = await storageService.uploadFile(finalObjectPath, buffer, mime);
+
+    res.json({ success: true, storyId, imageType, objectPath: finalObjectPath, publicUrl });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+  }
+});
+
+/**
  * POST /ai/text/chapter/:chapterNumber
  * Generate a specific chapter using AI text generation
  */
@@ -839,7 +931,6 @@ router.post("/text/chapter/:chapterNumber", async (req, res) => {
     const chapterText = await aiGateway
       .getTextService(chapterContext)
       .complete(chapterPrompt, {
-        maxTokens: 16384,
         temperature: 1,
         contextId,
       });
@@ -941,6 +1032,71 @@ router.post("/image", async (req, res) => {
       imageHeight = dimensions.height;
     }
 
+    // Assemble up to two reference images (JPEG only) according to policy:
+    // back_cover: front cover only (if exists)
+    // chapter n: (1) front cover if exists (2) previous chapter image (n-1) if exists
+    // front_cover: none
+    currentStep = "collecting_references";
+    const referenceImages: Array<{ buffer: Buffer; mimeType: string; source: string }> = [];
+    try {
+      // Lazy import utilities only if needed
+      const { extractFilenameFromUri } = await import('@/utils/imageUtils.js');
+      const storyRecord = await storyService.getStory(storyId); // includes cover/backcover URIs
+      if (storyRecord) {
+        const storage = getStorageService();
+        const addRef = async (uri: string | null | undefined, source: string) => {
+          if (!uri) return;
+          if (referenceImages.length >= 2) return;
+          try {
+            const filename = extractFilenameFromUri(uri);
+            if (!filename.toLowerCase().endsWith('.jpg') && !filename.toLowerCase().endsWith('.jpeg')) {
+              logger.debug('Skipping non-jpeg reference image', { filename, source });
+              return;
+            }
+            const buf = await storage.downloadFileAsBuffer(filename);
+            referenceImages.push({ buffer: buf, mimeType: 'image/jpeg', source });
+            logger.info('Reference image added', { source, size: buf.length, filename });
+          } catch (refErr) {
+            logger.warn('Failed to load reference image', { source, error: refErr instanceof Error ? refErr.message : String(refErr) });
+          }
+        };
+
+        if (imageType === 'back_cover') {
+          await addRef(storyRecord.coverUri as string | undefined, 'cover');
+        } else if (imageType === 'chapter') {
+          // Front cover first
+            await addRef(storyRecord.coverUri as string | undefined, 'cover');
+          // Previous chapter image
+          if (typeof chapterNumber === 'number' && chapterNumber > 1) {
+            try {
+              // Query latest version of previous chapter
+              const db = (await import('@/db/connection.js')).getDatabase();
+              const { chapters } = await import('@/db/schema/index.js');
+              const { and, eq, desc } = await import('drizzle-orm');
+              const prev = await db.select({ imageUri: chapters.imageUri, version: chapters.version })
+                .from(chapters)
+                .where(and(eq(chapters.storyId, storyId), eq(chapters.chapterNumber, chapterNumber - 1)))
+                .orderBy(desc(chapters.version))
+                .limit(1);
+              const prevUri = prev[0]?.imageUri as string | undefined;
+              await addRef(prevUri, `chapter_${chapterNumber - 1}`);
+            } catch (dbErr) {
+              logger.warn('Failed to fetch previous chapter image for reference', { storyId, chapterNumber, error: dbErr instanceof Error ? dbErr.message : String(dbErr) });
+            }
+          }
+        }
+      }
+    } catch (refCollectErr) {
+      logger.warn('Reference image collection failed', { error: refCollectErr instanceof Error ? refCollectErr.message : String(refCollectErr) });
+    }
+
+    // Log summary
+    logger.info('Reference images summary', {
+      count: referenceImages.length,
+  sources: referenceImages.map(r => r.source),
+  totalSizeBytes: referenceImages.reduce((acc, r) => acc + r.buffer.length, 0)
+    });
+
     currentStep = "generating_image";
     const imageBuffer = await aiGateway
       .getImageService(imageContext)
@@ -953,6 +1109,7 @@ router.post("/image", async (req, res) => {
           graphicalStyle: storyContext.story.graphicalStyle,
         }),
         ...(imageType && { imageType }),
+        ...(referenceImages.length > 0 && { referenceImages })
       });
 
     currentStep = "preparing_upload";
@@ -978,18 +1135,29 @@ router.post("/image", async (req, res) => {
         filename,
         format: "jpeg",
         size: imageBuffer.length,
+  referenceImageCount: referenceImages.length,
+  referenceImageSources: referenceImages.map(r => r.source)
       },
     });
   } catch (error) {
     const errorDetails = formatImageError(error, req.body, currentStep);
 
-    res.status(500).json({
+    const statusCode = errorDetails.code === 'IMAGE_SAFETY_BLOCKED' ? 422 : 500;
+    const resp: any = {
       success: false,
       error: errorDetails.message,
       failedAt: currentStep,
       timestamp: errorDetails.timestamp,
-      requestId: req.body.runId || "unknown",
-    });
+      requestId: req.body.runId || 'unknown'
+    };
+    if (errorDetails.code) resp.code = errorDetails.code;
+    if (errorDetails.category) resp.category = errorDetails.category;
+    if (errorDetails.provider) resp.provider = errorDetails.provider;
+    if (errorDetails.providerFinishReasons) resp.providerFinishReasons = errorDetails.providerFinishReasons;
+    if (errorDetails.suggestions) resp.suggestions = errorDetails.suggestions;
+    if ((error as any)?.fallbackAttempted) resp.fallbackAttempted = true;
+    if ((error as any)?.fallbackError) resp.fallbackError = (error as any).fallbackError;
+    res.status(statusCode).json(resp);
   }
 });
 
@@ -1043,7 +1211,6 @@ router.get("/test-text", async (_req, res) => {
       response = await textService.complete(
         "Say hi and tell me you are working correctly. Keep it brief.",
         {
-          maxTokens: 100,
           temperature: 0.7,
         },
       );

@@ -9,7 +9,7 @@ import { storyGenerationRuns, storyGenerationSteps } from '@/db/workflows-db.js'
 import { logger } from '@/config/logger.js';
 
 export interface RunUpdate {
-  status?: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | undefined;
+  status?: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'blocked' | undefined;
   currentStep?: string | undefined;
   errorMessage?: string | undefined;
   metadata?: Record<string, unknown> | undefined;
@@ -103,7 +103,7 @@ export class RunsService {
           updateData.startedAt = new Date().toISOString();
         }
         
-        if (['completed', 'failed', 'cancelled'].includes(updates.status)) {
+  if (['completed', 'failed', 'cancelled', 'blocked'].includes(updates.status)) {
           updateData.endedAt = new Date().toISOString();
         }
       }

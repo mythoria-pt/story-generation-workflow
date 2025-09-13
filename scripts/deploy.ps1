@@ -150,7 +150,7 @@ function Main {
     if ($Fast) {
         Deploy-Fast
     } else {
-    Build-Application -SkipLint:$SkipLint
+        Build-Application -SkipLint:$SkipLint
         Deploy-With-CloudBuild
     }
 

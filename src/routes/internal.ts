@@ -37,7 +37,7 @@ const chaptersService = new ChaptersService();
 
 // Request schemas
 const UpdateRunRequestSchema = z.object({
-  status: z.enum(['queued', 'running', 'completed', 'failed', 'cancelled']).optional(),
+  status: z.enum(['queued', 'running', 'completed', 'failed', 'cancelled', 'blocked']).optional(),
   currentStep: z.string().optional(),
   errorMessage: z.string().optional(),
   metadata: z.record(z.unknown()).optional(),

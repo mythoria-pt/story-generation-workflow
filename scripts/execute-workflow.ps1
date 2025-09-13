@@ -36,7 +36,7 @@ Write-Host ""
 
 try {
     # Execute the workflow
-    $result = gcloud workflows execute story-generation --location=$Location --data-file=$tempFile --format=json | ConvertFrom-Json
+    $result = gcloud workflows execute mythoria-story-generation --location=$Location --data-file=$tempFile --format=json | ConvertFrom-Json
     
     Write-Host "Workflow execution started successfully!"
     Write-Host "Execution name: $($result.name)"
@@ -44,10 +44,10 @@ try {
     
     # Wait for completion and show result
     Write-Host "Waiting for workflow to complete..."
-    gcloud workflows executions wait $result.name --location=$Location --workflow=story-generation
+    gcloud workflows executions wait $result.name --location=$Location --workflow=mythoria-story-generation
     
     # Get the final result
-    $finalResult = gcloud workflows executions describe $result.name --location=$Location --workflow=story-generation --format=json | ConvertFrom-Json
+    $finalResult = gcloud workflows executions describe $result.name --location=$Location --workflow=mythoria-story-generation --format=json | ConvertFrom-Json
     
     Write-Host "Workflow completed with state: $($finalResult.state)"
     if ($finalResult.result) {

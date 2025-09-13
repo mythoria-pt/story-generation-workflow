@@ -6,7 +6,7 @@ export interface StoryGenerationRun {
   runId: string;
   storyId: string;
   gcpWorkflowExecution?: string;
-  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'blocked';
   currentStep?: string;
   errorMessage?: string;
   startedAt?: string;

@@ -25,13 +25,39 @@ const TextEditJobSchema = z.object({
   chapterNumber: z.number().int().min(1).optional()
 });
 
+// Allow gs:// or https://storage.googleapis.com or generic https for imageUrl (existing images are stored in GCS public URL form)
+const gcsOrHttpUrl = z.string().refine(v => {
+  return v.startsWith('gs://') || v.startsWith('http://') || v.startsWith('https://');
+}, { message: 'Must be a gs:// or http(s) URL' });
+
 const ImageEditJobSchema = z.object({
   storyId: z.string().min(1),
-  imageUrl: z.string().url(),
+  imageUrl: gcsOrHttpUrl,
   imageType: z.enum(['cover', 'backcover', 'chapter']),
-  userRequest: z.string().min(1).max(2000),
+  userRequest: z.string().min(1).max(2000).optional(),
   chapterNumber: z.number().int().min(1).optional(),
-  graphicalStyle: z.string().optional()
+  graphicalStyle: z.string().optional(),
+  userImageUri: gcsOrHttpUrl.optional(), // reference image for conversion
+  convertToStyle: z.boolean().optional().default(false)
+}).superRefine((data, ctx) => {
+  if (data.convertToStyle) {
+    // For conversion we must have a userImageUri to restyle OR a userRequest to guide edit
+    if (!data.userImageUri) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'userImageUri is required when convertToStyle is true'
+      });
+    }
+    // userRequest optional during conversion (prompt may be auto-generated)
+  } else {
+    // Normal edit (without conversion toggle) still needs userRequest
+    if (!data.userRequest || data.userRequest.trim().length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'userRequest is required unless convertToStyle is true'
+      });
+    }
+  }
 });
 
 const TranslationJobSchema = z.object({
@@ -153,14 +179,16 @@ router.post('/text-edit', async (req, res) => {
  */
 router.post('/image-edit', async (req, res) => {
   try {
-    const { storyId, imageUrl, imageType, userRequest, chapterNumber, graphicalStyle } = ImageEditJobSchema.parse(req.body);
+  const { storyId, imageUrl, imageType, userRequest, chapterNumber, graphicalStyle, userImageUri, convertToStyle } = ImageEditJobSchema.parse(req.body);
 
     logger.info('Image edit job request received', {
       storyId,
       imageType,
       chapterNumber,
-      userRequestLength: userRequest.length,
-      hasGraphicalStyle: !!graphicalStyle
+      userRequestLength: userRequest ? userRequest.length : 0,
+      hasGraphicalStyle: !!graphicalStyle,
+  hasUserImageUri: !!userImageUri,
+  convertToStyle
     });
 
     // Calculate estimated duration (always 90 seconds for images)
@@ -170,7 +198,9 @@ router.post('/image-edit', async (req, res) => {
     const metadata: any = {
       storyId,
       operationType: 'image_edit',
-      imageType
+      imageType,
+      ...(userImageUri ? { hasUserImageUri: true } : {}),
+  ...(convertToStyle ? { convertToStyle: true } : {})
     };
     if (chapterNumber) {
       metadata.chapterNumber = chapterNumber;
@@ -184,14 +214,12 @@ router.post('/image-edit', async (req, res) => {
       storyId,
       imageUrl,
       imageType,
-      userRequest
+      userRequest,
+      userImageUri,
+      convertToStyle,
+      graphicalStyle
     };
-    if (chapterNumber) {
-      jobParams.chapterNumber = chapterNumber;
-    }
-    if (graphicalStyle) {
-      jobParams.graphicalStyle = graphicalStyle;
-    }
+    if (chapterNumber) jobParams.chapterNumber = chapterNumber;
 
     processImageEditJob(jobId, jobParams).catch((error: any) => {
       logger.error('Image edit job processing failed', {

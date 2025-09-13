@@ -8,7 +8,6 @@ import { StoryService } from './story.js';
 import { logger } from '@/config/logger.js';
 import { retry } from '@/shared/utils.js';
 import { sendStoryCreatedEmail } from './notification-client.js';
-import { eventService } from './event.js';
 
 export interface WorkflowStep {
   stepName: string;
@@ -349,16 +348,7 @@ export class ProgressTrackerService {
   }
 
   private async dispatchStoryCreatedEmail(storyId: string): Promise<void> {
-    const EVENT_TYPE = 'story.created.email_sent';
-    
-    logger.info('Starting story-created email dispatch process', { storyId });
-    
-    const already = await eventService.hasEvent(EVENT_TYPE, storyId);
-    if (already) {
-      logger.debug('Story-created email already sent (event exists)', { storyId });
-      return;
-    }
-    
+    logger.info('Starting story-created email dispatch process (no event guard)', { storyId });
     logger.info('Fetching story details for email dispatch', { storyId });
     const story = await this.storyService.getStory(storyId);
     if (!story) {
@@ -401,8 +391,7 @@ export class ProgressTrackerService {
     });
     
     if (sent) {
-      logger.info('Story-created email sent successfully, recording event', { storyId, authorId: story.authorId });
-      await eventService.recordEvent(EVENT_TYPE, story.authorId, { storyId });
+      logger.info('Story-created email sent successfully', { storyId, authorId: story.authorId });
     } else {
       logger.error('Failed to send story-created email', { storyId, authorEmail: story.authorEmail });
     }

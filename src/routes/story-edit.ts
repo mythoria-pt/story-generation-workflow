@@ -10,7 +10,7 @@ import { logger } from '@/config/logger.js';
 import { StoryService, StoryContext } from '@/services/story.js';
 import { ChaptersService } from '@/services/chapters.js';
 import { PromptService } from '@/services/prompt.js';
-import { getAIGatewayWithTokenTracking } from '@/ai/gateway-with-tracking-v2.js';
+import { getAIGatewayWithTokenTracking } from '@/ai/gateway-with-tracking.js';
 import { formatTargetAudience, getLanguageName } from '@/shared/utils.js';
 
 const router = Router();
@@ -111,7 +111,6 @@ router.patch('/stories/:storyId/chapters/:chapterNumber', async (req, res) => {
     };
 
     const editedContent = await aiGateway.getTextService(aiContext).complete(editPrompt, {
-      maxTokens: 16384,
       temperature: 0.7
     });
 
@@ -225,7 +224,6 @@ router.patch('/stories/:storyId/chapters', async (req, res) => {
         };
 
         const editedContent = await aiGateway.getTextService(aiContext).complete(editPrompt, {
-          maxTokens: 16384,
           temperature: 0.7
         });
 

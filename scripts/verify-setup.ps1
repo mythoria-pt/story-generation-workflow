@@ -18,12 +18,12 @@ try {
 # Check if workflow exists
 Write-Host "2. Checking workflow deployment..." -ForegroundColor Yellow
 try {
-    $workflow = gcloud workflows describe story-generation --location=europe-west9 --format="value(name)" 2>$null
+    $workflow = gcloud workflows describe mythoria-story-generation --location=europe-west9 --format="value(name)" 2>$null
     if ($workflow) {
-        Write-Host "   [OK] Workflow 'story-generation' found" -ForegroundColor Green
+        Write-Host "   [OK] Workflow 'mythoria-story-generation' found" -ForegroundColor Green
         Write-Host "   [OK] Location: europe-west9" -ForegroundColor Green
     } else {
-        Write-Host "   [MISSING] Workflow 'story-generation' not found" -ForegroundColor Red
+        Write-Host "   [MISSING] Workflow 'mythoria-story-generation' not found" -ForegroundColor Red
         exit 1
     }
 } catch {
@@ -34,7 +34,7 @@ try {
 # Check workflow state
 Write-Host "3. Checking workflow state..." -ForegroundColor Yellow
 try {
-    $state = gcloud workflows describe story-generation --location=europe-west9 --format="value(state)"
+    $state = gcloud workflows describe mythoria-story-generation --location=europe-west9 --format="value(state)"
     if ($state -eq "ACTIVE") {
         Write-Host "   [OK] Workflow is ACTIVE and ready" -ForegroundColor Green
     } else {
@@ -47,7 +47,7 @@ try {
 # Check if Cloud Run service exists
 Write-Host "4. Checking Cloud Run service..." -ForegroundColor Yellow
 try {
-    $service = gcloud run services describe story-generation-workflow --region=europe-west9 --format="value(status.url)" 2>$null
+    $service = gcloud run services describe mythoria-story-generation-workflow --region=europe-west9 --format="value(status.url)" 2>$null
     if ($service) {
         Write-Host "   [OK] Cloud Run service found: $service" -ForegroundColor Green
     } else {
@@ -115,7 +115,7 @@ foreach ($api in $requiredApis) {
 
 Write-Host ""
 Write-Host "=== Setup Complete! ===" -ForegroundColor Cyan
-Write-Host "Your Google Cloud Workflow 'story-generation' is ready to use." -ForegroundColor Green
+Write-Host "Your Google Cloud Workflow 'mythoria-story-generation' is ready to use." -ForegroundColor Green
 Write-Host ""
 Write-Host "Next steps:" -ForegroundColor Yellow
 Write-Host "1. Run secrets setup: .\scripts\setup-secrets.ps1"
