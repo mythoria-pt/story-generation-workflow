@@ -13,14 +13,12 @@ import {
 import { generateNextVersionFilename, extractFilenameFromUri } from '@/utils/imageUtils.js';
 import { StoryService } from "@/services/story.js";
 import { workflowErrorHandler } from "@/shared/workflow-error-handler.js";
-import type { StoryContext } from "@/services/story.js";
 import { PromptService } from "@/services/prompt.js";
 import { SchemaService } from "@/services/schema.js";
 import { getImageDimensions } from "@/utils/imageUtils.js";
 import { getAIGatewayWithTokenTracking } from "@/ai/gateway-with-tracking.js";
 import { getStorageService } from "@/services/storage-singleton.js";
 import { logger } from "@/config/logger.js";
-import { getMaxOutputTokens } from "@/ai/model-limits.js";
 import {
   formatTargetAudience,
   getLanguageName,
@@ -36,115 +34,39 @@ const storyService = new StoryService();
 const storageService = getStorageService();
 const characterService = new CharacterService();
 
-/**
- * Generate image prompts for a chapter based on its content
- */
-async function generateImagePromptsForChapter(
-  chapterContent: string,
-  storyContext: StoryContext,
-  chapterNumber: number,
-  chapterTitle: string,
-  tokenTrackingContext: {
-    authorId: string;
-    storyId: string;
-    action: "chapter_writing";
-  },
-): Promise<string[]> {
-  try {
-    // Create a focused prompt to generate image prompts from the chapter content
-    const imagePromptGenerationPrompt = `
-You are an expert at creating detailed image prompts for book illustrations. Based on the following chapter content, create 1-3 detailed image prompts that would make compelling illustrations for this chapter.
-
-Chapter Title: "${chapterTitle}"
-Chapter Number: ${chapterNumber}
-Story Genre: ${storyContext.story.novelStyle || "adventure"}
-Target Audience: ${formatTargetAudience(storyContext.story.targetAudience)}
-
-Chapter Content:
-${chapterContent}
-
-Instructions:
-1. Create 1-3 detailed image prompts that capture the most visual and engaging moments from this chapter
-2. Focus on scenes with strong visual elements, character interactions, or dramatic moments
-3. Each prompt should be detailed enough for an AI image generator to create a compelling illustration
-4. Consider the target audience and genre when describing the visual style
-5. Include details about characters, settings, lighting, mood, and composition
-6. Each prompt should be 2-3 sentences long
-
-Format your response as a JSON array of strings, like this:
-["First detailed image prompt here", "Second detailed image prompt here", "Third detailed image prompt here"]
-
-Return only the JSON array, no other text.
-`;
-
-    // Use a higher token ceiling (up to 64k) to avoid premature MAX_TOKENS truncation seen at 1024.
-    // Falls back to model limit if smaller. This addresses incidents where Gemini returned an empty
-    // candidate with finishReason=MAX_TOKENS before emitting any text parts.
-    const model = process.env.GOOGLE_GENAI_MODEL || process.env.OPENAI_TEXT_MODEL || "gemini-2.5-flash";
-    const modelCap = getMaxOutputTokens(model);
-    const maxTokens = Math.min(65536, modelCap); // hard ceiling at 64k as requested
-
-    const imagePromptsResponse = await aiGateway
-      .getTextService(tokenTrackingContext)
-      .complete(imagePromptGenerationPrompt, {
-        maxTokens,
-        temperature: 0.7,
-      });
-
-    // Parse the JSON response
-    try {
-      const imagePrompts = JSON.parse(imagePromptsResponse.trim()) as string[];
-
-      // Validate that we got an array of strings
-      if (
-        !Array.isArray(imagePrompts) ||
-        !imagePrompts.every((prompt) => typeof prompt === "string")
-      ) {
-        logger.warn(
-          "AI returned invalid image prompts format, falling back to default",
-          {
-            chapterNumber,
-            response: imagePromptsResponse,
-          },
-        );
-        return [
-          `A scene from chapter ${chapterNumber}: "${chapterTitle}" of this ${storyContext.story.novelStyle || "adventure"} story.`,
-        ];
-      }
-
-      logger.debug("Generated image prompts for chapter", {
-        chapterNumber,
-        promptCount: imagePrompts.length,
-      });
-
-      return imagePrompts;
-    } catch (parseError) {
-      logger.warn(
-        "Failed to parse AI image prompts response, falling back to default",
-        {
-          chapterNumber,
-          error:
-            parseError instanceof Error
-              ? parseError.message
-              : String(parseError),
-          response: imagePromptsResponse,
-        },
-      );
-      return [
-        `A scene from chapter ${chapterNumber}: "${chapterTitle}" of this ${storyContext.story.novelStyle || "adventure"} story.`,
-      ];
-    }
-  } catch (error) {
-    logger.error("Failed to generate image prompts for chapter", {
-      chapterNumber,
-      error: error instanceof Error ? error.message : String(error),
-    });
-
-    // Return a fallback image prompt
-    return [
-      `A scene from chapter ${chapterNumber}: "${chapterTitle}" of this ${storyContext.story.novelStyle || "adventure"} story.`,
-    ];
+// Image prompt refinement helper (applies consistent best-practice formatting across providers)
+function refineImagePrompt(raw: string, opts: { fallbackSubject?: string; styleHint?: string } = {}): string {
+  if (!raw || typeof raw !== 'string') {
+    return opts.fallbackSubject || 'storybook illustration, soft lighting';
   }
+  let p = raw
+    .replace(/\s+/g, ' ') // collapse whitespace
+    .replace(/^\s+|\s+$/g, '')
+    .replace(/^"|"$/g, ''); // trim quotes
+
+  // Remove leading articles that add little value
+  p = p.replace(/^(?:An?|The)\s+/i, '');
+
+  // Ensure it describes a scene, not a command
+  p = p.replace(/^Imagine\s+/, '');
+
+  // Provide a gentle style hint if none present (avoid stacking many styles)
+  const lower = p.toLowerCase();
+  const styleProvided = /(illustration|digital painting|oil painting|watercolor|pixel art|anime|storybook|cinematic|render)/.test(lower);
+  const style = styleProvided ? '' : (opts.styleHint || 'storybook illustration, soft lighting');
+
+  // Cap length (providers handle ~300 chars fine; keep ours tighter ~220)
+  if (p.length > 220) {
+    const cut = p.slice(0, 220);
+    const lastPeriod = cut.lastIndexOf('.');
+    p = lastPeriod > 60 ? cut.slice(0, lastPeriod + 1) : cut;
+  }
+
+  // Avoid trailing punctuation duplication (commas, semicolons, colons, dashes)
+  // Hyphen does not need escaping inside the character class when placed first
+  p = p.replace(/[-,;:]+$/,'').trim();
+
+  return style ? `${p} – ${style}` : p;
 }
 
 // Request schemas
@@ -335,6 +257,24 @@ router.post("/text/outline", async (req, res) => {
     }
 
     const outlineData = parsedData;
+
+    // Refine cover + chapter image prompts for cross-provider clarity
+    try {
+      if (outlineData.bookCoverPrompt) {
+        outlineData.bookCoverPrompt = refineImagePrompt(outlineData.bookCoverPrompt, { styleHint: 'vibrant cover illustration, detailed, soft lighting' });
+      }
+      if (outlineData.bookBackCoverPrompt) {
+        outlineData.bookBackCoverPrompt = refineImagePrompt(outlineData.bookBackCoverPrompt, { styleHint: 'cohesive back cover illustration, soft lighting' });
+      }
+      if (Array.isArray(outlineData.chapters)) {
+        outlineData.chapters = outlineData.chapters.map(ch => ({
+          ...ch,
+          chapterPhotoPrompt: refineImagePrompt(ch.chapterPhotoPrompt, { styleHint: 'cohesive interior illustration, soft lighting' })
+        }));
+      }
+    } catch (refErr) {
+      logger.warn('Prompt refinement failed (non-fatal)', { error: refErr instanceof Error ? refErr.message : String(refErr) });
+    }
 
     // Initialize chat context after successful outline (system prompt = condensed outline summary)
     try {
@@ -935,22 +875,12 @@ router.post("/text/chapter/:chapterNumber", async (req, res) => {
         contextId,
       });
 
-    // Generate image prompts based on the chapter content
-    const imagePrompts = await generateImagePromptsForChapter(
-      chapterText,
-      storyContext,
-      chapterNumber,
-      chapterTitle,
-      chapterContext,
-    );
-
     res.json({
       success: true,
       storyId,
       runId: runId || null,
       chapterNumber,
       chapter: chapterText.trim(),
-      imagePrompts,
       contextId,
     });
   } catch (error) {

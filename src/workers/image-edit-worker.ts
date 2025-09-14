@@ -237,11 +237,11 @@ async function processFrontCoverEdit(
   if (canAttemptEdit) {
       try {
         // Call edit() without non-null assertion now that we've confirmed capability
-        const editFn = imageService.edit;
-        if (!editFn) {
+        if (!imageService.edit) {
+          logger.error('Image service reported edit capability but method missing at runtime', { storyId: story.storyId, imageType: 'front_cover' });
           throw new Error('Invariant: edit function missing after capability check');
         }
-        imageBuffer = await editFn(imagePrompt, baseImageBuffer, {
+        imageBuffer = await imageService.edit(imagePrompt, baseImageBuffer, {
           width: dimensions.width,
           height: dimensions.height,
           imageType: 'front_cover',
@@ -382,11 +382,11 @@ async function processBackCoverEdit(
 
   if (canAttemptEdit) {
       try {
-        const editFn = imageService.edit;
-        if (!editFn) {
+        if (!imageService.edit) {
+          logger.error('Image service reported edit capability but method missing at runtime', { storyId: story.storyId, imageType: 'back_cover' });
           throw new Error('Invariant: edit function missing after capability check');
         }
-        imageBuffer = await editFn(imagePrompt, baseImageBuffer, {
+        imageBuffer = await imageService.edit(imagePrompt, baseImageBuffer, {
           width: dimensions.width,
           height: dimensions.height,
           imageType: 'back_cover',
@@ -536,11 +536,11 @@ async function processChapterImageEdit(
 
   if (canAttemptEdit) {
       try {
-        const editFn = imageService.edit;
-        if (!editFn) {
+        if (!imageService.edit) {
+          logger.error('Image service reported edit capability but method missing at runtime', { storyId: story.storyId, imageType: 'chapter', chapterNumber });
           throw new Error('Invariant: edit function missing after capability check');
         }
-        imageBuffer = await editFn(imagePrompt, baseImageBuffer, {
+        imageBuffer = await imageService.edit(imagePrompt, baseImageBuffer, {
           width: dimensions.width,
           height: dimensions.height,
           imageType: 'chapter',

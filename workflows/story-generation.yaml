@@ -127,7 +127,6 @@ main:
                           auth:   { type: OIDC }
                           body: 
                             chapter: ${chapterResp.body.chapter}
-                            imagePrompts: ${chapterResp.body.imagePrompts}
                             chapterTitle: ${chapterTitle}
 
             # 4. Generate book front cover

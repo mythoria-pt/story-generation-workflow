@@ -132,10 +132,8 @@ export class AIGateway {
         ...(process.env.OPENAI_API_KEY && {
           openaiApiKey: process.env.OPENAI_API_KEY,
         }),
-        ...(process.env.OPENAI_USE_RESPONSES_API !== undefined && {
-          openaiUseResponsesAPI:
-            process.env.OPENAI_USE_RESPONSES_API === "true",
-        }),
+        // Always enable OpenAI Responses API (env flag removed)
+        openaiUseResponsesAPI: true,
         ...(process.env.OPENAI_IMAGE_MODEL && {
           openaiImageModel: process.env.OPENAI_IMAGE_MODEL,
         }),
