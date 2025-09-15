@@ -9,7 +9,7 @@ import { jobManager } from '@/services/job-manager.js';
 import { StoryService } from '@/services/story.js';
 import { ChaptersService } from '@/services/chapters.js';
 import { PromptService } from '@/services/prompt.js';
-import { getAIGatewayWithTokenTracking } from '@/ai/gateway-with-tracking-v2.js';
+import { getAIGatewayWithTokenTracking } from '@/ai/gateway-with-tracking.js';
 
 const storyService = new StoryService();
 const chaptersService = new ChaptersService();
@@ -69,7 +69,6 @@ export async function processTranslationJob(jobId: string, params: TranslateJobP
           storyTitle: story.title
         });
         const translatedTitleRaw = await aiGateway.getTextService(aiContext).complete(titlePrompt, {
-          maxTokens: 2048,
           temperature: 0.2
         });
         const translatedTitle = cleanAITextOutput(translatedTitleRaw);
@@ -81,7 +80,6 @@ export async function processTranslationJob(jobId: string, params: TranslateJobP
           storyTitle: story.title
         });
         const translatedHtmlRaw = await aiGateway.getTextService(aiContext).complete(htmlPrompt, {
-          maxTokens: 16384,
           temperature: 0.2
         });
         const translatedHtml = cleanAITextOutput(translatedHtmlRaw);
@@ -137,7 +135,7 @@ export async function processTranslationJob(jobId: string, params: TranslateJobP
             storyTitle: story.title
           });
           const titleTranslated = cleanAITextOutput(
-            await aiGateway.getTextService(aiContext).complete(titlePrompt, { maxTokens: 512, temperature: 0.2 })
+            await aiGateway.getTextService(aiContext).complete(titlePrompt, { temperature: 0.2 })
           );
           metaUpdate.title = titleTranslated;
         }
@@ -149,7 +147,7 @@ export async function processTranslationJob(jobId: string, params: TranslateJobP
             storyTitle: story.title
           });
           const synopsisTranslated = cleanAITextOutput(
-            await aiGateway.getTextService(aiContext).complete(synopsisPrompt, { maxTokens: 4096, temperature: 0.2 })
+            await aiGateway.getTextService(aiContext).complete(synopsisPrompt, { temperature: 0.2 })
           );
           metaUpdate.synopsis = synopsisTranslated;
         }
@@ -161,7 +159,7 @@ export async function processTranslationJob(jobId: string, params: TranslateJobP
             storyTitle: story.title
           });
           const plotTranslated = cleanAITextOutput(
-            await aiGateway.getTextService(aiContext).complete(plotPrompt, { maxTokens: 4096, temperature: 0.2 })
+            await aiGateway.getTextService(aiContext).complete(plotPrompt, { temperature: 0.2 })
           );
           metaUpdate.plotDescription = plotTranslated;
         }

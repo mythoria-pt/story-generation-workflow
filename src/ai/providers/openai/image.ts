@@ -42,7 +42,7 @@ export class OpenAIImageService implements IImageGenerationService {
       apiKey: config.apiKey,
       baseURL: config.baseURL,
     });
-    this.model = config.model || 'gpt-4.1';
+    this.model = config.model || 'gpt-5';
     // maxRetries will be used in future retry logic
     // this.maxRetries = config.maxRetries || 3;
   }
@@ -162,7 +162,7 @@ export class OpenAIImageService implements IImageGenerationService {
       console.log('=== Request Structure ===');
       console.log('Model:', this.model);
       console.log('Temperature:', 1);
-      console.log('Max output tokens:', 2048);
+      console.log('Max output tokens:', 8192);
       console.log('Top P:', 1);
       console.log('Store:', true);
       console.log('=== END OPENAI REQUEST DEBUG ===');
@@ -179,40 +179,48 @@ export class OpenAIImageService implements IImageGenerationService {
         toolConfig: toolConfig
       });
 
-      const response = await this.client.responses.create({
+      const buildRequestBody = () => ({
         model: this.model,
-        input: [
-          {
-            "role": "system",
-            "content": [
-              {
-                "type": "input_text",
-                "text": systemMessage
+        input: (() => {
+          const input: any[] = [
+            {
+              role: 'system',
+              content: [ { type: 'input_text', text: systemMessage + '\nAlways produce the image output by invoking the image_generation tool. Do not return only text reasoning.' } ]
+            }
+          ];
+            const userContent: any[] = [];
+            const refImages = options?.referenceImages || [];
+            if (refImages.length) {
+              for (const ref of refImages) {
+                try {
+                  const dataUrl = `data:${ref.mimeType || 'image/jpeg'};base64,${ref.buffer.toString('base64')}`;
+                  userContent.push({
+                    type: 'input_image',
+                    image_url: dataUrl,
+                    detail: 'high'
+                  });
+                } catch (e) {
+                  logger.warn('OpenAI: failed to encode reference image', { error: e instanceof Error ? e.message : String(e) });
+                }
               }
-            ]
-          },
-          {
-            "role": "user",
-            "content": [
-              {
-                "type": "input_text",
-                "text": prompt
-              }
-            ]
-          }
-        ],
-        text: {
-          "format": {
-            "type": "text"
-          }
-        },
-        reasoning: {},
+              userContent.push({
+                type: 'input_text',
+                text: 'The images above are authoritative references for visual style and recurring characters. Maintain consistency (faces, palette, clothing) unless explicitly instructed otherwise. Now generate a new image for the described scene.'
+              });
+            }
+            userContent.push({ type: 'input_text', text: prompt });
+            input.push({ role: 'user', content: userContent });
+            return input;
+        })(),
+        // text format omitted to satisfy SDK typings when not explicitly requesting json
         tools: [toolConfig],
         temperature: 1,
-        max_output_tokens: 2048,
+        max_output_tokens: 8192,
         top_p: 1,
         store: true
       });
+
+  const response = await this.client.responses.create(buildRequestBody() as any);
       
       // Handle the response - use proper typing
       const responseData = response as unknown as OpenAIResponseData;
@@ -225,59 +233,9 @@ export class OpenAIImageService implements IImageGenerationService {
         outputLength: responseData.output ? responseData.output.length : 0
       });
 
-      // Extract image generation data from response based on the actual OpenAI Responses API format
-      // The image is in the output array with type="image_generation_call" and status="completed"
-      let imageData = null;
-      let revisedPrompt = null;
-
-      if (responseData.output && Array.isArray(responseData.output)) {
-        // Find the image generation call in the output array
-        const imageGenerationCall = responseData.output.find((item: OpenAIImageGenerationCall) => 
-          item.type === 'image_generation_call' && item.status === 'completed'
-        );
-
-        if (imageGenerationCall) {
-          imageData = imageGenerationCall.result;
-          revisedPrompt = imageGenerationCall.revised_prompt;
-          
-          // Debug: Log detailed information about the found image generation call
-          logger.info('OpenAI: Found image generation call', {
-            id: imageGenerationCall.id,
-            size: imageGenerationCall.size,
-            quality: imageGenerationCall.quality,
-            outputFormat: imageGenerationCall.output_format,
-            background: imageGenerationCall.background,
-            revisedPrompt: revisedPrompt?.substring(0, 100) + '...'
-          });
-        }
-      }
-
+      const { imageData, revisedPrompt } = this.extractImageData(responseData, 'generate');
       if (!imageData) {
-        // Log the full response structure for debugging
-        console.error('=== NO IMAGE DATA FOUND DEBUG ===');
-        console.error('OpenAI Responses API - No image data found. Full response structure:', JSON.stringify(responseData, null, 2));
-        
-        // Also log just the output array for easier debugging
-        if (responseData.output) {
-          console.error('Output array length:', responseData.output.length);
-          console.error('Output array contents:', responseData.output.map((item: OpenAIImageGenerationCall) => ({
-            type: item.type,
-            status: item.status,
-            id: item.id,
-            hasResult: !!item.result,
-            resultKeys: item.result ? Object.keys(item.result) : 'no result'
-          })));
-          
-          // Log each output item in detail
-          responseData.output.forEach((item: OpenAIImageGenerationCall, index: number) => {
-            console.error(`Output item ${index}:`, JSON.stringify(item, null, 2));
-          });
-        } else {
-          console.error('No output array found in response');
-        }
-        console.error('=== END NO IMAGE DATA DEBUG ===');
-        
-        throw new Error('No image generation call found in response');
+        throw new Error('No image generation payload located in response');
       }
 
       // Extract base64 image data efficiently
@@ -318,7 +276,9 @@ export class OpenAIImageService implements IImageGenerationService {
         imageSize: buffer.length,
         dimensions: finalSize,
         quality: finalQuality,
-        revisedPrompt: revisedPrompt?.substring(0, 100) + '...'
+  revisedPrompt: revisedPrompt?.substring(0, 100) + '...',
+  referenceImageCount: options?.referenceImages?.length || 0,
+  referenceImageSources: options?.referenceImages?.map(r => r.source) || []
       });
 
       return buffer;
@@ -357,7 +317,7 @@ export class OpenAIImageService implements IImageGenerationService {
 
   /**
    * Edit an existing image based on a text prompt using OpenAI Responses API
-   */  async edit(prompt: string, originalImage: Buffer, options?: ImageGenerationOptions): Promise<Buffer> {
+  */  async edit(prompt: string, originalImage: Buffer, options?: ImageGenerationOptions): Promise<Buffer> {
     try {
       const env = getEnvironment();
       const quality = env.OPENAI_IMAGE_QUALITY || 'high';
@@ -390,98 +350,46 @@ export class OpenAIImageService implements IImageGenerationService {
       const validQualities = ['low', 'high', 'medium', 'auto'];
       const finalQuality = validQualities.includes(quality) ? quality as 'low' | 'high' | 'medium' | 'auto' : 'high';
 
-      const response = await this.client.responses.create({
+      const buildEditRequest = () => ({
         model: this.model,
         input: [
           {
-            "role": "system",
-            "content": [
-              {
-                "type": "input_text",
-                "text": "You are an expert AI image editor and art director specializing in story illustrations. Your task is to take an existing story image and modify it according to the user's specific editing request while maintaining the artistic style, quality, and narrative coherence of the original image.\n\n## Key Guidelines:\n\n### Style Preservation\n- Maintain the original artistic style, color palette, and visual aesthetic\n- Preserve the overall composition and lighting mood unless specifically requested to change\n- Keep consistent character appearance and environmental details from the original\n\n### Quality Standards\n- Generate high-quality, detailed images suitable for story illustration\n- Ensure all elements are well-rendered and professionally composed\n- Maintain clarity and visual appeal appropriate for the story's target audience\n\n### Narrative Coherence\n- Ensure the edited image still fits within the story context\n- Preserve story-relevant details and elements unless modification is specifically requested\n- Keep character consistency and environmental continuity\n\n### User Request Processing\n- Carefully analyze the user's editing request to understand exactly what needs to be changed\n- Make only the requested modifications while preserving everything else\n- If the request is ambiguous, make reasonable interpretations that enhance the story illustration\n\n### Technical Considerations\n- Generate images that are suitable for digital story presentation\n- Ensure proper resolution and aspect ratio for story illustration use\n- Maintain professional illustration quality standards\n\n## Image Editing Process:\n1. Analyze the original image to understand its style, composition, and story context\n2. Process the user's specific editing request\n3. Generate a modified version that incorporates the requested changes while preserving the original's strengths\n4. Ensure the final result maintains narrative coherence and artistic quality\n\nYour goal is to create an improved version of the story image that fulfills the user's editing vision while maintaining the professional quality and story relevance of the original illustration."
-              }
-            ]
+            role: 'system',
+            content: [ { type: 'input_text', text: "You are an expert AI image editor and art director specializing in story illustrations. Your task is to take an existing story image and modify it according to the user's specific editing request while maintaining the artistic style, quality, and narrative coherence of the original image.\n\nYou MUST invoke the image_generation tool to produce an edited image. Do not respond with text only." } ]
           },
           {
-            "role": "user",
-            "content": [
-              {
-                "type": "input_text",
-                "text": prompt
-              },              {
-                "type": "input_image",
-                "image_url": imageDataUrl,
-                "detail": "high"
-              }
+            role: 'user',
+            content: [
+              { type: 'input_text', text: prompt },
+              { type: 'input_image', image_url: imageDataUrl, detail: 'high' }
             ]
           }
         ],
         tools: [
           {
-            "type": "image_generation",
-            "size": finalSize,
-            "quality": finalQuality,
-            "output_format": "jpeg",
-            "background": "opaque",
-            "moderation": "auto",
-            "partial_images": 0
+            type: 'image_generation',
+            size: finalSize,
+            quality: finalQuality,
+            output_format: 'jpeg',
+            background: 'opaque',
+            moderation: 'auto',
+            partial_images: 0
           }
         ],
-        text: {
-          "format": {
-            "type": "text"
-          }
-        },
         temperature: 1,
         top_p: 1,
-        reasoning: {},
-        stream: false,
-        max_output_tokens: 2048,
+        max_output_tokens: 8192,
         store: true
       });
+
+  const response = await this.client.responses.create(buildEditRequest() as any);
       
       // Handle the response - use proper typing
       const responseData = response as unknown as OpenAIResponseData;
 
-      // Extract image generation data from response
-      let imageData = null;
-      let revisedPrompt = null;
-
-      if (responseData.output && Array.isArray(responseData.output)) {
-        // Find the image generation call in the output array
-        const imageGenerationCall = responseData.output.find((item: OpenAIImageGenerationCall) => 
-          item.type === 'image_generation_call' && item.status === 'completed'
-        );
-
-        if (imageGenerationCall) {
-          imageData = imageGenerationCall.result;
-          revisedPrompt = imageGenerationCall.revised_prompt;
-          
-          logger.info('OpenAI: Found image generation call for editing', {
-            id: imageGenerationCall.id,
-            size: imageGenerationCall.size,
-            quality: imageGenerationCall.quality,
-            outputFormat: imageGenerationCall.output_format,
-            background: imageGenerationCall.background,
-            revisedPrompt: revisedPrompt?.substring(0, 100) + '...'
-          });
-        }
-      }
-
+      const { imageData, revisedPrompt } = this.extractImageData(responseData, 'edit');
       if (!imageData) {
-        // Log the full response structure for debugging
-        console.error('OpenAI Responses API - No image data found in edit response. Full response structure:', JSON.stringify(responseData, null, 2));
-        
-        // Also log just the output array for easier debugging
-        if (responseData.output) {
-          console.error('Output array contents:', responseData.output.map((item: OpenAIImageGenerationCall) => ({
-            type: item.type,
-            status: item.status,
-            id: item.id
-          })));
-        }
-        
-        throw new Error('No image generation call found in edit response');
+        throw new Error('No image generation payload located in edit response');
       }
 
       // Extract base64 data - handle both string and object cases
@@ -580,5 +488,80 @@ export class OpenAIImageService implements IImageGenerationService {
     
     const env = getEnvironment();
     return `${env.IMAGE_DEFAULT_WIDTH}x${env.IMAGE_DEFAULT_HEIGHT}`; // Use environment configuration
+  }
+
+  /**
+   * Robust extraction of image data from a Responses API payload.
+   * Supports multiple possible shapes while producing rich debug output on failure.
+   */
+  private extractImageData(responseData: OpenAIResponseData, phase: 'generate' | 'edit'): { imageData: any; revisedPrompt: string | null } {
+    let imageData: any = null;
+    let revisedPrompt: string | null = null;
+
+    const outputs: any[] = Array.isArray(responseData.output) ? responseData.output : [];
+
+    // Pass 1: Original expected shape
+    let call = outputs.find(o => o?.type === 'image_generation_call' && o?.status === 'completed');
+    if (call) {
+      imageData = call.result;
+      revisedPrompt = call.revised_prompt || null;
+      logger.info(`OpenAI: Found image_generation_call (${phase})`, { phase, id: call.id, revisedPrompt: revisedPrompt?.substring(0,100) });
+      return { imageData, revisedPrompt };
+    }
+
+    // Pass 2: Look for direct image objects (e.g., type === 'image' or 'image_output')
+    call = outputs.find(o => /image/i.test(o?.type || '') && (o?.b64_json || o?.result?.b64_json));
+    if (call) {
+      imageData = call.b64_json ? call : (call.result || call);
+      revisedPrompt = call.revised_prompt || call.result?.revised_prompt || null;
+      logger.info(`OpenAI: Found image payload by generic image type (${phase})`, { phase, type: call.type });
+      return { imageData, revisedPrompt };
+    }
+
+    // Pass 3: Tool call wrapper shapes
+    call = outputs.find(o => (o?.type === 'tool_call' && (o?.name === 'image_generation' || o?.tool_name === 'image_generation')));
+    if (call) {
+      const candidate = call.output || call.result || call;
+      if (candidate?.b64_json || candidate?.url) {
+        imageData = candidate;
+        revisedPrompt = candidate.revised_prompt || null;
+        logger.info(`OpenAI: Found image payload within tool_call (${phase})`, { phase });
+        return { imageData, revisedPrompt };
+      }
+    }
+
+    // Pass 4: Deep scan for any object containing a plausible base64 field
+    const b64Regex = /^[A-Za-z0-9+/=]{200,}$/; // length gate to reduce false positives
+    for (const o of outputs) {
+      if (!o || typeof o !== 'object') continue;
+      for (const [k,v] of Object.entries(o)) {
+        if (typeof v === 'string' && b64Regex.test(v)) {
+          imageData = v;
+          logger.warn('OpenAI: Heuristic base64 extraction used', { phase, key: k });
+          return { imageData, revisedPrompt };
+        }
+        if (v && typeof v === 'object' && (v as any).b64_json && typeof (v as any).b64_json === 'string') {
+          imageData = v;
+          revisedPrompt = (v as any).revised_prompt || null;
+          logger.warn('OpenAI: Heuristic object b64_json extraction used', { phase, key: k });
+          return { imageData, revisedPrompt };
+        }
+      }
+    }
+
+    // Failure path: emit comprehensive debug
+    try {
+      console.error('=== OPENAI IMAGE EXTRACTION FAILURE DEBUG ===');
+      console.error('Phase:', phase);
+      console.error('Top-level keys:', Object.keys(responseData));
+      console.error('Output items summary:', outputs.map((o,i) => ({ i, type: o?.type, keys: Object.keys(o||{}), hasResult: !!o?.result })));
+      console.error('Full response JSON (truncated to 50k chars):');
+      const serialized = JSON.stringify(responseData, null, 2);
+      console.error(serialized.length > 50000 ? serialized.slice(0,50000) + '\n...TRUNCATED...' : serialized);
+      console.error('=== END OPENAI IMAGE EXTRACTION FAILURE DEBUG ===');
+    } catch {/* swallow logging errors */}
+
+    logger.error('OpenAI: Unable to locate image data in response', { phase, outputLength: outputs.length });
+    return { imageData: null, revisedPrompt: null };
   }
 }

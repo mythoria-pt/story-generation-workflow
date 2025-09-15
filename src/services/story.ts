@@ -86,7 +86,6 @@ export class StoryService {
         .select()
         .from(stories)
         .where(eq(stories.storyId, storyId));
-
       if (!story) {
         logger.warn('Story not found in getStoryContext', { 
           storyId,

@@ -37,7 +37,8 @@ export const runStatusEnum = pgEnum("run_status", [
   'running',
   'failed',
   'completed',
-  'cancelled'
+  'cancelled',
+  'blocked'
 ]);
 
 export const storyRatingEnum = pgEnum("story_rating", ['1', '2', '3', '4', '5']);
@@ -110,7 +111,7 @@ export const printRequestStatusEnum = pgEnum("print_request_status", [
   'packing',
   'shipped',
   'delivered',
-  'cancelled',
+  'cancelled', 'blocked',
   'error'
 ]);
 
@@ -125,7 +126,7 @@ export const paymentOrderStatusEnum = pgEnum("payment_order_status", [
   'processing', 
   'completed',
   'failed',
-  'cancelled',
+  'cancelled', 'blocked',
   'expired'
 ]);
 

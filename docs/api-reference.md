@@ -238,52 +238,202 @@ GET /api/ai/providers
 }
 ```
 
-## Image Editing API
+### Generate Story Structure
 
-### Edit Images
-
-AI-powered image editing and enhancement.
+Generate a structured story with characters from user input (text, images, or audio).
 
 ```http
-POST /api/images/edit
+POST /ai/text/structure
 ```
 
 **Request Body:**
 ```json
 {
   "storyId": "uuid-string",
-  "imageUrl": "gs://bucket/path/to/image.png",
-  "userRequest": "Make the sky more dramatic with storm clouds"
+  "userDescription": "A young wizard discovers a magical book",
+  "characterIds": ["uuid-1", "uuid-2"],
+  "imageObjectPath": "optional-gs://bucket/path/to/image.png",
+  "audioObjectPath": "optional-gs://bucket/path/to/audio.wav",
+  "imageData": "optional-base64-image-data",
+  "audioData": "optional-base64-audio-data"
 }
 ```
 
 **Parameters:**
-- **storyId** (required): UUID of the story containing the image
-- **imageUrl** (required): Google Cloud Storage URL of the image to edit
-- **userRequest** (required): Natural language description of desired changes (1-2000 characters)
+- **storyId** (required): UUID of the story to generate structure for
+- **userDescription** (optional): Text description of the story idea
+- **characterIds** (optional): Array of character UUIDs to include in the story generation. If not provided, no existing characters will be used
+- **imageObjectPath** (optional): Google Cloud Storage path to image (preferred over base64)
+- **audioObjectPath** (optional): Google Cloud Storage path to audio (preferred over base64)
+- **imageData** (optional): Base64-encoded image data (legacy, discouraged)
+- **audioData** (optional): Base64-encoded audio data (legacy, discouraged)
 
 **Response:**
 ```json
 {
   "success": true,
+  "story": {
+    "title": "The Magical Discovery",
+    "plotDescription": "A young wizard finds an ancient spellbook...",
+    "synopsis": "An epic adventure of magic and friendship",
+    "place": "The Enchanted Forest",
+    "additionalRequests": "Include scenes with magical creatures",
+    "targetAudience": "children_7-10",
+    "novelStyle": "fantasy",
+    "graphicalStyle": "digital_art",
+    "storyLanguage": "en-US"
+  },
+  "characters": [
+    {
+      "characterId": "uuid-1",
+      "name": "Luna the Wise",
+      "type": "girl",
+      "age": "school_age",
+      "traits": ["brave", "curious", "intelligent"],
+      "characteristics": "A thoughtful young wizard with...",
+      "physicalDescription": "Long brown hair, bright green eyes...",
+      "role": "protagonist"
+    }
+  ]
+}
+```
+
+**Error Responses:**
+- `400`: Missing required parameters or invalid input
+- `401`: Authentication required
+- `404`: Story not found or access denied
+- `500`: AI generation failed
+
+## Image Editing API
+
+### Edit Images (Async Jobs)
+
+AI-powered or direct replacement image editing. This endpoint creates an asynchronous job; poll the job status to obtain results.
+
+```http
+POST /api/jobs/image-edit
+```
+
+#### Modes
+1. Standard AI edit (existing behavior)
+2. AI edit with user reference image (guides the transformation)
+3. Direct replacement with user image (no AI call) using `useUserImage = true`
+
+#### Request Body (Base)
+```json
+{
   "storyId": "uuid-string",
-  "originalImageUrl": "gs://bucket/path/to/original_image.png",
-  "newImageUrl": "https://storage.googleapis.com/bucket/path/to/image_v2.png",
-  "userRequest": "Make the sky more dramatic with storm clouds",
-  "metadata": {
-    "originalImageSize": 1024000,
-    "editedImageSize": 1100000,
-    "filename": "chapter_1_v2_2025-06-27T16-00-00-000Z.png",
-    "timestamp": "2025-06-27T16:00:00.000Z"
+  "imageUrl": "gs://mythoria-generated-stories/story123/frontcover_v001.jpg",
+  "imageType": "cover|backcover|chapter",
+  "userRequest": "Describe desired changes (required unless useUserImage=true)",
+  "graphicalStyle": "optional-style-id",
+  "chapterNumber": 2,
+  "userImageUri": "gs://mythoria-generated-stories/story123/inputs/reference1.jpg",
+  "useUserImage": false
+}
+```
+
+#### Parameter Details
+- `storyId` (required): Story UUID.
+- `imageUrl` (required): Existing story image URI (gs:// or https URL) to version from.
+- `imageType` (required): `cover`, `backcover`, or `chapter`.
+- `chapterNumber` (required when `imageType = chapter`).
+- `userRequest` (required unless `useUserImage = true`): Natural language description (1–2000 chars) of edits.
+- `graphicalStyle` (optional): Style key integrated into prompt.
+- `userImageUri` (optional): User-provided image (gs:// or https) used either as reference or as direct replacement source.
+- `useUserImage` (optional, default `false`): When `true`, performs a direct replacement (no AI) copying `userImageUri` into a new incremented version of the original image filename.
+
+Validation rules:
+- If `useUserImage = true`, `userImageUri` is mandatory and `userRequest` becomes optional.
+- If `useUserImage = false`, `userRequest` is mandatory.
+
+#### Behavior Summary
+| Scenario | AI Used | New Filename | Prompt Augmentation |
+|----------|---------|--------------|---------------------|
+| Standard edit (no `userImageUri`) | Yes | version increment | Standard prompt with optional style |
+| Reference edit (`userImageUri`, `useUserImage=false`) | Yes | version increment | Adds guidance to leverage reference image stylistically |
+| Direct replacement (`useUserImage=true`) | No | version increment | N/A (no AI call) |
+
+#### Examples
+
+Standard AI Edit:
+```json
+{
+  "storyId": "a1b2c3",
+  "imageUrl": "gs://mythoria-generated-stories/a1b2c3/frontcover_v001.jpg",
+  "imageType": "cover",
+  "userRequest": "Add a dramatic sunset sky while keeping the characters intact"
+}
+```
+
+AI Edit With Reference Image:
+```json
+{
+  "storyId": "a1b2c3",
+  "imageUrl": "gs://mythoria-generated-stories/a1b2c3/chapter_2_v003.jpg",
+  "imageType": "chapter",
+  "chapterNumber": 2,
+  "userRequest": "Make the forest denser and add mist",
+  "userImageUri": "gs://mythoria-generated-stories/a1b2c3/inputs/forest_reference.jpg"
+}
+```
+
+Direct Replacement:
+```json
+{
+  "storyId": "a1b2c3",
+  "imageUrl": "gs://mythoria-generated-stories/a1b2c3/backcover_v001.jpg",
+  "imageType": "backcover",
+  "userImageUri": "gs://mythoria-generated-stories/a1b2c3/inputs/new_back_cover.jpg",
+  "useUserImage": true
+}
+```
+
+#### Response (Job Creation)
+```json
+{
+  "success": true,
+  "jobId": "uuid-string",
+  "estimatedDuration": 90000,
+  "message": "Image editing job created successfully"
+}
+```
+
+Poll:
+```http
+GET /api/jobs/{jobId}
+```
+
+On completion (AI or replacement):
+```json
+{
+  "success": true,
+  "job": {
+    "id": "uuid",
+    "type": "image_edit",
+    "status": "completed",
+    "result": {
+      "success": true,
+      "storyId": "a1b2c3",
+      "imageType": "front_cover",
+      "newImageUrl": "https://storage.googleapis.com/mythoria-generated-stories/a1b2c3/frontcover_v002.jpg",
+      "metadata": {
+        "mode": "direct_replacement|ai_edit",
+        "originalUri": "gs://.../frontcover_v001.jpg",
+        "userImageUri": "gs://.../inputs/reference.jpg",
+        "filename": "a1b2c3/frontcover_v002.jpg",
+        "timestamp": "2025-09-06T10:15:00.123Z",
+        "userRequest": "Add a dramatic sunset sky..."
+      }
+    }
   }
 }
 ```
 
 **Error Responses:**
+- `400`: Validation failure (e.g., `userImageUri` missing when `useUserImage=true`)
 - `404`: Story or image not found
-- `400`: Invalid image URL format
-- `422`: User request exceeds character limit
-- `500`: Image editing failed
+- `500`: Processing failure
 
 ## Translation API
 

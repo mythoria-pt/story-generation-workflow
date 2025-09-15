@@ -6,12 +6,12 @@ jest.mock('@/config/logger', () => ({
   },
 }));
 
-jest.mock('@/ai/gateway-with-tracking-v2', () => ({
+jest.mock('@/ai/gateway-with-tracking.js', () => ({
   getAIGatewayWithTokenTracking: jest.fn(),
 }));
 
 import { AIServiceHelper } from '../services/ai-service-helper';
-import { getAIGatewayWithTokenTracking } from '@/ai/gateway-with-tracking-v2';
+import { getAIGatewayWithTokenTracking } from '@/ai/gateway-with-tracking.js';
 import { logger } from '@/config/logger';
 
 describe('AIServiceHelper', () => {

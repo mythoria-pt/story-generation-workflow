@@ -127,7 +127,6 @@ main:
                           auth:   { type: OIDC }
                           body: 
                             chapter: ${chapterResp.body.chapter}
-                            imagePrompts: ${chapterResp.body.imagePrompts}
                             chapterTitle: ${chapterTitle}
 
             # 4. Generate book front cover
@@ -149,19 +148,48 @@ main:
                 result: frontCoverPromptResp
 
             - genFrontCover:
-                call: http.request
-                args:
-                  url:    ${baseUrl + "/ai/image"}
-                  method: POST
-                  auth:   { type: OIDC }
-                  headers:
-                    x-api-key: ${apiKey}
-                  body:
-                    storyId: ${storyId}
-                    runId: ${runId}
-                    imageType: "front_cover"
-                    prompt: ${frontCoverPromptResp.body}
-                result: frontCoverResp
+                try:
+                  steps:
+                    - frontCoverRequest:
+                        call: http.request
+                        args:
+                          url:    ${baseUrl + "/ai/image"}
+                          method: POST
+                          auth:   { type: OIDC }
+                          headers:
+                            x-api-key: ${apiKey}
+                          body:
+                            storyId: ${storyId}
+                            runId: ${runId}
+                            imageType: "front_cover"
+                            prompt: ${frontCoverPromptResp.body}
+                        result: frontCoverResp
+                except:
+                  as: frontCoverError
+                  steps:
+                    - decideFrontCoverBlocked:
+                        switch:
+                          - condition: ${frontCoverError.code == 422}
+                            next: markRunBlockedFrontCover
+                    - rethrowFrontCoverError:
+                        raise: ${frontCoverError}
+                    - markRunBlockedFrontCover:
+                        call: http.request
+                        args:
+                          url:    ${baseUrl + "/internal/runs/" + runId}
+                          method: PATCH
+                          auth:   { type: OIDC }
+                          body:
+                            status:       "blocked"
+                            currentStep:  "blocked"
+                            errorMessage: ${frontCoverError.message}
+                            endedAt:      ${time.format(sys.now())}
+                    - returnBlockedFrontCover:
+                        return:
+                          storyId: ${storyId}
+                          runId:   ${runId}
+                          status:  "blocked"
+                          reason:  "safety_blocked_front_cover"
 
             - storeFrontCoverResult:
                 call: http.request
@@ -196,19 +224,48 @@ main:
                 result: backCoverPromptResp
 
             - genBackCover:
-                call: http.request
-                args:
-                  url:    ${baseUrl + "/ai/image"}
-                  method: POST
-                  auth:   { type: OIDC }
-                  headers:
-                    x-api-key: ${apiKey}
-                  body:
-                    storyId: ${storyId}
-                    runId: ${runId}
-                    imageType: "back_cover"
-                    prompt: ${backCoverPromptResp.body}
-                result: backCoverResp
+                try:
+                  steps:
+                    - backCoverRequest:
+                        call: http.request
+                        args:
+                          url:    ${baseUrl + "/ai/image"}
+                          method: POST
+                          auth:   { type: OIDC }
+                          headers:
+                            x-api-key: ${apiKey}
+                          body:
+                            storyId: ${storyId}
+                            runId: ${runId}
+                            imageType: "back_cover"
+                            prompt: ${backCoverPromptResp.body}
+                        result: backCoverResp
+                except:
+                  as: backCoverError
+                  steps:
+                    - decideBackCoverBlocked:
+                        switch:
+                          - condition: ${backCoverError.code == 422}
+                            next: markRunBlockedBackCover
+                    - rethrowBackCoverError:
+                        raise: ${backCoverError}
+                    - markRunBlockedBackCover:
+                        call: http.request
+                        args:
+                          url:    ${baseUrl + "/internal/runs/" + runId}
+                          method: PATCH
+                          auth:   { type: OIDC }
+                          body:
+                            status:       "blocked"
+                            currentStep:  "blocked"
+                            errorMessage: ${backCoverError.message}
+                            endedAt:      ${time.format(sys.now())}
+                    - returnBlockedBackCover:
+                        return:
+                          storyId: ${storyId}
+                          runId:   ${runId}
+                          status:  "blocked"
+                          reason:  "safety_blocked_back_cover"
 
             - storeBackCoverResult:
                 call: http.request
@@ -247,20 +304,49 @@ main:
                           auth:   { type: OIDC }
                         result: promptResp
                     - genImage:
-                        call: http.request
-                        args:
-                          url:    ${baseUrl + "/ai/image"}
-                          method: POST
-                          auth:   { type: OIDC }
-                          headers:
-                            x-api-key: ${apiKey}
-                          body:
-                            storyId: ${storyId}
-                            runId: ${runId}
-                            chapterNumber: ${chapterNum}
-                            imageType: "chapter"
-                            prompt: ${promptResp.body}
-                        result: imageResp
+                        try:
+                          steps:
+                            - chapterImageRequest:
+                                call: http.request
+                                args:
+                                  url:    ${baseUrl + "/ai/image"}
+                                  method: POST
+                                  auth:   { type: OIDC }
+                                  headers:
+                                    x-api-key: ${apiKey}
+                                  body:
+                                    storyId: ${storyId}
+                                    runId: ${runId}
+                                    chapterNumber: ${chapterNum}
+                                    imageType: "chapter"
+                                    prompt: ${promptResp.body}
+                                result: imageResp
+                        except:
+                          as: chapterImageError
+                          steps:
+                            - decideChapterImageBlocked:
+                                switch:
+                                  - condition: ${chapterImageError.code == 422}
+                                    next: markRunBlockedChapterImage
+                            - rethrowChapterImageError:
+                                raise: ${chapterImageError}
+                            - markRunBlockedChapterImage:
+                                call: http.request
+                                args:
+                                  url:    ${baseUrl + "/internal/runs/" + runId}
+                                  method: PATCH
+                                  auth:   { type: OIDC }
+                                  body:
+                                    status:       "blocked"
+                                    currentStep:  "blocked"
+                                    errorMessage: ${chapterImageError.message}
+                                    endedAt:      ${time.format(sys.now())}
+                            - returnBlockedChapterImage:
+                                return:
+                                  storyId: ${storyId}
+                                  runId:   ${runId}
+                                  status:  "blocked"
+                                  reason:  "safety_blocked_chapter_image"
                     - storeImageResult:
                         call: http.request
                         args:
@@ -275,12 +361,19 @@ main:
                             metadata:
                               format: ${imageResp.body.image.format}
                               size: ${imageResp.body.image.size}
-            # 7. Assembly step removed from workflow execution
-            # The assembly service is still available for future PDF generation
-            # but is no longer part of the main story generation workflow
-            # as chapters are now stored directly in the database
             
             # 8. Mark run completed
+            - clearContext:
+                call: http.request
+                args:
+                  url:    ${baseUrl + "/ai/text/context/clear"}
+                  method: POST
+                  auth:   { type: OIDC }
+                  headers:
+                    x-api-key: ${apiKey}
+                  body:
+                    storyId: ${storyId}
+                    runId: ${runId}
             - markCompleted:
                 call: http.request
                 args:

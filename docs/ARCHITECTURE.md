@@ -2,11 +2,12 @@
 
 ## Overview
 
-The Story Generation Workflow (SGW) is a provider-agnostic microservice that orchestrates the complete story generation process using Google Cloud Workflows, AI services (Vertex AI, OpenAI, Stability AI), and Cloud Storage. It implements a clean architecture pattern with environment-agnostic business logic and swappable adapters for external services.
+The Story Generation Workflow (SGW) is a provider-agnostic microservice that orchestrates the complete story generation process using Google Cloud Workflows, AI services (Google GenAI and OpenAI), and Cloud Storage. It implements a clean architecture pattern with environment-agnostic business logic and swappable adapters for external services.
 
 ## Technology Stack
 
 ### Core Technologies
+
 - **Runtime**: Node.js 20+ with ES Modules
 - **Language**: TypeScript 5.7.2
 - **Framework**: Express.js with async/await patterns
@@ -15,18 +16,19 @@ The Story Generation Workflow (SGW) is a provider-agnostic microservice that orc
 - **Containerization**: Docker with multi-stage builds
 
 ### Google Cloud Platform Services
+
 - **Compute**: Cloud Run (serverless containers)
 - **Orchestration**: Cloud Workflows (YAML-defined workflows)
-- **AI/ML**: Vertex AI (Gemini models)
+- **AI/ML**: Google GenAI (Gemini models and Imagen)
 - **Storage**: Cloud Storage (files, templates, assets)
 - **Messaging**: Pub/Sub (event-driven communication)
 - **Security**: Secret Manager, IAM service accounts
 - **Monitoring**: Cloud Logging, Error Reporting
 
 ### External AI Services
-- **Primary**: Google Vertex AI (Gemini 2.0 Flash, Imagen)
+
+- **Primary**: Google GenAI (Gemini 2.5 Flash, Imagen 4.0)
 - **Secondary**: OpenAI (GPT-4, DALL-E, Whisper, TTS)
-- **Tertiary**: Stability AI (Stable Diffusion)
 
 ## System Architecture
 
@@ -35,18 +37,17 @@ graph TB
     User[User] --> WebApp[Mythoria WebApp]
     WebApp --> DB[(PostgreSQL Database)]
     WebApp --> PubSub[Google Cloud Pub/Sub]
-    
+
     PubSub --> Workflows[Google Cloud Workflows]
     Workflows --> SGW[Story Generation Workflow Service]
-    
+
     SGW --> AI[AI Gateway]
-    AI --> Vertex[Vertex AI]
+    AI --> Google[Google GenAI]
     AI --> OpenAI[OpenAI API]
-    AI --> Stability[Stability AI]
-    
+
     SGW --> Storage[Google Cloud Storage]
     SGW --> DB
-    
+
     subgraph "SGW Internal Components"
         Gateway[AI Gateway]
         Internal[Internal API]
@@ -81,7 +82,7 @@ sequenceDiagram
 
     Note over WF,SGW: Step 1: Initialize Run
     WF->>SGW: PATCH /internal/runs/{runId} (running, generate_outline)
-    
+
     Note over WF,AI: Step 2: Generate Story Outline
     WF->>SGW: POST /ai/text/outline
     SGW->>AI: Generate story structure and synopsis
@@ -91,7 +92,7 @@ sequenceDiagram
 
     Note over WF,AI: Step 3: Write Chapters (Parallel)
     WF->>SGW: PATCH /internal/runs/{runId} (write_chapters)
-    
+
     loop FOR EACH chapter (parallel execution)
         WF->>SGW: POST /ai/text/chapter/{n}
         SGW->>AI: Generate chapter content + image prompts
@@ -102,7 +103,7 @@ sequenceDiagram
 
     Note over WF,AI: Step 4: Generate Images (Parallel)
     WF->>SGW: PATCH /internal/runs/{runId} (generate_images)
-    
+
     loop FOR EACH chapter (parallel execution)
         WF->>SGW: POST /ai/image
         SGW->>AI: Generate illustration from prompt
@@ -117,7 +118,7 @@ sequenceDiagram
     WF->>SGW: PATCH /internal/runs/{runId} (assemble)
     WF->>SGW: POST /internal/assemble/{runId}
     SGW->>SGW: Generate HTML/PDF formats
-    
+
     opt Audio Generation (Optional)
         WF->>SGW: POST /internal/tts/{runId}
         SGW->>AI: Generate narration audio
@@ -142,76 +143,73 @@ classDiagram
         +createImageService() IImageGenerationService
         +fromEnvironment() AIGateway
     }
-    
+
     class ITextGenerationService {
         <<interface>>
         +complete(prompt, options) Promise~string~
         +generateStructured(prompt, schema) Promise~T~
     }
-    
+
     class IImageGenerationService {
         <<interface>>
         +generate(prompt, options) Promise~ImageResult~
     }
-    
+
     AIGateway --> ITextGenerationService
     AIGateway --> IImageGenerationService
-    
-    class VertexTextService {
+
+    class GoogleGenAITextService {
         +complete(prompt, options)
         +generateStructured(prompt, schema)
     }
-    
+
     class OpenAITextService {
         +complete(prompt, options)
         +generateStructured(prompt, schema)
     }
-    
-    class VertexImageService {
+
+    class GoogleGenAIImageService {
         +generate(prompt, options)
     }
-    
+
     class OpenAIImageService {
         +generate(prompt, options)
     }
-    
-    class StabilityImageService {
-        +generate(prompt, options)
-    }
-    
-    ITextGenerationService <|.. VertexTextService
+
+    ITextGenerationService <|.. GoogleGenAITextService
     ITextGenerationService <|.. OpenAITextService
-    IImageGenerationService <|.. VertexImageService
+    IImageGenerationService <|.. GoogleGenAIImageService
     IImageGenerationService <|.. OpenAIImageService
-    IImageGenerationService <|.. StabilityImageService
 ```
 
 **Environment Configuration:**
+
 ```bash
-TEXT_PROVIDER=vertex|openai
-IMAGE_PROVIDER=vertex|openai|stability
+TEXT_PROVIDER=openai|google-genai
+IMAGE_PROVIDER=openai|google-genai
+GOOGLE_GENAI_IMAGE_MODEL=imagen-4.0-ultra-generate-001
 ```
 
 ### 2. Internal API Endpoints (`/src/routes/internal.ts`)
 
 **Database Operations & Run Management**
 
-| Endpoint | Method | Purpose | Database Operation |
-|----------|--------|---------|-------------------|
-| `/internal/runs/:runId` | PATCH | Update run status/step | UPDATE story_generation_runs |
-| `/internal/runs/:runId/outline` | POST | Save story outline | UPDATE stories SET outline |
-| `/internal/runs/:runId/chapter/:chapterNum` | POST | Save chapter content | INSERT/UPDATE chapters |
-| `/internal/runs/:runId/chapter/:chapterNum/image` | POST | Save image URI | UPDATE chapters SET image_url |
+| Endpoint                                          | Method | Purpose                | Database Operation            |
+| ------------------------------------------------- | ------ | ---------------------- | ----------------------------- |
+| `/internal/runs/:runId`                           | PATCH  | Update run status/step | UPDATE story_generation_runs  |
+| `/internal/runs/:runId/outline`                   | POST   | Save story outline     | UPDATE stories SET outline    |
+| `/internal/runs/:runId/chapter/:chapterNum`       | POST   | Save chapter content   | INSERT/UPDATE chapters        |
+| `/internal/runs/:runId/chapter/:chapterNum/image` | POST   | Save image URI         | UPDATE chapters SET image_url |
 
 ### 3. AI API Endpoints (`/src/routes/ai.ts`)
 
 **AI Gateway Integration**
 
-| Endpoint | Method | Purpose | AI Provider |
-|----------|--------|---------|-------------|
-| `/ai/text/outline` | POST | Generate story outline | Text Generation Service |
-| `/ai/text/chapter/:chapterNum` | POST | Generate chapter content | Text Generation Service |
-| `/ai/image` | POST | Generate illustrations | Image Generation Service |
+| Endpoint                       | Method | Purpose                  | AI Provider              |
+| ------------------------------ | ------ | ------------------------ | ------------------------ |
+| `/ai/text/outline`             | POST   | Generate story outline   | Text Generation Service  |
+| `/ai/text/chapter/:chapterNum` | POST   | Generate chapter content | Text Generation Service  |
+| `/ai/image`                    | POST   | Generate illustrations   | Image Generation Service |
 
 ### 4. Context Management System
 
@@ -221,15 +219,15 @@ IMAGE_PROVIDER=vertex|openai|stability
 graph LR
     Context[Context Manager] --> Memory[In-Memory Store]
     Context --> Provider[Provider Data]
-    
+
     subgraph "Provider Integration"
-        Vertex[Vertex AI<br/>Cached Content]
+        Google[Google GenAI<br/>Cached Content]
         OpenAI[OpenAI<br/>Response Threads]
     end
-    
-    Provider --> Vertex
+
+    Provider --> Google
     Provider --> OpenAI
-    
+
     Context --> Conversation[Conversation History]
     Conversation --> System[System Messages]
     Conversation --> User[User Messages]
@@ -267,21 +265,25 @@ src/
 ## Architecture Principles
 
 ### 1. **Single Dockerfile** per microservice
+
 - Distroless base image for security
 - Multi-stage builds for optimization
 - Reproducible builds using `npm ci`
 
 ### 2. **Environment-agnostic logic** in `shared/`
+
 - Pure business logic without external dependencies
 - Easy unit testing with mocks
 - Clear separation of concerns
 
 ### 3. **Interface-based adapters** for external services
+
 - Swappable implementations (database, Google Cloud, AI providers)
 - Dependency injection pattern
 - Provider-agnostic AI services
 
 ### 4. **Observability and Monitoring**
+
 - Structured JSON logging with Winston
 - Health check endpoints with dependency checks
 - Error tracking and performance metrics
@@ -302,16 +304,16 @@ stateDiagram-v2
     assemble --> tts : Step 5 (optional)
     tts --> completed : Success
     assemble --> completed : Skip TTS
-    
+
     generate_outline --> failed : Error
     write_chapters --> failed : Error
     generate_images --> failed : Error
     assemble --> failed : Error
     tts --> tts_failed : TTS Error
     tts_failed --> completed : Continue without audio
-    
+
     running --> cancelled : User cancellation
-    
+
     completed --> [*]
     failed --> [*]
     cancelled --> [*]
@@ -320,17 +322,20 @@ stateDiagram-v2
 ## Security Architecture
 
 ### Authentication & Authorization
+
 - Google Cloud IAM for service-to-service communication
 - OIDC tokens for Cloud Run authentication
 - Principle of least privilege for service accounts
 
 ### Data Protection
+
 - Encrypted data in transit (HTTPS/TLS)
 - Encrypted data at rest (Google Cloud Storage)
 - Input validation with Zod schemas
 - SQL injection prevention with Drizzle ORM
 
 ### Security Headers
+
 - Helmet.js middleware for security headers
 - CORS policy configuration
 - Rate limiting (future enhancement)
@@ -338,16 +343,19 @@ stateDiagram-v2
 ## Performance Considerations
 
 ### Parallel Processing
+
 - Chapter writing executes in parallel (1-N chapters)
 - Image generation executes in parallel per chapter
 - Google Cloud Workflows native parallel execution
 
 ### Caching Strategy
+
 - AI context preservation between requests
-- Provider-specific caching (Vertex AI cached content, OpenAI response threads)
+- Provider-specific caching (Google GenAI cached content, OpenAI response threads)
 - Database connection pooling
 
 ### Resource Optimization
+
 - Cloud Run automatic scaling
 - Memory-efficient streaming for large responses
 - Lazy loading of AI providers
@@ -355,6 +363,7 @@ stateDiagram-v2
 ## Error Handling Strategy
 
 ### Workflow-Level Error Handling
+
 ```yaml
 # Google Cloud Workflows error handling
 try:
@@ -375,6 +384,7 @@ except:
 ```
 
 ### Application-Level Error Handling
+
 - Structured error responses with error codes
 - Retry mechanisms for transient failures
 - Graceful degradation for optional features (TTS)
@@ -383,6 +393,7 @@ except:
 ## Deployment Architecture
 
 ### Google Cloud Services
+
 - **Cloud Run**: Container hosting with automatic scaling
 - **Cloud Workflows**: Orchestration engine
 - **Cloud Storage**: Asset and content storage
@@ -390,6 +401,7 @@ except:
 - **Cloud Build**: CI/CD pipeline
 
 ### Environment Separation
+
 - **Development**: Local Docker with `.env` files
 - **Staging**: Cloud Run with shared secrets
 - **Production**: Cloud Run with production secrets and monitoring

@@ -146,23 +146,26 @@ export async function handleAIResponse(
  * Gets AI model configuration
  */
 export function getAIModelConfig(modelType: 'outline' | 'chapter' | 'image' = 'outline') {
+  // Unified on google-genai environment variables; legacy Vertex variables removed.
+  const defaultTextModel = process.env.GOOGLE_GENAI_MODEL || 'gemini-2.5-flash';
+  let defaultImageModel = process.env.GOOGLE_GENAI_IMAGE_MODEL || 'gemini-2.5-flash-image-preview';
+  if (defaultImageModel.startsWith('imagen-')) {
+    // Silent remap; upstream code logs during provider initialization
+    defaultImageModel = 'gemini-2.5-flash-image-preview';
+  }
   const configs = {
     outline: {
-      model: process.env.VERTEX_AI_OUTLINE_MODEL || process.env.VERTEX_AI_MODEL_ID || 'gemini-2.0-flash',
-      maxTokens: 8192,
+      model: defaultTextModel,
       temperature: 1
     },
     chapter: {
-      model: process.env.VERTEX_AI_MODEL_ID || 'gemini-2.0-flash',
-      maxTokens: 6000,
+      model: defaultTextModel,
       temperature: 0.8
     },
     image: {
-      model: process.env.VERTEX_AI_IMAGE_MODEL || 'imagen-3.0-generate-001',
-      maxTokens: 4096,
+      model: defaultImageModel,
       temperature: 0.7
     }
-  };
-  
+  } as const;
   return configs[modelType];
 }

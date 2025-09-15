@@ -3,7 +3,7 @@
  * Provides easy access to AI services with automatic token usage tracking
  */
 
-import { getAIGatewayWithTokenTracking, AICallContext } from '@/ai/gateway-with-tracking-v2.js';
+import { getAIGatewayWithTokenTracking, AICallContext } from '@/ai/gateway-with-tracking.js';
 import { ITextGenerationService, IImageGenerationService, TextGenerationOptions, ImageGenerationOptions } from '@/ai/interfaces.js';
 import { logger } from '@/config/logger.js';
 

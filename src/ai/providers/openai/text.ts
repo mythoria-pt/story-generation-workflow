@@ -3,6 +3,7 @@
  */
 
 import { ITextGenerationService, TextGenerationOptions } from '../../interfaces.js';
+import { getMaxOutputTokens } from '@/ai/model-limits.js';
 import { contextManager } from '../../context-manager.js';
 import { logger } from '@/config/logger.js';
 
@@ -66,7 +67,7 @@ export class OpenAITextService implements ITextGenerationService {
 
   constructor(config: OpenAITextConfig) {
     this.apiKey = config.apiKey;
-    this.model = config.model || 'gpt-4.1';
+    this.model = config.model || 'gpt-5';
     this.baseURL = config.baseURL || 'https://api.openai.com/v1';
     
     logger.info('OpenAI Text Service initialized (Responses API only)', {
@@ -87,7 +88,7 @@ export class OpenAITextService implements ITextGenerationService {
       try {
         const response = await this.complete(
           'Please acknowledge that you understand the context and are ready to help.',
-          { contextId, maxTokens: 50 }
+          { contextId }
         );
         
         logger.debug('Initial context established with Responses API', {
@@ -181,6 +182,7 @@ export class OpenAITextService implements ITextGenerationService {
       ]
     });
 
+    const maxOut = options?.maxTokens || getMaxOutputTokens(options?.model || this.model);
     const requestBody: OpenAIResponsesRequestBody = {
       model: options?.model || this.model,
       input,
@@ -191,7 +193,7 @@ export class OpenAITextService implements ITextGenerationService {
       },
       reasoning: {},
       temperature: options?.temperature || 1,
-      max_output_tokens: options?.maxTokens || 8192,
+      max_output_tokens: maxOut,
       top_p: 1,
       store: true
     };
@@ -212,7 +214,7 @@ export class OpenAITextService implements ITextGenerationService {
     if (options?.stopSequences) {
       requestBody.stop = options.stopSequences;
     }    // DEBUG: Log the exact request being sent to OpenAI Responses API
-    logger.info('OpenAI Responses API Debug - Request Details', {
+  logger.info('OpenAI Responses API Debug - Request Details', {
       model: requestBody.model,
       inputLength: requestBody.input.length,
       inputPreview: JSON.stringify(requestBody.input).substring(0, 300) + '...',

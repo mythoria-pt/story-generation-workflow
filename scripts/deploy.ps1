@@ -17,6 +17,7 @@ param(
 
 # Treat non-terminating errors as terminating so that try/catch works
 $ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
 
 # ---- Configuration ----------------------------------------------------------
 $PROJECT_ID        = 'oceanic-beach-460916-n5'
@@ -44,6 +45,27 @@ function Write-Info     { param([string]$Msg) Write-Host "[INFO] $Msg" -Foregrou
 function Write-Success  { param([string]$Msg) Write-Host "[SUCCESS] $Msg" -ForegroundColor Green }
 function Write-Warn     { param([string]$Msg) Write-Host "[WARN] $Msg" -ForegroundColor Yellow }
 function Write-Err      { param([string]$Msg) Write-Host "[ERROR] $Msg" -ForegroundColor Red }
+# -----------------------------------------------------------------------------
+
+# --- Policy Guards -----------------------------------------------------------
+function Assert-NoWorkflowDeploymentStepInCloudBuild {
+    try {
+        $cloudBuildPath = Join-Path -Path (Join-Path $PSScriptRoot '..') 'cloudbuild.yaml'
+        if (-not (Test-Path $cloudBuildPath)) {
+            Write-Warn "cloudbuild.yaml not found at expected path: $cloudBuildPath"
+            return
+        }
+        $cb = Get-Content -Raw -Path $cloudBuildPath
+        if ($cb -match '(?i)workflows\s+deploy') {
+            Write-Err "Forbidden workflow deployment directive detected in cloudbuild.yaml. Remove it before deploying."
+            throw "Disallowed workflow deployment step present"
+        } else {
+            Write-Info "Verified cloudbuild.yaml contains no workflow deployment step."
+        }
+    } catch {
+        throw
+    }
+}
 # -----------------------------------------------------------------------------
 
 function Test-Prerequisites {
@@ -146,11 +168,14 @@ function Main {
     Write-Host "Deploying Story Generation Workflow ($SERVICE_NAME)..." -ForegroundColor Magenta
     Write-Host ""
 
+    # Enforce policy: no workflow deployment as part of this script
+    Assert-NoWorkflowDeploymentStepInCloudBuild
+
     Test-Prerequisites
     if ($Fast) {
         Deploy-Fast
     } else {
-    Build-Application -SkipLint:$SkipLint
+        Build-Application -SkipLint:$SkipLint
         Deploy-With-CloudBuild
     }
 

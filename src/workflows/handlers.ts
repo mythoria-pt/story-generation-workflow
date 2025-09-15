@@ -10,7 +10,7 @@ import { StoryService } from '@/services/story.js';
 import { getStorageService } from '@/services/storage-singleton.js';
 import { PrintService } from '@/services/print.js';
 import { logger } from '@/config/logger.js';
-import { getPromptsPath } from '../shared/path-utils.js';
+import { PromptService } from '@/services/prompt.js';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
@@ -248,18 +248,13 @@ export class ImageGenerationHandler implements WorkflowStepHandler<ImageGenerati
         imageType = 'chapter';
       }
 
-      // Load the image prompt template
-      const promptTemplate = await this.loadImagePrompt(imageType);
-
-      // Prepare template variables
-      const templateVars = {
+      // Load the image prompt template via PromptService
+      const promptTemplate = await PromptService.loadImagePrompt(imageType);
+      const finalPrompt = PromptService.buildPrompt(promptTemplate, {
         bookTitle: storyContext.story.title,
         promptText: params.description,
         customInstructions: customInstructions || ''
-      };
-
-      // Build the complete prompt
-      const finalPrompt = this.buildImagePrompt(promptTemplate, templateVars);
+      });
 
       // Generate image using AI
       const imageService = aiGateway.getImageService();
@@ -297,40 +292,7 @@ export class ImageGenerationHandler implements WorkflowStepHandler<ImageGenerati
     }
   }
 
-  private async loadImagePrompt(imageType: string): Promise<any> {
-    // Simple implementation - in a real scenario you'd use PromptService
-    const { readFile } = await import('fs/promises');
-    const { join } = await import('path');
-    
-    const promptPath = join(getPromptsPath(), 'images', `${imageType}.json`);
-    const promptContent = await readFile(promptPath, 'utf-8');
-    return JSON.parse(promptContent);
-  }
-
-  private buildImagePrompt(template: any, variables: Record<string, string>): string {
-    let systemPrompt = template.systemPrompt || '';
-    let userPrompt = template.userPrompt || '';
-
-    // Replace template variables
-    for (const [key, value] of Object.entries(variables)) {
-      const placeholder = `{{${key}}}`;
-      systemPrompt = systemPrompt.replace(new RegExp(placeholder, 'g'), value);
-      userPrompt = userPrompt.replace(new RegExp(placeholder, 'g'), value);
-    }
-
-    // Handle conditional sections for custom instructions
-    if (variables.customInstructions && variables.customInstructions.trim() !== '') {
-      // Replace conditional blocks
-      systemPrompt = systemPrompt.replace(/\{\{#customInstructions\}\}(.*?)\{\{\/customInstructions\}\}/gs, '$1');
-      userPrompt = userPrompt.replace(/\{\{#customInstructions\}\}(.*?)\{\{\/customInstructions\}\}/gs, '$1');
-    } else {
-      // Remove conditional blocks if no custom instructions or empty
-      systemPrompt = systemPrompt.replace(/\{\{#customInstructions\}\}.*?\{\{\/customInstructions\}\}/gs, '');
-      userPrompt = userPrompt.replace(/\{\{#customInstructions\}\}.*?\{\{\/customInstructions\}\}/gs, '');
-    }
-
-    return `${systemPrompt}\n\n${userPrompt}`;
-  }
+  // Removed custom prompt loading/building logic in favor of centralized PromptService
 
   private generateImageFilename(storyId: string, imageType: string): string {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');

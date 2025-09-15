@@ -10,7 +10,7 @@ import { jobManager } from '@/services/job-manager.js';
 import { StoryService, StoryContext } from '@/services/story.js';
 import { ChaptersService } from '@/services/chapters.js';
 import { PromptService } from '@/services/prompt.js';
-import { getAIGatewayWithTokenTracking } from '@/ai/gateway-with-tracking-v2.js';
+import { getAIGatewayWithTokenTracking } from '@/ai/gateway-with-tracking.js';
 import { formatTargetAudience, getLanguageName } from '@/shared/utils.js';
 
 // Initialize services
@@ -118,7 +118,6 @@ async function processSingleChapterEdit(
   };
 
   const editedContent = await aiGateway.getTextService(aiContext).complete(editPrompt, {
-    maxTokens: 16384,
     temperature: 0.7
   });
 
@@ -179,7 +178,6 @@ async function processFullStoryEdit(
       };
 
       const editedContent = await aiGateway.getTextService(aiContext).complete(editPrompt, {
-        maxTokens: 16384,
         temperature: 0.7
       });
 

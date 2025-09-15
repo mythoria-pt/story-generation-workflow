@@ -3,7 +3,7 @@
  * Provides operations for characters and their links to stories
  */
 
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { getDatabase } from '@/db/connection.js';
 import { characters, storyCharacters, type NewCharacter, type NewStoryCharacter } from '@/db/schema/index.js';
 import { logger } from '@/config/logger.js';
@@ -50,6 +50,23 @@ export class CharacterService {
       logger.error('Failed to get character by id', {
         error: error instanceof Error ? error.message : String(error),
         characterId
+      });
+      throw error;
+    }
+  }
+
+  async getCharactersByIds(characterIds: string[]) {
+    try {
+      if (characterIds.length === 0) return [];
+      
+      return await this.db
+        .select()
+        .from(characters)
+        .where(inArray(characters.characterId, characterIds));
+    } catch (error) {
+      logger.error('Failed to get characters by ids', {
+        error: error instanceof Error ? error.message : String(error),
+        characterIds
       });
       throw error;
     }

@@ -113,18 +113,30 @@ export function convertToAbsoluteImagePath(imagePath: string): string {
  * @returns Structured prompt for image editing
  */
 export function buildImageEditPrompt(
-  userRequest: string, 
+  userRequest: string,
   graphicalStyle?: string,
-  stylePrompt?: string
+  styleKeywords?: string,
+  hasReferenceImage?: boolean,
+  fullStyleSystemPrompt?: string
 ): string {
-  let prompt = 'Generate a new image, taking as basis the image in attach, but making the following changes: ';
-  prompt += userRequest;
+  let prompt = `You are transforming an existing story illustration while preserving core subject identity, spatial composition, narrative continuity and essential lighting. Apply only the requested changes unless they conflict with style directives.\n\n<edit_request>\n${userRequest || 'Refine and stylistically adapt the image without altering its core subjects.'}\n</edit_request>`;
 
-  if (stylePrompt) {
-    prompt += `\n\nStyle: ${stylePrompt}`;
-  } else if (graphicalStyle) {
-    prompt += `\n\nStyle: ${graphicalStyle}`;
+  if (hasReferenceImage) {
+    prompt += `\n\n<reference_image_usage>Leverage the provided reference image strictly to maintain subject identity, proportions, relative positioning, palette relationships and overall composition. Do NOT remove primary subjects unless explicitly asked. Preserve camera angle where plausible.</reference_image_usage>`;
+  } else {
+    prompt += `\n\n<original_preservation>Preserve recognizable subjects and scene layout from the supplied base image.</original_preservation>`;
   }
 
+  if (fullStyleSystemPrompt) {
+    prompt += `\n\n<target_style_full>\n${fullStyleSystemPrompt}\n</target_style_full>`;
+  }
+
+  if (styleKeywords || graphicalStyle) {
+    prompt += `\n\n<style_keywords>${styleKeywords || graphicalStyle}</style_keywords>`;
+  }
+
+  prompt += `\n\n<quality_constraints>High fidelity, coherent anatomy, consistent lighting continuity, avoid introducing new major characters unless required. No text overlays or watermarks.</quality_constraints>`;
+
+  prompt += `\n\n<output_goal>Produce a SINGLE high-quality image matching the transformed description and style.</output_goal>`;
   return prompt;
 }

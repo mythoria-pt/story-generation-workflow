@@ -10,15 +10,19 @@ export interface ITextGenerationService {
    * @param options Additional generation options
    */
   complete(prompt: string, options?: TextGenerationOptions): Promise<string>;
-  
+
   /**
    * Initialize or update context for a story generation session
    * @param contextId Unique identifier for the context session
    * @param systemPrompt The system prompt that defines the story context
    * @param previousContent Previous conversation content to maintain context
    */
-  initializeContext?(contextId: string, systemPrompt: string, previousContent?: string[]): Promise<void>;
-  
+  initializeContext?(
+    contextId: string,
+    systemPrompt: string,
+    previousContent?: string[],
+  ): Promise<void>;
+
   /**
    * Clear context for a specific session
    * @param contextId Unique identifier for the context session
@@ -33,14 +37,18 @@ export interface IImageGenerationService {
    * @param options Additional generation options
    */
   generate(prompt: string, options?: ImageGenerationOptions): Promise<Buffer>;
-  
+
   /**
    * Edit an existing image based on a text prompt
    * @param prompt The image editing prompt
    * @param originalImage The original image as Buffer
    * @param options Additional generation options
    */
-  edit?(prompt: string, originalImage: Buffer, options?: ImageGenerationOptions): Promise<Buffer>;
+  edit?(
+    prompt: string,
+    originalImage: Buffer,
+    options?: ImageGenerationOptions,
+  ): Promise<Buffer>;
 }
 
 export interface TextGenerationOptions {
@@ -59,24 +67,31 @@ export interface ImageGenerationOptions {
   width?: number;
   height?: number;
   model?: string;
-  quality?: 'standard' | 'hd';
-  style?: 'vivid' | 'natural';
+  quality?: "standard" | "hd";
+  style?: "vivid" | "natural";
   steps?: number;
   bookTitle?: string;
   graphicalStyle?: string;
-  imageType?: 'front_cover' | 'back_cover' | 'chapter';
+  imageType?: "front_cover" | "back_cover" | "chapter";
+  /**
+   * Up to two reference images (JPEG) to guide style/character consistency.
+   * Ordered oldest -> newest for narrative continuity.
+   */
+  referenceImages?: Array<{ buffer: Buffer; mimeType: string; source: string }>;
 }
 
 export interface AIProviderConfig {
   textProvider: string;
-  imageProvider: string;  credentials: {
+  imageProvider: string;
+  credentials: {
     openaiApiKey?: string;
     openaiUseResponsesAPI?: boolean;
     openaiImageModel?: string;
     googleGenAIApiKey?: string;
     googleGenAIModel?: string;
+    googleGenAIImageModel?: string;
   };
 }
 
-export type TextProvider = 'openai' | 'google-genai';
-export type ImageProvider = 'openai';
+export type TextProvider = "openai" | "google-genai";
+export type ImageProvider = "openai" | "google-genai";

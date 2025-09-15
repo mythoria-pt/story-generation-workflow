@@ -102,7 +102,6 @@ export class StoryContextService {
       const textService = session.aiGateway.getTextService();
       const outline = await textService.complete(prompt, {
         contextId: session.contextId,
-        maxTokens: 2048,
         temperature: 0.8
       });
 
@@ -145,7 +144,6 @@ export class StoryContextService {
       const textService = session.aiGateway.getTextService();
       const chapter = await textService.complete(prompt, {
         contextId: session.contextId,
-        maxTokens: 4096,
         temperature: 0.7
       });
 

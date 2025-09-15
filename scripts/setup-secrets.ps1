@@ -4,10 +4,7 @@
 
 param(
     [Parameter(Mandatory=$false)]
-    [string]$ProjectId,
-    
-    [Parameter(Mandatory=$false)]
-    [string]$VertexAiModelId
+    [string]$ProjectId
 )
 
 # Console helper functions
@@ -63,10 +60,12 @@ Import-EnvironmentVariables
 
 # Use loaded environment variables or command-line parameters (parameters take precedence)
 $ProjectId = if ($ProjectId) { $ProjectId } else { $env:GOOGLE_CLOUD_PROJECT_ID }
-$VertexAiModelId = if ($VertexAiModelId) { $VertexAiModelId } else { $env:VERTEX_AI_MODEL_ID }
+<# Vertex AI model id deprecated; using GOOGLE_GENAI_MODEL now #>
+${null} = $env:GOOGLE_GENAI_MODEL
 
 # Additional secrets from environment
-$VertexAiLocation = $env:VERTEX_AI_LOCATION
+<# Vertex AI location deprecated #>
+${null} = $env:VERTEX_AI_LOCATION
 $WorkflowsLocation = $env:GOOGLE_CLOUD_REGION
 $ImageGenerationModel = $env:IMAGE_GENERATION_MODEL
 $AudioGenerationModel = $env:AUDIO_GENERATION_MODEL
@@ -78,16 +77,12 @@ if (-not $ProjectId) {
     Write-Err "ProjectId not found in command-line parameters or GOOGLE_CLOUD_PROJECT_ID in .env.production file."
     exit 1
 }
-if (-not $VertexAiModelId) {
-    Write-Err "VERTEX_AI_MODEL_ID not found in .env.production file or command-line parameters."
-    exit 1
-}
+<# No Vertex AI model requirement #>
 
 # Display loaded configuration
 Write-Info "Configuration loaded:"
 Write-Host "  [OK] PROJECT_ID: $ProjectId" -ForegroundColor Green
-Write-Host "  [OK] VERTEX_AI_MODEL_ID: $VertexAiModelId" -ForegroundColor Green
-Write-Host "  [OK] VERTEX_AI_LOCATION: $VertexAiLocation" -ForegroundColor Green
+<# Vertex AI details removed from setup output #>
 Write-Host "  [OK] GOOGLE_CLOUD_REGION: $WorkflowsLocation" -ForegroundColor Green
 if ($ImageGenerationModel) { Write-Host "  [OK] IMAGE_GENERATION_MODEL: $ImageGenerationModel" -ForegroundColor Green }
 if ($AudioGenerationModel) { Write-Host "  [OK] AUDIO_GENERATION_MODEL: $AudioGenerationModel" -ForegroundColor Green }
