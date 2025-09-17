@@ -58,7 +58,7 @@ async function describeBaseImage(
   try {
     const textService = aiGateway.getTextService(aiContext);
     const system = `You are an expert visual analyst. Provide a precise, objective description of the given ${imageType.replace('_',' ')} image for a story illustration transformation task.
-Return JSON with fields: subjects (array of key entities), setting (concise environment), composition (framing/angle), palette (dominant colors), mood (few adjectives), key_details (salient props / clothing), lighting (brief), style_notes (artistic style hints). Do NOT hallucinate.`;
+Return JSON with fields: subjects (array of key entities), setting (concise environment), composition (framing/angle), palette (dominant colors), mood (few adjectives), key_details (salient props / clothing), lighting (brief), style_notes (artistic style hints).`;
     const user = 'Analyze the attached image. Output ONLY compact JSON. No markdown.';
     // We piggyback on complete() even if provider ignores mediaParts (then we just proceed without description).
     const prompt = `${system}\n\n${user}`;
