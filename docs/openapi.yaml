@@ -1,0 +1,2455 @@
+openapi: 3.1.0
+info:
+  title: Story Generation Workflow API
+  version: 1.0.0
+  description: |
+    Design-first specification for the Story Generation Workflow service. This document captures
+    the currently implemented Express route handlers and internal services that orchestrate story
+    creation, editing, media generation, audiobook production, and workflow coordination.
+servers:
+  - url: https://story-generation-workflow.example.com
+    description: Production
+  - url: http://localhost:8080
+    description: Local development
+security:
+  - {}
+tags:
+  - name: Health
+    description: Service health and metadata checks.
+  - name: AI
+    description: Text and image generation endpoints exposed through the AI gateway.
+  - name: Audio
+    description: Audiobook orchestration endpoints.
+  - name: Stories
+    description: Story editing and story management endpoints.
+  - name: Jobs
+    description: Asynchronous job orchestration.
+  - name: Internal
+    description: Workflow coordination and internal automation callbacks.
+  - name: Debug
+    description: Non-production debugging utilities.
+  - name: Ping
+    description: Connectivity validation endpoints.
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Service health check
+      description: Returns aggregated health information about the Story Generation Workflow service and its dependencies.
+      responses:
+        '200':
+          description: Service is healthy.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+              examples:
+                healthy:
+                  summary: Healthy response
+                  value:
+                    status: healthy
+                    service: story-generation-workflow
+                    timestamp: '2024-06-01T12:00:00.000Z'
+                    environment: production
+                    version: 0.1.0
+                    checks:
+                      database:
+                        status: healthy
+                        latencyMs: 24
+                      internet:
+                        status: healthy
+                        url: https://www.google.com
+                        latencyMs: 143
+        '503':
+          description: One or more health checks failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthFailure'
+      security:
+        - {}
+  /:
+    get:
+      tags: [Health]
+      summary: Service metadata
+      description: Returns the service banner message and current environment.
+      responses:
+        '200':
+          description: Metadata payload.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RootInfo'
+      security:
+        - {}
+  /ai/text/outline:
+    post:
+      tags: [AI]
+      summary: Generate a story outline
+      description: Generates a multi-chapter outline, cover prompts, and chapter prompts for the requested story run.
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OutlineRequest'
+            examples:
+              default:
+                value:
+                  storyId: f2b0c4e2-05d4-4f74-b0a1-7f6314b8f5f3
+                  runId: 7d08de7f-04a1-46bb-a3e4-95a9d38f76bf
+      responses:
+        '200':
+          description: Outline generated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OutlineResponse'
+        '404':
+          description: Story not found for the provided identifiers.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Outline generation failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /ai/text/structure:
+    post:
+      tags: [AI]
+      summary: Generate structured story data
+      description: Uses AI to transform user-provided inspiration into structured story metadata and character suggestions.
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StoryStructureRequest'
+            examples:
+              minimal:
+                value:
+                  storyId: f2b0c4e2-05d4-4f74-b0a1-7f6314b8f5f3
+                  userDescription: "A brave kid explores an underwater city."
+      responses:
+        '200':
+          description: Structured story payload returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StoryStructureResponse'
+        '400':
+          description: Validation failed for the provided payload.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Story or referenced characters were not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: AI generation failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /ai/media/upload:
+    post:
+      tags: [AI]
+      summary: Upload media to story inputs bucket
+      description: Accepts a base64-encoded asset and stores it in Google Cloud Storage under the story inputs folder.
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MediaUploadRequest'
+            examples:
+              image:
+                value:
+                  storyId: f2b0c4e2-05d4-4f74-b0a1-7f6314b8f5f3
+                  kind: image
+                  contentType: image/jpeg
+                  filename: reference.jpg
+                  dataUrl: data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD...
+      responses:
+        '200':
+          description: Media persisted to storage.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MediaUploadResponse'
+        '400':
+          description: Invalid payload or decoding failure.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Story context missing for the provided story identifier.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /ai/media/story-image-upload:
+    post:
+      tags: [AI]
+      summary: Upload a versioned story image
+      description: Uploads a user-supplied cover, back-cover, or chapter illustration with automatic filename versioning.
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StoryImageUploadRequest'
+            examples:
+              cover:
+                value:
+                  storyId: f2b0c4e2-05d4-4f74-b0a1-7f6314b8f5f3
+                  imageType: cover
+                  contentType: image/png
+                  dataUrl: data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...
+      responses:
+        '200':
+          description: Image stored successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StoryImageUploadResponse'
+        '400':
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Story not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /ai/text/chapter/{chapterNumber}:
+    post:
+      tags: [AI]
+      summary: Generate a chapter
+      description: Generates a full chapter using the configured text provider, optionally referencing saved chapters for continuity.
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ChapterNumberParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChapterGenerationRequest'
+            examples:
+              chapter1:
+                value:
+                  storyId: f2b0c4e2-05d4-4f74-b0a1-7f6314b8f5f3
+                  runId: 7d08de7f-04a1-46bb-a3e4-95a9d38f76bf
+                  chapterTitle: "Into the Coral City"
+                  chapterSynopses: "The hero enters the coral city and meets its guardians."
+                  chapterCount: 6
+      responses:
+        '200':
+          description: Chapter text produced.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChapterGenerationResponse'
+        '400':
+          description: Invalid chapter number or payload.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Story not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Chapter generation failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /ai/text/context/clear:
+    post:
+      tags: [AI]
+      summary: Clear AI conversation context
+      description: Clears cached context for a story/run pair across the in-memory context manager and provider-specific context.
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ContextClearRequest'
+      responses:
+        '200':
+          description: Context cleared successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContextClearResponse'
+        '400':
+          description: Missing or malformed identifiers.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /ai/image:
+    post:
+      tags: [AI]
+      summary: Generate an illustration
+      description: Generates an illustration using the configured image provider and stores the JPEG in Cloud Storage.
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImageGenerationRequest'
+            examples:
+              chapterImage:
+                value:
+                  prompt: "An underwater city illuminated by glowing coral lanterns"
+                  storyId: f2b0c4e2-05d4-4f74-b0a1-7f6314b8f5f3
+                  runId: 7d08de7f-04a1-46bb-a3e4-95a9d38f76bf
+                  chapterNumber: 2
+                  imageType: chapter
+      responses:
+        '200':
+          description: Illustration generated and stored.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageGenerationResponse'
+        '404':
+          description: Story context missing.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Request blocked by provider safety filters.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageGenerationError'
+        '500':
+          description: Image generation failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageGenerationError'
+  /ai/test-text:
+    get:
+      tags: [AI]
+      summary: Test AI text provider configuration
+      description: Issues a short prompt against the configured text provider and returns diagnostic metadata.
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: Provider executed successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TestTextResponse'
+        '500':
+          description: Provider request failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TestTextResponse'
+  /audio/create-audiobook:
+    post:
+      tags: [Audio]
+      summary: Trigger audiobook generation
+      description: Starts the asynchronous audiobook generation workflow for the specified story.
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AudiobookTriggerRequest'
+            examples:
+              default:
+                value:
+                  storyId: f2b0c4e2-05d4-4f74-b0a1-7f6314b8f5f3
+                  voice: nova
+      responses:
+        '200':
+          description: Workflow started.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AudiobookTriggerResponse'
+        '400':
+          description: storyId missing from payload.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Failed to enqueue the workflow.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /audio/internal/audiobook/chapter:
+    post:
+      tags: [Audio]
+      summary: Generate chapter audio (external route)
+      description: Generates chapter audio and stores the resulting asset metadata. Requires API key even though used by internal automation.
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChapterAudioRequest'
+      responses:
+        '200':
+          description: Chapter audio generated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChapterAudioResponse'
+        '400':
+          description: Missing required parameters.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Generation failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /audio/internal/audiobook/finalize:
+    post:
+      tags: [Audio]
+      summary: Finalize audiobook (external route)
+      description: Aggregates generated chapter audio files, updates story metadata, and returns a summary.
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AudiobookFinalizeRequest'
+      responses:
+        '200':
+          description: Finalization succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AudiobookFinalizeResponse'
+        '500':
+          description: Finalization failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/story-edit/stories/{storyId}/chapters/{chapterNumber}:
+    patch:
+      tags: [Stories]
+      summary: Edit a single chapter
+      description: Applies an AI-powered edit to a single chapter based on the provided instructions.
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/StoryIdParam'
+        - $ref: '#/components/parameters/ChapterNumberParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChapterEditRequest'
+      responses:
+        '200':
+          description: Edited chapter returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChapterEditResponse'
+        '400':
+          description: Invalid identifiers.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Story or chapter not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Editing failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/story-edit/stories/{storyId}/chapters:
+    patch:
+      tags: [Stories]
+      summary: Edit all chapters
+      description: Iterates over each saved chapter and applies an AI-powered edit using the provided global request.
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/StoryIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FullStoryEditRequest'
+      responses:
+        '200':
+          description: Edited chapters returned with per-chapter metadata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FullStoryEditResponse'
+        '400':
+          description: Invalid story identifier.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Story or chapters missing.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Editing failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/jobs/text-edit:
+    post:
+      tags: [Jobs]
+      summary: Create a text edit job
+      description: Creates an asynchronous job that edits a single chapter or entire story using background workers.
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TextEditJobRequest'
+      responses:
+        '200':
+          description: Job created successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobCreationResponse'
+        '400':
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Job creation failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/jobs/image-edit:
+    post:
+      tags: [Jobs]
+      summary: Create an image edit job
+      description: Enqueues an asynchronous job that edits or converts a story illustration.
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImageEditJobRequest'
+      responses:
+        '200':
+          description: Job created successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobCreationResponse'
+        '400':
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Job creation failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/jobs/translate-text:
+    post:
+      tags: [Jobs]
+      summary: Create a translation job
+      description: Creates a background job that translates an entire story into the specified locale.
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TranslationJobRequest'
+      responses:
+        '200':
+          description: Job created successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobCreationResponse'
+        '400':
+          description: Validation error or locale conflict.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Story not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Job creation failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/jobs/{jobId}:
+    get:
+      tags: [Jobs]
+      summary: Get job status
+      description: Returns current status, simulated progress, metadata, and optional result for an asynchronous job.
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/JobIdParam'
+      responses:
+        '200':
+          description: Job status returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobStatusResponse'
+        '400':
+          description: Missing job identifier.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Job not found or expired.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Status lookup failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /ping:
+    get:
+      tags: [Ping]
+      summary: Ping the service
+      description: Returns a pong payload confirming the service is reachable.
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: Ping successful.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PingResponse'
+        '500':
+          description: Ping failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /ping/pubsub-test:
+    post:
+      tags: [Ping]
+      summary: Simulate Pub/Sub ping
+      description: Simulates publishing a Pub/Sub message and returns synthetic diagnostic data.
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: Simulation succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PubSubPingResponse'
+        '500':
+          description: Simulation failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /test/pubsub-ping:
+    post:
+      tags: [Ping]
+      summary: Echo Pub/Sub ping from webapp
+      description: Receives a message from the webapp and echoes it back with metadata for integration testing.
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PubSubPingRequest'
+      responses:
+        '200':
+          description: Echo succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PubSubPingEchoResponse'
+        '500':
+          description: Echo failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /internal/auth/status:
+    get:
+      tags: [Internal]
+      summary: Check API key configuration
+      description: Returns metadata indicating if the external API key has been configured. This endpoint is unauthenticated to aid operations tooling.
+      responses:
+        '200':
+          description: Status payload returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthStatusResponse'
+  /internal/runs/{runId}:
+    get:
+      tags: [Internal]
+      summary: Get run with steps
+      description: Retrieves a story generation run and associated workflow steps.
+      parameters:
+        - $ref: '#/components/parameters/RunIdParam'
+      responses:
+        '200':
+          description: Run returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunWithStepsResponse'
+        '404':
+          description: Run not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Lookup failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    patch:
+      tags: [Internal]
+      summary: Update run status
+      description: Updates run metadata, creating the run if missing and storyId is provided.
+      parameters:
+        - $ref: '#/components/parameters/RunIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RunUpdateRequest'
+      responses:
+        '200':
+          description: Run updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunUpdateResponse'
+        '400':
+          description: Missing run identifier.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Run missing and storyId not provided.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Update failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /internal/prompts/{runId}/{chapterNumber}:
+    get:
+      tags: [Internal]
+      summary: Get chapter prompt from outline
+      description: Returns the refined chapter photo prompt stored during outline generation.
+      parameters:
+        - $ref: '#/components/parameters/RunIdParam'
+        - $ref: '#/components/parameters/ChapterNumberParam'
+      responses:
+        '200':
+          description: Prompt returned.
+          content:
+            application/json:
+              schema:
+                type: string
+        '400':
+          description: Outline missing or malformed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Prompt not found for chapter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /internal/runs/{runId}/outline:
+    post:
+      tags: [Internal]
+      summary: Store generated outline
+      description: Persists the outline result for a run within the workflow database and refreshes progress tracking.
+      parameters:
+        - $ref: '#/components/parameters/RunIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OutlineStorageRequest'
+      responses:
+        '200':
+          description: Outline stored.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StepAcknowledgeResponse'
+        '500':
+          description: Storage failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /internal/runs/{runId}/chapter/{chapterNumber}:
+    post:
+      tags: [Internal]
+      summary: Store generated chapter
+      description: Saves the generated chapter to both the primary database and workflow history.
+      parameters:
+        - $ref: '#/components/parameters/RunIdParam'
+        - $ref: '#/components/parameters/ChapterNumberParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChapterStorageRequest'
+      responses:
+        '200':
+          description: Chapter stored successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChapterStorageResponse'
+        '404':
+          description: Run or story missing.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Storage failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /internal/prompts/{runId}/book-cover/{coverType}:
+    get:
+      tags: [Internal]
+      summary: Get cover prompt
+      description: Returns the front or back cover prompt from the stored outline.
+      parameters:
+        - $ref: '#/components/parameters/RunIdParam'
+        - name: coverType
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [front, back]
+          description: Which cover prompt to return.
+      responses:
+        '200':
+          description: Prompt returned.
+          content:
+            application/json:
+              schema:
+                type: string
+        '400':
+          description: Invalid cover type or missing outline.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Prompt not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /internal/runs/{runId}/image:
+    post:
+      tags: [Internal]
+      summary: Store generated image metadata
+      description: Saves generated image information, updates story or chapter URIs, and records workflow progress.
+      parameters:
+        - $ref: '#/components/parameters/RunIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImageStorageRequest'
+      responses:
+        '200':
+          description: Image stored and story metadata updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageStorageResponse'
+        '400':
+          description: Invalid payload.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Run not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Storage failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /internal/stories/{storyId}:
+    get:
+      tags: [Internal]
+      summary: Get story summary
+      description: Returns story metadata used to validate automation preconditions.
+      parameters:
+        - $ref: '#/components/parameters/StoryIdParam'
+      responses:
+        '200':
+          description: Story summary returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StorySummaryResponse'
+        '404':
+          description: Story not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Lookup failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /internal/stories/{storyId}/html:
+    get:
+      tags: [Internal]
+      summary: Get story chapters for audiobook
+      description: Returns sanitized chapter content and story metadata required for audiobook generation workflows.
+      parameters:
+        - $ref: '#/components/parameters/StoryIdParam'
+      responses:
+        '200':
+          description: Story chapters returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StoryChaptersResponse'
+        '404':
+          description: Story or chapters missing.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Retrieval failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /internal/audiobook/chapter:
+    post:
+      tags: [Internal]
+      summary: Generate chapter audio (internal)
+      description: Generates audio for a chapter without requiring an external API key.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChapterAudioRequest'
+      responses:
+        '200':
+          description: Chapter audio generated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChapterAudioResponse'
+        '400':
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Generation failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /internal/audiobook/finalize:
+    post:
+      tags: [Internal]
+      summary: Finalize audiobook (internal)
+      description: Updates story metadata once all chapters have been narrated.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AudiobookFinalizeRequest'
+      responses:
+        '200':
+          description: Audiobook metadata updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AudiobookFinalizeResponse'
+        '500':
+          description: Finalization failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /internal/stories/{storyId}/audiobook-status:
+    patch:
+      tags: [Internal]
+      summary: Update audiobook status
+      description: Updates audiobook status flags on the story record.
+      parameters:
+        - $ref: '#/components/parameters/StoryIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AudiobookStatusUpdateRequest'
+      responses:
+        '200':
+          description: Status updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AudiobookStatusUpdateResponse'
+        '400':
+          description: Invalid status transition.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Update failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /internal/print/generate:
+    post:
+      tags: [Internal]
+      summary: Generate print assets
+      description: Invokes the print generation workflow handler for the specified story and workflow identifiers.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PrintGenerationRequest'
+      responses:
+        '200':
+          description: Print workflow executed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrintGenerationResponse'
+        '400':
+          description: Missing required identifiers.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Execution failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /debug/image:
+    get:
+      tags: [Debug]
+      summary: Inspect debug image configuration
+      description: Returns diagnostic information for the image generation provider. Optionally returns a generated image when the `image=true` query parameter is supplied.
+      parameters:
+        - name: image
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: ['true', 'false']
+          description: When true, the endpoint includes a base64 encoded JPEG.
+      responses:
+        '200':
+          description: Diagnostic payload.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DebugImageResponse'
+        '500':
+          description: Generation failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DebugImageResponse'
+      security:
+        - {}
+    post:
+      tags: [Debug]
+      summary: Generate debug image from custom prompt
+      description: Generates an image using the provided prompt and returns diagnostic metadata along with the image payload.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DebugImageRequest'
+      responses:
+        '200':
+          description: Debug image generated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DebugImageResponse'
+        '500':
+          description: Generation failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DebugImageResponse'
+      security:
+        - {}
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+  parameters:
+    StoryIdParam:
+      name: storyId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Unique identifier of the story.
+    ChapterNumberParam:
+      name: chapterNumber
+      in: path
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+      description: 1-indexed chapter number.
+    JobIdParam:
+      name: jobId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Unique identifier returned when the job was created.
+    RunIdParam:
+      name: runId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Workflow run identifier.
+  schemas:
+    Pagination:
+      type: object
+      description: Metadata describing a paginated collection.
+      properties:
+        page:
+          type: integer
+          minimum: 1
+        pageSize:
+          type: integer
+          minimum: 1
+        totalPages:
+          type: integer
+          minimum: 0
+        totalItems:
+          type: integer
+          minimum: 0
+      example:
+        page: 1
+        pageSize: 20
+        totalPages: 5
+        totalItems: 100
+    ErrorResponse:
+      type: object
+      description: Standard error envelope returned across the API. Fields may vary slightly by route.
+      properties:
+        success:
+          type: boolean
+          description: Indicates success when present. Typically omitted for internal-only endpoints that predate the convention.
+          example: false
+        error:
+          type: string
+          description: Human-readable error description.
+        message:
+          type: string
+          description: Optional detailed error message.
+        details:
+          type: object
+          additionalProperties: true
+          description: Optional machine-readable context.
+      required:
+        - error
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, unhealthy]
+        service:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        environment:
+          type: string
+        version:
+          type: string
+        checks:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/HealthCheck'
+      required:
+        - status
+        - service
+        - timestamp
+        - environment
+        - version
+        - checks
+    HealthCheck:
+      type: object
+      properties:
+        status:
+          type: string
+        message:
+          type: string
+        url:
+          type: string
+        latencyMs:
+          type: number
+      required:
+        - status
+    HealthFailure:
+      allOf:
+        - $ref: '#/components/schemas/HealthStatus'
+    RootInfo:
+      type: object
+      properties:
+        message:
+          type: string
+        version:
+          type: string
+        environment:
+          type: string
+      required:
+        - message
+        - version
+        - environment
+    OutlineRequest:
+      type: object
+      required:
+        - storyId
+        - runId
+      properties:
+        storyId:
+          type: string
+          format: uuid
+        runId:
+          type: string
+          format: uuid
+    OutlineChapter:
+      type: object
+      properties:
+        chapterNumber:
+          type: integer
+          minimum: 1
+        chapterTitle:
+          type: string
+        chapterSynopses:
+          type: string
+        chapterPhotoPrompt:
+          type: string
+      required:
+        - chapterNumber
+        - chapterTitle
+        - chapterSynopses
+        - chapterPhotoPrompt
+    OutlineResult:
+      type: object
+      properties:
+        bookTitle:
+          type: string
+        bookCoverPrompt:
+          type: string
+        bookBackCoverPrompt:
+          type: string
+        synopses:
+          type: string
+        chapters:
+          type: array
+          items:
+            $ref: '#/components/schemas/OutlineChapter'
+      required:
+        - bookTitle
+        - bookCoverPrompt
+        - bookBackCoverPrompt
+        - synopses
+        - chapters
+    OutlineResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        storyId:
+          type: string
+          format: uuid
+        runId:
+          type: string
+          format: uuid
+        outline:
+          $ref: '#/components/schemas/OutlineResult'
+        storyContext:
+          type: object
+          properties:
+            title:
+              type: string
+            charactersCount:
+              type: integer
+            contextId:
+              type: string
+      required:
+        - success
+        - storyId
+        - runId
+        - outline
+    StoryStructureRequest:
+      type: object
+      required:
+        - storyId
+      properties:
+        storyId:
+          type: string
+          format: uuid
+        userDescription:
+          type: string
+          description: Free-form description of the desired story.
+        imageData:
+          type: string
+          nullable: true
+          description: Legacy base64 encoded image data.
+        audioData:
+          type: string
+          nullable: true
+          description: Legacy base64 encoded audio data.
+        imageObjectPath:
+          type: string
+          description: Preferred reference to an uploaded image in Cloud Storage.
+        audioObjectPath:
+          type: string
+          description: Preferred reference to uploaded audio in Cloud Storage.
+        characterIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: Existing character identifiers to include in the structure prompt.
+    StoryStructureCharacter:
+      type: object
+      properties:
+        characterId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        type:
+          type: string
+        role:
+          type: string
+        age:
+          type: string
+        traits:
+          type: array
+          items:
+            type: string
+        characteristics:
+          type: string
+        physicalDescription:
+          type: string
+        photoUrl:
+          type: string
+      required:
+        - characterId
+        - name
+    StoryStructureStory:
+      type: object
+      properties:
+        storyId:
+          type: string
+          format: uuid
+        title:
+          type: string
+        synopsis:
+          type: string
+        targetAudience:
+          type: string
+        novelStyle:
+          type: string
+        graphicalStyle:
+          type: string
+        storyLanguage:
+          type: string
+    StoryStructureResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        storyId:
+          type: string
+          format: uuid
+        story:
+          $ref: '#/components/schemas/StoryStructureStory'
+        characters:
+          type: array
+          items:
+            $ref: '#/components/schemas/StoryStructureCharacter'
+        originalInput:
+          type: string
+        hasImageInput:
+          type: boolean
+        hasAudioInput:
+          type: boolean
+        message:
+          type: string
+      required:
+        - success
+        - storyId
+        - story
+    MediaUploadRequest:
+      type: object
+      required:
+        - storyId
+        - kind
+        - contentType
+        - dataUrl
+      properties:
+        storyId:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum: [image, audio]
+        contentType:
+          type: string
+        filename:
+          type: string
+        dataUrl:
+          type: string
+          description: Data URL or raw base64 payload.
+    MediaUploadResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        storyId:
+          type: string
+          format: uuid
+        kind:
+          type: string
+        objectPath:
+          type: string
+        publicUrl:
+          type: string
+    StoryImageUploadRequest:
+      type: object
+      required:
+        - storyId
+        - imageType
+        - contentType
+        - dataUrl
+      properties:
+        storyId:
+          type: string
+          format: uuid
+        imageType:
+          type: string
+          enum: [cover, backcover, chapter]
+        chapterNumber:
+          type: integer
+          minimum: 1
+        contentType:
+          type: string
+        dataUrl:
+          type: string
+        currentImageUrl:
+          type: string
+    StoryImageUploadResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        storyId:
+          type: string
+          format: uuid
+        imageType:
+          type: string
+        objectPath:
+          type: string
+        publicUrl:
+          type: string
+    ChapterGenerationRequest:
+      type: object
+      required:
+        - storyId
+        - chapterTitle
+        - chapterSynopses
+      properties:
+        storyId:
+          type: string
+          format: uuid
+        runId:
+          type: string
+          format: uuid
+        chapterTitle:
+          type: string
+        chapterSynopses:
+          type: string
+        chapterCount:
+          type: integer
+        outline:
+          type: object
+          description: Optional inline outline payload for validation.
+        previousChapters:
+          type: array
+          items:
+            type: string
+    ChapterGenerationResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        storyId:
+          type: string
+          format: uuid
+        runId:
+          type: string
+          format: uuid
+          nullable: true
+        chapterNumber:
+          type: integer
+        chapter:
+          type: string
+        contextId:
+          type: string
+      required:
+        - success
+        - storyId
+        - chapterNumber
+        - chapter
+    ContextClearRequest:
+      type: object
+      required:
+        - storyId
+        - runId
+      properties:
+        storyId:
+          type: string
+          format: uuid
+        runId:
+          type: string
+          format: uuid
+    ContextClearResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        contextId:
+          type: string
+      required:
+        - success
+        - contextId
+    ImageGenerationRequest:
+      type: object
+      required:
+        - prompt
+        - storyId
+        - runId
+      properties:
+        prompt:
+          type: string
+        storyId:
+          type: string
+          format: uuid
+        runId:
+          type: string
+          format: uuid
+        chapterNumber:
+          type: integer
+          minimum: 1
+        imageType:
+          type: string
+          enum: [front_cover, back_cover, chapter]
+        width:
+          type: integer
+        height:
+          type: integer
+        style:
+          type: string
+          enum: [vivid, natural]
+    ImageDescriptor:
+      type: object
+      properties:
+        url:
+          type: string
+        filename:
+          type: string
+        format:
+          type: string
+        size:
+          type: integer
+        referenceImageCount:
+          type: integer
+        referenceImageSources:
+          type: array
+          items:
+            type: string
+    ImageGenerationResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        storyId:
+          type: string
+          format: uuid
+        runId:
+          type: string
+          format: uuid
+        chapterNumber:
+          type: integer
+          nullable: true
+        image:
+          $ref: '#/components/schemas/ImageDescriptor'
+      required:
+        - success
+        - storyId
+        - runId
+        - image
+    ImageGenerationError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          properties:
+            failedAt:
+              type: string
+            timestamp:
+              type: string
+              format: date-time
+            requestId:
+              type: string
+            code:
+              type: string
+            category:
+              type: string
+            provider:
+              type: string
+            providerFinishReasons:
+              type: array
+              items:
+                type: string
+            suggestions:
+              type: array
+              items:
+                type: string
+    TestTextResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        timestamp:
+          type: string
+          format: date-time
+        environment:
+          type: object
+          additionalProperties: true
+        testResult:
+          type: object
+          properties:
+            provider:
+              type: string
+            response:
+              type: string
+              nullable: true
+            error:
+              type: object
+              nullable: true
+              additionalProperties: true
+    AudiobookTriggerRequest:
+      type: object
+      required:
+        - storyId
+      properties:
+        storyId:
+          type: string
+          format: uuid
+        voice:
+          type: string
+    AudiobookTriggerResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        storyId:
+          type: string
+          format: uuid
+        voice:
+          type: string
+        status:
+          type: string
+        executionId:
+          type: string
+    ChapterAudioRequest:
+      type: object
+      required:
+        - storyId
+        - chapterNumber
+        - chapterContent
+        - storyTitle
+      properties:
+        storyId:
+          type: string
+          format: uuid
+        chapterNumber:
+          type: integer
+          minimum: 1
+        chapterTitle:
+          type: string
+        chapterContent:
+          type: string
+        storyTitle:
+          type: string
+        storyAuthor:
+          type: string
+        dedicatoryMessage:
+          type: string
+        voice:
+          type: string
+        storyLanguage:
+          type: string
+        isFirstChapter:
+          oneOf:
+            - type: boolean
+            - type: string
+    ChapterAudioResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        chapterNumber:
+          type: integer
+        audioUrl:
+          type: string
+        duration:
+          type: number
+        format:
+          type: string
+        provider:
+          type: string
+        voice:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+    AudiobookFinalizeRequest:
+      type: object
+      required:
+        - storyId
+      properties:
+        storyId:
+          type: string
+          format: uuid
+    AudiobookFinalizeResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        storyId:
+          type: string
+          format: uuid
+        audioUrls:
+          type: object
+          additionalProperties:
+            type: string
+        totalDuration:
+          type: number
+        chaptersProcessed:
+          type: integer
+    ChapterEditRequest:
+      type: object
+      required:
+        - userRequest
+      properties:
+        userRequest:
+          type: string
+          minLength: 1
+          maxLength: 2000
+    ChapterEditResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        storyId:
+          type: string
+          format: uuid
+        chapterNumber:
+          type: integer
+        editedContent:
+          type: string
+        metadata:
+          type: object
+          properties:
+            originalLength:
+              type: integer
+            editedLength:
+              type: integer
+            timestamp:
+              type: string
+              format: date-time
+    FullStoryEditRequest:
+      $ref: '#/components/schemas/ChapterEditRequest'
+    FullStoryEditResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        storyId:
+          type: string
+          format: uuid
+        editedChapters:
+          type: array
+          items:
+            type: object
+            properties:
+              chapterNumber:
+                type: integer
+              editedContent:
+                type: string
+              originalLength:
+                type: integer
+              editedLength:
+                type: integer
+              error:
+                type: string
+        metadata:
+          type: object
+          properties:
+            totalChapters:
+              type: integer
+            successfulEdits:
+              type: integer
+            timestamp:
+              type: string
+              format: date-time
+    TextEditJobRequest:
+      type: object
+      required:
+        - storyId
+        - userRequest
+      properties:
+        storyId:
+          type: string
+          format: uuid
+        userRequest:
+          type: string
+          maxLength: 2000
+        scope:
+          type: string
+          enum: [chapter, story]
+          default: chapter
+        chapterNumber:
+          type: integer
+          minimum: 1
+    ImageEditJobRequest:
+      type: object
+      required:
+        - storyId
+        - imageUrl
+        - imageType
+      properties:
+        storyId:
+          type: string
+          format: uuid
+        imageUrl:
+          type: string
+        imageType:
+          type: string
+          enum: [cover, backcover, chapter]
+        userRequest:
+          type: string
+        chapterNumber:
+          type: integer
+          minimum: 1
+        graphicalStyle:
+          type: string
+        userImageUri:
+          type: string
+        convertToStyle:
+          type: boolean
+    TranslationJobRequest:
+      type: object
+      required:
+        - storyId
+        - targetLocale
+      properties:
+        storyId:
+          type: string
+          format: uuid
+        targetLocale:
+          type: string
+          enum:
+            - en-US
+            - en-GB
+            - pt-PT
+            - pt-BR
+            - es-ES
+            - fr-FR
+            - it-IT
+            - de-DE
+            - nl-NL
+            - pl-PL
+    JobCreationResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        jobId:
+          type: string
+          format: uuid
+        estimatedDuration:
+          type: integer
+          description: Estimated duration in milliseconds.
+        message:
+          type: string
+    JobStatus:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+        status:
+          type: string
+          enum: [pending, processing, completed, failed]
+        progress:
+          type: number
+        elapsedTime:
+          type: integer
+        remainingTime:
+          type: integer
+        estimatedDuration:
+          type: integer
+        metadata:
+          type: object
+          additionalProperties: true
+        result:
+          type: object
+          additionalProperties: true
+        error:
+          type: string
+    JobStatusResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        job:
+          $ref: '#/components/schemas/JobStatus'
+    PingResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        service:
+          type: string
+        status:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        message:
+          type: string
+        version:
+          type: string
+        responseTime:
+          type: integer
+    PubSubPingResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        service:
+          type: string
+        correlationId:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        responseTime:
+          type: integer
+        message:
+          type: string
+        topic:
+          type: string
+        projectId:
+          type: string
+        testMessage:
+          type: object
+          additionalProperties: true
+    PubSubPingRequest:
+      type: object
+      additionalProperties: true
+      properties:
+        correlationId:
+          type: string
+    PubSubPingEchoResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        service:
+          type: string
+        correlationId:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        responseTime:
+          type: integer
+        message:
+          type: string
+        receivedAt:
+          type: string
+          format: date-time
+        originalMessage:
+          type: object
+          additionalProperties: true
+    AuthStatusResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        apiKeyConfigured:
+          type: boolean
+        keyLength:
+          type: integer
+    Run:
+      type: object
+      properties:
+        runId:
+          type: string
+          format: uuid
+        storyId:
+          type: string
+          format: uuid
+        gcpWorkflowExecution:
+          type: string
+        status:
+          type: string
+          enum: [queued, running, completed, failed, cancelled, blocked]
+        currentStep:
+          type: string
+        errorMessage:
+          type: string
+        startedAt:
+          type: string
+          format: date-time
+        endedAt:
+          type: string
+          format: date-time
+        metadata:
+          type: object
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    RunStep:
+      type: object
+      properties:
+        runId:
+          type: string
+          format: uuid
+        stepName:
+          type: string
+        status:
+          type: string
+          enum: [pending, running, completed, failed]
+        detailJson:
+          type: object
+          additionalProperties: true
+        startedAt:
+          type: string
+          format: date-time
+        endedAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    RunUpdateRequest:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [queued, running, completed, failed, cancelled, blocked]
+        currentStep:
+          type: string
+        errorMessage:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+        storyId:
+          type: string
+          format: uuid
+        startedAt:
+          type: string
+          format: date-time
+    RunUpdateResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        run:
+          $ref: '#/components/schemas/Run'
+    RunWithStepsResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        run:
+          $ref: '#/components/schemas/Run'
+        steps:
+          type: array
+          items:
+            $ref: '#/components/schemas/RunStep'
+    OutlineStorageRequest:
+      type: object
+      required:
+        - outline
+      properties:
+        outline:
+          type: object
+          additionalProperties: true
+    StepAcknowledgeResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        runId:
+          type: string
+          format: uuid
+        step:
+          type: string
+    ChapterStorageRequest:
+      type: object
+      required:
+        - chapterNumber
+        - chapter
+        - chapterTitle
+      properties:
+        chapterNumber:
+          type: integer
+        chapter:
+          type: string
+        imagePrompts:
+          type: array
+          items:
+            type: string
+        chapterTitle:
+          type: string
+    ChapterStorageResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        runId:
+          type: string
+          format: uuid
+        chapterNumber:
+          type: integer
+        chapterId:
+          type: string
+        version:
+          type: integer
+        step:
+          type: string
+    ImageStorageRequest:
+      type: object
+      required:
+        - imageType
+        - imageUrl
+        - filename
+      properties:
+        chapterNumber:
+          type: integer
+        imageType:
+          type: string
+          enum: [front_cover, back_cover, chapter]
+        imageUrl:
+          type: string
+        filename:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+    ImageStorageResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        runId:
+          type: string
+          format: uuid
+        step:
+          type: string
+        imageType:
+          type: string
+        chapterNumber:
+          type: integer
+    StorySummaryResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        title:
+          type: string
+        storyLanguage:
+          type: string
+        features:
+          type: object
+          additionalProperties: true
+    StoryChaptersResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        storyId:
+          type: string
+          format: uuid
+        chapters:
+          type: array
+          items:
+            type: object
+            properties:
+              title:
+                type: string
+              content:
+                type: string
+        title:
+          type: string
+        author:
+          type: string
+        dedicationMessage:
+          type: string
+        storyLanguage:
+          type: string
+    AudiobookStatusUpdateRequest:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [generating, completed, failed]
+        completedAt:
+          type: string
+          format: date-time
+        failedAt:
+          type: string
+          format: date-time
+        audioUrls:
+          type: object
+          additionalProperties:
+            type: string
+        totalDuration:
+          type: number
+    AudiobookStatusUpdateResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        storyId:
+          type: string
+          format: uuid
+        status:
+          type: string
+        updatedAt:
+          type: string
+          format: date-time
+        audioUrls:
+          type: object
+          additionalProperties:
+            type: string
+        totalDuration:
+          type: number
+    PrintGenerationRequest:
+      type: object
+      required:
+        - storyId
+        - workflowId
+      properties:
+        storyId:
+          type: string
+          format: uuid
+        workflowId:
+          type: string
+        generateCMYK:
+          type: boolean
+    PrintGenerationResponse:
+      type: object
+      description: Result payload is defined by the print workflow handler. This schema captures the base contract and allows additional properties for workflow-specific metadata.
+      properties:
+        status:
+          type: string
+        message:
+          type: string
+      additionalProperties: true
+    DebugImageRequest:
+      type: object
+      properties:
+        prompt:
+          type: string
+    DebugImageResponse:
+      type: object
+      properties:
+        model:
+          type: string
+        promptPreview:
+          type: string
+        usedVertex:
+          type: boolean
+        forceRest:
+          type: boolean
+        disableMapping:
+          type: boolean
+        projectId:
+          type: string
+        location:
+          type: string
+        timingMs:
+          type: integer
+        imageSize:
+          type: integer
+        error:
+          type: string
+        imageBase64:
+          type: string
