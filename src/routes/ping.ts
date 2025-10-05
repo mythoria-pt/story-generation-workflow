@@ -26,17 +26,17 @@ router.get('/ping', async (_req, res) => {
       timestamp,
       message: 'Pong! Story Generation Workflow is alive and responding',
       version: '0.1.0',
-      responseTime: Date.now() - responseTime
+      responseTime: Date.now() - responseTime,
     });
   } catch (error) {
     logger.error('Ping endpoint error:', error);
-    
+
     res.status(500).json({
       success: false,
       service: 'story-generation-workflow',
       status: 'unhealthy',
       timestamp,
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: error instanceof Error ? error.message : 'Unknown error',
     });
   }
 });
@@ -61,17 +61,17 @@ router.post('/ping/pubsub-test', async (_req, res) => {
       source: 'story-generation-workflow',
       correlationId,
       timestamp,
-      message: 'PubSub ping test from Story Generation Workflow (simulated)'
+      message: 'PubSub ping test from Story Generation Workflow (simulated)',
     };
 
     // Simulate processing time
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 100));
 
     const responseTime = Date.now() - startTime;
 
     logger.info('PubSub ping message simulated', {
       correlationId,
-      responseTime
+      responseTime,
     });
 
     res.json({
@@ -83,16 +83,15 @@ router.post('/ping/pubsub-test', async (_req, res) => {
       message: 'PubSub ping test simulated successfully',
       topic: PING_TOPIC,
       projectId: PROJECT_ID,
-      testMessage
+      testMessage,
     });
-
   } catch (error) {
     const responseTime = Date.now() - startTime;
-    
+
     logger.error('PubSub ping test failed', {
       correlationId,
       error: error instanceof Error ? error.message : 'Unknown error',
-      responseTime
+      responseTime,
     });
 
     res.status(500).json({
@@ -102,7 +101,7 @@ router.post('/ping/pubsub-test', async (_req, res) => {
       timestamp,
       responseTime,
       error: error instanceof Error ? error.message : 'Unknown error',
-      message: 'PubSub ping test failed'
+      message: 'PubSub ping test failed',
     });
   }
 });
@@ -130,15 +129,14 @@ router.post('/test/pubsub-ping', async (req, res) => {
       responseTime,
       message: 'Pong! PubSub communication test successful',
       receivedAt: timestamp,
-      originalMessage: req.body
+      originalMessage: req.body,
     });
-
   } catch (error) {
     const responseTime = Date.now() - startTime;
-    
+
     logger.error('Webapp pub/sub ping test failed', {
       correlationId,
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: error instanceof Error ? error.message : 'Unknown error',
     });
 
     res.status(500).json({
@@ -147,7 +145,7 @@ router.post('/test/pubsub-ping', async (req, res) => {
       correlationId,
       timestamp,
       responseTime,
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: error instanceof Error ? error.message : 'Unknown error',
     });
   }
 });

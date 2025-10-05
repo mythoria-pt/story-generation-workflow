@@ -44,11 +44,7 @@ export interface IImageGenerationService {
    * @param originalImage The original image as Buffer
    * @param options Additional generation options
    */
-  edit?(
-    prompt: string,
-    originalImage: Buffer,
-    options?: ImageGenerationOptions,
-  ): Promise<Buffer>;
+  edit?(prompt: string, originalImage: Buffer, options?: ImageGenerationOptions): Promise<Buffer>;
 }
 
 export interface TextGenerationOptions {
@@ -67,12 +63,12 @@ export interface ImageGenerationOptions {
   width?: number;
   height?: number;
   model?: string;
-  quality?: "standard" | "hd";
-  style?: "vivid" | "natural";
+  quality?: 'standard' | 'hd';
+  style?: 'vivid' | 'natural';
   steps?: number;
   bookTitle?: string;
   graphicalStyle?: string;
-  imageType?: "front_cover" | "back_cover" | "chapter";
+  imageType?: 'front_cover' | 'back_cover' | 'chapter';
   /**
    * Up to two reference images (JPEG) to guide style/character consistency.
    * Ordered oldest -> newest for narrative continuity.
@@ -93,5 +89,5 @@ export interface AIProviderConfig {
   };
 }
 
-export type TextProvider = "openai" | "google-genai";
-export type ImageProvider = "openai" | "google-genai";
+export type TextProvider = 'openai' | 'google-genai';
+export type ImageProvider = 'openai' | 'google-genai';

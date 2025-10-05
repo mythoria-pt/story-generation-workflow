@@ -41,7 +41,6 @@ aws-credentials*.json
 azure-credentials*.json
 
 # IDE files
-.vscode/
 .idea/
 *.swp
 *.swo

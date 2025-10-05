@@ -15,35 +15,35 @@ export class GoogleCloudWorkflowsAdapter implements IWorkflowService {
     try {
       const config = googleCloudConfig.get();
       const workflowName = `projects/${config.projectId}/locations/${config.workflows.location}/workflows/${workflowId}`;
-      
+
       logger.info('Executing Google Cloud Workflow', {
         workflowName,
         projectId: config.projectId,
         location: config.workflows.location,
-        parametersKeys: Object.keys(parameters)
+        parametersKeys: Object.keys(parameters),
       });
 
       // Create an execution
       const [execution] = await this.executionsClient.createExecution({
         parent: workflowName,
         execution: {
-          argument: JSON.stringify(parameters)
-        }
+          argument: JSON.stringify(parameters),
+        },
       });
 
       const executionId = execution.name?.split('/').pop() || '';
-      
+
       logger.info('Google Cloud Workflow execution started', {
         workflowId,
         executionId,
-        executionName: execution.name
+        executionName: execution.name,
       });
 
       return executionId;
     } catch (error) {
       logger.error('Failed to execute Google Cloud Workflow', {
         workflowId,
-        error: error instanceof Error ? error.message : String(error)
+        error: error instanceof Error ? error.message : String(error),
       });
       throw error;
     }
@@ -54,35 +54,38 @@ export class GoogleCloudWorkflowsAdapter implements IWorkflowService {
       const config = googleCloudConfig.get();
       // Reconstruct the full execution name
       const executionName = `projects/${config.projectId}/locations/${config.workflows.location}/workflows/story-generation/executions/${executionId}`;
-      
+
       logger.info('Getting Google Cloud Workflow execution status', {
         executionId,
-        executionName
+        executionName,
       });
 
       const [execution] = await this.executionsClient.getExecution({
-        name: executionName
-      });      const result: WorkflowExecutionResult = {
+        name: executionName,
+      });
+      const result: WorkflowExecutionResult = {
         executionId,
         status: this.mapExecutionState(execution.state),
-        startTime: execution.startTime ? new Date(Number(execution.startTime.seconds) * 1000) : new Date(),
+        startTime: execution.startTime
+          ? new Date(Number(execution.startTime.seconds) * 1000)
+          : new Date(),
         ...(execution.endTime && { endTime: new Date(Number(execution.endTime.seconds) * 1000) }),
         ...(execution.result && { result: JSON.parse(execution.result) }),
-        ...(execution.error && { error: String(execution.error) })
+        ...(execution.error && { error: String(execution.error) }),
       };
 
       logger.info('Retrieved Google Cloud Workflow execution status', {
         executionId,
         status: result.status,
         hasResult: !!result.result,
-        hasError: !!result.error
+        hasError: !!result.error,
       });
 
       return result;
     } catch (error) {
       logger.error('Failed to get Google Cloud Workflow execution status', {
         executionId,
-        error: error instanceof Error ? error.message : String(error)
+        error: error instanceof Error ? error.message : String(error),
       });
       throw error;
     }

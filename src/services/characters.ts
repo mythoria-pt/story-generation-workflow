@@ -5,7 +5,12 @@
 
 import { and, eq, inArray } from 'drizzle-orm';
 import { getDatabase } from '@/db/connection.js';
-import { characters, storyCharacters, type NewCharacter, type NewStoryCharacter } from '@/db/schema/index.js';
+import {
+  characters,
+  storyCharacters,
+  type NewCharacter,
+  type NewStoryCharacter,
+} from '@/db/schema/index.js';
 import { logger } from '@/config/logger.js';
 
 export interface CreateCharacterInput {
@@ -25,14 +30,11 @@ export class CharacterService {
 
   async getCharactersByAuthor(authorId: string) {
     try {
-      return await this.db
-        .select()
-        .from(characters)
-        .where(eq(characters.authorId, authorId));
+      return await this.db.select().from(characters).where(eq(characters.authorId, authorId));
     } catch (error) {
       logger.error('Failed to get characters by author', {
         error: error instanceof Error ? error.message : String(error),
-        authorId
+        authorId,
       });
       throw error;
     }
@@ -49,7 +51,7 @@ export class CharacterService {
     } catch (error) {
       logger.error('Failed to get character by id', {
         error: error instanceof Error ? error.message : String(error),
-        characterId
+        characterId,
       });
       throw error;
     }
@@ -58,7 +60,7 @@ export class CharacterService {
   async getCharactersByIds(characterIds: string[]) {
     try {
       if (characterIds.length === 0) return [];
-      
+
       return await this.db
         .select()
         .from(characters)
@@ -66,7 +68,7 @@ export class CharacterService {
     } catch (error) {
       logger.error('Failed to get characters by ids', {
         error: error instanceof Error ? error.message : String(error),
-        characterIds
+        characterIds,
       });
       throw error;
     }
@@ -84,15 +86,15 @@ export class CharacterService {
         physicalDescription: input.physicalDescription,
         photoUrl: input.photoUrl,
       };
-      const [row] = await this.db
-        .insert(characters)
-        .values(values)
-        .returning();
+      const [row] = await this.db.insert(characters).values(values).returning();
       return row;
     } catch (error) {
       logger.error('Failed to create character', {
         error: error instanceof Error ? error.message : String(error),
-        input: { ...input, traits: Array.isArray(input.traits) ? `[len:${input.traits.length}]` : input.traits }
+        input: {
+          ...input,
+          traits: Array.isArray(input.traits) ? `[len:${input.traits.length}]` : input.traits,
+        },
       });
       throw error;
     }
@@ -104,25 +106,24 @@ export class CharacterService {
       const [existing] = await this.db
         .select()
         .from(storyCharacters)
-        .where(and(eq(storyCharacters.storyId, storyId), eq(storyCharacters.characterId, characterId)))
+        .where(
+          and(eq(storyCharacters.storyId, storyId), eq(storyCharacters.characterId, characterId)),
+        )
         .limit(1);
       if (existing) return existing;
 
       const values: NewStoryCharacter = {
         storyId,
         characterId,
-        role: role as any
+        role: role as any,
       };
-      const [link] = await this.db
-        .insert(storyCharacters)
-        .values(values)
-        .returning();
+      const [link] = await this.db.insert(storyCharacters).values(values).returning();
       return link;
     } catch (error) {
       logger.warn('Failed to link character to story (may already be linked)', {
         error: error instanceof Error ? error.message : String(error),
         storyId,
-        characterId
+        characterId,
       });
       throw error;
     }

@@ -56,21 +56,23 @@ export async function processTextEditJob(jobId: string, params: TextEditJobParam
     // Mark job as completed with result
     jobManager.updateJobStatus(jobId, 'completed', result);
 
-    logger.info('Text edit job completed successfully', { 
-      jobId, 
-      storyId, 
+    logger.info('Text edit job completed successfully', {
+      jobId,
+      storyId,
       scope,
-      resultSize: JSON.stringify(result).length 
+      resultSize: JSON.stringify(result).length,
     });
-
   } catch (error) {
     logger.error('Text edit job failed', {
       jobId,
-      error: error instanceof Error ? error.message : String(error)
+      error: error instanceof Error ? error.message : String(error),
     });
 
-    jobManager.updateJobStatus(jobId, 'failed', undefined, 
-      error instanceof Error ? error.message : 'Text editing failed'
+    jobManager.updateJobStatus(
+      jobId,
+      'failed',
+      undefined,
+      error instanceof Error ? error.message : 'Text editing failed',
     );
   }
 }
@@ -79,9 +81,9 @@ export async function processTextEditJob(jobId: string, params: TextEditJobParam
  * Process single chapter edit (extracted from existing story-edit.ts logic)
  */
 async function processSingleChapterEdit(
-  storyId: string, 
-  userRequest: string, 
-  chapterNumber?: number
+  storyId: string,
+  userRequest: string,
+  chapterNumber?: number,
 ): Promise<any> {
   if (!chapterNumber) {
     throw new Error('Chapter number is required for single chapter edit');
@@ -89,8 +91,8 @@ async function processSingleChapterEdit(
 
   // 1. Get the current chapter content from database
   const storyChapters = await chaptersService.getStoryChapters(storyId);
-  const targetChapter = storyChapters.find(ch => ch.chapterNumber === chapterNumber);
-  
+  const targetChapter = storyChapters.find((ch) => ch.chapterNumber === chapterNumber);
+
   if (!targetChapter) {
     throw new Error(`Chapter ${chapterNumber} not found`);
   }
@@ -107,25 +109,25 @@ async function processSingleChapterEdit(
     userRequest,
     storyContext,
     chapterNumber,
-    targetChapter.title
+    targetChapter.title,
   );
 
   // 4. Request changes from AI
   const aiContext = {
     authorId: storyContext.story.authorId,
     storyId: storyId,
-    action: 'story_enhancement' as const
+    action: 'story_enhancement' as const,
   };
 
   const editedContent = await aiGateway.getTextService(aiContext).complete(editPrompt, {
-    temperature: 0.7
+    temperature: 0.7,
   });
 
   logger.info('AI chapter editing completed', {
     storyId,
     chapterNumber,
     originalLength: targetChapter.htmlContent.length,
-    editedLength: editedContent.length
+    editedLength: editedContent.length,
   });
 
   return {
@@ -134,20 +136,17 @@ async function processSingleChapterEdit(
     storyId,
     chapterNumber,
     updatedHtml: editedContent.trim(),
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
   };
 }
 
 /**
  * Process full story edit (extracted from existing story-edit.ts logic)
  */
-async function processFullStoryEdit(
-  storyId: string, 
-  userRequest: string
-): Promise<any> {
+async function processFullStoryEdit(storyId: string, userRequest: string): Promise<any> {
   // 1. Get all chapters for the story
   const storyChapters = await chaptersService.getStoryChapters(storyId);
-  
+
   if (storyChapters.length === 0) {
     throw new Error('No chapters found for this story');
   }
@@ -160,7 +159,7 @@ async function processFullStoryEdit(
 
   // 3. Edit each chapter using AI
   const editedChapters = [];
-  
+
   for (const chapter of storyChapters) {
     try {
       const editPrompt = await createChapterEditPrompt(
@@ -168,45 +167,44 @@ async function processFullStoryEdit(
         userRequest,
         storyContext,
         chapter.chapterNumber,
-        chapter.title
+        chapter.title,
       );
 
       const aiContext = {
         authorId: storyContext.story.authorId,
         storyId: storyId,
-        action: 'story_enhancement' as const
+        action: 'story_enhancement' as const,
       };
 
       const editedContent = await aiGateway.getTextService(aiContext).complete(editPrompt, {
-        temperature: 0.7
+        temperature: 0.7,
       });
 
       editedChapters.push({
         chapterNumber: chapter.chapterNumber,
         updatedHtml: editedContent.trim(),
         originalLength: chapter.htmlContent.length,
-        editedLength: editedContent.length
+        editedLength: editedContent.length,
       });
 
       logger.info('Chapter edited successfully', {
         storyId,
         chapterNumber: chapter.chapterNumber,
         originalLength: chapter.htmlContent.length,
-        editedLength: editedContent.length
+        editedLength: editedContent.length,
       });
-
     } catch (error) {
       logger.error('Failed to edit chapter', {
         storyId,
         chapterNumber: chapter.chapterNumber,
-        error: error instanceof Error ? error.message : String(error)
+        error: error instanceof Error ? error.message : String(error),
       });
 
       editedChapters.push({
         chapterNumber: chapter.chapterNumber,
         error: error instanceof Error ? error.message : 'Chapter editing failed',
         originalLength: chapter.htmlContent.length,
-        editedLength: 0
+        editedLength: 0,
       });
     }
   }
@@ -217,9 +215,9 @@ async function processFullStoryEdit(
     storyId,
     updatedChapters: editedChapters,
     totalChapters: storyChapters.length,
-    successfulEdits: editedChapters.filter(ch => !ch.error).length,
-    failedEdits: editedChapters.filter(ch => ch.error).length,
-    timestamp: new Date().toISOString()
+    successfulEdits: editedChapters.filter((ch) => !ch.error).length,
+    failedEdits: editedChapters.filter((ch) => ch.error).length,
+    timestamp: new Date().toISOString(),
   };
 }
 
@@ -231,7 +229,7 @@ async function createChapterEditPrompt(
   userRequest: string,
   storyContext: StoryContext,
   chapterNumber: number,
-  chapterTitle: string
+  chapterTitle: string,
 ): Promise<string> {
   try {
     // Load chapter edit prompt template
@@ -246,7 +244,7 @@ async function createChapterEditPrompt(
       novelStyle: storyContext.story.novelStyle || 'adventure',
       targetAudience: formatTargetAudience(storyContext.story.targetAudience),
       language: getLanguageName(storyContext.story.storyLanguage),
-      storySetting: storyContext.story.place || 'Unknown setting'
+      storySetting: storyContext.story.place || 'Unknown setting',
     };
 
     return PromptService.buildPrompt(promptTemplate, templateVars);
@@ -254,9 +252,9 @@ async function createChapterEditPrompt(
     logger.error('Failed to create chapter edit prompt', {
       error: error instanceof Error ? error.message : String(error),
       chapterNumber,
-      userRequest: userRequest.substring(0, 100)
+      userRequest: userRequest.substring(0, 100),
     });
-    
+
     // Fallback to simple prompt if template fails
     return `You are helping to edit a chapter of a story.
 

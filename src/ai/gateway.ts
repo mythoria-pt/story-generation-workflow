@@ -3,16 +3,12 @@
  * Creates appropriate AI service instances based on environment configuration
  */
 
-import {
-  ITextGenerationService,
-  IImageGenerationService,
-  AIProviderConfig,
-} from "./interfaces.js";
-import { OpenAITextService } from "./providers/openai/text.js";
-import { OpenAIImageService } from "./providers/openai/image.js";
-import { GoogleGenAITextService } from "./providers/google-genai/text.js";
-import { GoogleGenAIImageService } from "./providers/google-genai/image.js";
-import { logger } from "@/config/logger.js";
+import { ITextGenerationService, IImageGenerationService, AIProviderConfig } from './interfaces.js';
+import { OpenAITextService } from './providers/openai/text.js';
+import { OpenAIImageService } from './providers/openai/image.js';
+import { GoogleGenAITextService } from './providers/google-genai/text.js';
+import { GoogleGenAIImageService } from './providers/google-genai/image.js';
+import { logger } from '@/config/logger.js';
 
 export class AIGateway {
   private textService: ITextGenerationService;
@@ -24,7 +20,7 @@ export class AIGateway {
     this.textService = this.createTextService();
     this.imageService = this.createImageService();
 
-    logger.info("AI Gateway initialized", {
+    logger.info('AI Gateway initialized', {
       textProvider: config.textProvider,
       imageProvider: config.imageProvider,
     });
@@ -32,58 +28,53 @@ export class AIGateway {
 
   private createTextService(): ITextGenerationService {
     switch (this.config.textProvider.toLowerCase()) {
-      case "openai":
+      case 'openai':
         if (!this.config.credentials.openaiApiKey) {
-          throw new Error("OpenAI API Key is required for OpenAI text service");
+          throw new Error('OpenAI API Key is required for OpenAI text service');
         }
         return new OpenAITextService({
           apiKey: this.config.credentials.openaiApiKey,
         });
 
-      case "google-genai":
+      case 'google-genai':
         if (!this.config.credentials.googleGenAIApiKey) {
-          throw new Error(
-            "Google GenAI API Key is required for Google GenAI text service",
-          );
+          throw new Error('Google GenAI API Key is required for Google GenAI text service');
         }
         return new GoogleGenAITextService({
           apiKey: this.config.credentials.googleGenAIApiKey,
-          model: this.config.credentials.googleGenAIModel || "gemini-2.5-flash",
+          model: this.config.credentials.googleGenAIModel || 'gemini-2.5-flash',
         });
 
       default:
-        throw new Error(
-          `Unsupported text provider: ${this.config.textProvider}`,
-        );
+        throw new Error(`Unsupported text provider: ${this.config.textProvider}`);
     }
   }
 
   private createImageService(): IImageGenerationService {
     switch (this.config.imageProvider.toLowerCase()) {
-      case "openai":
+      case 'openai':
         if (!this.config.credentials.openaiApiKey) {
-          throw new Error(
-            "OpenAI API Key is required for OpenAI image service",
-          );
+          throw new Error('OpenAI API Key is required for OpenAI image service');
         }
         return new OpenAIImageService({
           apiKey: this.config.credentials.openaiApiKey,
-          model: this.config.credentials.openaiImageModel || "gpt-5",
+          model: this.config.credentials.openaiImageModel || 'gpt-5',
         });
 
-      case "google-genai": {
+      case 'google-genai': {
         if (!this.config.credentials.googleGenAIApiKey) {
-          throw new Error(
-            "Google GenAI API Key is required for Google Imagen service",
-          );
+          throw new Error('Google GenAI API Key is required for Google Imagen service');
         }
         const legacyEnvModel = process.env.IMAGE_GENERATION_MODEL;
         let selectedModel =
           legacyEnvModel ||
           this.config.credentials.googleGenAIImageModel ||
-          "gemini-2.5-flash-image-preview"; // default to current Gemini image generation model
+          'gemini-2.5-flash-image-preview'; // default to current Gemini image generation model
         if (selectedModel.startsWith('imagen-')) {
-          logger.warn('AI Gateway - legacy imagen-* model configured; remapping to gemini-2.5-flash-image-preview', { selectedModel });
+          logger.warn(
+            'AI Gateway - legacy imagen-* model configured; remapping to gemini-2.5-flash-image-preview',
+            { selectedModel },
+          );
           selectedModel = 'gemini-2.5-flash-image-preview';
         }
         const service = new GoogleGenAIImageService({
@@ -99,9 +90,7 @@ export class AIGateway {
       }
 
       default:
-        throw new Error(
-          `Unsupported image provider: ${this.config.imageProvider}`,
-        );
+        throw new Error(`Unsupported image provider: ${this.config.imageProvider}`);
     }
   }
 
@@ -123,8 +112,8 @@ export class AIGateway {
    * Create AI Gateway from environment variables
    */
   public static fromEnvironment(): AIGateway {
-    const textProvider = process.env.TEXT_PROVIDER || "google-genai";
-    const imageProvider = process.env.IMAGE_PROVIDER || "google-genai";
+    const textProvider = process.env.TEXT_PROVIDER || 'google-genai';
+    const imageProvider = process.env.IMAGE_PROVIDER || 'google-genai';
     const config: AIProviderConfig = {
       textProvider,
       imageProvider,

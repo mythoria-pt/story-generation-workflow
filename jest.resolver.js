@@ -10,7 +10,7 @@ export default (path, options) => {
       return fullTsPath;
     }
   }
-  
+
   // Default resolver behavior
   return options.defaultResolver(path, options);
 };

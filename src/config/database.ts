@@ -13,6 +13,6 @@ export function getDatabaseConfig(): DatabaseConfig {
   const config = databaseConfig.get();
   return {
     ...config,
-    ssl: config.ssl ?? false
+    ssl: config.ssl ?? false,
   };
 }

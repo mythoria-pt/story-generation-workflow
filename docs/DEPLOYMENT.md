@@ -278,65 +278,65 @@ Google GenAI is accessed via the Generative Language API.
 
 ```yaml
 steps: # Build container image
-  - name: "gcr.io/cloud-builders/docker"
+  - name: 'gcr.io/cloud-builders/docker'
     args:
       [
-        "build",
-        "-t",
-        "europe-west9-docker.pkg.dev/oceanic-beach-460916-n5/mythoria/story-generation-workflow:${COMMIT_SHA}",
-        "-t",
-        "europe-west9-docker.pkg.dev/oceanic-beach-460916-n5/mythoria/story-generation-workflow:latest",
-        ".",
+        'build',
+        '-t',
+        'europe-west9-docker.pkg.dev/oceanic-beach-460916-n5/mythoria/story-generation-workflow:${COMMIT_SHA}',
+        '-t',
+        'europe-west9-docker.pkg.dev/oceanic-beach-460916-n5/mythoria/story-generation-workflow:latest',
+        '.',
       ]
 
   # Push to Artifact Registry
-  - name: "gcr.io/cloud-builders/docker"
+  - name: 'gcr.io/cloud-builders/docker'
     args:
       [
-        "push",
-        "--all-tags",
-        "europe-west9-docker.pkg.dev/oceanic-beach-460916-n5/mythoria/story-generation-workflow",
+        'push',
+        '--all-tags',
+        'europe-west9-docker.pkg.dev/oceanic-beach-460916-n5/mythoria/story-generation-workflow',
       ]
 
   # Deploy to Cloud Run
-  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
-    entrypoint: "gcloud"
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'gcloud'
     args:
       [
-        "run",
-        "deploy",
-        "story-generation-workflow",
-        "--image",
-        "europe-west9-docker.pkg.dev/oceanic-beach-460916-n5/mythoria/story-generation-workflow:${COMMIT_SHA}",
-        "--region",
-        "europe-west9",
-        "--platform",
-        "managed",
-        "--service-account",
-        "wf-story-gen-sa@oceanic-beach-460916-n5.iam.gserviceaccount.com",
-        "--set-env-vars",
-        "GOOGLE_CLOUD_PROJECT_ID=oceanic-beach-460916-n5,NODE_ENV=production",
-        "--set-secrets",
-        "/etc/secrets/db-host=mythoria-db-host:latest,/etc/secrets/db-password=mythoria-db-password:latest",
+        'run',
+        'deploy',
+        'story-generation-workflow',
+        '--image',
+        'europe-west9-docker.pkg.dev/oceanic-beach-460916-n5/mythoria/story-generation-workflow:${COMMIT_SHA}',
+        '--region',
+        'europe-west9',
+        '--platform',
+        'managed',
+        '--service-account',
+        'wf-story-gen-sa@oceanic-beach-460916-n5.iam.gserviceaccount.com',
+        '--set-env-vars',
+        'GOOGLE_CLOUD_PROJECT_ID=oceanic-beach-460916-n5,NODE_ENV=production',
+        '--set-secrets',
+        '/etc/secrets/db-host=mythoria-db-host:latest,/etc/secrets/db-password=mythoria-db-password:latest',
       ]
 
   # Deploy workflow
-  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
-    entrypoint: "gcloud"
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'gcloud'
     args:
       [
-        "workflows",
-        "deploy",
-        "story-generation",
-        "--source",
-        "workflows/story-generation.yaml",
-        "--location",
-        "europe-west9",
+        'workflows',
+        'deploy',
+        'story-generation',
+        '--source',
+        'workflows/story-generation.yaml',
+        '--location',
+        'europe-west9',
       ]
 
 options:
   logging: CLOUD_LOGGING_ONLY
-  machineType: "E2_HIGHCPU_8"
+  machineType: 'E2_HIGHCPU_8'
 ```
 
 ### Artifact Registry

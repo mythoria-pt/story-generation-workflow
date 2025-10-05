@@ -10,7 +10,8 @@ export interface StoryGenerationRun {
   currentStep?: string;
   errorMessage?: string;
   startedAt?: string;
-  endedAt?: string;  metadata?: Record<string, unknown>;
+  endedAt?: string;
+  metadata?: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
 }
@@ -56,7 +57,8 @@ export interface OutlineData {
 
 export interface RunUpdateData {
   status?: StoryGenerationRun['status'];
-  current_step?: string;  error_message?: string;
+  current_step?: string;
+  error_message?: string;
   started_at?: string;
   ended_at?: string;
   metadata?: Record<string, unknown>;

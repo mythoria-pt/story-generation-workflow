@@ -49,7 +49,10 @@ describe('AIServiceHelper', () => {
     const context = { authorId: 'a', storyId: 's', action: 'test' } as any;
 
     await expect(helper.generateText('prompt', context)).rejects.toThrow(error);
-    expect(logger.error).toHaveBeenCalledWith('Text generation failed in AI service helper', expect.objectContaining({ context }));
+    expect(logger.error).toHaveBeenCalledWith(
+      'Text generation failed in AI service helper',
+      expect.objectContaining({ context }),
+    );
   });
 
   it('delegates image generation to gateway service', async () => {
@@ -69,7 +72,10 @@ describe('AIServiceHelper', () => {
     const context = { authorId: 'a', storyId: 's', action: 'test' } as any;
 
     await expect(helper.generateImage('prompt', context)).rejects.toThrow(error);
-    expect(logger.error).toHaveBeenCalledWith('Image generation failed in AI service helper', expect.objectContaining({ context }));
+    expect(logger.error).toHaveBeenCalledWith(
+      'Image generation failed in AI service helper',
+      expect.objectContaining({ context }),
+    );
   });
 
   it('creates context objects', () => {
@@ -77,4 +83,3 @@ describe('AIServiceHelper', () => {
     expect(ctx).toEqual({ authorId: 'auth', storyId: 'story', action: 'test' });
   });
 });
-

@@ -11,8 +11,18 @@ import { eq, gte, lte, and } from 'drizzle-orm';
 export interface TokenUsageRequest {
   authorId: string;
   storyId: string;
-  action: 'story_structure' | 'story_outline' | 'chapter_writing' | 'image_generation' | 
-          'story_review' | 'character_generation' | 'story_enhancement' | 'audio_generation' | 'content_validation' | 'image_edit' | 'test';
+  action:
+    | 'story_structure'
+    | 'story_outline'
+    | 'chapter_writing'
+    | 'image_generation'
+    | 'story_review'
+    | 'character_generation'
+    | 'story_enhancement'
+    | 'audio_generation'
+    | 'content_validation'
+    | 'image_edit'
+    | 'test';
   aiModel: string;
   inputTokens: number;
   outputTokens: number;
@@ -40,7 +50,7 @@ export class TokenUsageTrackingService {
         model: request.aiModel,
         inputTokens: request.inputTokens,
         outputTokens: request.outputTokens,
-        estimatedCostInEuros: 0 // Will be calculated
+        estimatedCostInEuros: 0, // Will be calculated
       });
 
       const usageRecord: InsertTokenUsage = {
@@ -64,7 +74,7 @@ export class TokenUsageTrackingService {
         inputTokens: request.inputTokens,
         outputTokens: request.outputTokens,
         estimatedCostEuros: estimatedCost.estimatedCostInEuros,
-        totalTokens: request.inputTokens + request.outputTokens
+        totalTokens: request.inputTokens + request.outputTokens,
       });
     } catch (error) {
       logger.error('Failed to record token usage', {
@@ -72,7 +82,7 @@ export class TokenUsageTrackingService {
         authorId: request.authorId,
         storyId: request.storyId,
         action: request.action,
-        model: request.aiModel
+        model: request.aiModel,
       });
       // Don't throw - we don't want to break AI operations due to tracking failures
     }
@@ -91,31 +101,31 @@ export class TokenUsageTrackingService {
       if (estimation.model.includes('gpt-4')) {
         if (estimation.model.includes('gpt-4o')) {
           // GPT-4o pricing
-          inputCostPer1KTokens = 0.0025;  // $0.0025 per 1K input tokens
-          outputCostPer1KTokens = 0.01;   // $0.01 per 1K output tokens
+          inputCostPer1KTokens = 0.0025; // $0.0025 per 1K input tokens
+          outputCostPer1KTokens = 0.01; // $0.01 per 1K output tokens
         } else if (estimation.model.includes('gpt-4-turbo')) {
           // GPT-4 Turbo pricing
-          inputCostPer1KTokens = 0.01;    // $0.01 per 1K input tokens
-          outputCostPer1KTokens = 0.03;   // $0.03 per 1K output tokens
+          inputCostPer1KTokens = 0.01; // $0.01 per 1K input tokens
+          outputCostPer1KTokens = 0.03; // $0.03 per 1K output tokens
         } else {
           // Standard GPT-4 pricing
-          inputCostPer1KTokens = 0.03;    // $0.03 per 1K input tokens
-          outputCostPer1KTokens = 0.06;   // $0.06 per 1K output tokens
+          inputCostPer1KTokens = 0.03; // $0.03 per 1K input tokens
+          outputCostPer1KTokens = 0.06; // $0.06 per 1K output tokens
         }
       } else if (estimation.model.includes('gpt-3.5')) {
         // GPT-3.5 Turbo pricing
-        inputCostPer1KTokens = 0.0005;    // $0.0005 per 1K input tokens
-        outputCostPer1KTokens = 0.0015;   // $0.0015 per 1K output tokens      } else if (estimation.model.includes('dall-e')) {
+        inputCostPer1KTokens = 0.0005; // $0.0005 per 1K input tokens
+        outputCostPer1KTokens = 0.0015; // $0.0015 per 1K output tokens      } else if (estimation.model.includes('dall-e')) {
         // DALL-E pricing is per image, not per token
         // Estimating based on typical token usage for image prompts
         const imagesGenerated = Math.max(1, Math.floor(estimation.outputTokens / 100));
         if (estimation.model.includes('dall-e-3')) {
           const costPerImage = 0.04; // $0.04 per image for standard quality
-          estimation.estimatedCostInEuros = (imagesGenerated * costPerImage * 0.92); // Convert USD to EUR (approximate)
+          estimation.estimatedCostInEuros = imagesGenerated * costPerImage * 0.92; // Convert USD to EUR (approximate)
           return estimation;
         } else {
           const costPerImage = 0.02; // $0.02 per image for DALL-E 2
-          estimation.estimatedCostInEuros = (imagesGenerated * costPerImage * 0.92); // Convert USD to EUR (approximate)
+          estimation.estimatedCostInEuros = imagesGenerated * costPerImage * 0.92; // Convert USD to EUR (approximate)
           return estimation;
         }
       } else if (estimation.model.includes('tts-')) {
@@ -128,26 +138,26 @@ export class TokenUsageTrackingService {
         estimation.estimatedCostInEuros = totalCostUSD * 0.92; // Convert USD to EUR (approximate)
         return estimation;
       }
-  } else if (estimation.provider === 'google-genai') {
+    } else if (estimation.provider === 'google-genai') {
       if (estimation.model.includes('gemini')) {
         if (estimation.model.includes('gemini-2.0-flash')) {
           // Gemini 2.0 Flash pricing
-          inputCostPer1KTokens = 0.00075;  // $0.00075 per 1K input tokens
-          outputCostPer1KTokens = 0.003;   // $0.003 per 1K output tokens
+          inputCostPer1KTokens = 0.00075; // $0.00075 per 1K input tokens
+          outputCostPer1KTokens = 0.003; // $0.003 per 1K output tokens
         } else if (estimation.model.includes('gemini-1.5-pro')) {
           // Gemini 1.5 Pro pricing
-          inputCostPer1KTokens = 0.0035;   // $0.0035 per 1K input tokens
-          outputCostPer1KTokens = 0.0105;  // $0.0105 per 1K output tokens
+          inputCostPer1KTokens = 0.0035; // $0.0035 per 1K input tokens
+          outputCostPer1KTokens = 0.0105; // $0.0105 per 1K output tokens
         } else {
           // Default Gemini pricing
-          inputCostPer1KTokens = 0.00025;  // $0.00025 per 1K input tokens
-          outputCostPer1KTokens = 0.0005;  // $0.0005 per 1K output tokens
+          inputCostPer1KTokens = 0.00025; // $0.00025 per 1K input tokens
+          outputCostPer1KTokens = 0.0005; // $0.0005 per 1K output tokens
         }
       } else if (estimation.model.includes('imagen')) {
         // Imagen pricing is per image
         const imagesGenerated = Math.max(1, Math.floor(estimation.outputTokens / 100));
         const costPerImage = 0.006; // $0.006 per image
-        estimation.estimatedCostInEuros = (imagesGenerated * costPerImage * 0.92); // Convert USD to EUR (approximate)
+        estimation.estimatedCostInEuros = imagesGenerated * costPerImage * 0.92; // Convert USD to EUR (approximate)
         return estimation;
       }
     }
@@ -213,12 +223,12 @@ export class TokenUsageTrackingService {
       return {
         totalTokens,
         totalCostEuros,
-        actionBreakdown
+        actionBreakdown,
       };
     } catch (error) {
       logger.error('Failed to get story usage statistics', {
         error: error instanceof Error ? error.message : String(error),
-        storyId
+        storyId,
       });
       throw error;
     }
@@ -226,7 +236,11 @@ export class TokenUsageTrackingService {
   /**
    * Get usage statistics for an author
    */
-  async getAuthorUsage(authorId: string, fromDate?: Date, toDate?: Date): Promise<{
+  async getAuthorUsage(
+    authorId: string,
+    fromDate?: Date,
+    toDate?: Date,
+  ): Promise<{
     totalTokens: number;
     totalCostEuros: number;
     storyBreakdown: Record<string, { tokens: number; cost: number; calls: number }>;
@@ -241,7 +255,8 @@ export class TokenUsageTrackingService {
       }
       if (toDate) {
         conditions.push(lte(tokenUsageTracking.createdAt, toDate.toISOString()));
-      }      const usageRecords = await this.db
+      }
+      const usageRecords = await this.db
         .select()
         .from(tokenUsageTracking)
         .where(conditions.length === 1 ? conditions[0] : and(...conditions));
@@ -285,12 +300,12 @@ export class TokenUsageTrackingService {
         totalTokens,
         totalCostEuros,
         storyBreakdown,
-        actionBreakdown
+        actionBreakdown,
       };
     } catch (error) {
       logger.error('Failed to get author usage statistics', {
         error: error instanceof Error ? error.message : String(error),
-        authorId
+        authorId,
       });
       throw error;
     }

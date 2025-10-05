@@ -32,7 +32,7 @@ export interface IEnhancedTextGenerationService {
    * @param options Additional generation options
    */
   completeWithUsage(prompt: string, options?: TextGenerationOptions): Promise<TextGenerationResult>;
-  
+
   /**
    * Legacy complete method for backward compatibility
    */
@@ -45,8 +45,11 @@ export interface IEnhancedImageGenerationService {
    * @param prompt The image description prompt
    * @param options Additional generation options
    */
-  generateWithUsage(prompt: string, options?: ImageGenerationOptions): Promise<ImageGenerationResult>;
-  
+  generateWithUsage(
+    prompt: string,
+    options?: ImageGenerationOptions,
+  ): Promise<ImageGenerationResult>;
+
   /**
    * Legacy generate method for backward compatibility
    */

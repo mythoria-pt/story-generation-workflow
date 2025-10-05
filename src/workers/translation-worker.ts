@@ -23,7 +23,10 @@ export interface TranslateJobParams {
 /**
  * Process a translation job asynchronously
  */
-export async function processTranslationJob(jobId: string, params: TranslateJobParams): Promise<void> {
+export async function processTranslationJob(
+  jobId: string,
+  params: TranslateJobParams,
+): Promise<void> {
   try {
     logger.info('Starting translation job processing', { jobId, params });
 
@@ -47,7 +50,7 @@ export async function processTranslationJob(jobId: string, params: TranslateJobP
     const aiContext = {
       authorId: story.authorId,
       storyId: story.storyId,
-      action: 'story_enhancement' as const
+      action: 'story_enhancement' as const,
     };
 
     const updatedChapters: Array<{
@@ -66,10 +69,10 @@ export async function processTranslationJob(jobId: string, params: TranslateJobP
         const titlePrompt = await buildTranslatePrompt(targetLocale, {
           contentType: 'title',
           originalText: chapter.title,
-          storyTitle: story.title
+          storyTitle: story.title,
         });
         const translatedTitleRaw = await aiGateway.getTextService(aiContext).complete(titlePrompt, {
-          temperature: 0.2
+          temperature: 0.2,
         });
         const translatedTitle = cleanAITextOutput(translatedTitleRaw);
 
@@ -77,10 +80,10 @@ export async function processTranslationJob(jobId: string, params: TranslateJobP
         const htmlPrompt = await buildTranslatePrompt(targetLocale, {
           contentType: 'html',
           originalText: chapter.htmlContent,
-          storyTitle: story.title
+          storyTitle: story.title,
         });
         const translatedHtmlRaw = await aiGateway.getTextService(aiContext).complete(htmlPrompt, {
-          temperature: 0.2
+          temperature: 0.2,
         });
         const translatedHtml = cleanAITextOutput(translatedHtmlRaw);
 
@@ -105,7 +108,7 @@ export async function processTranslationJob(jobId: string, params: TranslateJobP
           titleBefore: chapter.title,
           titleAfter: translatedTitle,
           originalLength: chapterResult.htmlLengthBefore,
-          translatedLength: chapterResult.htmlLengthAfter
+          translatedLength: chapterResult.htmlLengthAfter,
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -113,14 +116,14 @@ export async function processTranslationJob(jobId: string, params: TranslateJobP
         logger.error('Chapter translation failed', {
           storyId: story.storyId,
           chapterNumber: chapter.chapterNumber,
-          error: msg
+          error: msg,
         });
       }
       updatedChapters.push(chapterResult);
     }
 
     // Determine success
-    const failed = updatedChapters.filter(ch => ch.error).length;
+    const failed = updatedChapters.filter((ch) => ch.error).length;
     let metaUpdate: { title?: string; synopsis?: string; plotDescription?: string } | undefined;
 
     // Only update storyLanguage and metadata if all chapters succeeded
@@ -132,10 +135,10 @@ export async function processTranslationJob(jobId: string, params: TranslateJobP
           const titlePrompt = await buildTranslatePrompt(targetLocale, {
             contentType: 'title',
             originalText: story.title,
-            storyTitle: story.title
+            storyTitle: story.title,
           });
           const titleTranslated = cleanAITextOutput(
-            await aiGateway.getTextService(aiContext).complete(titlePrompt, { temperature: 0.2 })
+            await aiGateway.getTextService(aiContext).complete(titlePrompt, { temperature: 0.2 }),
           );
           metaUpdate.title = titleTranslated;
         }
@@ -144,10 +147,12 @@ export async function processTranslationJob(jobId: string, params: TranslateJobP
           const synopsisPrompt = await buildTranslatePrompt(targetLocale, {
             contentType: 'text',
             originalText: story.synopsis,
-            storyTitle: story.title
+            storyTitle: story.title,
           });
           const synopsisTranslated = cleanAITextOutput(
-            await aiGateway.getTextService(aiContext).complete(synopsisPrompt, { temperature: 0.2 })
+            await aiGateway
+              .getTextService(aiContext)
+              .complete(synopsisPrompt, { temperature: 0.2 }),
           );
           metaUpdate.synopsis = synopsisTranslated;
         }
@@ -156,18 +161,21 @@ export async function processTranslationJob(jobId: string, params: TranslateJobP
           const plotPrompt = await buildTranslatePrompt(targetLocale, {
             contentType: 'text',
             originalText: story.plotDescription,
-            storyTitle: story.title
+            storyTitle: story.title,
           });
           const plotTranslated = cleanAITextOutput(
-            await aiGateway.getTextService(aiContext).complete(plotPrompt, { temperature: 0.2 })
+            await aiGateway.getTextService(aiContext).complete(plotPrompt, { temperature: 0.2 }),
           );
           metaUpdate.plotDescription = plotTranslated;
         }
       } catch (metaErr) {
-        logger.warn('Metadata translation encountered an issue; proceeding without updating some metadata fields', {
-          storyId: story.storyId,
-          error: metaErr instanceof Error ? metaErr.message : String(metaErr)
-        });
+        logger.warn(
+          'Metadata translation encountered an issue; proceeding without updating some metadata fields',
+          {
+            storyId: story.storyId,
+            error: metaErr instanceof Error ? metaErr.message : String(metaErr),
+          },
+        );
       }
 
       try {
@@ -178,12 +186,12 @@ export async function processTranslationJob(jobId: string, params: TranslateJobP
         await storyService.updateStoryLanguageAndTexts(story.storyId, updates);
         logger.info('Story language updated after successful translation', {
           storyId: story.storyId,
-          targetLocale
+          targetLocale,
         });
       } catch (updErr) {
         logger.error('Failed to update story language after translation', {
           storyId: story.storyId,
-          error: updErr instanceof Error ? updErr.message : String(updErr)
+          error: updErr instanceof Error ? updErr.message : String(updErr),
         });
       }
     }
@@ -195,10 +203,10 @@ export async function processTranslationJob(jobId: string, params: TranslateJobP
       targetLocale,
       updatedChapters,
       totalChapters: storyChapters.length,
-      successfulTranslations: updatedChapters.filter(ch => !ch.error).length,
+      successfulTranslations: updatedChapters.filter((ch) => !ch.error).length,
       failedTranslations: failed,
       metadataUpdated: failed === 0,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     };
 
     jobManager.updateJobStatus(jobId, 'completed', result);
@@ -207,23 +215,26 @@ export async function processTranslationJob(jobId: string, params: TranslateJobP
       jobId,
       storyId: story.storyId,
       targetLocale,
-      failed
+      failed,
     });
   } catch (error) {
     logger.error('Translation job failed', {
       jobId,
-      error: error instanceof Error ? error.message : String(error)
+      error: error instanceof Error ? error.message : String(error),
     });
 
-    jobManager.updateJobStatus(jobId, 'failed', undefined,
-      error instanceof Error ? error.message : 'Translation failed'
+    jobManager.updateJobStatus(
+      jobId,
+      'failed',
+      undefined,
+      error instanceof Error ? error.message : 'Translation failed',
     );
   }
 }
 
 async function buildTranslatePrompt(
   targetLocale: string,
-  opts: { contentType: 'html' | 'text' | 'title'; originalText: string; storyTitle?: string }
+  opts: { contentType: 'html' | 'text' | 'title'; originalText: string; storyTitle?: string },
 ): Promise<string> {
   const { contentType, originalText, storyTitle } = opts;
   const promptTemplate = await PromptService.loadPrompt(targetLocale, 'translate');
@@ -235,7 +246,7 @@ async function buildTranslatePrompt(
     isText: contentType === 'text' ? 'true' : '',
     originalText,
     targetLocale,
-    storyTitle: storyTitle ?? ''
+    storyTitle: storyTitle ?? '',
   } as const;
 
   return PromptService.buildPrompt(promptTemplate, variables as unknown as Record<string, unknown>);

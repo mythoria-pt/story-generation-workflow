@@ -67,7 +67,8 @@ export interface WorkflowStep {
   status: 'pending' | 'running' | 'completed' | 'failed';
   startTime?: Date;
   endTime?: Date;
-  error?: string;  metadata?: Record<string, unknown>;
+  error?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface StoryGenerationWorkflow {

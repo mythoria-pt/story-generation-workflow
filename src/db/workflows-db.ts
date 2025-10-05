@@ -1,6 +1,6 @@
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
-import * as workflowsSchema from "./workflows-schema/index.js";
+import * as workflowsSchema from './workflows-schema/index.js';
 
 let workflowsPool: Pool | null = null;
 let workflowsDb: ReturnType<typeof drizzle> | null = null;
@@ -12,11 +12,13 @@ export function getWorkflowsDatabase() {
     const user = process.env.DB_USER;
     const password = process.env.DB_PASSWORD;
     const database = process.env.WORKFLOWS_DB;
-    
+
     if (!host || !user || !password || !database) {
-      throw new Error('Missing required database environment variables: DB_HOST, DB_USER, DB_PASSWORD, WORKFLOWS_DB');
+      throw new Error(
+        'Missing required database environment variables: DB_HOST, DB_USER, DB_PASSWORD, WORKFLOWS_DB',
+      );
     }
-    
+
     workflowsPool = new Pool({
       host,
       port: parseInt(process.env.DB_PORT || '5432'),
@@ -29,9 +31,9 @@ export function getWorkflowsDatabase() {
       connectionTimeoutMillis: 10000, // Increased from 2000ms to 10000ms
     });
 
-    workflowsDb = drizzle(workflowsPool, { 
+    workflowsDb = drizzle(workflowsPool, {
       schema: workflowsSchema,
-      logger: process.env.NODE_ENV === 'development'
+      logger: process.env.NODE_ENV === 'development',
     });
   }
 
@@ -46,4 +48,4 @@ export function closeWorkflowsDatabaseConnection(): Promise<void> {
 }
 
 // Export schema for use in other files
-export * from "./workflows-schema/index.js";
+export * from './workflows-schema/index.js';

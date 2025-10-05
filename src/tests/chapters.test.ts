@@ -111,9 +111,39 @@ describe('ChaptersService', () => {
 
   it('returns latest versions for story chapters', async () => {
     const chaptersData = [
-      { id: '1', chapterNumber: 1, title: 'v2', htmlContent: '', imageUri: null, audioUri: null, version: 2, createdAt: new Date(), updatedAt: new Date() },
-      { id: '2', chapterNumber: 1, title: 'v1', htmlContent: '', imageUri: null, audioUri: null, version: 1, createdAt: new Date(), updatedAt: new Date() },
-      { id: '3', chapterNumber: 2, title: 'b', htmlContent: '', imageUri: null, audioUri: null, version: 1, createdAt: new Date(), updatedAt: new Date() },
+      {
+        id: '1',
+        chapterNumber: 1,
+        title: 'v2',
+        htmlContent: '',
+        imageUri: null,
+        audioUri: null,
+        version: 2,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+      {
+        id: '2',
+        chapterNumber: 1,
+        title: 'v1',
+        htmlContent: '',
+        imageUri: null,
+        audioUri: null,
+        version: 1,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+      {
+        id: '3',
+        chapterNumber: 2,
+        title: 'b',
+        htmlContent: '',
+        imageUri: null,
+        audioUri: null,
+        version: 1,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
     ];
     mockDb.select.mockReturnValue({
       from: jest.fn().mockReturnValue({
@@ -129,4 +159,3 @@ describe('ChaptersService', () => {
     expect(result[1].chapterNumber).toBe(2);
   });
 });
-

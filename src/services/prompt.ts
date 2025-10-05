@@ -32,14 +32,14 @@ export class PromptService {
    */
   static async loadPrompt(locale: string, promptName: string): Promise<PromptTemplate> {
     try {
-  const promptPath = pathPosix.join(this.PROMPTS_BASE_PATH, locale, `${promptName}.json`);
+      const promptPath = pathPosix.join(this.PROMPTS_BASE_PATH, locale, `${promptName}.json`);
       const promptContent = await readFile(promptPath, 'utf-8');
       const promptTemplate = JSON.parse(promptContent) as PromptTemplate;
 
       logger.debug('Prompt template loaded successfully', {
         locale,
         promptName,
-        promptPath
+        promptPath,
       });
 
       return promptTemplate;
@@ -47,32 +47,32 @@ export class PromptService {
       logger.error('Failed to load prompt template', {
         error: error instanceof Error ? error.message : String(error),
         locale,
-        promptName
+        promptName,
       });
       throw new Error(`Failed to load prompt template: ${locale}/${promptName}`);
     }
   }
-  
+
   /**
    * Load an image prompt template from JSON file
    * These are stored in src/prompts/images/
    */
   static async loadImagePrompt(imageType: string): Promise<PromptTemplate> {
     try {
-  const promptPath = pathPosix.join(this.PROMPTS_BASE_PATH, 'images', `${imageType}.json`);
+      const promptPath = pathPosix.join(this.PROMPTS_BASE_PATH, 'images', `${imageType}.json`);
       const promptContent = await readFile(promptPath, 'utf-8');
       const promptTemplate = JSON.parse(promptContent) as PromptTemplate;
 
       logger.debug('Image prompt template loaded successfully', {
         imageType,
-        promptPath
+        promptPath,
       });
 
       return promptTemplate;
     } catch (error) {
       logger.error('Failed to load image prompt template', {
         error: error instanceof Error ? error.message : String(error),
-        imageType
+        imageType,
       });
       throw new Error(`Failed to load image prompt template: images/${imageType}.json`);
     }
@@ -95,7 +95,7 @@ export class PromptService {
     // Process all variables for conditional logic
     for (const [key, value] of Object.entries(variables)) {
       const conditionalPattern = new RegExp(`\\{\\{#${key}\\}\\}(.*?)\\{\\{\\/${key}\\}\\}`, 'gs');
-      
+
       if (value && String(value).trim() !== '') {
         // Replace conditional blocks with their content if value is truthy and not empty
         processedTemplate = processedTemplate.replace(conditionalPattern, '$1');
@@ -112,17 +112,17 @@ export class PromptService {
    * Build a complete prompt with system and user messages
    */
   static buildPrompt(promptTemplate: PromptTemplate, variables: Record<string, unknown>): string {
-    const systemPrompt = promptTemplate.systemPrompt 
+    const systemPrompt = promptTemplate.systemPrompt
       ? this.processPrompt(promptTemplate.systemPrompt, variables)
       : '';
-    
+
     const userPrompt = this.processPrompt(promptTemplate.userPrompt, variables);
 
     // Combine system and user prompts
     if (systemPrompt) {
       return `${systemPrompt}\n\n${userPrompt}`;
     }
-    
+
     return userPrompt;
   }
 
@@ -131,19 +131,19 @@ export class PromptService {
    */
   static async loadImageStyles(): Promise<ImageStylesCollection> {
     try {
-  const stylesPath = pathPosix.join(this.PROMPTS_BASE_PATH, 'imageStyles.json');
+      const stylesPath = pathPosix.join(this.PROMPTS_BASE_PATH, 'imageStyles.json');
       const stylesContent = await readFile(stylesPath, 'utf-8');
       const imageStyles = JSON.parse(stylesContent) as ImageStylesCollection;
 
       logger.debug('Image styles loaded successfully', {
         stylesCount: Object.keys(imageStyles).length,
-        stylesPath
+        stylesPath,
       });
 
       return imageStyles;
     } catch (error) {
       logger.error('Failed to load image styles', {
-        error: error instanceof Error ? error.message : String(error)
+        error: error instanceof Error ? error.message : String(error),
       });
       throw new Error('Failed to load image styles configuration');
     }
@@ -154,12 +154,12 @@ export class PromptService {
    */
   static async getImageStylePrompt(styleName: string): Promise<ImageStyleTemplate> {
     const imageStyles = await this.loadImageStyles();
-      if (!imageStyles[styleName]) {
+    if (!imageStyles[styleName]) {
       logger.warn('Image style not found, using default', { styleName });
       // Return a default style if the requested one doesn't exist
       return {
-        systemPrompt: "Create a high-quality image with attention to detail and composition.",
-        style: "high quality, detailed, well-composed"
+        systemPrompt: 'Create a high-quality image with attention to detail and composition.',
+        style: 'high quality, detailed, well-composed',
       };
     }
 

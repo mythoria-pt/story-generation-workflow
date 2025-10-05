@@ -293,11 +293,7 @@ const databaseAdapter = new DrizzleDatabaseAdapter(db);
 const storageAdapter = new GCSStorageAdapter(bucket);
 const aiGateway = AIGateway.fromEnvironment();
 
-const workflowService = new WorkflowService(
-  databaseAdapter,
-  storageAdapter,
-  aiGateway,
-);
+const workflowService = new WorkflowService(databaseAdapter, storageAdapter, aiGateway);
 ```
 
 #### 2. Interface-based Design
@@ -347,7 +343,7 @@ export class WorkflowError extends Error {
     public retryable: boolean = false,
   ) {
     super(message);
-    this.name = "WorkflowError";
+    this.name = 'WorkflowError';
   }
 }
 ```
@@ -371,16 +367,10 @@ export const asyncHandler = (
 ```typescript
 // Context manager for maintaining conversation state
 export class ContextManager {
-  async initializeContext(
-    contextId: string,
-    storyId: string,
-    systemPrompt: string,
-  ): Promise<void> {
+  async initializeContext(contextId: string, storyId: string, systemPrompt: string): Promise<void> {
     const context = {
       storyId,
-      conversationHistory: [
-        { role: "system", content: systemPrompt, step: "init" },
-      ],
+      conversationHistory: [{ role: 'system', content: systemPrompt, step: 'init' }],
       providerData: {},
       createdAt: new Date(),
       lastUsedAt: new Date(),
@@ -399,16 +389,16 @@ export class ContextManager {
 
 ```typescript
 // Example unit test
-describe("AIGateway", () => {
-  describe("Text Generation", () => {
-    it("should generate text using configured provider", async () => {
+describe('AIGateway', () => {
+  describe('Text Generation', () => {
+    it('should generate text using configured provider', async () => {
       const mockProvider = new MockTextService();
       const gateway = new AIGateway(mockProvider, mockImageService);
 
-      const result = await gateway.generateText("test prompt");
+      const result = await gateway.generateText('test prompt');
 
       expect(result).toBeDefined();
-      expect(mockProvider.complete).toHaveBeenCalledWith("test prompt");
+      expect(mockProvider.complete).toHaveBeenCalledWith('test prompt');
     });
   });
 });
@@ -418,19 +408,16 @@ describe("AIGateway", () => {
 
 ```typescript
 // Example integration test
-describe("Story Generation Integration", () => {
-  it("should complete full workflow", async () => {
+describe('Story Generation Integration', () => {
+  it('should complete full workflow', async () => {
     const request = {
-      storyId: "test-story",
-      runId: "test-run",
-      prompt: "A magical adventure",
+      storyId: 'test-story',
+      runId: 'test-run',
+      prompt: 'A magical adventure',
     };
 
     // Test actual AI providers (with rate limiting)
-    const response = await request(app)
-      .post("/ai/text/outline")
-      .send(request)
-      .expect(200);
+    const response = await request(app).post('/ai/text/outline').send(request).expect(200);
 
     expect(response.body.outline).toBeDefined();
   });
@@ -447,14 +434,11 @@ export class MockTextService implements ITextGenerationService {
     return `Mock response for: ${prompt}`;
   }
 
-  async generateStructured<T>(
-    prompt: string,
-    schema: ZodSchema<T>,
-  ): Promise<T> {
+  async generateStructured<T>(prompt: string, schema: ZodSchema<T>): Promise<T> {
     // Return valid mock data matching schema
     return {
-      title: "Mock Story",
-      chapters: ["Chapter 1", "Chapter 2"],
+      title: 'Mock Story',
+      chapters: ['Chapter 1', 'Chapter 2'],
     } as T;
   }
 }
@@ -466,10 +450,7 @@ export class MockTextService implements ITextGenerationService {
 export class MockDatabaseAdapter implements IDatabaseAdapter {
   private stories = new Map();
 
-  async updateStoryGenerationRun(
-    runId: string,
-    updates: object,
-  ): Promise<void> {
+  async updateStoryGenerationRun(runId: string, updates: object): Promise<void> {
     // Mock implementation
   }
 }
@@ -484,22 +465,19 @@ export class MockDatabaseAdapter implements IDatabaseAdapter {
 ```typescript
 // Logger setup with Winston
 const logger = winston.createLogger({
-  level: process.env.LOG_LEVEL || "info",
-  format: winston.format.combine(
-    winston.format.timestamp(),
-    winston.format.json(),
-  ),
+  level: process.env.LOG_LEVEL || 'info',
+  format: winston.format.combine(winston.format.timestamp(), winston.format.json()),
   transports: [
     new winston.transports.Console(),
-    new winston.transports.File({ filename: "logs/app.log" }),
+    new winston.transports.File({ filename: 'logs/app.log' }),
   ],
 });
 
 // Usage in code
-logger.info("Story generation started", {
+logger.info('Story generation started', {
   storyId,
   runId,
-  provider: "vertex",
+  provider: 'vertex',
 });
 ```
 
@@ -507,10 +485,7 @@ logger.info("Story generation started", {
 
 ```typescript
 // Add context to all log entries
-export const createContextLogger = (context: {
-  storyId: string;
-  runId: string;
-}) => {
+export const createContextLogger = (context: { storyId: string; runId: string }) => {
   return logger.child(context);
 };
 ```
@@ -536,16 +511,16 @@ npm run debug:workflow
 // Environment validation with detailed errors
 export const validateEnvironment = () => {
   const schema = z.object({
-    NODE_ENV: z.enum(["development", "test", "production"]),
-    TEXT_PROVIDER: z.enum(["vertex", "openai"]),
-    DB_HOST: z.string().min(1, "DB_HOST is required"),
+    NODE_ENV: z.enum(['development', 'test', 'production']),
+    TEXT_PROVIDER: z.enum(['vertex', 'openai']),
+    DB_HOST: z.string().min(1, 'DB_HOST is required'),
     // ... other validations
   });
 
   try {
     return schema.parse(process.env);
   } catch (error) {
-    logger.error("Environment validation failed", { error });
+    logger.error('Environment validation failed', { error });
     process.exit(1);
   }
 };
@@ -557,16 +532,12 @@ export const validateEnvironment = () => {
 
 ```typescript
 // Middleware for request timing
-export const timingMiddleware = (
-  req: Request,
-  res: Response,
-  next: NextFunction,
-) => {
+export const timingMiddleware = (req: Request, res: Response, next: NextFunction) => {
   const start = Date.now();
 
-  res.on("finish", () => {
+  res.on('finish', () => {
     const duration = Date.now() - start;
-    logger.info("Request completed", {
+    logger.info('Request completed', {
       method: req.method,
       url: req.url,
       status: res.statusCode,
@@ -592,7 +563,7 @@ export class TimedTextService implements ITextGenerationService {
       const result = await this.provider.complete(prompt, options);
       const duration = Date.now() - start;
 
-      logger.info("AI request completed", {
+      logger.info('AI request completed', {
         provider: this.provider.constructor.name,
         duration,
         promptLength: prompt.length,
@@ -602,7 +573,7 @@ export class TimedTextService implements ITextGenerationService {
       return result;
     } catch (error) {
       const duration = Date.now() - start;
-      logger.error("AI request failed", {
+      logger.error('AI request failed', {
         provider: this.provider.constructor.name,
         duration,
         error: error.message,
@@ -650,35 +621,30 @@ const MAX_RETRY_ATTEMPTS = 3;
 interface ITextGenerationService {}
 
 // Types: PascalCase
-type WorkflowStep = "outline" | "chapters" | "images";
+type WorkflowStep = 'outline' | 'chapters' | 'images';
 ```
 
 #### 2. Function Design
 
 ```typescript
 // Pure functions when possible
-export const formatChapterTitle = (
-  chapterNumber: number,
-  title: string,
-): string => {
+export const formatChapterTitle = (chapterNumber: number, title: string): string => {
   return `Chapter ${chapterNumber}: ${title}`;
 };
 
 // Async functions with proper error handling
-export const generateChapterContent = async (
-  chapter: ChapterRequest,
-): Promise<ChapterResponse> => {
+export const generateChapterContent = async (chapter: ChapterRequest): Promise<ChapterResponse> => {
   try {
     // Implementation
   } catch (error) {
-    logger.error("Chapter generation failed", {
+    logger.error('Chapter generation failed', {
       chapter: chapter.number,
       error,
     });
     throw new WorkflowError(
-      "Failed to generate chapter content",
-      "CHAPTER_GENERATION_FAILED",
-      "write_chapters",
+      'Failed to generate chapter content',
+      'CHAPTER_GENERATION_FAILED',
+      'write_chapters',
       true, // retryable
     );
   }
@@ -690,10 +656,10 @@ export const generateChapterContent = async (
 ```typescript
 // Use discriminated unions for workflow states
 type WorkflowState =
-  | { status: "queued" }
-  | { status: "running"; currentStep: string }
-  | { status: "completed"; result: StoryResult }
-  | { status: "failed"; error: string };
+  | { status: 'queued' }
+  | { status: 'running'; currentStep: string }
+  | { status: 'completed'; result: StoryResult }
+  | { status: 'failed'; error: string };
 
 // Strict input validation
 const validateStoryRequest = (input: unknown): StoryRequest => {
@@ -710,8 +676,8 @@ const validateStoryRequest = (input: unknown): StoryRequest => {
 export const createStorySchema = z.object({
   title: z.string().min(1).max(200),
   prompt: z.string().min(10).max(2000),
-  genre: z.enum(["fantasy", "scifi", "mystery", "romance"]).optional(),
-  targetAudience: z.enum(["children", "young_adult", "adult"]).optional(),
+  genre: z.enum(['fantasy', 'scifi', 'mystery', 'romance']).optional(),
+  targetAudience: z.enum(['children', 'young_adult', 'adult']).optional(),
 });
 ```
 
@@ -719,8 +685,8 @@ export const createStorySchema = z.object({
 
 ```typescript
 // Never log sensitive data
-logger.info("AI request started", {
-  provider: "vertex",
+logger.info('AI request started', {
+  provider: 'vertex',
   model: model,
   // API key excluded from logs
 });
@@ -728,7 +694,7 @@ logger.info("AI request started", {
 // Use environment variables for secrets
 const apiKey = process.env.OPENAI_API_KEY;
 if (!apiKey) {
-  throw new Error("OPENAI_API_KEY environment variable is required");
+  throw new Error('OPENAI_API_KEY environment variable is required');
 }
 ```
 
@@ -736,17 +702,12 @@ if (!apiKey) {
 
 ```typescript
 // Don't expose internal errors to clients
-export const errorHandler = (
-  error: Error,
-  req: Request,
-  res: Response,
-  next: NextFunction,
-) => {
-  logger.error("Request failed", { error, url: req.url });
+export const errorHandler = (error: Error, req: Request, res: Response, next: NextFunction) => {
+  logger.error('Request failed', { error, url: req.url });
 
   // Generic error response for clients
   res.status(500).json({
-    error: "Internal server error",
+    error: 'Internal server error',
     requestId: req.id,
   });
 };

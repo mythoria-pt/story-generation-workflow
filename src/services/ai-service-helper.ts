@@ -4,7 +4,12 @@
  */
 
 import { getAIGatewayWithTokenTracking, AICallContext } from '@/ai/gateway-with-tracking.js';
-import { ITextGenerationService, IImageGenerationService, TextGenerationOptions, ImageGenerationOptions } from '@/ai/interfaces.js';
+import {
+  ITextGenerationService,
+  IImageGenerationService,
+  TextGenerationOptions,
+  ImageGenerationOptions,
+} from '@/ai/interfaces.js';
 import { logger } from '@/config/logger.js';
 
 export class AIServiceHelper {
@@ -32,7 +37,7 @@ export class AIServiceHelper {
   async generateText(
     prompt: string,
     context: AICallContext,
-    options?: TextGenerationOptions
+    options?: TextGenerationOptions,
   ): Promise<string> {
     try {
       const textService = this.getTextService(context);
@@ -41,7 +46,7 @@ export class AIServiceHelper {
       logger.error('Text generation failed in AI service helper', {
         error: error instanceof Error ? error.message : String(error),
         context,
-        promptLength: prompt.length
+        promptLength: prompt.length,
       });
       throw error;
     }
@@ -53,7 +58,7 @@ export class AIServiceHelper {
   async generateImage(
     prompt: string,
     context: AICallContext,
-    options?: ImageGenerationOptions
+    options?: ImageGenerationOptions,
   ): Promise<Buffer> {
     try {
       const imageService = this.getImageService(context);
@@ -62,7 +67,7 @@ export class AIServiceHelper {
       logger.error('Image generation failed in AI service helper', {
         error: error instanceof Error ? error.message : String(error),
         context,
-        promptLength: prompt.length
+        promptLength: prompt.length,
       });
       throw error;
     }
@@ -71,15 +76,11 @@ export class AIServiceHelper {
   /**
    * Create a context object for AI calls
    */
-  createContext(
-    authorId: string,
-    storyId: string,
-    action: AICallContext['action']
-  ): AICallContext {
+  createContext(authorId: string, storyId: string, action: AICallContext['action']): AICallContext {
     return {
       authorId,
       storyId,
-      action
+      action,
     };
   }
 }

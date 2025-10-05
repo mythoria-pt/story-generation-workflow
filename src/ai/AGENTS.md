@@ -1,9 +1,11 @@
 # AGENTS.md
 
 ## Scope
+
 Provider-agnostic AI gateway, token tracking, and provider-specific adapters under `src/ai`.
 
 ## Guidelines
+
 - Implement new providers by satisfying the contracts in `interfaces.ts` / `enhanced-interfaces.ts` and place them under `providers/<provider>/`.
 - Initialise gateways through `AIGateway` or `getAIGatewayWithTokenTracking()`; avoid creating provider instances directly in routes.
 - Read configuration via environment-aware helpers (e.g., `getEnvironment()` or `process.env`) at construction time so defaults match `AIGateway.fromEnvironment()`.

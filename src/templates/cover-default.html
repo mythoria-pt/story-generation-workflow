@@ -1,116 +1,124 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="color-profile" content="CMYK">
-  <title>{{title}} - Cover</title>
-  <style>
-    @page {
-      size: {{coverSpreadWMM}}mm {{coverSpreadHMM}}mm;
-      margin: 0;
-      bleed: {{coverBleedMM}}mm;
-    }
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-profile" content="CMYK" />
+    <title>{{title}} - Cover</title>
+    <style>
+      @page {
+        size: {{coverSpreadWMM}}mm {{coverSpreadHMM}}mm;
+        margin: 0;
+        bleed: {{coverBleedMM}}mm;
+      }
 
-    body {
-      margin: 0;
-      padding: 0;
-      font-family: 'Times New Roman', 'Liberation Serif', serif;
-      width: 100%;
-      height: 100vh;
-      display: flex;
-    }
+      body {
+        margin: 0;
+        padding: 0;
+        font-family: 'Times New Roman', 'Liberation Serif', serif;
+        width: 100%;
+        height: 100vh;
+        display: flex;
+      }
 
-    .cover {
-      position: relative;
-      width: 100%;
-      height: 100%;
-      display: flex;
-    }
+      .cover {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        display: flex;
+      }
 
-    .back-cover {
-      position: relative;
-      width: calc((100% - {{spineWidthMM}}mm) / 2);
-      height: 100%;
-      background: {{backcoverBackground}};
-      background-size: cover;
-      background-position: center;
-    }
+      .back-cover {
+        position: relative;
+        width: calc((100% - {{spineWidthMM}}mm) / 2);
+        height: 100%;
+        background: {{backcoverBackground}};
+        background-size: cover;
+        background-position: center;
+      }
 
-    .info-rectangle {
-      position: absolute;
-      left: -{{coverBleedMM}}mm; /* Include bleed area */
-      bottom: 10%;
-      width: calc(40% + {{coverBleedMM}}mm);
-      height: 11%;
-      background-color: #F5E6D3; /* Light pastel beige */
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 10px;
-      box-sizing: border-box;
-    }
+      .info-rectangle {
+        position: absolute;
+        left: -{{coverBleedMM}}mm; /* Include bleed area */
+        bottom: 10%;
+        width: calc(40% + {{coverBleedMM}}mm);
+        height: 11%;
+        background-color: #F5E6D3; /* Light pastel beige */
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 10px;
+        box-sizing: border-box;
+      }
 
-    .info-content {
-      display: flex;
-      align-items: center;
-      gap: 15px;
-      height: 90%;
-    }
+      .info-content {
+        display: flex;
+        align-items: center;
+        gap: 15px;
+        height: 90%;
+      }
 
-    .logo-img {
-      margin-left: 5mm;
-    }
+      .logo-img {
+        margin-left: 5mm;
+      }
 
-    .logo-img, .qr-img {
-      height: 100%;
-      width: auto;
-      border: 1px solid #BBB; /* Very thin light grey border */
-      box-sizing: border-box;
-    }
+      .logo-img, .qr-img {
+        height: 100%;
+        width: auto;
+        border: 1px solid #BBB; /* Very thin light grey border */
+        box-sizing: border-box;
+      }
 
-    .separator-line {
-      width: 1px;
-      height: 100%;
-      background-color: #BBB; /* Dark grey */
-    }
+      .separator-line {
+        width: 1px;
+        height: 100%;
+        background-color: #BBB; /* Dark grey */
+      }
 
-    .spine {
-      width: {{spineWidthMM}}mm;
-      height: 100%;
-      background: #333;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      writing-mode: vertical-lr;
-      text-orientation: mixed;
-      color: white;
-      font-size: 8pt;
-      font-weight: bold;
-    }
+      .spine {
+        width: {{spineWidthMM}}mm;
+        height: 100%;
+        background: #333;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        writing-mode: vertical-lr;
+        text-orientation: mixed;
+        color: white;
+        font-size: 8pt;
+        font-weight: bold;
+      }
 
-    .front-cover {
-      width: calc((100% - {{spineWidthMM}}mm) / 2);
-      height: 100%;
-      background: {{frontcoverBackground}};
-      background-size: cover;
-      background-position: center;
-    }
-  </style>
-</head>
-<body>
-  <div class="cover">
-    <div class="back-cover">
-      <div class="info-rectangle">
-        <div class="info-content">
-          <img class="logo-img" src="https://storage.googleapis.com/mythoria-generated-stories/logo/{{graphicalStyle}}.jpg" alt="Mythoria Logo">
-          <div class="separator-line"></div>
-          <img class="qr-img" src="https://storage.googleapis.com/mythoria-generated-stories/qr-code.png" alt="QR Code">
+      .front-cover {
+        width: calc((100% - {{spineWidthMM}}mm) / 2);
+        height: 100%;
+        background: {{frontcoverBackground}};
+        background-size: cover;
+        background-position: center;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="cover">
+      <div class="back-cover">
+        <div class="info-rectangle">
+          <div class="info-content">
+            <img
+              class="logo-img"
+              src="https://storage.googleapis.com/mythoria-generated-stories/logo/{{graphicalStyle}}.jpg"
+              alt="Mythoria Logo"
+            />
+            <div class="separator-line"></div>
+            <img
+              class="qr-img"
+              src="https://storage.googleapis.com/mythoria-generated-stories/qr-code.png"
+              alt="QR Code"
+            />
+          </div>
         </div>
       </div>
+      <div class="spine"></div>
+      <div class="front-cover"></div>
     </div>
-    <div class="spine"></div>
-    <div class="front-cover"></div>
-  </div>
-</body>
+  </body>
 </html>

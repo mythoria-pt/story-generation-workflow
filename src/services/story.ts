@@ -61,7 +61,7 @@ export class StoryService {
     } catch (error) {
       logger.error('Failed to check story existence', {
         error: error instanceof Error ? error.message : String(error),
-        storyId
+        storyId,
       });
       return false;
     }
@@ -74,23 +74,20 @@ export class StoryService {
     try {
       // Validate input
       if (!storyId || typeof storyId !== 'string') {
-        logger.error('Invalid storyId provided to getStoryContext', { 
+        logger.error('Invalid storyId provided to getStoryContext', {
           storyId: String(storyId),
-          type: typeof storyId 
+          type: typeof storyId,
         });
         return null;
       }
 
       // Get story details
-      const [story] = await this.db
-        .select()
-        .from(stories)
-        .where(eq(stories.storyId, storyId));
+      const [story] = await this.db.select().from(stories).where(eq(stories.storyId, storyId));
       if (!story) {
-        logger.warn('Story not found in getStoryContext', { 
+        logger.warn('Story not found in getStoryContext', {
           storyId,
           method: 'getStoryContext',
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
         });
         return null;
       }
@@ -115,8 +112,9 @@ export class StoryService {
         storyId,
         title: story.title,
         charactersCount: storyCharactersData.length,
-        hasChapterCount: !!story.chapterCount
-      });      return {
+        hasChapterCount: !!story.chapterCount,
+      });
+      return {
         story: {
           storyId: story.storyId,
           authorId: story.authorId,
@@ -131,7 +129,7 @@ export class StoryService {
           storyLanguage: story.storyLanguage,
           chapterCount: story.chapterCount || undefined,
         },
-        characters: storyCharactersData.map(char => ({
+        characters: storyCharactersData.map((char) => ({
           characterId: char.characterId,
           name: char.name,
           type: char.type || undefined,
@@ -140,12 +138,12 @@ export class StoryService {
           traits: char.traits || undefined,
           characteristics: char.characteristics || undefined,
           physicalDescription: char.physicalDescription || undefined,
-        }))
+        })),
       };
     } catch (error) {
       logger.error('Failed to get story context', {
         error: error instanceof Error ? error.message : String(error),
-        storyId
+        storyId,
       });
       throw error;
     }
@@ -198,7 +196,7 @@ export class StoryService {
     } catch (error) {
       logger.error('Failed to get story', {
         error: error instanceof Error ? error.message : String(error),
-        storyId
+        storyId,
       });
       throw error;
     }
@@ -206,16 +204,19 @@ export class StoryService {
   /**
    * Update story with URI fields
    */
-  async updateStoryUris(storyId: string, updates: {
-    audiobookUri?: object;
-    hasAudio?: boolean;
-  htmlUri?: string;
-    interiorPdfUri?: string;
-    coverPdfUri?: string;
-  }) {
+  async updateStoryUris(
+    storyId: string,
+    updates: {
+      audiobookUri?: object;
+      hasAudio?: boolean;
+      htmlUri?: string;
+      interiorPdfUri?: string;
+      coverPdfUri?: string;
+    },
+  ) {
     try {
       const updateData: Record<string, unknown> = {};
-      
+
       if (updates.audiobookUri !== undefined) {
         updateData.audiobookUri = updates.audiobookUri;
       }
@@ -228,18 +229,19 @@ export class StoryService {
       if (updates.coverPdfUri !== undefined) {
         updateData.coverPdfUri = updates.coverPdfUri;
       }
-      
+
       // Use retry logic for database connection timeouts
-      await retry(async () => {
-        await this.db
-          .update(stories)
-          .set(updateData)
-          .where(eq(stories.storyId, storyId));
-      }, 3, 1000); // 3 retries, starting with 1s delay
+      await retry(
+        async () => {
+          await this.db.update(stories).set(updateData).where(eq(stories.storyId, storyId));
+        },
+        3,
+        1000,
+      ); // 3 retries, starting with 1s delay
 
       logger.info('Story URIs updated successfully', {
         storyId,
-        updates: Object.keys(updateData)
+        updates: Object.keys(updateData),
       });
 
       return true;
@@ -247,7 +249,7 @@ export class StoryService {
       logger.error('Failed to update story URIs', {
         error: error instanceof Error ? error.message : String(error),
         storyId,
-        updates
+        updates,
       });
       throw error;
     }
@@ -259,19 +261,23 @@ export class StoryService {
   async updateStoryCompletionPercentage(storyId: string, completionPercentage: number) {
     try {
       // Use retry logic for database connection timeouts
-      await retry(async () => {
-        await this.db
-          .update(stories)
-          .set({ 
-            storyGenerationCompletedPercentage: completionPercentage,
-            updatedAt: new Date()
-          })
-          .where(eq(stories.storyId, storyId));
-      }, 3, 1000); // 3 retries, starting with 1s delay
+      await retry(
+        async () => {
+          await this.db
+            .update(stories)
+            .set({
+              storyGenerationCompletedPercentage: completionPercentage,
+              updatedAt: new Date(),
+            })
+            .where(eq(stories.storyId, storyId));
+        },
+        3,
+        1000,
+      ); // 3 retries, starting with 1s delay
 
       logger.info('Story completion percentage updated', {
         storyId,
-        completionPercentage
+        completionPercentage,
       });
 
       return true;
@@ -279,7 +285,7 @@ export class StoryService {
       logger.error('Failed to update story completion percentage', {
         error: error instanceof Error ? error.message : String(error),
         storyId,
-        completionPercentage
+        completionPercentage,
       });
       throw error;
     }
@@ -291,19 +297,23 @@ export class StoryService {
   async updateStoryStatus(storyId: string, status: 'draft' | 'writing' | 'published') {
     try {
       // Use retry logic for database connection timeouts
-      await retry(async () => {
-        await this.db
-          .update(stories)
-          .set({ 
-            status,
-            updatedAt: new Date()
-          })
-          .where(eq(stories.storyId, storyId));
-      }, 3, 1000); // 3 retries, starting with 1s delay
+      await retry(
+        async () => {
+          await this.db
+            .update(stories)
+            .set({
+              status,
+              updatedAt: new Date(),
+            })
+            .where(eq(stories.storyId, storyId));
+        },
+        3,
+        1000,
+      ); // 3 retries, starting with 1s delay
 
       logger.info('Story status updated', {
         storyId,
-        status
+        status,
       });
 
       return true;
@@ -311,7 +321,7 @@ export class StoryService {
       logger.error('Failed to update story status', {
         error: error instanceof Error ? error.message : String(error),
         storyId,
-        status
+        status,
       });
       throw error;
     }
@@ -320,30 +330,30 @@ export class StoryService {
   /**
    * Update audiobook status
    */
-  async updateAudiobookStatus(storyId: string, updates: {
-    audiobookStatus?: string;
-    audiobookUri?: object;
-  }) {
+  async updateAudiobookStatus(
+    storyId: string,
+    updates: {
+      audiobookStatus?: string;
+      audiobookUri?: object;
+    },
+  ) {
     try {
       const updateData: Record<string, unknown> = {
-        updatedAt: new Date()
+        updatedAt: new Date(),
       };
-      
+
       if (updates.audiobookStatus !== undefined) {
         updateData.audiobookStatus = updates.audiobookStatus;
       }
       if (updates.audiobookUri !== undefined) {
         updateData.audiobookUri = updates.audiobookUri;
       }
-      
-      await this.db
-        .update(stories)
-        .set(updateData)
-        .where(eq(stories.storyId, storyId));
+
+      await this.db.update(stories).set(updateData).where(eq(stories.storyId, storyId));
 
       logger.info('Audiobook status updated successfully', {
         storyId,
-        updates: Object.keys(updateData)
+        updates: Object.keys(updateData),
       });
 
       return true;
@@ -351,7 +361,7 @@ export class StoryService {
       logger.error('Failed to update audiobook status', {
         error: error instanceof Error ? error.message : String(error),
         storyId,
-        updates
+        updates,
       });
       throw error;
     }
@@ -360,37 +370,41 @@ export class StoryService {
   /**
    * Update story cover URIs
    */
-  async updateStoryCoverUris(storyId: string, updates: {
-    coverUri?: string;
-    backcoverUri?: string;
-  }) {
+  async updateStoryCoverUris(
+    storyId: string,
+    updates: {
+      coverUri?: string;
+      backcoverUri?: string;
+    },
+  ) {
     try {
       const updateData: Record<string, unknown> = {};
-      
+
       if (updates.coverUri !== undefined) {
         updateData.coverUri = updates.coverUri;
       }
       if (updates.backcoverUri !== undefined) {
         updateData.backcoverUri = updates.backcoverUri;
       }
-      
+
       if (Object.keys(updateData).length === 0) {
         return true; // Nothing to update
       }
-      
+
       updateData.updatedAt = new Date();
-      
+
       // Use retry logic for database connection timeouts
-      await retry(async () => {
-        await this.db
-          .update(stories)
-          .set(updateData)
-          .where(eq(stories.storyId, storyId));
-      }, 3, 1000); // 3 retries, starting with 1s delay
+      await retry(
+        async () => {
+          await this.db.update(stories).set(updateData).where(eq(stories.storyId, storyId));
+        },
+        3,
+        1000,
+      ); // 3 retries, starting with 1s delay
 
       logger.info('Story cover URIs updated successfully', {
         storyId,
-        updates: Object.keys(updateData)
+        updates: Object.keys(updateData),
       });
 
       return true;
@@ -398,7 +412,7 @@ export class StoryService {
       logger.error('Failed to update story cover URIs', {
         error: error instanceof Error ? error.message : String(error),
         storyId,
-        updates
+        updates,
       });
       throw error;
     }
@@ -422,7 +436,7 @@ export class StoryService {
           createdAt: stories.createdAt,
           synopsis: stories.synopsis,
           graphicalStyle: stories.graphicalStyle,
-          targetAudience: stories.targetAudience
+          targetAudience: stories.targetAudience,
         })
         .from(stories)
         .where(eq(stories.storyId, storyId));
@@ -438,7 +452,7 @@ export class StoryService {
           title: chapters.title,
           content: chapters.htmlContent,
           imageUri: chapters.imageUri,
-          version: chapters.version
+          version: chapters.version,
         })
         .from(chapters)
         .where(eq(chapters.storyId, storyId))
@@ -452,31 +466,32 @@ export class StoryService {
         }
       }
 
-      const chaptersFromDb = Array.from(chaptersMap.values())
-        .sort((a, b) => a.chapterNumber - b.chapterNumber);
+      const chaptersFromDb = Array.from(chaptersMap.values()).sort(
+        (a, b) => a.chapterNumber - b.chapterNumber,
+      );
 
       // Transform chapters to the format expected by the print service
-      const chaptersForPrint = chaptersFromDb.map(chapter => ({
+      const chaptersForPrint = chaptersFromDb.map((chapter) => ({
         title: chapter.title,
         content: chapter.content || 'No content available',
-        imageUri: chapter.imageUri
+        imageUri: chapter.imageUri,
       }));
 
       logger.info('Story data fetched for print generation', {
         storyId,
         title: storyData.title,
         chaptersFromDb: chaptersFromDb.length,
-        chaptersForPrint: chaptersForPrint.length
+        chaptersForPrint: chaptersForPrint.length,
       });
 
       return {
         ...storyData,
-        chapters: chaptersForPrint
+        chapters: chaptersForPrint,
       };
     } catch (error) {
       logger.error('Failed to get story for print', {
         error: error instanceof Error ? error.message : String(error),
-        storyId
+        storyId,
       });
       throw error;
     }
@@ -485,30 +500,34 @@ export class StoryService {
   /**
    * Update story with print PDF URLs
    */
-  async updateStoryPrintUrls(storyId: string, updates: {
-    interiorPdfUri?: string;
-    coverPdfUri?: string;
-  }) {
+  async updateStoryPrintUrls(
+    storyId: string,
+    updates: {
+      interiorPdfUri?: string;
+      coverPdfUri?: string;
+    },
+  ) {
     try {
       const updateData: Record<string, unknown> = {};
-      
+
       if (updates.interiorPdfUri !== undefined) {
         updateData.interiorPdfUri = updates.interiorPdfUri;
       }
       if (updates.coverPdfUri !== undefined) {
         updateData.coverPdfUri = updates.coverPdfUri;
       }
-      
-      await retry(async () => {
-        await this.db
-          .update(stories)
-          .set(updateData)
-          .where(eq(stories.storyId, storyId));
-      }, 3, 1000);
+
+      await retry(
+        async () => {
+          await this.db.update(stories).set(updateData).where(eq(stories.storyId, storyId));
+        },
+        3,
+        1000,
+      );
 
       logger.info('Story print URLs updated successfully', {
         storyId,
-        updates: Object.keys(updateData)
+        updates: Object.keys(updateData),
       });
 
       return true;
@@ -516,7 +535,7 @@ export class StoryService {
       logger.error('Failed to update story print URLs', {
         error: error instanceof Error ? error.message : String(error),
         storyId,
-        updates
+        updates,
       });
       throw error;
     }
@@ -533,12 +552,12 @@ export class StoryService {
       title?: string;
       synopsis?: string;
       plotDescription?: string;
-    }
+    },
   ) {
     try {
       const updateData: Record<string, unknown> = {
         storyLanguage: updates.storyLanguage,
-        updatedAt: new Date()
+        updatedAt: new Date(),
       };
 
       if (typeof updates.title === 'string') {
@@ -551,23 +570,24 @@ export class StoryService {
         updateData.plotDescription = updates.plotDescription;
       }
 
-      await retry(async () => {
-        await this.db
-          .update(stories)
-          .set(updateData)
-          .where(eq(stories.storyId, storyId));
-      }, 3, 1000);
+      await retry(
+        async () => {
+          await this.db.update(stories).set(updateData).where(eq(stories.storyId, storyId));
+        },
+        3,
+        1000,
+      );
 
       logger.info('Story language/texts updated successfully', {
         storyId,
-        fields: Object.keys(updateData)
+        fields: Object.keys(updateData),
       });
 
       return true;
     } catch (error) {
       logger.error('Failed to update story language/texts', {
         error: error instanceof Error ? error.message : String(error),
-        storyId
+        storyId,
       });
       throw error;
     }

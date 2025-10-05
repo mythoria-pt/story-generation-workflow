@@ -4,13 +4,13 @@
  */
 
 import { logger } from '@/config/logger.js';
-import { 
-  StoryContext, 
-  formatTargetAudience, 
-  getLanguageName, 
-  prepareCharactersForPrompt, 
+import {
+  StoryContext,
+  formatTargetAudience,
+  getLanguageName,
+  prepareCharactersForPrompt,
   getStoryDescription,
-  parseAIResponse
+  parseAIResponse,
 } from '@/shared/utils.js';
 
 export interface OutlineTemplateVars {
@@ -51,7 +51,7 @@ export interface ChapterTemplateVars {
 export function prepareOutlineTemplateVars(storyContext: StoryContext): OutlineTemplateVars {
   // Use the chapterCount from the database, fallback to 6 if not available
   const chapterCount = storyContext.story.chapterCount || 6;
-  
+
   return {
     novelStyle: storyContext.story.novelStyle || 'adventure',
     targetAudience: formatTargetAudience(storyContext.story.targetAudience),
@@ -70,7 +70,7 @@ export function prepareOutlineTemplateVars(storyContext: StoryContext): OutlineT
     chapterNumber: '1',
     chapterPhotoPrompt: 'Chapter illustration prompt will be generated',
     chapterTitle: 'Chapter title will be generated',
-    chapterSynopses: 'Chapter synopsis will be generated'
+    chapterSynopses: 'Chapter synopsis will be generated',
   };
 }
 
@@ -82,11 +82,12 @@ export function prepareChapterTemplateVars(
   chapterNumber: number,
   chapterTitle: string,
   chapterSynopses: string,
-  chapterCount?: number
+  chapterCount?: number,
 ): ChapterTemplateVars {
-  const hookInstruction = chapterCount && chapterNumber < chapterCount 
-    ? 'If relevant, you may end with a hook for the next chapter.'
-    : '';
+  const hookInstruction =
+    chapterCount && chapterNumber < chapterCount
+      ? 'If relevant, you may end with a hook for the next chapter.'
+      : '';
 
   return {
     chapterNumber: chapterNumber.toString(),
@@ -97,7 +98,7 @@ export function prepareChapterTemplateVars(
     chapterSynopses: chapterSynopses,
     language: getLanguageName(storyContext.story.storyLanguage),
     chapterCount: chapterCount?.toString() || '10',
-    hookInstruction: hookInstruction
+    hookInstruction: hookInstruction,
   };
 }
 
@@ -106,10 +107,10 @@ export function prepareChapterTemplateVars(
  */
 export function validateOutlineStructure(outlineData: unknown): boolean {
   return !!(
-    outlineData && 
+    outlineData &&
     typeof outlineData === 'object' &&
-    'bookTitle' in outlineData && 
-    'chapters' in outlineData && 
+    'bookTitle' in outlineData &&
+    'chapters' in outlineData &&
     Array.isArray((outlineData as { chapters: unknown }).chapters)
   );
 }
@@ -121,22 +122,22 @@ export async function handleAIResponse(
   response: string,
   storyId: string,
   runId: string,
-  validateFn?: (data: unknown) => boolean
+  validateFn?: (data: unknown) => boolean,
 ): Promise<unknown> {
   try {
     const parsedData = parseAIResponse(response);
-    
+
     if (validateFn && !validateFn(parsedData)) {
       throw new Error('Invalid response structure received');
     }
-    
+
     return parsedData;
   } catch (error) {
     logger.error('Failed to parse AI response', {
       error: error instanceof Error ? error.message : String(error),
       storyId,
       runId,
-      responsePreview: response.substring(0, 500)
+      responsePreview: response.substring(0, 500),
     });
     throw new Error('AI generated invalid response');
   }
@@ -156,16 +157,16 @@ export function getAIModelConfig(modelType: 'outline' | 'chapter' | 'image' = 'o
   const configs = {
     outline: {
       model: defaultTextModel,
-      temperature: 1
+      temperature: 1,
     },
     chapter: {
       model: defaultTextModel,
-      temperature: 0.8
+      temperature: 0.8,
     },
     image: {
       model: defaultImageModel,
-      temperature: 0.7
-    }
+      temperature: 0.7,
+    },
   } as const;
   return configs[modelType];
 }

@@ -3,6 +3,7 @@
 ## Original Error Analysis
 
 The error you encountered:
+
 ```
 Command failed: gswin64c.exe -dNOPAUSE -dBATCH -dSAFER -dQUIET -sDEVICE=pdfwrite...
 ```
@@ -16,16 +17,19 @@ Was caused by:
 ## Solution Implemented
 
 ### 1. Simplified Ghostscript Command
+
 - Removed problematic parameters that aren't essential
 - Simplified the command line structure
 - Added proper path quoting for Windows
 
 ### 2. Smart ICC Profile Handling
+
 - Detects placeholder files automatically
 - Falls back to built-in CMYK conversion gracefully
 - Validates file size and content before use
 
 ### 3. Conditional PDF/X Features
+
 - PDF/X metadata only added when real ICC profile is available
 - Graceful degradation to standard CMYK conversion
 
@@ -34,17 +38,19 @@ Was caused by:
 ✅ **CMYK conversion works** - Uses Ghostscript's built-in CMYK profiles  
 ✅ **Error handling** - Graceful fallback if conversion fails  
 ✅ **Dual output** - Both RGB and CMYK PDFs are generated  
-✅ **Production ready** - Docker setup downloads real ICC profile  
+✅ **Production ready** - Docker setup downloads real ICC profile
 
 ## How It Works Now
 
 ### Development Environment
+
 1. Uses placeholder ICC profile (detected automatically)
 2. Ghostscript performs RGB→CMYK conversion with built-in profiles
 3. Creates both RGB and CMYK versions of PDFs
 4. If CMYK conversion fails, continues with RGB only
 
 ### Production Environment
+
 1. Docker build downloads real CoatedFOGRA39 ICC profile
 2. Uses professional ICC profile for accurate color conversion
 3. Generates PDF/X-1a compliant files
@@ -53,6 +59,7 @@ Was caused by:
 ## Testing
 
 ### Local Testing
+
 ```bash
 # Test Ghostscript functionality
 npm run test:ghostscript
@@ -65,6 +72,7 @@ npm run cmyk:status
 ```
 
 ### API Testing
+
 ```bash
 # Start development server
 npm run dev
@@ -86,6 +94,7 @@ npm run deploy:cmyk
 ```
 
 This will:
+
 1. Setup ICC profiles
 2. Build Docker image with Ghostscript
 3. Deploy to Cloud Run with proper environment variables
@@ -104,6 +113,7 @@ The new implementation prevents the original error by:
 ## File Outputs
 
 Each print job now creates:
+
 - `interior.pdf` (RGB, original)
 - `cover.pdf` (RGB, original)
 - `interior-cmyk.pdf` (CMYK, print-ready)
@@ -114,6 +124,7 @@ The CMYK files are suitable for professional printing and pass preflight checks.
 ## Monitoring
 
 Watch for these log messages:
+
 - `"CMYK conversion completed successfully"` ✅
 - `"Using built-in CMYK conversion (no ICC profile)"` ⚠️
 - `"CMYK conversion failed, continuing with RGB only"` ⚠️

@@ -15,13 +15,14 @@ export class SchemaService {
    * Load a JSON schema by name
    */
   static async loadSchema(schemaName: string): Promise<object> {
-    try {    // Check cache first
-    if (this.schemaCache.has(schemaName)) {
-      const cachedSchema = this.schemaCache.get(schemaName);
-      if (cachedSchema) {
-        return cachedSchema;
+    try {
+      // Check cache first
+      if (this.schemaCache.has(schemaName)) {
+        const cachedSchema = this.schemaCache.get(schemaName);
+        if (cachedSchema) {
+          return cachedSchema;
+        }
       }
-    }
 
       // Load schema from file
       const schemaPath = join(getPromptsPath(), 'schemas', `${schemaName}.json`);
@@ -33,14 +34,14 @@ export class SchemaService {
 
       logger.debug('Schema loaded successfully', {
         schemaName,
-        schemaPath
+        schemaPath,
       });
 
       return schema;
     } catch (error) {
       logger.error('Failed to load schema', {
         error: error instanceof Error ? error.message : String(error),
-        schemaName
+        schemaName,
       });
       throw new Error(`Failed to load schema: ${schemaName}`);
     }

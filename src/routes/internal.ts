@@ -46,14 +46,14 @@ const UpdateRunRequestSchema = z.object({
 });
 
 const StoreOutlineRequestSchema = z.object({
-  outline: z.record(z.unknown())
+  outline: z.record(z.unknown()),
 });
 
 const StoreChapterRequestSchema = z.object({
   chapterNumber: z.number().int().positive(),
   chapter: z.string(),
   imagePrompts: z.array(z.string()).optional(),
-  chapterTitle: z.string() // Add chapter title
+  chapterTitle: z.string(), // Add chapter title
 });
 
 const StoreImageRequestSchema = z.object({
@@ -61,7 +61,7 @@ const StoreImageRequestSchema = z.object({
   imageType: z.enum(['front_cover', 'back_cover', 'chapter']),
   imageUrl: z.string().url(),
   filename: z.string(),
-  metadata: z.record(z.unknown()).optional()
+  metadata: z.record(z.unknown()).optional(),
 });
 
 /**
@@ -74,11 +74,9 @@ router.get('/auth/status', async (_req, res) => {
   res.json({
     success: true,
     apiKeyConfigured: trimmed.length > 0,
-    keyLength: trimmed.length
+    keyLength: trimmed.length,
   });
 });
-
-
 
 /**
  * PATCH /internal/runs/:runId
@@ -96,7 +94,7 @@ router.patch('/runs/:runId', async (req: Request, res: Response) => {
 
     logger.info('Internal API: Updating run', {
       runId,
-      updates
+      updates,
     });
 
     // First check if run exists, create if missing (defensive programming)
@@ -104,15 +102,15 @@ router.patch('/runs/:runId', async (req: Request, res: Response) => {
     if (!run && updates.storyId) {
       logger.warn('Run not found, creating new run', {
         runId,
-        storyId: updates.storyId
+        storyId: updates.storyId,
       });
-      
+
       run = await runsService.createRun(updates.storyId, runId);
     } else if (!run) {
       logger.error('Run not found and no storyId provided', { runId });
       res.status(404).json({
         success: false,
-        error: `Run not found: ${runId}. Please provide storyId to create missing run.`
+        error: `Run not found: ${runId}. Please provide storyId to create missing run.`,
       });
       return;
     }
@@ -126,40 +124,39 @@ router.patch('/runs/:runId', async (req: Request, res: Response) => {
         await progressTracker.updateStoryProgress(runId);
         logger.debug('Progress percentage updated', { runId });
       } else {
-        logger.debug('Skipping progress update for inactive run', { 
-          runId, 
-          status: updatedRun.status 
+        logger.debug('Skipping progress update for inactive run', {
+          runId,
+          status: updatedRun.status,
         });
       }
     } catch (progressError) {
       // Don't fail the entire request if progress update fails
       logger.warn('Failed to update progress percentage', {
         runId,
-        error: progressError instanceof Error ? progressError.message : String(progressError)
+        error: progressError instanceof Error ? progressError.message : String(progressError),
       });
     }
 
     logger.info('Internal API: Run updated successfully', {
       runId,
       status: updatedRun.status,
-      currentStep: updatedRun.currentStep
+      currentStep: updatedRun.currentStep,
     });
 
     res.json({
       success: true,
-      run: updatedRun
+      run: updatedRun,
     });
     return;
-
   } catch (error) {
     logger.error('Internal API: Failed to update run', {
       error: error instanceof Error ? error.message : String(error),
-      runId: req.params.runId
+      runId: req.params.runId,
     });
 
     res.status(500).json({
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: error instanceof Error ? error.message : 'Unknown error',
     });
     return;
   }
@@ -176,10 +173,10 @@ router.get('/runs/:runId', async (req, res) => {
     logger.debug('Internal API: Getting run', { runId });
 
     const run = await runsService.getRun(runId);
-      if (!run) {
+    if (!run) {
       res.status(404).json({
         success: false,
-        error: 'Run not found'
+        error: 'Run not found',
       });
       return;
     }
@@ -189,18 +186,17 @@ router.get('/runs/:runId', async (req, res) => {
     res.json({
       success: true,
       run,
-      steps
+      steps,
     });
-
   } catch (error) {
     logger.error('Internal API: Failed to get run', {
       error: error instanceof Error ? error.message : String(error),
-      runId: req.params.runId
+      runId: req.params.runId,
     });
 
     res.status(500).json({
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: error instanceof Error ? error.message : 'Unknown error',
     });
   }
 });
@@ -214,35 +210,35 @@ router.get('/prompts/:runId/:chapterNumber', async (req, res) => {
     const runId = req.params.runId;
     const chapterNumber = parseInt(req.params.chapterNumber);
 
-    logger.debug('Internal API: Getting chapter prompt', { runId, chapterNumber });    // Get the outline step result to access chapter photo prompts
+    logger.debug('Internal API: Getting chapter prompt', { runId, chapterNumber }); // Get the outline step result to access chapter photo prompts
     const steps = await runsService.getRunSteps(runId);
-    const outlineStep = steps.find(step => step.stepName === 'generate_outline');
-    
+    const outlineStep = steps.find((step) => step.stepName === 'generate_outline');
+
     if (!outlineStep || !outlineStep.detailJson) {
       res.status(404).json({
         success: false,
-        error: 'Outline not found for this run'
+        error: 'Outline not found for this run',
       });
       return;
     }
 
     const outline = outlineStep.detailJson as OutlineData;
-    
+
     if (!outline.chapters || !Array.isArray(outline.chapters)) {
       res.status(400).json({
         success: false,
-        error: 'Invalid outline structure - chapters not found'
+        error: 'Invalid outline structure - chapters not found',
       });
       return;
     }
 
     // Find the specific chapter
     const chapter = outline.chapters.find((ch) => ch.chapterNumber === chapterNumber);
-    
+
     if (!chapter) {
       res.status(404).json({
         success: false,
-        error: `Chapter ${chapterNumber} not found in outline`
+        error: `Chapter ${chapterNumber} not found in outline`,
       });
       return;
     }
@@ -250,12 +246,12 @@ router.get('/prompts/:runId/:chapterNumber', async (req, res) => {
     if (!chapter.chapterPhotoPrompt) {
       res.status(404).json({
         success: false,
-        error: `No photo prompt found for chapter ${chapterNumber}`
+        error: `No photo prompt found for chapter ${chapterNumber}`,
       });
       return;
-    }    // Get the story context to retrieve graphicalStyle (not needed now but left for future use)
+    } // Get the story context to retrieve graphicalStyle (not needed now but left for future use)
     const enhancedPrompt = chapter.chapterPhotoPrompt;
-    
+
     // Note: Style guidelines are now handled in the OpenAI image service itself
     // via the graphicalStyle option, so we don't add them here anymore
 
@@ -263,22 +259,21 @@ router.get('/prompts/:runId/:chapterNumber', async (req, res) => {
       runId,
       chapterNumber,
       promptLength: enhancedPrompt.length,
-      originalLength: chapter.chapterPhotoPrompt.length
+      originalLength: chapter.chapterPhotoPrompt.length,
     });
 
     // Return the enhanced prompt in the format expected by the workflow
     res.json(enhancedPrompt);
-
   } catch (error) {
     logger.error('Internal API: Failed to get chapter prompt', {
       error: error instanceof Error ? error.message : String(error),
       runId: req.params.runId,
-      chapterNumber: req.params.chapterNumber
+      chapterNumber: req.params.chapterNumber,
     });
 
     res.status(500).json({
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: error instanceof Error ? error.message : 'Unknown error',
     });
   }
 });
@@ -294,12 +289,12 @@ router.post('/runs/:runId/outline', async (req, res) => {
 
     logger.info('Internal API: Storing outline', {
       runId,
-      outlineKeys: Object.keys(outline)
+      outlineKeys: Object.keys(outline),
     });
 
     await runsService.storeStepResult(runId, 'generate_outline', {
       status: 'completed',
-      result: outline
+      result: outline,
     });
 
     // Update progress percentage after storing outline
@@ -309,25 +304,24 @@ router.post('/runs/:runId/outline', async (req, res) => {
     } catch (progressError) {
       logger.warn('Failed to update progress percentage after outline storage', {
         runId,
-        error: progressError instanceof Error ? progressError.message : String(progressError)
+        error: progressError instanceof Error ? progressError.message : String(progressError),
       });
     }
 
     res.json({
       success: true,
       runId,
-      step: 'generate_outline'
+      step: 'generate_outline',
     });
-
   } catch (error) {
     logger.error('Internal API: Failed to store outline', {
       error: error instanceof Error ? error.message : String(error),
-      runId: req.params.runId
+      runId: req.params.runId,
     });
 
     res.status(500).json({
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: error instanceof Error ? error.message : 'Unknown error',
     });
   }
 });
@@ -342,14 +336,14 @@ router.post('/runs/:runId/chapter/:chapterNumber', async (req, res) => {
     const chapterNumber = parseInt(req.params.chapterNumber);
     const { chapter, imagePrompts, chapterTitle } = StoreChapterRequestSchema.parse({
       ...req.body,
-      chapterNumber
+      chapterNumber,
     });
 
     logger.info('Internal API: Storing chapter', {
       runId,
       chapterNumber,
       chapterLength: chapter.length,
-      imagePromptsCount: imagePrompts?.length || 0
+      imagePromptsCount: imagePrompts?.length || 0,
     });
 
     // Get the run to extract storyId and authorId
@@ -357,7 +351,7 @@ router.post('/runs/:runId/chapter/:chapterNumber', async (req, res) => {
     if (!run) {
       res.status(404).json({
         success: false,
-        error: 'Run not found'
+        error: 'Run not found',
       });
       return;
     }
@@ -367,7 +361,7 @@ router.post('/runs/:runId/chapter/:chapterNumber', async (req, res) => {
     if (!story) {
       res.status(404).json({
         success: false,
-        error: 'Story not found'
+        error: 'Story not found',
       });
       return;
     }
@@ -378,7 +372,7 @@ router.post('/runs/:runId/chapter/:chapterNumber', async (req, res) => {
       authorId: story.authorId,
       chapterNumber,
       title: chapterTitle || `Chapter ${chapterNumber}`,
-      htmlContent: chapter
+      htmlContent: chapter,
     });
 
     // Still save to workflow database for backward compatibility and workflow tracking
@@ -389,8 +383,8 @@ router.post('/runs/:runId/chapter/:chapterNumber', async (req, res) => {
         chapter,
         imagePrompts,
         chapterTitle,
-        chapterId: savedChapter.id // Store reference to main database
-      }
+        chapterId: savedChapter.id, // Store reference to main database
+      },
     });
 
     // Update progress percentage after storing chapter
@@ -401,7 +395,7 @@ router.post('/runs/:runId/chapter/:chapterNumber', async (req, res) => {
       logger.warn('Failed to update progress percentage after chapter storage', {
         runId,
         chapterNumber,
-        error: progressError instanceof Error ? progressError.message : String(progressError)
+        error: progressError instanceof Error ? progressError.message : String(progressError),
       });
     }
 
@@ -411,24 +405,21 @@ router.post('/runs/:runId/chapter/:chapterNumber', async (req, res) => {
       chapterNumber,
       chapterId: savedChapter.id,
       version: savedChapter.version,
-      step: `write_chapter_${chapterNumber}`
+      step: `write_chapter_${chapterNumber}`,
     });
-
   } catch (error) {
     logger.error('Internal API: Failed to store chapter', {
       error: error instanceof Error ? error.message : String(error),
       runId: req.params.runId,
-      chapterNumber: req.params.chapterNumber
+      chapterNumber: req.params.chapterNumber,
     });
 
     res.status(500).json({
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: error instanceof Error ? error.message : 'Unknown error',
     });
   }
 });
-
-
 
 /**
  * GET /internal/prompts/:runId/book-cover/:coverType
@@ -442,14 +433,14 @@ router.get('/prompts/:runId/book-cover/:coverType', async (req, res) => {
     if (!['front', 'back'].includes(coverType)) {
       res.status(400).json({
         success: false,
-        error: 'Cover type must be either "front" or "back"'
+        error: 'Cover type must be either "front" or "back"',
       });
       return;
     }
 
     logger.debug('Internal API: Getting book cover prompt', {
       runId,
-      coverType
+      coverType,
     });
 
     // Get the outline step result
@@ -458,24 +449,24 @@ router.get('/prompts/:runId/book-cover/:coverType', async (req, res) => {
     if (!outlineStep?.detailJson) {
       res.status(404).json({
         success: false,
-        error: 'Outline not found for this run'
+        error: 'Outline not found for this run',
       });
       return;
     }
 
     const outline = outlineStep.detailJson as OutlineData;
     const promptField = coverType === 'front' ? 'bookCoverPrompt' : 'bookBackCoverPrompt';
-      if (!outline[promptField]) {
+    if (!outline[promptField]) {
       res.status(404).json({
         success: false,
-        error: `No ${coverType} cover prompt found in outline`
+        error: `No ${coverType} cover prompt found in outline`,
       });
       return;
     }
 
     // Get the story context to retrieve graphicalStyle (not needed now but left for future use)
     const enhancedPrompt = outline[promptField];
-    
+
     // Note: Style guidelines are now handled in the OpenAI image service itself
     // via the graphicalStyle option, so we don't add them here anymore
 
@@ -483,22 +474,21 @@ router.get('/prompts/:runId/book-cover/:coverType', async (req, res) => {
       runId,
       coverType,
       promptLength: enhancedPrompt.length,
-      originalLength: outline[promptField].length
+      originalLength: outline[promptField].length,
     });
 
     // Return the enhanced prompt in the format expected by the workflow
     res.json(enhancedPrompt);
-
   } catch (error) {
     logger.error('Internal API: Failed to get book cover prompt', {
       error: error instanceof Error ? error.message : String(error),
       runId: req.params.runId,
-      coverType: req.params.coverType
+      coverType: req.params.coverType,
     });
 
     res.status(500).json({
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: error instanceof Error ? error.message : 'Unknown error',
     });
   }
 });
@@ -510,13 +500,14 @@ router.get('/prompts/:runId/book-cover/:coverType', async (req, res) => {
 router.post('/runs/:runId/image', async (req, res) => {
   try {
     const runId = req.params.runId;
-    const { chapterNumber, imageType, imageUrl, filename, metadata } = StoreImageRequestSchema.parse(req.body);
+    const { chapterNumber, imageType, imageUrl, filename, metadata } =
+      StoreImageRequestSchema.parse(req.body);
 
     logger.info('Internal API: Storing image result', {
       runId,
       chapterNumber,
       imageType,
-      filename
+      filename,
     });
 
     // Get the run to extract storyId
@@ -524,7 +515,7 @@ router.post('/runs/:runId/image', async (req, res) => {
     if (!run) {
       res.status(404).json({
         success: false,
-        error: 'Run not found'
+        error: 'Run not found',
       });
       return;
     }
@@ -535,13 +526,13 @@ router.post('/runs/:runId/image', async (req, res) => {
       stepName = 'generate_front_cover';
       // Update story cover URI
       await storyService.updateStoryCoverUris(run.storyId, {
-        coverUri: imageUrl
+        coverUri: imageUrl,
       });
     } else if (imageType === 'back_cover') {
       stepName = 'generate_back_cover';
       // Update story back cover URI
       await storyService.updateStoryCoverUris(run.storyId, {
-        backcoverUri: imageUrl
+        backcoverUri: imageUrl,
       });
     } else if (imageType === 'chapter' && chapterNumber) {
       stepName = `generate_image_chapter_${chapterNumber}`;
@@ -550,7 +541,7 @@ router.post('/runs/:runId/image', async (req, res) => {
     } else {
       res.status(400).json({
         success: false,
-        error: 'Invalid image type or missing chapter number for chapter image'
+        error: 'Invalid image type or missing chapter number for chapter image',
       });
       return;
     }
@@ -563,8 +554,8 @@ router.post('/runs/:runId/image', async (req, res) => {
         imageType,
         imageUrl,
         filename,
-        metadata
-      }
+        metadata,
+      },
     });
 
     // Update progress percentage after storing image result
@@ -575,7 +566,7 @@ router.post('/runs/:runId/image', async (req, res) => {
       logger.warn('Failed to update progress percentage after image storage', {
         runId,
         stepName,
-        error: progressError instanceof Error ? progressError.message : String(progressError)
+        error: progressError instanceof Error ? progressError.message : String(progressError),
       });
     }
 
@@ -584,35 +575,33 @@ router.post('/runs/:runId/image', async (req, res) => {
       runId,
       step: stepName,
       imageType,
-      chapterNumber
+      chapterNumber,
     });
-
   } catch (error) {
     logger.error('Internal API: Failed to store image result', {
       error: error instanceof Error ? error.message : String(error),
-      runId: req.params.runId
+      runId: req.params.runId,
     });
 
     res.status(500).json({
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: error instanceof Error ? error.message : 'Unknown error',
     });
   }
 });
-
-
 
 /**
  * GET /internal/stories/:storyId
  * Get story details for validation
  */
-router.get('/stories/:storyId', async (req: Request, res: Response): Promise<void> => {  try {
+router.get('/stories/:storyId', async (req: Request, res: Response): Promise<void> => {
+  try {
     const storyId = req.params.storyId;
 
     if (!storyId) {
       res.status(400).json({
         success: false,
-        error: 'storyId parameter is required'
+        error: 'storyId parameter is required',
       });
       return;
     }
@@ -620,11 +609,11 @@ router.get('/stories/:storyId', async (req: Request, res: Response): Promise<voi
     logger.info('Internal API: Getting story details', { storyId });
 
     const story = await storyService.getStory(storyId);
-    
+
     if (!story) {
       res.status(404).json({
         success: false,
-        error: 'Story not found'
+        error: 'Story not found',
       });
       return;
     }
@@ -633,18 +622,17 @@ router.get('/stories/:storyId', async (req: Request, res: Response): Promise<voi
       success: true,
       title: story.title,
       storyLanguage: story.storyLanguage,
-      features: story.features
+      features: story.features,
     });
-
   } catch (error) {
     logger.error('Internal API: Failed to get story details', {
       error: error instanceof Error ? error.message : String(error),
-      storyId: req.params.storyId
+      storyId: req.params.storyId,
     });
 
     res.status(500).json({
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: error instanceof Error ? error.message : 'Unknown error',
     });
   }
 });
@@ -660,7 +648,7 @@ router.get('/stories/:storyId/html', async (req: Request, res: Response): Promis
     if (!storyId) {
       res.status(400).json({
         success: false,
-        error: 'storyId parameter is required'
+        error: 'storyId parameter is required',
       });
       return;
     }
@@ -669,39 +657,39 @@ router.get('/stories/:storyId/html', async (req: Request, res: Response): Promis
 
     // Get story details from database
     const story = await storyService.getStory(storyId);
-    
+
     if (!story) {
       res.status(404).json({
         success: false,
-        error: 'Story not found'
+        error: 'Story not found',
       });
       return;
     }
 
     // Get chapters from database (latest versions only)
     const chaptersFromDb = await chaptersService.getStoryChapters(storyId);
-    
+
     if (!chaptersFromDb || chaptersFromDb.length === 0) {
       res.status(404).json({
         success: false,
-        error: 'No chapters found - story has not been generated yet'
+        error: 'No chapters found - story has not been generated yet',
       });
       return;
     }
 
     // Transform database chapters to the format expected by the workflow
-    const chapters = chaptersFromDb.map(chapter => ({
+    const chapters = chaptersFromDb.map((chapter) => ({
       title: chapter.title,
       content: chapter.htmlContent
         .replace(/<[^>]*>/g, '') // Remove HTML tags
         .replace(/&[^;]+;/g, ' ') // Replace HTML entities
-        .trim()
+        .trim(),
     }));
 
     logger.info('Internal API: Retrieved chapters from database', {
       storyId,
       chaptersFound: chapters.length,
-      chapterTitles: chapters.map(ch => ch.title)
+      chapterTitles: chapters.map((ch) => ch.title),
     });
 
     res.json({
@@ -711,18 +699,17 @@ router.get('/stories/:storyId/html', async (req: Request, res: Response): Promis
       title: story.title,
       author: story.author,
       dedicationMessage: story.dedicationMessage,
-      storyLanguage: story.storyLanguage
+      storyLanguage: story.storyLanguage,
     });
-
   } catch (error) {
     logger.error('Internal API: Failed to get story HTML', {
       error: error instanceof Error ? error.message : String(error),
-      storyId: req.params.storyId
+      storyId: req.params.storyId,
     });
 
     res.status(500).json({
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: error instanceof Error ? error.message : 'Unknown error',
     });
   }
 });
@@ -733,16 +720,16 @@ router.get('/stories/:storyId/html', async (req: Request, res: Response): Promis
  */
 router.post('/audiobook/chapter', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { 
-      storyId, 
-      chapterNumber, 
-      chapterContent, 
-      storyTitle, 
+    const {
+      storyId,
+      chapterNumber,
+      chapterContent,
+      storyTitle,
       storyAuthor,
       dedicatoryMessage,
-      voice, 
+      voice,
       storyLanguage,
-      isFirstChapter 
+      isFirstChapter,
     } = req.body;
 
     logger.info('Internal API: Generating chapter audio', {
@@ -751,14 +738,14 @@ router.post('/audiobook/chapter', async (req: Request, res: Response): Promise<v
       voice,
       storyLanguage,
       isFirstChapter,
-      contentLength: chapterContent?.length || 0
+      contentLength: chapterContent?.length || 0,
     });
 
     // Validate required parameters
     if (!storyId || !chapterNumber || !chapterContent) {
       res.status(400).json({
         success: false,
-        error: 'Missing required parameters: storyId, chapterNumber, chapterContent'
+        error: 'Missing required parameters: storyId, chapterNumber, chapterContent',
       });
       return;
     }
@@ -775,33 +762,32 @@ router.post('/audiobook/chapter', async (req: Request, res: Response): Promise<v
         storyAuthor,
         dedicatoryMessage,
         storyLanguage,
-        isFirstChapter
-      }
+        isFirstChapter,
+      },
     );
 
     logger.info('Internal API: Chapter audio generation completed', {
       storyId,
       chapterNumber,
       audioUrl: result.audioUrl,
-      duration: result.duration
+      duration: result.duration,
     });
 
     res.json({
       success: true,
-      ...result
+      ...result,
     });
-
   } catch (error) {
     logger.error('Internal API: Failed to generate chapter audio', {
       error: error instanceof Error ? error.message : String(error),
       storyId: req.body.storyId,
       chapterNumber: req.body.chapterNumber,
-      stack: error instanceof Error ? error.stack : undefined
+      stack: error instanceof Error ? error.stack : undefined,
     });
 
     res.status(500).json({
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: error instanceof Error ? error.message : 'Unknown error',
     });
   }
 });
@@ -818,7 +804,7 @@ router.post('/audiobook/finalize', async (req: Request, res: Response): Promise<
 
     // Get all chapters from database with their audio URIs
     const chaptersFromDb = await chaptersService.getStoryChapters(storyId);
-    
+
     const audioUrls: Record<number, string> = {};
     let totalDuration = 0;
 
@@ -832,13 +818,13 @@ router.post('/audiobook/finalize', async (req: Request, res: Response): Promise<
 
     // Update story hasAudio field
     await storyService.updateStoryUris(storyId, {
-      hasAudio: Object.keys(audioUrls).length > 0
+      hasAudio: Object.keys(audioUrls).length > 0,
     });
 
     logger.info('Internal API: Audiobook finalization completed', {
       storyId,
       chaptersProcessed: Object.keys(audioUrls).length,
-      totalDuration
+      totalDuration,
     });
 
     res.json({
@@ -846,18 +832,17 @@ router.post('/audiobook/finalize', async (req: Request, res: Response): Promise<
       storyId,
       audioUrls,
       totalDuration,
-      chaptersProcessed: Object.keys(audioUrls).length
+      chaptersProcessed: Object.keys(audioUrls).length,
     });
-
   } catch (error) {
     logger.error('Internal API: Failed to finalize audiobook', {
       error: error instanceof Error ? error.message : String(error),
-      storyId: req.body.storyId
+      storyId: req.body.storyId,
     });
 
     res.status(500).json({
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: error instanceof Error ? error.message : 'Unknown error',
     });
   }
 });
@@ -879,7 +864,7 @@ router.patch('/stories/:storyId/audiobook-status', async (req: Request, res: Res
     if (!storyId) {
       res.status(400).json({
         success: false,
-        error: 'Story ID is required'
+        error: 'Story ID is required',
       });
       return;
     }
@@ -889,7 +874,7 @@ router.patch('/stories/:storyId/audiobook-status', async (req: Request, res: Res
     if (status && !validStatuses.includes(status)) {
       res.status(400).json({
         success: false,
-        error: `Invalid status. Must be one of: ${validStatuses.join(', ')}`
+        error: `Invalid status. Must be one of: ${validStatuses.join(', ')}`,
       });
       return;
     }
@@ -900,7 +885,7 @@ router.patch('/stories/:storyId/audiobook-status', async (req: Request, res: Res
       completedAt,
       failedAt,
       hasAudioUrls: !!audioUrls,
-      totalDuration
+      totalDuration,
     });
 
     // Update story audiobook status
@@ -908,11 +893,11 @@ router.patch('/stories/:storyId/audiobook-status', async (req: Request, res: Res
       audiobookStatus?: string;
       audiobookUri?: object;
     } = {};
-    
+
     if (status) {
       updateData.audiobookStatus = status;
     }
-    
+
     if (status === 'completed' && audioUrls) {
       updateData.audiobookUri = audioUrls;
     }
@@ -923,7 +908,7 @@ router.patch('/stories/:storyId/audiobook-status', async (req: Request, res: Res
     logger.info('Internal API: Audiobook status updated successfully', {
       storyId,
       status,
-      updateData
+      updateData,
     });
 
     res.json({
@@ -932,19 +917,18 @@ router.patch('/stories/:storyId/audiobook-status', async (req: Request, res: Res
       status,
       updatedAt: new Date().toISOString(),
       ...(audioUrls && { audioUrls }),
-      ...(totalDuration && { totalDuration })
+      ...(totalDuration && { totalDuration }),
     });
-
   } catch (error) {
     logger.error('Internal API: Failed to update audiobook status', {
       error: error instanceof Error ? error.message : String(error),
       storyId: req.params.storyId,
-      requestBody: req.body
+      requestBody: req.body,
     });
 
     res.status(500).json({
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: error instanceof Error ? error.message : 'Unknown error',
     });
   }
 });

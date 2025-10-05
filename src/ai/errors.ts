@@ -33,18 +33,18 @@ export class ImageGenerationBlockedError extends Error {
     const reasonStr = params.finishReasons.join(', ');
     super(
       params.message ||
-        `Image generation blocked by ${params.provider} safety filters (reason(s): ${reasonStr}).`
+        `Image generation blocked by ${params.provider} safety filters (reason(s): ${reasonStr}).`,
     );
     this.name = 'ImageGenerationBlockedError';
     this.provider = params.provider;
     this.providerFinishReasons = params.finishReasons;
-  if (params.diagnostics) this.diagnostics = params.diagnostics;
+    if (params.diagnostics) this.diagnostics = params.diagnostics;
     this.suggestions = params.suggestions || [
       'Remove potentially sensitive or disallowed content (violence, explicit detail, self‑harm, identifying minors).',
       'Focus on neutral, descriptive visual attributes (setting, colors, composition) instead of graphic specifics.',
       'Avoid mentioning age alongside sensitive contexts; describe general appearance instead.',
       'Eliminate subjective or potentially sexualized descriptors for minors or ambiguous characters.',
-      'Try a milder synonym or remove emotionally charged words that might trigger safety filters.'
+      'Try a milder synonym or remove emotionally charged words that might trigger safety filters.',
     ];
   }
 }

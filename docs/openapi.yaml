@@ -136,7 +136,7 @@ paths:
               minimal:
                 value:
                   storyId: f2b0c4e2-05d4-4f74-b0a1-7f6314b8f5f3
-                  userDescription: "A brave kid explores an underwater city."
+                  userDescription: 'A brave kid explores an underwater city.'
       responses:
         '200':
           description: Structured story payload returned.
@@ -261,8 +261,8 @@ paths:
                 value:
                   storyId: f2b0c4e2-05d4-4f74-b0a1-7f6314b8f5f3
                   runId: 7d08de7f-04a1-46bb-a3e4-95a9d38f76bf
-                  chapterTitle: "Into the Coral City"
-                  chapterSynopses: "The hero enters the coral city and meets its guardians."
+                  chapterTitle: 'Into the Coral City'
+                  chapterSynopses: 'The hero enters the coral city and meets its guardians.'
                   chapterCount: 6
       responses:
         '200':
@@ -331,7 +331,7 @@ paths:
             examples:
               chapterImage:
                 value:
-                  prompt: "An underwater city illuminated by glowing coral lanterns"
+                  prompt: 'An underwater city illuminated by glowing coral lanterns'
                   storyId: f2b0c4e2-05d4-4f74-b0a1-7f6314b8f5f3
                   runId: 7d08de7f-04a1-46bb-a3e4-95a9d38f76bf
                   chapterNumber: 2

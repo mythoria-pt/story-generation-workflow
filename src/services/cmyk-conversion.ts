@@ -4,17 +4,19 @@ import { join, dirname, basename, extname } from 'path';
 import { logger } from '@/config/logger.js';
 import { getEnvironment } from '@/config/environment.js';
 
-
 interface ICCProfileConfig {
-  profiles: Record<string, {
-    name: string;
-    filename: string;
-    description: string;
-    colorSpace: string;
-    outputIntent: string;
-    registryName: string;
-    info: string;
-  }>;
+  profiles: Record<
+    string,
+    {
+      name: string;
+      filename: string;
+      description: string;
+      colorSpace: string;
+      outputIntent: string;
+      registryName: string;
+      info: string;
+    }
+  >;
   defaultProfile: string;
   ghostscriptSettings: {
     device: string;
@@ -46,9 +48,10 @@ export class CMYKConversionService {
 
   constructor() {
     // Load ICC profile configuration
-    const configPath = process.env.NODE_ENV === 'production' 
-      ? join(process.cwd(), 'dist', 'config', 'icc-profiles.json')
-      : join(process.cwd(), 'src', 'config', 'icc-profiles.json');
+    const configPath =
+      process.env.NODE_ENV === 'production'
+        ? join(process.cwd(), 'dist', 'config', 'icc-profiles.json')
+        : join(process.cwd(), 'src', 'config', 'icc-profiles.json');
     this.profileConfig = JSON.parse(readFileSync(configPath, 'utf-8'));
 
     // Set Ghostscript binary path based on environment
@@ -56,7 +59,7 @@ export class CMYKConversionService {
     if (env.GHOSTSCRIPT_BINARY) {
       // Strip surrounding quotes if provided in env var
       const bin = env.GHOSTSCRIPT_BINARY.trim();
-      this.ghostscriptBinary = (bin.startsWith('"') && bin.endsWith('"')) ? bin.slice(1, -1) : bin;
+      this.ghostscriptBinary = bin.startsWith('"') && bin.endsWith('"') ? bin.slice(1, -1) : bin;
     } else {
       // Default binary name, with Windows auto-discovery fallback
       if (process.platform === 'win32') {
@@ -67,14 +70,15 @@ export class CMYKConversionService {
     }
 
     // Set ICC profiles path - in production this will be in the container
-    this.iccProfilesPath = process.env.NODE_ENV === 'production' 
-      ? '/app/icc-profiles' 
-      : join(process.cwd(), 'icc-profiles');
+    this.iccProfilesPath =
+      process.env.NODE_ENV === 'production'
+        ? '/app/icc-profiles'
+        : join(process.cwd(), 'icc-profiles');
 
     logger.info('CMYK Conversion Service initialized', {
       ghostscriptBinary: this.ghostscriptBinary,
       iccProfilesPath: this.iccProfilesPath,
-      defaultProfile: this.profileConfig.defaultProfile
+      defaultProfile: this.profileConfig.defaultProfile,
     });
   }
 
@@ -83,12 +87,16 @@ export class CMYKConversionService {
    */
   private findGhostscriptOnWindows(): string | null {
     try {
-      const programFiles = process.env["ProgramFiles"] || 'C:\\\\Program Files';
-      const programFilesX86 = process.env["ProgramFiles(x86)"] || 'C:\\\\Program Files (x86)';
+      const programFiles = process.env['ProgramFiles'] || 'C:\\\\Program Files';
+      const programFilesX86 = process.env['ProgramFiles(x86)'] || 'C:\\\\Program Files (x86)';
       const candidates: string[] = [];
       const versionsToCheck = [
         // Common recent versions first; we also do a directory scan below
-        'gs10.04.0', 'gs10.03.1', 'gs10.02.1', 'gs10.01.2', 'gs10.00.0'
+        'gs10.04.0',
+        'gs10.03.1',
+        'gs10.02.1',
+        'gs10.01.2',
+        'gs10.00.0',
       ];
 
       for (const base of [programFiles, programFilesX86]) {
@@ -129,13 +137,19 @@ export class CMYKConversionService {
   async validateGhostscript(): Promise<boolean> {
     try {
       const version = await new Promise<string>((resolve, reject) => {
-        const child = spawn(this.ghostscriptBinary, ['--version'], { stdio: ['ignore', 'pipe', 'pipe'] });
+        const child = spawn(this.ghostscriptBinary, ['--version'], {
+          stdio: ['ignore', 'pipe', 'pipe'],
+        });
         let out = '';
         let err = '';
-        child.stdout?.on('data', d => { out += d.toString(); });
-        child.stderr?.on('data', d => { err += d.toString(); });
-        child.on('error', e => reject(e));
-        child.on('close', code => {
+        child.stdout?.on('data', (d) => {
+          out += d.toString();
+        });
+        child.stderr?.on('data', (d) => {
+          err += d.toString();
+        });
+        child.on('error', (e) => reject(e));
+        child.on('close', (code) => {
           if (code === 0) resolve(out.trim());
           else reject(new Error(err || `exit ${code}`));
         });
@@ -145,7 +159,7 @@ export class CMYKConversionService {
     } catch (error) {
       logger.error('Ghostscript validation failed', {
         error: error instanceof Error ? error.message : String(error),
-        binary: this.ghostscriptBinary
+        binary: this.ghostscriptBinary,
       });
       return false;
     }
@@ -157,13 +171,13 @@ export class CMYKConversionService {
   private getICCProfilePath(profileName?: string): string {
     const profile = profileName || this.profileConfig.defaultProfile;
     const profileInfo = this.profileConfig.profiles[profile];
-    
+
     if (!profileInfo) {
       throw new Error(`ICC profile not found: ${profile}`);
     }
 
     const profilePath = join(this.iccProfilesPath, profileInfo.filename);
-    
+
     if (!existsSync(profilePath)) {
       logger.warn(`ICC profile file not found: ${profilePath}, using built-in CMYK conversion`);
       return '';
@@ -172,7 +186,9 @@ export class CMYKConversionService {
     // Check if it's a real ICC profile (binary file, should be > 100KB)
     const stats = statSync(profilePath);
     if (stats.size < 100 * 1024) {
-      logger.warn(`ICC profile file too small (${stats.size} bytes), likely a placeholder. Using built-in CMYK conversion`);
+      logger.warn(
+        `ICC profile file too small (${stats.size} bytes), likely a placeholder. Using built-in CMYK conversion`,
+      );
       return '';
     }
 
@@ -193,7 +209,7 @@ export class CMYKConversionService {
     logger.info('Starting CMYK conversion', {
       input: options.inputPath,
       output: options.outputPath,
-      profile: options.profileName || this.profileConfig.defaultProfile
+      profile: options.profileName || this.profileConfig.defaultProfile,
     });
 
     // Validate input file exists
@@ -215,7 +231,7 @@ export class CMYKConversionService {
       const { ghostscriptSettings } = this.profileConfig;
       const gsArgs = [
         '-dSAFER',
-        '-dBATCH', 
+        '-dBATCH',
         '-dNOPAUSE',
         `-sDEVICE=${ghostscriptSettings.device}`,
         `-dCompatibilityLevel=${ghostscriptSettings.compatibilityLevel}`,
@@ -225,7 +241,7 @@ export class CMYKConversionService {
         '-dDeviceGrayToK',
         '-dAutoRotatePages=/None',
         '-dEmbedAllFonts',
-        '-dSubsetFonts'
+        '-dSubsetFonts',
       ];
 
       // Add ICC profile if available
@@ -243,16 +259,16 @@ export class CMYKConversionService {
 
       // Execute Ghostscript command
       const commandArgs = gsArgs.slice();
-      
-      logger.debug('Executing Ghostscript command', { 
+
+      logger.debug('Executing Ghostscript command', {
         binary: this.ghostscriptBinary,
-        argCount: commandArgs.length
+        argCount: commandArgs.length,
       });
 
       const result = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
         const child = spawn(this.ghostscriptBinary, commandArgs, {
           timeout: 300000, // 5 minutes timeout
-          stdio: ['ignore', 'pipe', 'pipe']
+          stdio: ['ignore', 'pipe', 'pipe'],
         });
 
         let stdout = '';
@@ -291,16 +307,15 @@ export class CMYKConversionService {
       logger.info('CMYK conversion completed successfully', {
         input: options.inputPath,
         output: options.outputPath,
-        outputSize: statSync(options.outputPath).size
+        outputSize: statSync(options.outputPath).size,
       });
 
       return options.outputPath;
-
     } catch (error) {
       logger.error('CMYK conversion failed', {
         error: error instanceof Error ? error.message : String(error),
         input: options.inputPath,
-        output: options.outputPath
+        output: options.outputPath,
       });
       throw error;
     }
@@ -320,17 +335,16 @@ export class CMYKConversionService {
    * Convert both interior and cover PDFs to CMYK
    */
   async convertPrintSetToCMYK(
-    interiorPath: string, 
-    coverPath: string, 
-    metadata?: CMYKConversionOptions['metadata']
+    interiorPath: string,
+    coverPath: string,
+    metadata?: CMYKConversionOptions['metadata'],
   ): Promise<{ interiorCMYK: string; coverCMYK: string }> {
-    
     const interiorCMYKPath = this.generateCMYKFilename(interiorPath);
     const coverCMYKPath = this.generateCMYKFilename(coverPath);
 
     logger.info('Converting print set to CMYK', {
       interior: { rgb: interiorPath, cmyk: interiorCMYKPath },
-      cover: { rgb: coverPath, cmyk: coverCMYKPath }
+      cover: { rgb: coverPath, cmyk: coverCMYKPath },
     });
 
     // Convert both PDFs in parallel for efficiency
@@ -338,18 +352,18 @@ export class CMYKConversionService {
       this.convertToCMYK({
         inputPath: interiorPath,
         outputPath: interiorCMYKPath,
-        metadata: { ...metadata, subject: `${metadata?.subject || 'Story'} - Interior` }
+        metadata: { ...metadata, subject: `${metadata?.subject || 'Story'} - Interior` },
       }),
       this.convertToCMYK({
         inputPath: coverPath,
         outputPath: coverCMYKPath,
-        metadata: { ...metadata, subject: `${metadata?.subject || 'Story'} - Cover` }
-      })
+        metadata: { ...metadata, subject: `${metadata?.subject || 'Story'} - Cover` },
+      }),
     ]);
 
     return {
       interiorCMYK: interiorResult,
-      coverCMYK: coverResult
+      coverCMYK: coverResult,
     };
   }
 }

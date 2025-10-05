@@ -22,11 +22,11 @@ const aiGateway = getAIGatewayWithTokenTracking();
 
 // Request schemas
 const ChapterEditRequestSchema = z.object({
-  userRequest: z.string().min(1).max(2000)
+  userRequest: z.string().min(1).max(2000),
 });
 
 const FullStoryEditRequestSchema = z.object({
-  userRequest: z.string().min(1).max(2000)
+  userRequest: z.string().min(1).max(2000),
 });
 
 /**
@@ -42,7 +42,7 @@ router.patch('/stories/:storyId/chapters/:chapterNumber', async (req, res) => {
     if (!storyId || isNaN(chapterNumber) || chapterNumber < 1) {
       res.status(400).json({
         success: false,
-        error: 'Invalid storyId or chapterNumber'
+        error: 'Invalid storyId or chapterNumber',
       });
       return;
     }
@@ -50,7 +50,7 @@ router.patch('/stories/:storyId/chapters/:chapterNumber', async (req, res) => {
     logger.info('Chapter edit request received', {
       storyId,
       chapterNumber,
-      userRequestLength: userRequest.length
+      userRequestLength: userRequest.length,
     });
 
     // 1. Load story metadata from database and confirm it exists
@@ -59,20 +59,20 @@ router.patch('/stories/:storyId/chapters/:chapterNumber', async (req, res) => {
       logger.warn('Story not found', { storyId });
       res.status(404).json({
         success: false,
-        error: 'Story not found'
+        error: 'Story not found',
       });
       return;
     }
 
     // 2. Get the current chapter content from database
     const storyChapters = await chaptersService.getStoryChapters(storyId);
-    const targetChapter = storyChapters.find(ch => ch.chapterNumber === chapterNumber);
-    
+    const targetChapter = storyChapters.find((ch) => ch.chapterNumber === chapterNumber);
+
     if (!targetChapter) {
       logger.warn('Chapter not found', { storyId, chapterNumber });
       res.status(404).json({
         success: false,
-        error: `Chapter ${chapterNumber} not found`
+        error: `Chapter ${chapterNumber} not found`,
       });
       return;
     }
@@ -83,7 +83,7 @@ router.patch('/stories/:storyId/chapters/:chapterNumber', async (req, res) => {
       logger.error('Could not load story context', { storyId });
       res.status(500).json({
         success: false,
-        error: 'Could not load story context'
+        error: 'Could not load story context',
       });
       return;
     }
@@ -94,31 +94,31 @@ router.patch('/stories/:storyId/chapters/:chapterNumber', async (req, res) => {
       userRequest,
       storyContext,
       chapterNumber,
-      targetChapter.title
+      targetChapter.title,
     );
 
     logger.debug('Created chapter edit prompt', {
       storyId,
       chapterNumber,
-      promptLength: editPrompt.length
+      promptLength: editPrompt.length,
     });
 
     // 5. Request changes from AI
     const aiContext = {
       authorId: storyContext.story.authorId,
       storyId: storyId,
-      action: 'story_enhancement' as const
+      action: 'story_enhancement' as const,
     };
 
     const editedContent = await aiGateway.getTextService(aiContext).complete(editPrompt, {
-      temperature: 0.7
+      temperature: 0.7,
     });
 
     logger.info('AI chapter editing completed', {
       storyId,
       chapterNumber,
       originalLength: targetChapter.htmlContent.length,
-      editedLength: editedContent.length
+      editedLength: editedContent.length,
     });
 
     // 6. Return the edited chapter content
@@ -130,20 +130,19 @@ router.patch('/stories/:storyId/chapters/:chapterNumber', async (req, res) => {
       metadata: {
         originalLength: targetChapter.htmlContent.length,
         editedLength: editedContent.length,
-        timestamp: new Date().toISOString()
-      }
+        timestamp: new Date().toISOString(),
+      },
     });
-
   } catch (error) {
     logger.error('Chapter edit request failed', {
       error: error instanceof Error ? error.message : String(error),
       storyId: req.params?.storyId,
-      chapterNumber: req.params?.chapterNumber
+      chapterNumber: req.params?.chapterNumber,
     });
 
     res.status(500).json({
       success: false,
-      error: error instanceof Error ? error.message : 'Chapter editing failed'
+      error: error instanceof Error ? error.message : 'Chapter editing failed',
     });
   }
 });
@@ -160,14 +159,14 @@ router.patch('/stories/:storyId/chapters', async (req, res) => {
     if (!storyId) {
       res.status(400).json({
         success: false,
-        error: 'Invalid storyId'
+        error: 'Invalid storyId',
       });
       return;
     }
 
     logger.info('Full story edit request received', {
       storyId,
-      userRequestLength: userRequest.length
+      userRequestLength: userRequest.length,
     });
 
     // 1. Load story metadata from database and confirm it exists
@@ -176,19 +175,19 @@ router.patch('/stories/:storyId/chapters', async (req, res) => {
       logger.warn('Story not found', { storyId });
       res.status(404).json({
         success: false,
-        error: 'Story not found'
+        error: 'Story not found',
       });
       return;
     }
 
     // 2. Get all chapters for the story
     const storyChapters = await chaptersService.getStoryChapters(storyId);
-    
+
     if (storyChapters.length === 0) {
       logger.warn('No chapters found for story', { storyId });
       res.status(404).json({
         success: false,
-        error: 'No chapters found for this story'
+        error: 'No chapters found for this story',
       });
       return;
     }
@@ -199,14 +198,14 @@ router.patch('/stories/:storyId/chapters', async (req, res) => {
       logger.error('Could not load story context', { storyId });
       res.status(500).json({
         success: false,
-        error: 'Could not load story context'
+        error: 'Could not load story context',
       });
       return;
     }
 
     // 4. Edit each chapter using AI
     const editedChapters = [];
-    
+
     for (const chapter of storyChapters) {
       try {
         const editPrompt = await createChapterEditPrompt(
@@ -214,45 +213,45 @@ router.patch('/stories/:storyId/chapters', async (req, res) => {
           userRequest,
           storyContext,
           chapter.chapterNumber,
-          chapter.title
+          chapter.title,
         );
 
         const aiContext = {
           authorId: storyContext.story.authorId,
           storyId: storyId,
-          action: 'story_enhancement' as const
+          action: 'story_enhancement' as const,
         };
 
         const editedContent = await aiGateway.getTextService(aiContext).complete(editPrompt, {
-          temperature: 0.7
+          temperature: 0.7,
         });
 
         editedChapters.push({
           chapterNumber: chapter.chapterNumber,
           editedContent: editedContent.trim(),
           originalLength: chapter.htmlContent.length,
-          editedLength: editedContent.length
+          editedLength: editedContent.length,
         });
 
         logger.info('Chapter edited successfully', {
           storyId,
           chapterNumber: chapter.chapterNumber,
           originalLength: chapter.htmlContent.length,
-          editedLength: editedContent.length
+          editedLength: editedContent.length,
         });
       } catch (chapterError) {
         logger.error('Failed to edit chapter', {
           error: chapterError instanceof Error ? chapterError.message : String(chapterError),
           storyId,
-          chapterNumber: chapter.chapterNumber
+          chapterNumber: chapter.chapterNumber,
         });
-        
+
         // Continue with other chapters but note the failure
         editedChapters.push({
           chapterNumber: chapter.chapterNumber,
           error: 'Failed to edit chapter',
           originalLength: chapter.htmlContent.length,
-          editedLength: 0
+          editedLength: 0,
         });
       }
     }
@@ -260,7 +259,7 @@ router.patch('/stories/:storyId/chapters', async (req, res) => {
     logger.info('Full story edit completed', {
       storyId,
       totalChapters: storyChapters.length,
-      successfulEdits: editedChapters.filter(ch => !ch.error).length
+      successfulEdits: editedChapters.filter((ch) => !ch.error).length,
     });
 
     // 5. Return all edited chapters
@@ -270,20 +269,19 @@ router.patch('/stories/:storyId/chapters', async (req, res) => {
       editedChapters,
       metadata: {
         totalChapters: storyChapters.length,
-        successfulEdits: editedChapters.filter(ch => !ch.error).length,
-        timestamp: new Date().toISOString()
-      }
+        successfulEdits: editedChapters.filter((ch) => !ch.error).length,
+        timestamp: new Date().toISOString(),
+      },
     });
-
   } catch (error) {
     logger.error('Full story edit request failed', {
       error: error instanceof Error ? error.message : String(error),
-      storyId: req.params?.storyId
+      storyId: req.params?.storyId,
     });
 
     res.status(500).json({
       success: false,
-      error: error instanceof Error ? error.message : 'Full story editing failed'
+      error: error instanceof Error ? error.message : 'Full story editing failed',
     });
   }
 });
@@ -296,7 +294,7 @@ async function createChapterEditPrompt(
   userRequest: string,
   storyContext: StoryContext,
   chapterNumber: number,
-  chapterTitle: string
+  chapterTitle: string,
 ): Promise<string> {
   try {
     // Load chapter edit prompt template
@@ -311,7 +309,7 @@ async function createChapterEditPrompt(
       novelStyle: storyContext.story.novelStyle || 'adventure',
       targetAudience: formatTargetAudience(storyContext.story.targetAudience),
       language: getLanguageName(storyContext.story.storyLanguage),
-      storySetting: storyContext.story.place || 'Unknown setting'
+      storySetting: storyContext.story.place || 'Unknown setting',
     };
 
     return PromptService.buildPrompt(promptTemplate, templateVars);
@@ -319,9 +317,9 @@ async function createChapterEditPrompt(
     logger.error('Failed to create chapter edit prompt', {
       error: error instanceof Error ? error.message : String(error),
       chapterNumber,
-      userRequest: userRequest.substring(0, 100)
+      userRequest: userRequest.substring(0, 100),
     });
-    
+
     // Fallback to simple prompt if template fails
     return `You are helping to edit a chapter of a story.
 

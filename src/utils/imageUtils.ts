@@ -28,7 +28,7 @@ export function extractFilenameFromUri(uri: string): string {
   } catch (error) {
     logger.warn('Failed to extract filename from URI, using fallback', {
       uri,
-      error: error instanceof Error ? error.message : String(error)
+      error: error instanceof Error ? error.message : String(error),
     });
     return uri;
   }
@@ -47,17 +47,17 @@ export function getImageDimensions(imageType?: string): { width: number; height:
     case 'back_cover':
       return {
         width: env.IMAGE_COVER_WIDTH,
-        height: env.IMAGE_COVER_HEIGHT
+        height: env.IMAGE_COVER_HEIGHT,
       };
     case 'chapter':
       return {
         width: env.IMAGE_CHAPTER_WIDTH,
-        height: env.IMAGE_CHAPTER_HEIGHT
+        height: env.IMAGE_CHAPTER_HEIGHT,
       };
     default:
       return {
         width: env.IMAGE_DEFAULT_WIDTH,
-        height: env.IMAGE_DEFAULT_HEIGHT
+        height: env.IMAGE_DEFAULT_HEIGHT,
       };
   }
 }
@@ -72,14 +72,14 @@ export function generateNextVersionFilename(currentUri: string): string {
   // Example: frontcover_v001.jpg -> frontcover_v002.jpg
   const versionRegex = /_v(\d{3})\./;
   const match = currentUri.match(versionRegex);
-  
+
   if (match && match[1]) {
     const currentVersion = parseInt(match[1]);
     const nextVersion = currentVersion + 1;
     const nextVersionStr = nextVersion.toString().padStart(3, '0');
     return currentUri.replace(versionRegex, `_v${nextVersionStr}.`);
   }
-  
+
   // Fallback: add v002 if no version found
   const extensionRegex = /(\.[^.]+)$/;
   return currentUri.replace(extensionRegex, '_v002$1');
@@ -95,12 +95,12 @@ export function convertToAbsoluteImagePath(imagePath: string): string {
   if (imagePath.startsWith('http')) {
     return imagePath;
   }
-  
+
   // If relative path (starts with /), prepend the domain
   if (imagePath.startsWith('/')) {
     return `https://storage.googleapis.com/mythoria-generated-stories${imagePath}`;
   }
-  
+
   // If no leading slash, add it and prepend domain
   return `https://storage.googleapis.com/mythoria-generated-stories/${imagePath}`;
 }
@@ -117,7 +117,7 @@ export function buildImageEditPrompt(
   graphicalStyle?: string,
   styleKeywords?: string,
   hasReferenceImage?: boolean,
-  fullStyleSystemPrompt?: string
+  fullStyleSystemPrompt?: string,
 ): string {
   let prompt = `You are transforming an existing story illustration while preserving core subject identity, spatial composition, narrative continuity and essential lighting. Apply only the requested changes unless they conflict with style directives.\n\n<edit_request>\n${userRequest || 'Refine and stylistically adapt the image without altering its core subjects.'}\n</edit_request>`;
 

@@ -5,7 +5,7 @@ export const CHARACTER_ROLES = [
   'companion',
   'mentor',
   'side_character',
-  'narrator'
+  'narrator',
 ] as const;
 
 // Character age options
@@ -17,7 +17,7 @@ export const CHARACTER_AGES = [
   'young_adult',
   'adult',
   'elderly',
-  'ageless'
+  'ageless',
 ] as const;
 
 // Character trait options (for the traits array)
@@ -41,10 +41,10 @@ export const CHARACTER_TRAITS = [
   'patient',
   'energetic',
   'thoughtful',
-  'protective'
+  'protective',
 ] as const;
 
 // Type exports for TypeScript
-export type CharacterRole = typeof CHARACTER_ROLES[number];
-export type CharacterAge = typeof CHARACTER_AGES[number];
-export type CharacterTrait = typeof CHARACTER_TRAITS[number];
+export type CharacterRole = (typeof CHARACTER_ROLES)[number];
+export type CharacterAge = (typeof CHARACTER_AGES)[number];
+export type CharacterTrait = (typeof CHARACTER_TRAITS)[number];

@@ -84,8 +84,20 @@ describe('TokenUsageTrackingService', () => {
 
   it('aggregates author usage with story and action breakdown', async () => {
     const records = [
-      { storyId: 's1', action: 'chapter_writing', inputTokens: 100, outputTokens: 50, estimatedCostInEuros: '1' },
-      { storyId: 's2', action: 'image_generation', inputTokens: 0, outputTokens: 0, estimatedCostInEuros: '0.5' },
+      {
+        storyId: 's1',
+        action: 'chapter_writing',
+        inputTokens: 100,
+        outputTokens: 50,
+        estimatedCostInEuros: '1',
+      },
+      {
+        storyId: 's2',
+        action: 'image_generation',
+        inputTokens: 0,
+        outputTokens: 0,
+        estimatedCostInEuros: '0.5',
+      },
     ];
 
     mockDb.select.mockReturnValue({
@@ -100,4 +112,3 @@ describe('TokenUsageTrackingService', () => {
     expect(result.actionBreakdown.image_generation.cost).toBeCloseTo(0.5);
   });
 });
-

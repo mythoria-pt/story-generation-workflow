@@ -38,10 +38,7 @@ export class RunsService {
         updatedAt: new Date().toISOString(),
       };
 
-      const [createdRun] = await this.db
-        .insert(storyGenerationRuns)
-        .values(runData)
-        .returning();
+      const [createdRun] = await this.db.insert(storyGenerationRuns).values(runData).returning();
 
       if (!createdRun) {
         throw new Error(`Failed to create run: ${runId}`);
@@ -50,7 +47,7 @@ export class RunsService {
       logger.info('Run created successfully', {
         runId,
         storyId,
-        status: createdRun.status
+        status: createdRun.status,
       });
 
       return createdRun;
@@ -58,7 +55,7 @@ export class RunsService {
       logger.error('Failed to create run', {
         error: error instanceof Error ? error.message : String(error),
         runId,
-        storyId
+        storyId,
       });
       throw error;
     }
@@ -82,7 +79,7 @@ export class RunsService {
       logger.error('Failed to create or get run', {
         error: error instanceof Error ? error.message : String(error),
         runId,
-        storyId
+        storyId,
       });
       throw error;
     }
@@ -90,20 +87,20 @@ export class RunsService {
 
   /**
    * Update a story generation run
-   */  async updateRun(runId: string, updates: RunUpdate) {
+   */ async updateRun(runId: string, updates: RunUpdate) {
     try {
       const updateData: Partial<typeof storyGenerationRuns.$inferInsert> = {
-        updatedAt: new Date().toISOString()
+        updatedAt: new Date().toISOString(),
       };
 
       if (updates.status) {
         updateData.status = updates.status;
-        
+
         if (updates.status === 'running' && !updateData.startedAt) {
           updateData.startedAt = new Date().toISOString();
         }
-        
-  if (['completed', 'failed', 'cancelled', 'blocked'].includes(updates.status)) {
+
+        if (['completed', 'failed', 'cancelled', 'blocked'].includes(updates.status)) {
           updateData.endedAt = new Date().toISOString();
         }
       }
@@ -133,7 +130,7 @@ export class RunsService {
       logger.debug('Run updated successfully', {
         runId,
         status: updatedRun.status,
-        currentStep: updatedRun.currentStep
+        currentStep: updatedRun.currentStep,
       });
 
       return updatedRun;
@@ -141,7 +138,7 @@ export class RunsService {
       logger.error('Failed to update run', {
         error: error instanceof Error ? error.message : String(error),
         runId,
-        updates
+        updates,
       });
       throw error;
     }
@@ -161,7 +158,7 @@ export class RunsService {
     } catch (error) {
       logger.error('Failed to get run', {
         error: error instanceof Error ? error.message : String(error),
-        runId
+        runId,
       });
       throw error;
     }
@@ -181,7 +178,7 @@ export class RunsService {
     } catch (error) {
       logger.error('Failed to get run steps', {
         error: error instanceof Error ? error.message : String(error),
-        runId
+        runId,
       });
       throw error;
     }
@@ -189,7 +186,7 @@ export class RunsService {
 
   /**
    * Store the result of a workflow step
-   */  async storeStepResult(runId: string, stepName: string, stepResult: StepResult) {
+   */ async storeStepResult(runId: string, stepName: string, stepResult: StepResult) {
     try {
       const stepData = {
         runId,
@@ -198,7 +195,8 @@ export class RunsService {
         updatedAt: new Date().toISOString(),
         createdAt: new Date().toISOString(),
         startedAt: null as string | null,
-        endedAt: null as string | null,        detailJson: null as unknown
+        endedAt: null as string | null,
+        detailJson: null as unknown,
       };
 
       if (stepResult.status === 'running') {
@@ -218,10 +216,7 @@ export class RunsService {
         .select()
         .from(storyGenerationSteps)
         .where(
-          and(
-            eq(storyGenerationSteps.runId, runId),
-            eq(storyGenerationSteps.stepName, stepName)
-          )
+          and(eq(storyGenerationSteps.runId, runId), eq(storyGenerationSteps.stepName, stepName)),
         );
 
       if (existingStep.length > 0) {
@@ -230,31 +225,25 @@ export class RunsService {
           .update(storyGenerationSteps)
           .set(stepData)
           .where(
-            and(
-              eq(storyGenerationSteps.runId, runId),
-              eq(storyGenerationSteps.stepName, stepName)
-            )
+            and(eq(storyGenerationSteps.runId, runId), eq(storyGenerationSteps.stepName, stepName)),
           );
       } else {
         // Insert new step
         stepData.createdAt = new Date().toISOString();
-        await this.db
-          .insert(storyGenerationSteps)
-          .values(stepData);
+        await this.db.insert(storyGenerationSteps).values(stepData);
       }
 
       logger.debug('Step result stored successfully', {
         runId,
         stepName,
-        status: stepResult.status
+        status: stepResult.status,
       });
-
     } catch (error) {
       logger.error('Failed to store step result', {
         error: error instanceof Error ? error.message : String(error),
         runId,
         stepName,
-        stepResult
+        stepResult,
       });
       throw error;
     }
@@ -269,10 +258,7 @@ export class RunsService {
         .select()
         .from(storyGenerationSteps)
         .where(
-          and(
-            eq(storyGenerationSteps.runId, runId),
-            eq(storyGenerationSteps.stepName, stepName)
-          )
+          and(eq(storyGenerationSteps.runId, runId), eq(storyGenerationSteps.stepName, stepName)),
         );
 
       return step || null;
@@ -280,7 +266,7 @@ export class RunsService {
       logger.error('Failed to get step result', {
         error: error instanceof Error ? error.message : String(error),
         runId,
-        stepName
+        stepName,
       });
       throw error;
     }

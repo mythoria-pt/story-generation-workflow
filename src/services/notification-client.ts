@@ -26,55 +26,55 @@ export async function sendStoryCreatedEmail(payload: StoryCreatedEmailPayload): 
   }
 
   const url = `${env.NOTIFICATION_ENGINE_URL.replace(/\/$/, '')}/email/template`;
-  
+
   // Enhanced debugging
-  logger.info('Attempting to send story-created email', { 
-    url, 
+  logger.info('Attempting to send story-created email', {
+    url,
     templateId: payload.templateId,
     recipientCount: payload.recipients.length,
-    recipients: payload.recipients.map(r => r.email),
+    recipients: payload.recipients.map((r) => r.email),
     hasApiKey: !!env.NOTIFICATION_ENGINE_API_KEY,
-    variables: payload.variables 
+    variables: payload.variables,
   });
 
   try {
     const headers = buildHeaders(env);
     const body = JSON.stringify(payload);
-    
-    logger.debug('Request details', { 
+
+    logger.debug('Request details', {
       headers: { ...headers, Authorization: headers.Authorization ? '[REDACTED]' : undefined },
       bodyLength: body.length,
-      payload: payload 
+      payload: payload,
     });
 
     const res = await fetch(url, {
       method: 'POST',
       headers,
-      body
+      body,
     });
-    
+
     if (!res.ok) {
       const text = await res.text();
-      logger.error('Failed to send story-created email', { 
-        status: res.status, 
+      logger.error('Failed to send story-created email', {
+        status: res.status,
         statusText: res.statusText,
         responseHeaders: Object.fromEntries(res.headers.entries()),
-        body: text 
+        body: text,
       });
       return false;
     }
-    
+
     const responseText = await res.text();
-    logger.info('story-created email dispatched successfully', { 
-      recipients: payload.recipients.map(r => r.email),
-      response: responseText 
+    logger.info('story-created email dispatched successfully', {
+      recipients: payload.recipients.map((r) => r.email),
+      response: responseText,
     });
     return true;
   } catch (err) {
-    logger.error('Error calling notification engine', { 
+    logger.error('Error calling notification engine', {
       error: err instanceof Error ? err.message : String(err),
       stack: err instanceof Error ? err.stack : undefined,
-      url 
+      url,
     });
     return false;
   }

@@ -13,14 +13,14 @@ import { AudioPromptService } from './audio-prompt.js';
 import { logger } from '@/config/logger.js';
 import OpenAI from 'openai';
 import { countWords, extractTargetAge } from '@/shared/utils.js';
-import { 
-  TTSConfig, 
-  getTTSConfig, 
-  estimateDuration, 
-  truncateTextForTTS, 
+import {
+  TTSConfig,
+  getTTSConfig,
+  estimateDuration,
+  truncateTextForTTS,
   getAudioFilename,
   buildFirstChapterAudioText,
-  buildChapterAudioText
+  buildChapterAudioText,
 } from './tts-utils.js';
 
 export interface TTSChapterResult {
@@ -46,9 +46,9 @@ export class TTSService {
 
   constructor() {
     this.storyService = new StoryService();
-  this.storageService = getStorageService();
+    this.storageService = getStorageService();
     this.chaptersService = new ChaptersService();
-    
+
     // Initialize OpenAI client if API key is available
     const openaiApiKey = process.env.OPENAI_API_KEY;
     if (openaiApiKey) {
@@ -62,8 +62,8 @@ export class TTSService {
    * Synthesize speech using OpenAI TTS
    */
   private async synthesizeSpeechOpenAI(
-    text: string, 
-    config: TTSConfig
+    text: string,
+    config: TTSConfig,
   ): Promise<{ buffer: Buffer; voice: string; model: string }> {
     if (!this.openaiClient) {
       throw new Error('OpenAI client not initialized. Check OPENAI_API_KEY environment variable.');
@@ -74,29 +74,29 @@ export class TTSService {
         model: config.model,
         voice: config.voice,
         speed: config.speed,
-        textLength: text.length
+        textLength: text.length,
       });
-      
+
       const response = await this.openaiClient.audio.speech.create({
         model: config.model as 'gpt-4o-mini-tts' | 'gpt-4o-mini-tts-hd',
         voice: config.voice as 'alloy' | 'echo' | 'fable' | 'onyx' | 'nova' | 'shimmer',
         input: text,
         speed: config.speed,
-        response_format: 'mp3'
+        response_format: 'mp3',
       });
 
       const buffer = Buffer.from(await response.arrayBuffer());
-      
+
       return {
         buffer,
         voice: config.voice,
-        model: config.model
+        model: config.model,
       };
     } catch (error) {
       logger.error('OpenAI TTS synthesis failed', {
         error: error instanceof Error ? error.message : String(error),
         model: config.model,
-        voice: config.voice
+        voice: config.voice,
       });
       throw error;
     }
@@ -117,16 +117,16 @@ export class TTSService {
       dedicatoryMessage?: string;
       storyLanguage?: string;
       isFirstChapter?: boolean;
-    }
+    },
   ): Promise<TTSChapterResult> {
     try {
       logger.info('Starting TTS generation for chapter', {
         storyId,
         chapterNumber,
         voice,
-        isFirstChapter: extraParams?.isFirstChapter || false
+        isFirstChapter: extraParams?.isFirstChapter || false,
       });
-      
+
       // Get story details to check language
       const story = await this.storyService.getStory(storyId);
       if (!story) {
@@ -138,19 +138,19 @@ export class TTSService {
       if (voice) {
         config.voice = voice;
       }
-      
+
       // Use story language from parameters or story record
       const storyLanguage = extraParams?.storyLanguage || story.storyLanguage || 'en-US';
       const storyAuthor = extraParams?.storyAuthor || story.author || 'Unknown Author';
       const dedicatoryMessage = extraParams?.dedicatoryMessage || story.dedicationMessage;
-      
+
       // Extract target age from story.targetAudience
       const targetAge = extractTargetAge(story.targetAudience);
-      
+
       // Load audio prompt configuration for the story language
       const audioPromptConfig = await AudioPromptService.getTTSInstructions(
         storyLanguage,
-        targetAge
+        targetAge,
       );
 
       // Prepare chapter text for TTS
@@ -162,15 +162,11 @@ export class TTSService {
           dedicatoryMessage,
           storyAuthor,
           storyLanguage,
-          chapterContent
+          chapterContent,
         );
       } else {
         // For other chapters, use translated "Chapter X" + content
-        chapterText = await buildChapterAudioText(
-          chapterNumber,
-          storyLanguage,
-          chapterContent
-        );
+        chapterText = await buildChapterAudioText(chapterNumber, storyLanguage, chapterContent);
       }
 
       // Ensure text is within TTS limits
@@ -183,13 +179,13 @@ export class TTSService {
           chapterNumber,
           language: audioPromptConfig.language,
           languageName: audioPromptConfig.languageName,
-          targetAge
+          targetAge,
         });
 
         chapterText = AudioPromptService.enhanceTextForTTS(
           chapterText,
           audioPromptConfig.systemPrompt,
-          audioPromptConfig.instructions
+          audioPromptConfig.instructions,
         );
       } else {
         logger.warn('No audio prompt configuration found, using basic TTS', {
@@ -197,7 +193,7 @@ export class TTSService {
           chapterNumber,
           storyLanguage,
           targetAge,
-          targetAudience: story.targetAudience
+          targetAudience: story.targetAudience,
         });
       }
 
@@ -212,7 +208,9 @@ export class TTSService {
         actualVoice = result.voice;
         actualModel = result.model;
       } else {
-        throw new Error(`TTS provider '${config.provider}' is not supported. Only 'openai' is currently supported.`);
+        throw new Error(
+          `TTS provider '${config.provider}' is not supported. Only 'openai' is currently supported.`,
+        );
       }
 
       // Record token usage for TTS generation
@@ -232,15 +230,17 @@ export class TTSService {
             provider: config.provider,
             model: actualModel,
             storyLanguage: storyLanguage,
-            audioPromptConfig: audioPromptConfig ? {
-              language: audioPromptConfig.language,
-              languageName: audioPromptConfig.languageName,
-              systemPrompt: audioPromptConfig.systemPrompt.substring(0, 300) + '...', // First 300 chars of system prompt
-              instructions: audioPromptConfig.instructions
-            } : null,
+            audioPromptConfig: audioPromptConfig
+              ? {
+                  language: audioPromptConfig.language,
+                  languageName: audioPromptConfig.languageName,
+                  systemPrompt: audioPromptConfig.systemPrompt.substring(0, 300) + '...', // First 300 chars of system prompt
+                  instructions: audioPromptConfig.instructions,
+                }
+              : null,
             targetAge,
-            isFirstChapter: extraParams?.isFirstChapter || false
-          }
+            isFirstChapter: extraParams?.isFirstChapter || false,
+          },
         });
 
         logger.info('TTS token usage recorded', {
@@ -249,13 +249,13 @@ export class TTSService {
           characters: chapterText.length,
           model: actualModel,
           authorId: story.authorId,
-          storyLanguage
+          storyLanguage,
         });
       } catch (error) {
         logger.error('Failed to record TTS token usage', {
           error: error instanceof Error ? error.message : String(error),
           storyId,
-          chapterNumber
+          chapterNumber,
         });
         // Don't throw - we don't want to break TTS generation due to tracking failures
       }
@@ -265,7 +265,7 @@ export class TTSService {
       const audioUrl = await this.storageService.uploadFile(
         audioFilename,
         audioBuffer,
-        'audio/mpeg'
+        'audio/mpeg',
       );
 
       // Update chapter audio URI in database
@@ -282,8 +282,8 @@ export class TTSService {
           totalWords: countWords(chapterText),
           generatedAt: new Date().toISOString(),
           model: actualModel,
-          speed: config.speed
-        }
+          speed: config.speed,
+        },
       };
 
       logger.info('TTS generation completed for chapter', {
@@ -293,7 +293,7 @@ export class TTSService {
         audioUrl,
         duration: result.duration,
         wordCount: result.metadata.totalWords,
-        storyLanguage
+        storyLanguage,
       });
 
       return result;
@@ -301,7 +301,7 @@ export class TTSService {
       logger.error('TTS generation failed for chapter', {
         error: error instanceof Error ? error.message : String(error),
         storyId,
-        chapterNumber
+        chapterNumber,
       });
       throw error;
     }

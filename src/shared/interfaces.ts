@@ -2,11 +2,7 @@
 // Shared Interfaces - Abstract interfaces for adapters
 // -----------------------------------------------------------------------------
 
-import { 
-  StoryOutline, 
-  ChapterContent, 
-  WorkflowExecutionResult
-} from './types.js';
+import { StoryOutline, ChapterContent, WorkflowExecutionResult } from './types.js';
 
 // External Service Interfaces
 export interface ITextGenerationService {

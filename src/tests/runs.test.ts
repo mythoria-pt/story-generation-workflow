@@ -34,7 +34,9 @@ describe('RunsService', () => {
   });
 
   it('creates a run', async () => {
-    const returningMock = jest.fn().mockResolvedValue([{ runId: 'r1', storyId: 's1', status: 'queued' }]);
+    const returningMock = jest
+      .fn()
+      .mockResolvedValue([{ runId: 'r1', storyId: 's1', status: 'queued' }]);
     mockDb.insert.mockReturnValue({
       values: jest.fn().mockReturnValue({ returning: returningMock }),
     });
@@ -58,7 +60,9 @@ describe('RunsService', () => {
   });
 
   it('updates run status transitions', async () => {
-    const returningMock = jest.fn().mockResolvedValue([{ runId: 'r1', status: 'running', currentStep: null }]);
+    const returningMock = jest
+      .fn()
+      .mockResolvedValue([{ runId: 'r1', status: 'running', currentStep: null }]);
     const whereMock = jest.fn().mockReturnValue({ returning: returningMock });
     const setMock = jest.fn().mockReturnValue({ where: whereMock });
     mockDb.update.mockReturnValue({ set: setMock });
@@ -101,4 +105,3 @@ describe('RunsService', () => {
     expect(step?.stepName).toBe('a');
   });
 });
-

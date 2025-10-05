@@ -37,23 +37,28 @@ export class HealthService {
   private readonly version = '0.1.0';
   async checkHealth(environment: string): Promise<HealthStatus> {
     const timestamp = new Date().toISOString();
-    
+
     // Check database health
     const databaseCheck = await this.checkDatabaseHealth();
-    
+
     // Check workflows database health
     const workflowsDatabaseCheck = await this.checkWorkflowsDatabaseHealth();
-    
+
     // Check internet connectivity
     const internetCheck = await this.checkInternetConnectivity();
-    
+
     // Determine overall status
-    const overallStatus = databaseCheck.status === 'healthy' && workflowsDatabaseCheck.status === 'healthy' && internetCheck.status === 'healthy' 
-      ? 'healthy' 
-      : (databaseCheck.status === 'healthy' || workflowsDatabaseCheck.status === 'healthy' || internetCheck.status === 'healthy') 
-        ? 'degraded' 
-        : 'unhealthy';
-    
+    const overallStatus =
+      databaseCheck.status === 'healthy' &&
+      workflowsDatabaseCheck.status === 'healthy' &&
+      internetCheck.status === 'healthy'
+        ? 'healthy'
+        : databaseCheck.status === 'healthy' ||
+            workflowsDatabaseCheck.status === 'healthy' ||
+            internetCheck.status === 'healthy'
+          ? 'degraded'
+          : 'unhealthy';
+
     return {
       status: overallStatus,
       service: this.serviceName,
@@ -63,8 +68,8 @@ export class HealthService {
       checks: {
         database: databaseCheck,
         workflowsDatabase: workflowsDatabaseCheck,
-        internet: internetCheck
-      }
+        internet: internetCheck,
+      },
     };
   }
   private async checkDatabaseHealth(): Promise<{
@@ -75,33 +80,33 @@ export class HealthService {
   }> {
     const startTime = Date.now();
     const dbConfig = getDatabaseConfig();
-    
+
     try {
       const db = getDatabase();
-      
+
       // Execute a simple query to test connection
       await db.execute(sql`SELECT 1 as health_check`);
-      
+
       const responseTime = Date.now() - startTime;
-      
+
       logger.debug(`Database health check successful (${responseTime}ms)`);
-      
+
       return {
         status: 'healthy',
         message: 'Database connection successful',
         host: dbConfig.host,
-        responseTime
+        responseTime,
       };
     } catch (error) {
       const responseTime = Date.now() - startTime;
       const errorMessage = error instanceof Error ? error.message : 'Unknown database error';
-      
+
       logger.error(`Database health check failed (${responseTime}ms):`, error);
-        return {
+      return {
         status: 'unhealthy',
         message: `Database connection failed: ${errorMessage}`,
         host: dbConfig.host,
-        responseTime
+        responseTime,
       };
     }
   }
@@ -114,33 +119,34 @@ export class HealthService {
   }> {
     const startTime = Date.now();
     const dbConfig = getDatabaseConfig();
-    
+
     try {
       const db = getWorkflowsDatabase();
-      
+
       // Execute a simple query to test connection
       await db.execute(sql`SELECT 1 as health_check`);
-      
+
       const responseTime = Date.now() - startTime;
-      
+
       logger.debug(`Workflows Database health check successful (${responseTime}ms)`);
-      
+
       return {
         status: 'healthy',
         message: 'Workflows Database connection successful',
         host: dbConfig.host,
-        responseTime
+        responseTime,
       };
     } catch (error) {
       const responseTime = Date.now() - startTime;
-      const errorMessage = error instanceof Error ? error.message : 'Unknown workflows database error';
-      
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown workflows database error';
+
       logger.error(`Workflows Database health check failed (${responseTime}ms):`, error);
-        return {
+      return {
         status: 'unhealthy',
         message: `Workflows Database connection failed: ${errorMessage}`,
         host: dbConfig.host,
-        responseTime
+        responseTime,
       };
     }
   }
@@ -157,48 +163,50 @@ export class HealthService {
   }> {
     const testUrl = 'https://www.google.com';
     const startTime = Date.now();
-    
+
     try {
       // Use fetch with timeout to test internet connectivity
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
-      
+
       const response = await fetch(testUrl, {
         method: 'GET',
         signal: controller.signal,
         headers: {
-          'User-Agent': 'Mythoria-HealthCheck/1.0'
-        }
+          'User-Agent': 'Mythoria-HealthCheck/1.0',
+        },
       });
-      
+
       clearTimeout(timeoutId);
       const responseTime = Date.now() - startTime;
-      
+
       if (response.ok) {
         logger.debug(`Internet connectivity check successful (${responseTime}ms)`);
-        
+
         return {
           status: 'healthy',
           message: 'Internet connectivity verified',
           url: testUrl,
           responseTime,
-          httpStatus: response.status
+          httpStatus: response.status,
         };
       } else {
-        logger.warn(`Internet connectivity check failed with status ${response.status} (${responseTime}ms)`);
-        
+        logger.warn(
+          `Internet connectivity check failed with status ${response.status} (${responseTime}ms)`,
+        );
+
         return {
           status: 'unhealthy',
           message: `HTTP ${response.status} - ${response.statusText}`,
           url: testUrl,
           responseTime,
-          httpStatus: response.status
+          httpStatus: response.status,
         };
       }
     } catch (error) {
       const responseTime = Date.now() - startTime;
       let errorMessage = 'Unknown error';
-      
+
       if (error instanceof Error) {
         if (error.name === 'AbortError') {
           errorMessage = 'Request timeout (5s)';
@@ -206,14 +214,14 @@ export class HealthService {
           errorMessage = error.message;
         }
       }
-      
+
       logger.error(`Internet connectivity check failed (${responseTime}ms):`, error);
-      
+
       return {
         status: 'unhealthy',
         message: `Internet connectivity failed: ${errorMessage}`,
         url: testUrl,
-        responseTime
+        responseTime,
       };
     }
   }

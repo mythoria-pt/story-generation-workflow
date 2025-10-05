@@ -36,8 +36,8 @@ export class MessageService {
     try {
       // Convert locale format (en-US -> en-US, pt -> pt-PT, etc.)
       const normalizedLocale = this.normalizeLocale(locale);
-      
-  const messagesPath = pathPosix.join(getMessagesPath(), normalizedLocale, 'common.json');
+
+      const messagesPath = pathPosix.join(getMessagesPath(), normalizedLocale, 'common.json');
       const messagesContent = readFileSync(messagesPath, 'utf-8');
       const messages = JSON.parse(messagesContent) as MessageData;
 
@@ -48,22 +48,23 @@ export class MessageService {
       return messages;
     } catch (error) {
       logger.warn(`Failed to load messages for locale ${locale}, falling back to en-US`, { error });
-      
+
       // Fallback to en-US
       if (locale !== 'en-US') {
         return this.loadMessages('en-US');
       }
-        // If even en-US fails, return default messages
+      // If even en-US fails, return default messages
       const defaultMessages: MessageData = {
         Story: {
-          credits: "Story imagined by {author}, crafted using the [Mythoria app](https://mythoria.pt).",
-          tableOfContents: "Table of Contents",
-          storyImaginedBy: "This story was imagined by",
-          craftedWith: "Crafted with:",
-          byAuthor: "by {author}"
-        }
+          credits:
+            'Story imagined by {author}, crafted using the [Mythoria app](https://mythoria.pt).',
+          tableOfContents: 'Table of Contents',
+          storyImaginedBy: 'This story was imagined by',
+          craftedWith: 'Crafted with:',
+          byAuthor: 'by {author}',
+        },
       };
-      
+
       this.messagesCache.set(locale, defaultMessages);
       return defaultMessages;
     }
@@ -115,19 +116,19 @@ export class MessageService {
   private static normalizeLocale(locale: string): string {
     // Map common locale formats to our supported locales
     const localeMap: Record<string, string> = {
-      'en': 'en-US',
-      'english': 'en-US',
-      'pt': 'pt-PT',
-      'portuguese': 'pt-PT',
+      en: 'en-US',
+      english: 'en-US',
+      pt: 'pt-PT',
+      portuguese: 'pt-PT',
       'pt-BR': 'pt-PT', // Use pt-PT as fallback for Brazilian Portuguese
-      'french': 'fr-FR',
-      'fr': 'fr-FR',
-      'es': 'es-ES',
-      'spanish': 'es-ES'
+      french: 'fr-FR',
+      fr: 'fr-FR',
+      es: 'es-ES',
+      spanish: 'es-ES',
     };
 
     const normalized = localeMap[locale.toLowerCase()] || locale;
-    
+
     // Check if we support this locale, otherwise fallback to en-US
     const supportedLocales = ['en-US', 'pt-PT'];
     return supportedLocales.includes(normalized) ? normalized : 'en-US';

@@ -17,28 +17,28 @@ main:
     # ───────────────────────────────────────────────
     - init:
         assign:
-          - payload:  ${json.decode(base64.decode(event.data.message.data))}
-          - storyId:  ${payload.storyId}
-          - runId:    ${payload.runId}
-          - voice:    ${default(payload.voice, "coral")}
-          - baseUrl:  "https://story-generation-workflow-803421888801.europe-west9.run.app"
-          - now:      ${time.format(sys.now())}
+          - payload: ${json.decode(base64.decode(event.data.message.data))}
+          - storyId: ${payload.storyId}
+          - runId: ${payload.runId}
+          - voice: ${default(payload.voice, "coral")}
+          - baseUrl: 'https://story-generation-workflow-803421888801.europe-west9.run.app'
+          - now: ${time.format(sys.now())}
 
     # ───────────────────────────────────────────────
     # 1. Pipeline wrapped in one try/except for error handling
     # ───────────────────────────────────────────────
     - runAudiobookPipeline:
         try:
-          steps:               
+          steps:
             # 1. Mark audiobook generation as started
             - markAudiobookStarted:
                 call: http.request
                 args:
-                  url:    ${baseUrl + "/internal/stories/" + storyId + "/audiobook-status"}
+                  url: ${baseUrl + "/internal/stories/" + storyId + "/audiobook-status"}
                   method: PATCH
-                  auth:   { type: OIDC }
+                  auth: { type: OIDC }
                   body:
-                    status: "generating"
+                    status: 'generating'
                     runId: ${runId}
                     startedAt: ${time.format(sys.now())}
 
@@ -49,18 +49,18 @@ main:
                   - getStory:
                       call: http.request
                       args:
-                        url:    ${baseUrl + "/internal/stories/" + storyId}
+                        url: ${baseUrl + "/internal/stories/" + storyId}
                         method: GET
-                        auth:   { type: OIDC }
+                        auth: { type: OIDC }
                       result: storyResp
 
                   # Download and parse story HTML from storage
                   - getStoryHtml:
                       call: http.request
                       args:
-                        url:    ${baseUrl + "/internal/stories/" + storyId + "/html"}
+                        url: ${baseUrl + "/internal/stories/" + storyId + "/html"}
                         method: GET
-                        auth:   { type: OIDC }
+                        auth: { type: OIDC }
                       result: htmlResp
 
                   - extractStoryContent:
@@ -69,7 +69,7 @@ main:
                         - storyAuthor: ${default(htmlResp.body.author, "")}
                         - dedicatoryMessage: ${default(htmlResp.body.dedicationMessage, "")}
                         - storyLanguage: ${default(storyResp.body.storyLanguage, "en-US")}
-                        - chapters: ${htmlResp.body.chapters}  # Chapters from database
+                        - chapters: ${htmlResp.body.chapters} # Chapters from database
 
             # 3. Generate audio for each chapter sequentially
             - generateChapterAudios:
@@ -80,9 +80,9 @@ main:
                     - generateChapterAudio:
                         call: http.request
                         args:
-                          url:    ${baseUrl + "/internal/audiobook/chapter"}
+                          url: ${baseUrl + "/internal/audiobook/chapter"}
                           method: POST
-                          auth:   { type: OIDC }
+                          auth: { type: OIDC }
                           body:
                             storyId: ${storyId}
                             chapterNumber: ${chapterNum}
@@ -100,9 +100,9 @@ main:
             - finalizeAudiobook:
                 call: http.request
                 args:
-                  url:    ${baseUrl + "/internal/audiobook/finalize"}
+                  url: ${baseUrl + "/internal/audiobook/finalize"}
                   method: POST
-                  auth:   { type: OIDC }
+                  auth: { type: OIDC }
                   body:
                     storyId: ${storyId}
                 result: finalizeResp
@@ -111,11 +111,11 @@ main:
             - markAudiobookCompleted:
                 call: http.request
                 args:
-                  url:    ${baseUrl + "/internal/stories/" + storyId + "/audiobook-status"}
+                  url: ${baseUrl + "/internal/stories/" + storyId + "/audiobook-status"}
                   method: PATCH
-                  auth:   { type: OIDC }
+                  auth: { type: OIDC }
                   body:
-                    status: "completed"
+                    status: 'completed'
                     completedAt: ${time.format(sys.now())}
                     audioUrls: ${finalizeResp.body.audioUrls}
                     totalDuration: ${finalizeResp.body.totalDuration}
@@ -137,11 +137,11 @@ main:
             - markAudiobookFailed:
                 call: http.request
                 args:
-                  url:    ${baseUrl + "/internal/stories/" + storyId + "/audiobook-status"}
+                  url: ${baseUrl + "/internal/stories/" + storyId + "/audiobook-status"}
                   method: PATCH
-                  auth:   { type: OIDC }
+                  auth: { type: OIDC }
                   body:
-                    status: "failed"
+                    status: 'failed'
                     failedAt: ${time.format(sys.now())}
                     error: ${audioError.message}
 

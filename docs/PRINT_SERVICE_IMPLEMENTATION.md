@@ -5,38 +5,45 @@ This implementation adds PDF generation for print-ready books to the Mythoria st
 ## Overview
 
 The print service generates two PDF files per book:
+
 1. **Interior.pdf** - All numbered pages with no bleed
 2. **Cover.pdf** - Back cover + spine + front cover with 3mm bleed
 
 ## Components Added
 
 ### 1. Database Schema Updates
+
 - Added `interiorPdfUri` and `coverPdfUri` fields to stories table
 - Migration: `0014_lumpy_king_bedlam.sql`
 
 ### 2. Print Service (`src/services/print.ts`)
+
 - Calculates print dimensions based on page count and paper type
 - Generates HTML templates for interior and cover
 - Uses Puppeteer to render PDFs
 - Configurable paper caliper settings
 
 ### 3. Workflow Integration
+
 - New workflow: `workflows/print-generation.yaml`
 - Print handlers in `src/workflows/handlers.ts`
 - REST endpoint: `/internal/print/generate`
 
 ### 4. Pub/Sub Integration
+
 - New topic: `mythoria-print-requests`
 - Triggered automatically when print orders are placed
 - Async PDF generation workflow
 
 ### 5. Configuration
+
 - Paper caliper settings: `src/config/paper-caliper.json`
 - Default: 170x240mm trim size, no interior bleed, 3mm cover bleed
 
 ## Usage
 
 ### Manual API Call
+
 ```bash
 POST /internal/print/generate
 {
@@ -46,6 +53,7 @@ POST /internal/print/generate
 ```
 
 ### Automatic Trigger
+
 PDFs are automatically generated when users place print orders through the webapp.
 
 ## Key Features

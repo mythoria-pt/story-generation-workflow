@@ -46,12 +46,16 @@ export class ChaptersService {
       };
 
       // Use retry logic for database connection timeouts
-      const [createdChapter] = await retry(async () => {
-        return await this.db
-          .insert(chapters)
-          .values(chapterData)
-          .returning({ id: chapters.id, version: chapters.version });
-      }, 3, 1000);
+      const [createdChapter] = await retry(
+        async () => {
+          return await this.db
+            .insert(chapters)
+            .values(chapterData)
+            .returning({ id: chapters.id, version: chapters.version });
+        },
+        3,
+        1000,
+      );
 
       if (!createdChapter) {
         throw new Error('Failed to create chapter');
@@ -61,7 +65,7 @@ export class ChaptersService {
         storyId: data.storyId,
         chapterNumber: data.chapterNumber,
         version: newVersion,
-        id: createdChapter.id
+        id: createdChapter.id,
       });
 
       return createdChapter;
@@ -69,7 +73,7 @@ export class ChaptersService {
       logger.error('Failed to save chapter', {
         error: error instanceof Error ? error.message : String(error),
         storyId: data.storyId,
-        chapterNumber: data.chapterNumber
+        chapterNumber: data.chapterNumber,
       });
       throw error;
     }
@@ -78,16 +82,17 @@ export class ChaptersService {
   /**
    * Update chapter image URI
    */
-  async updateChapterImage(storyId: string, chapterNumber: number, imageUri: string): Promise<void> {
+  async updateChapterImage(
+    storyId: string,
+    chapterNumber: number,
+    imageUri: string,
+  ): Promise<void> {
     try {
       // Get the latest version of this chapter
       const [latestChapter] = await this.db
         .select({ id: chapters.id, version: chapters.version })
         .from(chapters)
-        .where(and(
-          eq(chapters.storyId, storyId),
-          eq(chapters.chapterNumber, chapterNumber)
-        ))
+        .where(and(eq(chapters.storyId, storyId), eq(chapters.chapterNumber, chapterNumber)))
         .orderBy(desc(chapters.version))
         .limit(1);
 
@@ -96,28 +101,32 @@ export class ChaptersService {
       }
 
       // Update the image URI
-      await retry(async () => {
-        await this.db
-          .update(chapters)
-          .set({ 
-            imageUri,
-            updatedAt: new Date()
-          })
-          .where(eq(chapters.id, latestChapter.id));
-      }, 3, 1000);
+      await retry(
+        async () => {
+          await this.db
+            .update(chapters)
+            .set({
+              imageUri,
+              updatedAt: new Date(),
+            })
+            .where(eq(chapters.id, latestChapter.id));
+        },
+        3,
+        1000,
+      );
 
       logger.info('Chapter image updated successfully', {
         storyId,
         chapterNumber,
         version: latestChapter.version,
-        imageUri
+        imageUri,
       });
     } catch (error) {
       logger.error('Failed to update chapter image', {
         error: error instanceof Error ? error.message : String(error),
         storyId,
         chapterNumber,
-        imageUri
+        imageUri,
       });
       throw error;
     }
@@ -126,16 +135,17 @@ export class ChaptersService {
   /**
    * Update chapter audio URI for the latest version
    */
-  async updateChapterAudio(storyId: string, chapterNumber: number, audioUri: string): Promise<void> {
+  async updateChapterAudio(
+    storyId: string,
+    chapterNumber: number,
+    audioUri: string,
+  ): Promise<void> {
     try {
       // Get the latest version of this chapter
       const [latestChapter] = await this.db
         .select({ id: chapters.id, version: chapters.version })
         .from(chapters)
-        .where(and(
-          eq(chapters.storyId, storyId),
-          eq(chapters.chapterNumber, chapterNumber)
-        ))
+        .where(and(eq(chapters.storyId, storyId), eq(chapters.chapterNumber, chapterNumber)))
         .orderBy(desc(chapters.version))
         .limit(1);
 
@@ -144,28 +154,32 @@ export class ChaptersService {
       }
 
       // Update the audio URI
-      await retry(async () => {
-        await this.db
-          .update(chapters)
-          .set({ 
-            audioUri,
-            updatedAt: new Date()
-          })
-          .where(eq(chapters.id, latestChapter.id));
-      }, 3, 1000);
+      await retry(
+        async () => {
+          await this.db
+            .update(chapters)
+            .set({
+              audioUri,
+              updatedAt: new Date(),
+            })
+            .where(eq(chapters.id, latestChapter.id));
+        },
+        3,
+        1000,
+      );
 
       logger.info('Chapter audio updated successfully', {
         storyId,
         chapterNumber,
         version: latestChapter.version,
-        audioUri
+        audioUri,
       });
     } catch (error) {
       logger.error('Failed to update chapter audio', {
         error: error instanceof Error ? error.message : String(error),
         storyId,
         chapterNumber,
-        audioUri
+        audioUri,
       });
       throw error;
     }
@@ -179,10 +193,7 @@ export class ChaptersService {
       const [latestChapter] = await this.db
         .select({ version: chapters.version })
         .from(chapters)
-        .where(and(
-          eq(chapters.storyId, storyId),
-          eq(chapters.chapterNumber, chapterNumber)
-        ))
+        .where(and(eq(chapters.storyId, storyId), eq(chapters.chapterNumber, chapterNumber)))
         .orderBy(desc(chapters.version))
         .limit(1);
 
@@ -191,7 +202,7 @@ export class ChaptersService {
       logger.error('Failed to get latest version', {
         error: error instanceof Error ? error.message : String(error),
         storyId,
-        chapterNumber
+        chapterNumber,
       });
       return 0;
     }
@@ -200,17 +211,19 @@ export class ChaptersService {
   /**
    * Get all chapters for a story (latest versions)
    */
-  async getStoryChapters(storyId: string): Promise<Array<{
-    id: string;
-    chapterNumber: number;
-    title: string;
-    htmlContent: string;
-    imageUri: string | null;
-    audioUri: string | null;
-    version: number;
-    createdAt: Date;
-    updatedAt: Date;
-  }>> {
+  async getStoryChapters(storyId: string): Promise<
+    Array<{
+      id: string;
+      chapterNumber: number;
+      title: string;
+      htmlContent: string;
+      imageUri: string | null;
+      audioUri: string | null;
+      version: number;
+      createdAt: Date;
+      updatedAt: Date;
+    }>
+  > {
     try {
       // Get the latest version for each chapter
       const latestChapters = await this.db
@@ -227,19 +240,20 @@ export class ChaptersService {
         }
       }
 
-      const result = Array.from(chaptersMap.values())
-        .sort((a, b) => a.chapterNumber - b.chapterNumber);
+      const result = Array.from(chaptersMap.values()).sort(
+        (a, b) => a.chapterNumber - b.chapterNumber,
+      );
 
       logger.info('Retrieved story chapters', {
         storyId,
-        chapterCount: result.length
+        chapterCount: result.length,
       });
 
       return result;
     } catch (error) {
       logger.error('Failed to get story chapters', {
         error: error instanceof Error ? error.message : String(error),
-        storyId
+        storyId,
       });
       throw error;
     }

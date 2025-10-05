@@ -27,7 +27,8 @@
       "type": "string",
       "description": "Detailed prompt for generating the book back cover illustration. Include characters physical descriptions, actions, and settings.",
       "maxLength": 600
-    },"synopses": {
+    },
+    "synopses": {
       "type": "string",
       "description": "Detailed synopsis of the entire book"
     },
@@ -52,17 +53,13 @@
             "description": "Detailed prompt for generating an illustration for this chapter. Include characters physical descriptions, actions, and settings."
           }
         },
-        "required": [
-          "chapterPhotoPrompt",
-          "chapterNumber",
-          "chapterSynopses",
-          "chapterTitle"
-        ],
+        "required": ["chapterPhotoPrompt", "chapterNumber", "chapterSynopses", "chapterTitle"],
         "additionalProperties": false
       },
       "maxItems": 20
     }
-  },  "required": [
+  },
+  "required": [
     "bookTitle",
     "target-audience",
     "chapters",

@@ -378,7 +378,7 @@ except:
           url: ${baseUrl + "/internal/runs/" + runId}
           method: PATCH
           body:
-            status: "failed"
+            status: 'failed'
             error_message: ${error.message}
     - reraise: ${error}
 ```

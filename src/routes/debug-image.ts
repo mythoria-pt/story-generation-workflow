@@ -33,7 +33,7 @@ debugImageRouter.get('/image', async (req, res) => {
     forceRest,
     disableMapping,
     projectId: imageService['projectId'],
-    location: imageService['location']
+    location: imageService['location'],
   };
 
   if (req.query.image === 'true') {
@@ -73,7 +73,7 @@ debugImageRouter.post('/image', async (req, res) => {
     forceRest,
     disableMapping,
     projectId: imageService['projectId'],
-    location: imageService['location']
+    location: imageService['location'],
   };
 
   try {

@@ -8,7 +8,12 @@ import { RunsService } from '@/services/runs.js';
 import { StoryService } from '@/services/story.js';
 
 export interface WorkflowError {
-  type: 'STORY_NOT_FOUND' | 'ORPHANED_RUN' | 'DATABASE_ERROR' | 'VALIDATION_ERROR' | 'UNKNOWN_ERROR';
+  type:
+    | 'STORY_NOT_FOUND'
+    | 'ORPHANED_RUN'
+    | 'DATABASE_ERROR'
+    | 'VALIDATION_ERROR'
+    | 'UNKNOWN_ERROR';
   message: string;
   details: Record<string, unknown>;
   recoverable: boolean;
@@ -26,13 +31,13 @@ export class WorkflowErrorHandler {
     const details = {
       storyId,
       runId,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     };
 
     try {
       // Check if story exists in main database
       const storyExists = await this.storyService.storyExists(storyId);
-      
+
       if (!storyExists) {
         // Story doesn't exist - this is an orphaned run
         const error: WorkflowError = {
@@ -41,10 +46,10 @@ export class WorkflowErrorHandler {
           details: {
             ...details,
             storyExists: false,
-            reason: 'Story may have been deleted or never created'
+            reason: 'Story may have been deleted or never created',
           },
           recoverable: false,
-          suggestedAction: 'Cancel the workflow run and clean up orphaned data'
+          suggestedAction: 'Cancel the workflow run and clean up orphaned data',
         };
 
         // If we have a runId, mark the run as failed
@@ -52,14 +57,14 @@ export class WorkflowErrorHandler {
           try {
             await this.runsService.updateRun(runId, {
               status: 'failed',
-              errorMessage: 'Story not found - orphaned run detected'
+              errorMessage: 'Story not found - orphaned run detected',
             });
             logger.info('Marked orphaned run as failed', { runId, storyId });
           } catch (updateError) {
             logger.error('Failed to update orphaned run status', {
               runId,
               storyId,
-              error: updateError instanceof Error ? updateError.message : String(updateError)
+              error: updateError instanceof Error ? updateError.message : String(updateError),
             });
           }
         }
@@ -73,10 +78,10 @@ export class WorkflowErrorHandler {
           details: {
             ...details,
             storyExists: true,
-            reason: 'Story may be missing characters or other required fields'
+            reason: 'Story may be missing characters or other required fields',
           },
           recoverable: true,
-          suggestedAction: 'Check story data integrity and ensure all required fields are present'
+          suggestedAction: 'Check story data integrity and ensure all required fields are present',
         };
       }
     } catch (error) {
@@ -85,10 +90,10 @@ export class WorkflowErrorHandler {
         message: `Database error while checking story ${storyId}`,
         details: {
           ...details,
-          error: error instanceof Error ? error.message : String(error)
+          error: error instanceof Error ? error.message : String(error),
         },
         recoverable: true,
-        suggestedAction: 'Retry operation after checking database connectivity'
+        suggestedAction: 'Retry operation after checking database connectivity',
       };
     }
   }
@@ -98,13 +103,13 @@ export class WorkflowErrorHandler {
    */
   async handleWorkflowError(
     error: Error,
-    context: { runId?: string; storyId?: string; step?: string }
+    context: { runId?: string; storyId?: string; step?: string },
   ): Promise<WorkflowError> {
     const details = {
       ...context,
       timestamp: new Date().toISOString(),
       errorMessage: error.message,
-      errorStack: error.stack
+      errorStack: error.stack,
     };
 
     // Categorize the error
@@ -120,7 +125,7 @@ export class WorkflowErrorHandler {
         message: 'Database connection failed',
         details,
         recoverable: true,
-        suggestedAction: 'Check database connectivity and retry'
+        suggestedAction: 'Check database connectivity and retry',
       };
     }
 
@@ -130,7 +135,7 @@ export class WorkflowErrorHandler {
       message: error.message,
       details,
       recoverable: true,
-      suggestedAction: 'Review error details and consider manual intervention'
+      suggestedAction: 'Review error details and consider manual intervention',
     };
   }
 
@@ -139,13 +144,13 @@ export class WorkflowErrorHandler {
    */
   logWorkflowError(workflowError: WorkflowError): void {
     const logLevel = workflowError.recoverable ? 'warn' : 'error';
-    
+
     logger[logLevel]('Workflow error occurred', {
       errorType: workflowError.type,
       message: workflowError.message,
       recoverable: workflowError.recoverable,
       suggestedAction: workflowError.suggestedAction,
-      details: workflowError.details
+      details: workflowError.details,
     });
   }
 
@@ -159,7 +164,7 @@ export class WorkflowErrorHandler {
       errorType: workflowError.type,
       recoverable: workflowError.recoverable,
       suggestedAction: workflowError.suggestedAction,
-      details: workflowError.details
+      details: workflowError.details,
     };
   }
 }

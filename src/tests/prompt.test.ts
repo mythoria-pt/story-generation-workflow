@@ -38,7 +38,9 @@ describe('PromptService', () => {
   it('throws when prompt template missing', async () => {
     (readFile as jest.Mock).mockRejectedValue(new Error('missing'));
 
-    await expect(PromptService.loadPrompt('en-US', 'miss')).rejects.toThrow('Failed to load prompt template: en-US/miss');
+    await expect(PromptService.loadPrompt('en-US', 'miss')).rejects.toThrow(
+      'Failed to load prompt template: en-US/miss',
+    );
     expect(logger.error).toHaveBeenCalled();
   });
 
@@ -72,7 +74,9 @@ describe('PromptService', () => {
   it('throws when image prompt missing', async () => {
     (readFile as jest.Mock).mockRejectedValue(new Error('missing'));
 
-    await expect(PromptService.loadImagePrompt('cover')).rejects.toThrow('Failed to load image prompt template: images/cover.json');
+    await expect(PromptService.loadImagePrompt('cover')).rejects.toThrow(
+      'Failed to load image prompt template: images/cover.json',
+    );
     expect(logger.error).toHaveBeenCalled();
   });
 
@@ -88,7 +92,9 @@ describe('PromptService', () => {
   it('throws when image styles missing', async () => {
     (readFile as jest.Mock).mockRejectedValue(new Error('missing'));
 
-    await expect(PromptService.loadImageStyles()).rejects.toThrow('Failed to load image styles configuration');
+    await expect(PromptService.loadImageStyles()).rejects.toThrow(
+      'Failed to load image styles configuration',
+    );
     expect(logger.error).toHaveBeenCalled();
   });
 
@@ -109,10 +115,11 @@ describe('PromptService', () => {
   });
 
   it('lists available image styles', async () => {
-    jest.spyOn(PromptService, 'loadImageStyles').mockResolvedValue({ fantasy: {}, noir: {} } as any);
+    jest
+      .spyOn(PromptService, 'loadImageStyles')
+      .mockResolvedValue({ fantasy: {}, noir: {} } as any);
 
     const styles = await PromptService.getAvailableImageStyles();
     expect(styles).toEqual(['fantasy', 'noir']);
   });
 });
-

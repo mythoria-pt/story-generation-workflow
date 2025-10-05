@@ -84,7 +84,15 @@ export class GoogleGenAITextService implements ITextGenerationService {
     // Backwards compatibility shim to mimic @google/generative-ai API used in rest of file
     const anyClient = this.genAI as any;
     if (typeof anyClient.getGenerativeModel !== 'function') {
-      anyClient.getGenerativeModel = ({ model, generationConfig, systemInstruction: _systemInstruction }: { model: string; generationConfig?: any; systemInstruction?: string }) => {
+      anyClient.getGenerativeModel = ({
+        model,
+        generationConfig,
+        systemInstruction: _systemInstruction,
+      }: {
+        model: string;
+        generationConfig?: any;
+        systemInstruction?: string;
+      }) => {
         // Note: systemInstruction is accepted but not used in this shim - could be passed to API call if needed
         return {
           generateContent: (input: any) => {
@@ -93,49 +101,57 @@ export class GoogleGenAITextService implements ITextGenerationService {
               return anyClient.models.generateContent({
                 model,
                 contents: [{ role: 'user', parts: [{ text: input }] }],
-                config: generationConfig
+                config: generationConfig,
               });
             }
             if (input && typeof input === 'object' && input.contents) {
               return anyClient.models.generateContent({
                 model,
                 ...input,
-                config: generationConfig || input.config
+                config: generationConfig || input.config,
               });
             }
             return anyClient.models.generateContent({
               model,
               contents: [{ role: 'user', parts: [{ text: String(input) }] }],
-              config: generationConfig
+              config: generationConfig,
             });
           },
           startChat: ({ history: _history }: { history?: any[] }) => {
             // Note: history is accepted but not used in this shim - stateless for now
             return {
-              sendMessage: (prompt: string) => anyClient.models.generateContent({
-                model,
-                contents: [{ role: 'user', parts: [{ text: prompt }] }],
-                config: generationConfig
-              })
+              sendMessage: (prompt: string) =>
+                anyClient.models.generateContent({
+                  model,
+                  contents: [{ role: 'user', parts: [{ text: prompt }] }],
+                  config: generationConfig,
+                }),
             };
-          }
+          },
         };
       };
     }
     if (typeof anyClient.startChat !== 'function') {
-      anyClient.startChat = ({ model, generationConfig }: { model: string; generationConfig?: any }) => {
+      anyClient.startChat = ({
+        model,
+        generationConfig,
+      }: {
+        model: string;
+        generationConfig?: any;
+      }) => {
         return {
-          sendMessage: (prompt: string) => anyClient.models.generateContent({
-            model,
-            contents: [{ role: 'user', parts: [{ text: prompt }] }],
-            config: generationConfig
-          })
+          sendMessage: (prompt: string) =>
+            anyClient.models.generateContent({
+              model,
+              contents: [{ role: 'user', parts: [{ text: prompt }] }],
+              config: generationConfig,
+            }),
         };
       };
     }
-    
+
     logger.info('Google GenAI Text Service initialized', {
-      model: this.model
+      model: this.model,
     });
   }
 
@@ -147,26 +163,33 @@ export class GoogleGenAITextService implements ITextGenerationService {
     if (!jsonSchema || typeof jsonSchema !== 'object') {
       throw new Error('Invalid JSON schema provided');
     }
-    
+
     const schema = jsonSchema as JsonSchemaType;
     if (!schema.type || typeof schema.type !== 'string') {
       throw new Error('JSON schema must have a valid type property');
     }
     const convertType = (type: string) => {
       switch (type) {
-        case 'string': return 'STRING';
-        case 'integer': return 'INTEGER';
-        case 'number': return 'NUMBER';
-        case 'boolean': return 'BOOLEAN';
-        case 'array': return 'ARRAY';
-        case 'object': return 'OBJECT';
-        default: return 'STRING';
+        case 'string':
+          return 'STRING';
+        case 'integer':
+          return 'INTEGER';
+        case 'number':
+          return 'NUMBER';
+        case 'boolean':
+          return 'BOOLEAN';
+        case 'array':
+          return 'ARRAY';
+        case 'object':
+          return 'OBJECT';
+        default:
+          return 'STRING';
       }
     };
 
     const convertSchema = (schema: JsonSchemaType): GenAISchemaType => {
       const result: GenAISchemaType = {
-        type: convertType(schema.type)
+        type: convertType(schema.type),
       };
 
       if (schema.description) {
@@ -178,7 +201,7 @@ export class GoogleGenAITextService implements ITextGenerationService {
         for (const [key, value] of Object.entries(schema.properties)) {
           result.properties[key] = convertSchema(value);
         }
-        
+
         if (schema.required && Array.isArray(schema.required)) {
           result.required = schema.required;
         }
@@ -186,7 +209,9 @@ export class GoogleGenAITextService implements ITextGenerationService {
         // Add property ordering if available or create a default one
         if (schema.required && Array.isArray(schema.required)) {
           result.propertyOrdering = schema.required.concat(
-            Object.keys(schema.properties).filter(key => schema.required && !schema.required.includes(key))
+            Object.keys(schema.properties).filter(
+              (key) => schema.required && !schema.required.includes(key),
+            ),
           );
         } else {
           result.propertyOrdering = Object.keys(schema.properties);
@@ -224,35 +249,32 @@ export class GoogleGenAITextService implements ITextGenerationService {
    * Initialize context for a story generation session
    * Creates a stateful chat instance using Google GenAI's ai.chats API
    */
-  async initializeContext(
-    contextId: string, 
-    systemPrompt: string
-  ): Promise<void> {
+  async initializeContext(contextId: string, systemPrompt: string): Promise<void> {
     try {
       logger.info('Google GenAI Debug - Initializing context', {
         contextId,
         systemPromptLength: systemPrompt.length,
         model: this.model,
-        hasGetGenerativeModel: typeof this.genAI.getGenerativeModel === 'function'
+        hasGetGenerativeModel: typeof this.genAI.getGenerativeModel === 'function',
       });
 
       // Create a chat instance for stateful conversations
       const generativeModel = this.genAI.getGenerativeModel({
         model: this.model,
-        systemInstruction: systemPrompt
+        systemInstruction: systemPrompt,
       });
 
       logger.info('Google GenAI Debug - Created generative model', {
         contextId,
         hasStartChat: typeof generativeModel.startChat === 'function',
-        modelMethods: Object.getOwnPropertyNames(generativeModel)
+        modelMethods: Object.getOwnPropertyNames(generativeModel),
       });
 
       const chat = generativeModel.startChat({
         history: [], // Start with empty history, system prompt is handled by systemInstruction
         generationConfig: {
-          maxOutputTokens: getMaxOutputTokens(this.model)
-        }
+          maxOutputTokens: getMaxOutputTokens(this.model),
+        },
       });
 
       // Store the chat instance in context manager
@@ -260,20 +282,20 @@ export class GoogleGenAITextService implements ITextGenerationService {
       if (context) {
         await contextManager.updateProviderData(contextId, {
           googleGenAI: {
-            chatInstance: chat
-          }
+            chatInstance: chat,
+          },
         });
       }
 
       logger.info('Google GenAI chat context initialized', {
         contextId,
-        model: this.model
+        model: this.model,
       });
     } catch (error) {
       logger.error('Failed to initialize Google GenAI context', {
         error: error instanceof Error ? error.message : String(error),
         contextId,
-        stack: error instanceof Error ? error.stack : undefined
+        stack: error instanceof Error ? error.stack : undefined,
       });
       throw error;
     }
@@ -289,18 +311,18 @@ export class GoogleGenAITextService implements ITextGenerationService {
         // Clear the chat instance reference
         await contextManager.updateProviderData(contextId, {
           googleGenAI: {
-            chatInstance: undefined
-          }
+            chatInstance: undefined,
+          },
         });
-        
+
         logger.info('Google GenAI context cleared', {
-          contextId
+          contextId,
         });
       }
     } catch (error) {
       logger.error('Failed to clear Google GenAI context', {
         error: error instanceof Error ? error.message : String(error),
-        contextId
+        contextId,
       });
       throw error;
     }
@@ -308,63 +330,73 @@ export class GoogleGenAITextService implements ITextGenerationService {
   async complete(prompt: string, options?: TextGenerationOptions): Promise<string> {
     try {
       let response;
-        // Try to get existing chat instance for stateful conversation
+      // Try to get existing chat instance for stateful conversation
       if (options?.contextId) {
         const context = await contextManager.getContext(options.contextId);
         const chat = context?.providerSpecificData.googleGenAI?.chatInstance;
-        
+
         if (chat) {
           // For stateful conversation with JSON schema, we need to create a new model
           // since chat instances don't support changing responseSchema on the fly
           if (options?.jsonSchema) {
             const generationConfig: any = {
               // Use caller override OR model maximum
-              maxOutputTokens: options?.maxTokens || getMaxOutputTokens(options?.model || this.model),
+              maxOutputTokens:
+                options?.maxTokens || getMaxOutputTokens(options?.model || this.model),
               temperature: options?.temperature || 0.7,
               topP: options?.topP || 0.9,
               topK: options?.topK || 40,
               ...(options?.stopSequences && { stopSequences: options.stopSequences }),
               responseMimeType: 'application/json',
-              responseSchema: this.convertJsonSchemaToGenAISchema(options.jsonSchema)
+              responseSchema: this.convertJsonSchemaToGenAISchema(options.jsonSchema),
             };
 
             const generativeModel = this.genAI.getGenerativeModel({
               model: options?.model || this.model,
-              generationConfig
+              generationConfig,
             });
 
             logger.info('Google GenAI Debug - Using structured output with context', {
               contextId: options.contextId,
               model: this.model,
-              hasJsonSchema: true
+              hasJsonSchema: true,
             });
 
-              if (options?.mediaParts && options.mediaParts.length > 0) {
-                // Build content parts with media attachments
-                const parts: any[] = [{ text: prompt }];
-                for (const mp of options.mediaParts) {
-                  if (typeof mp.data === 'string') {
-                    parts.push({ inlineData: { data: Buffer.from(mp.data).toString('base64'), mimeType: mp.mimeType } });
-                  } else {
-                    parts.push({ inlineData: { data: mp.data.toString('base64'), mimeType: mp.mimeType } });
-                  }
+            if (options?.mediaParts && options.mediaParts.length > 0) {
+              // Build content parts with media attachments
+              const parts: any[] = [{ text: prompt }];
+              for (const mp of options.mediaParts) {
+                if (typeof mp.data === 'string') {
+                  parts.push({
+                    inlineData: {
+                      data: Buffer.from(mp.data).toString('base64'),
+                      mimeType: mp.mimeType,
+                    },
+                  });
+                } else {
+                  parts.push({
+                    inlineData: { data: mp.data.toString('base64'), mimeType: mp.mimeType },
+                  });
                 }
-                response = await generativeModel.generateContent({ contents: [{ role: 'user', parts }] });
-              } else {
-                response = await generativeModel.generateContent(prompt);
               }
+              response = await generativeModel.generateContent({
+                contents: [{ role: 'user', parts }],
+              });
+            } else {
+              response = await generativeModel.generateContent(prompt);
+            }
           } else {
             // Use existing chat instance for stateful conversation without JSON schema
             logger.info('Google GenAI Debug - Using stateful chat', {
               contextId: options.contextId,
-              model: this.model
+              model: this.model,
             });
-            
+
             response = await chat.sendMessage(prompt);
           }
         }
       }
-        // If no chat instance exists, create a new one for stateless generation
+      // If no chat instance exists, create a new one for stateless generation
       if (!response) {
         const generationConfig: any = {
           maxOutputTokens: options?.maxTokens || getMaxOutputTokens(options?.model || this.model),
@@ -378,23 +410,23 @@ export class GoogleGenAITextService implements ITextGenerationService {
         if (options?.jsonSchema) {
           generationConfig.responseMimeType = 'application/json';
           generationConfig.responseSchema = this.convertJsonSchemaToGenAISchema(options.jsonSchema);
-          
+
           logger.info('Google GenAI Debug - Using structured output', {
             hasSchema: true,
-            contextId: options?.contextId
+            contextId: options?.contextId,
           });
         }
 
         const generativeModel = this.genAI.getGenerativeModel({
           model: options?.model || this.model,
-          generationConfig
+          generationConfig,
         });
 
-  logger.info('Google GenAI Debug - Using stateless generation', {
+        logger.info('Google GenAI Debug - Using stateless generation', {
           model: options?.model || this.model,
           contextId: options?.contextId || 'none',
           hasJsonSchema: !!options?.jsonSchema,
-          hasMediaParts: !!options?.mediaParts && options.mediaParts.length > 0
+          hasMediaParts: !!options?.mediaParts && options.mediaParts.length > 0,
         });
 
         // If media parts are provided, send as inlineData parts alongside the prompt
@@ -402,9 +434,16 @@ export class GoogleGenAITextService implements ITextGenerationService {
           const parts: any[] = [{ text: prompt }];
           for (const mp of options.mediaParts) {
             if (typeof mp.data === 'string') {
-              parts.push({ inlineData: { data: Buffer.from(mp.data).toString('base64'), mimeType: mp.mimeType } });
+              parts.push({
+                inlineData: {
+                  data: Buffer.from(mp.data).toString('base64'),
+                  mimeType: mp.mimeType,
+                },
+              });
             } else {
-              parts.push({ inlineData: { data: mp.data.toString('base64'), mimeType: mp.mimeType } });
+              parts.push({
+                inlineData: { data: mp.data.toString('base64'), mimeType: mp.mimeType },
+              });
             }
           }
           response = await generativeModel.generateContent({ contents: [{ role: 'user', parts }] });
@@ -412,11 +451,11 @@ export class GoogleGenAITextService implements ITextGenerationService {
           response = await generativeModel.generateContent(prompt);
         }
       }
-      
+
       // Extract the text response
-  const raw = response as any;
-  const candidateList = raw?.response?.candidates || raw?.candidates;
-  const firstCandidate = Array.isArray(candidateList) ? candidateList[0] : undefined;
+      const raw = response as any;
+      const candidateList = raw?.response?.candidates || raw?.candidates;
+      const firstCandidate = Array.isArray(candidateList) ? candidateList[0] : undefined;
       if (!firstCandidate) {
         throw new Error('No candidates returned from Google GenAI');
       }
@@ -439,7 +478,10 @@ export class GoogleGenAITextService implements ITextGenerationService {
         for (let i = 1; i < candidateList.length; i++) {
           textContent = extractTextFromCandidate(candidateList[i]);
           if (textContent) {
-            logger.warn('Google GenAI Debug - Fallback to later candidate with text', { pickedIndex: i, totalCandidates: candidateList.length });
+            logger.warn('Google GenAI Debug - Fallback to later candidate with text', {
+              pickedIndex: i,
+              totalCandidates: candidateList.length,
+            });
             break;
           }
         }
@@ -449,7 +491,12 @@ export class GoogleGenAITextService implements ITextGenerationService {
         const finishReason = candidate.finishReason;
         const safety = candidate.safetyRatings || candidate.safety || candidate.safetyFeedback;
         const partDiagnostics = Array.isArray(candidate.content?.parts)
-          ? candidate.content.parts.map((p: any) => ({ keys: Object.keys(p), hasText: !!p.text, hasInlineData: !!p.inlineData, mime: p.inlineData?.mimeType }))
+          ? candidate.content.parts.map((p: any) => ({
+              keys: Object.keys(p),
+              hasText: !!p.text,
+              hasInlineData: !!p.inlineData,
+              mime: p.inlineData?.mimeType,
+            }))
           : [];
         logger.error('Google GenAI Debug - No text content. Raw candidate snapshot', {
           hasResponse: !!(response as any).response,
@@ -458,7 +505,7 @@ export class GoogleGenAITextService implements ITextGenerationService {
           partDiagnostics,
           candidateKeys: Object.keys(candidate || {}),
           model: options?.model || this.model,
-          totalCandidates: Array.isArray(candidateList) ? candidateList.length : 1
+          totalCandidates: Array.isArray(candidateList) ? candidateList.length : 1,
         });
         const reasonHint = finishReason ? ` finishReason=${finishReason}` : '';
         throw new Error('No text content in Google GenAI response.' + reasonHint);
@@ -467,11 +514,10 @@ export class GoogleGenAITextService implements ITextGenerationService {
       logger.info('Google GenAI Debug - Response received', {
         model: options?.model || this.model,
         responseLength: textContent.length,
-        contextId: options?.contextId
+        contextId: options?.contextId,
       });
 
       return textContent;
-
     } catch (error) {
       const structured = GoogleGenAITextService.extractGoogleError(error);
       logger.error('Google GenAI text generation failed', {
@@ -481,7 +527,7 @@ export class GoogleGenAITextService implements ITextGenerationService {
         model: options?.model || this.model,
         contextId: options?.contextId,
         // Provide a short prompt preview for correlation (avoid logging entire prompt for cost & potential PII)
-        promptPreview: prompt.slice(0, 160)
+        promptPreview: prompt.slice(0, 160),
       });
       // Re-wrap with additional context while preserving original stack / message
       if (error instanceof Error) {

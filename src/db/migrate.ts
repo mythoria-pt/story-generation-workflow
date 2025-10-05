@@ -6,10 +6,10 @@ async function runMigrations(): Promise<void> {
   try {
     logger.info('Starting database migrations...');
     const db = getDatabase();
-    
+
     // Use shared migrations from mythoria-webapp
     await migrate(db, { migrationsFolder: '../mythoria-webapp/drizzle' });
-    
+
     logger.info('✅ Database migrations completed successfully');
   } catch (error) {
     logger.error('❌ Database migration failed:', error);

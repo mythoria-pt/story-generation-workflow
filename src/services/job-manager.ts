@@ -34,21 +34,20 @@ class JobManager {
 
   constructor() {
     // Auto-cleanup completed jobs every 10 minutes
-    this.cleanupInterval = setInterval(() => {
-      this.cleanupOldJobs();
-    }, 10 * 60 * 1000);
+    this.cleanupInterval = setInterval(
+      () => {
+        this.cleanupOldJobs();
+      },
+      10 * 60 * 1000,
+    );
   }
 
   /**
    * Create a new job and start progress simulation
    */
-  createJob(
-    type: JobType, 
-    metadata: Job['metadata'], 
-    estimatedDuration: number
-  ): string {
+  createJob(type: JobType, metadata: Job['metadata'], estimatedDuration: number): string {
     const jobId = randomUUID();
-    
+
     const job: Job = {
       id: jobId,
       type,
@@ -56,7 +55,7 @@ class JobManager {
       progress: 0,
       startTime: new Date(),
       estimatedDuration,
-      ...(metadata && { metadata })
+      ...(metadata && { metadata }),
     };
 
     this.jobs.set(jobId, job);
@@ -66,7 +65,7 @@ class JobManager {
       jobId,
       type,
       estimatedDuration,
-      metadata
+      metadata,
     });
 
     return jobId;
@@ -103,7 +102,7 @@ class JobManager {
       status,
       progress: job.progress,
       hasResult: !!result,
-      hasError: !!error
+      hasError: !!error,
     });
   }
 
@@ -175,12 +174,12 @@ class JobManager {
     if (this.cleanupInterval) {
       clearInterval(this.cleanupInterval);
     }
-    
+
     // Stop all progress intervals
     for (const interval of this.progressIntervals.values()) {
       clearInterval(interval);
     }
-    
+
     this.progressIntervals.clear();
     this.jobs.clear();
   }
@@ -189,10 +188,13 @@ class JobManager {
 /**
  * Get estimated duration based on job type and parameters
  */
-export function getEstimatedDuration(type: JobType, params: {
-  chapterCount?: number;
-  operationType?: string;
-}): number {
+export function getEstimatedDuration(
+  type: JobType,
+  params: {
+    chapterCount?: number;
+    operationType?: string;
+  },
+): number {
   switch (type) {
     case 'text_edit':
       if (params.operationType === 'story' && params.chapterCount) {
@@ -201,7 +203,7 @@ export function getEstimatedDuration(type: JobType, params: {
       }
       // Single chapter edit: 45 seconds
       return 45 * 1000;
-    
+
     case 'image_edit':
       // Image edit: 90 seconds
       return 90 * 1000;
@@ -211,7 +213,7 @@ export function getEstimatedDuration(type: JobType, params: {
         return params.chapterCount * 60 * 1000;
       }
       return 60 * 1000;
-    
+
     default:
       return 60 * 1000; // Default fallback
   }

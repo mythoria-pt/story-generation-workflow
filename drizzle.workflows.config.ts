@@ -1,14 +1,14 @@
-import { defineConfig } from "drizzle-kit";
-import { config } from "dotenv";
+import { defineConfig } from 'drizzle-kit';
+import { config } from 'dotenv';
 
 // Load environment variables
-config({ path: ".env.local" });
-config({ path: ".env" });
+config({ path: '.env.local' });
+config({ path: '.env' });
 
 export default defineConfig({
-  schema: "./dist/db/workflows-schema/index.js",
-  out: "./drizzle-workflows",
-  dialect: "postgresql",
+  schema: './dist/db/workflows-schema/index.js',
+  out: './drizzle-workflows',
+  dialect: 'postgresql',
   dbCredentials: {
     host: process.env.DB_HOST!,
     port: parseInt(process.env.DB_PORT || '5432'),

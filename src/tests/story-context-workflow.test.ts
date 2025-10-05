@@ -91,7 +91,7 @@ beforeEach(() => {
   mockGetStoryContext.mockReset();
   mockGetStory.mockReset();
   StoryServiceMock.mockClear();
-  Object.values(contextManagerMock).forEach(fn => fn.mockReset());
+  Object.values(contextManagerMock).forEach((fn) => fn.mockReset());
   getAIGatewayMock.mockReset();
 });
 
@@ -160,7 +160,9 @@ describe('StoryContextService', () => {
       expect.stringContaining('Please create a detailed story outline'),
       expect.objectContaining({ contextId: 'ctx-1', temperature: 0.8 }),
     );
-    expect(textService.complete.mock.calls[0][0]).toContain('Additional requirements: Make it spooky');
+    expect(textService.complete.mock.calls[0][0]).toContain(
+      'Additional requirements: Make it spooky',
+    );
     expect(outline).toBe('Outline result');
     expect(session.currentStep).toBe('outline-generated');
   });
@@ -189,7 +191,9 @@ describe('StoryContextService', () => {
       expect.stringContaining('Please write Chapter 2: "The Long Journey" of the story.'),
       expect.objectContaining({ contextId: 'ctx-9', temperature: 0.7 }),
     );
-    expect(textService.complete.mock.calls[0][0]).toContain('Based on the story outline:\nOutline snippet');
+    expect(textService.complete.mock.calls[0][0]).toContain(
+      'Based on the story outline:\nOutline snippet',
+    );
     expect(chapter).toBe('Chapter body content');
     expect(session.currentStep).toBe('chapter-2-generated');
   });
@@ -222,12 +226,12 @@ describe('StoryOutlineHandler', () => {
       currentStep: 'initialized',
       aiGateway: {} as any,
     };
-    jest
-      .spyOn(StoryContextService.prototype, 'initializeStorySession')
-      .mockResolvedValue(session);
+    jest.spyOn(StoryContextService.prototype, 'initializeStorySession').mockResolvedValue(session);
     jest
       .spyOn(StoryContextService.prototype, 'generateOutline')
-      .mockResolvedValue('Chapter 1: Beginnings\nRandom text\nChapter 2: The Middle\nChapter 3: Finale');
+      .mockResolvedValue(
+        'Chapter 1: Beginnings\nRandom text\nChapter 2: The Middle\nChapter 3: Finale',
+      );
     const handler = new StoryOutlineHandler();
 
     const result = await handler.execute({
@@ -249,9 +253,7 @@ describe('StoryOutlineHandler', () => {
       currentStep: 'initialized',
       aiGateway: {} as any,
     };
-    jest
-      .spyOn(StoryContextService.prototype, 'initializeStorySession')
-      .mockResolvedValue(session);
+    jest.spyOn(StoryContextService.prototype, 'initializeStorySession').mockResolvedValue(session);
     jest
       .spyOn(StoryContextService.prototype, 'generateOutline')
       .mockResolvedValue('Outline without explicit chapter markers.');
@@ -289,9 +291,7 @@ describe('ChapterWritingHandler', () => {
       currentStep: 'outline-generated',
       aiGateway: {} as any,
     };
-    jest
-      .spyOn(StoryContextService.prototype, 'initializeStorySession')
-      .mockResolvedValue(session);
+    jest.spyOn(StoryContextService.prototype, 'initializeStorySession').mockResolvedValue(session);
     jest
       .spyOn(StoryContextService.prototype, 'generateChapter')
       .mockResolvedValue('Chapter text content');
@@ -326,9 +326,7 @@ describe('ChapterWritingHandler', () => {
       currentStep: 'initialized',
       aiGateway: {} as any,
     };
-    jest
-      .spyOn(StoryContextService.prototype, 'initializeStorySession')
-      .mockResolvedValue(session);
+    jest.spyOn(StoryContextService.prototype, 'initializeStorySession').mockResolvedValue(session);
     jest
       .spyOn(StoryContextService.prototype, 'generateChapter')
       .mockResolvedValue('Fresh chapter text');
@@ -345,4 +343,3 @@ describe('ChapterWritingHandler', () => {
     expect(result.wordCount).toBe(3);
   });
 });
-

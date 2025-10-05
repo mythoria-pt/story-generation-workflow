@@ -25,7 +25,7 @@ The `systemPrompt` can contain template variables that will be replaced at runti
 ## Available Languages
 
 - **pt-PT.json**: Portuguese (Portugal) - Professional Portuguese storyteller
-- **en-GB.json**: English (British) - Professional British storyteller  
+- **en-GB.json**: English (British) - Professional British storyteller
 - **en-US.json**: English (American) - Professional American storyteller
 - **fr-FR.json**: French (France) - Professional French storyteller
 - **es-ES.json**: Spanish (Spain) - Professional Spanish storyteller

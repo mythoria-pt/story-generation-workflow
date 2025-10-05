@@ -42,7 +42,9 @@ The CMYK conversion feature converts RGB PDFs to CMYK PDF/X-1a format suitable f
 ## Configuration
 
 ### ICC Profiles
+
 Located in `src/config/icc-profiles.json`:
+
 ```json
 {
   "profiles": {
@@ -57,12 +59,14 @@ Located in `src/config/icc-profiles.json`:
 ```
 
 ### Environment Variables
+
 - `GHOSTSCRIPT_BINARY`: Path to Ghostscript executable (default: `gs` on Linux, `gswin64c.exe` on Windows)
 - `TEMP_DIR`: Directory for temporary files (default: system temp directory)
 
 ## Usage
 
 ### API Endpoint
+
 ```http
 POST /internal/print/generate
 Content-Type: application/json
@@ -75,6 +79,7 @@ Content-Type: application/json
 ```
 
 ### Response Format
+
 ```json
 {
   "interiorPdfUrl": "https://storage.../interior.pdf",
@@ -86,7 +91,9 @@ Content-Type: application/json
 ```
 
 ### Workflow Integration
+
 The Google Workflow automatically triggers CMYK conversion:
+
 ```yaml
 - generatePrintPDFs:
     call: http.request
@@ -100,21 +107,25 @@ The Google Workflow automatically triggers CMYK conversion:
 ## Development Setup
 
 ### 1. Install Dependencies
+
 ```bash
 npm install tmp @types/tmp
 ```
 
 ### 2. Setup ICC Profiles
+
 ```bash
 npm run setup-icc-profiles
 ```
 
 ### 3. Install Ghostscript (Windows)
+
 - Download from https://www.ghostscript.com/download/gsdnld.html
 - Add to PATH environment variable
 - Verify: `gswin64c.exe --version`
 
 ### 4. Test Local Setup
+
 ```bash
 npm run test:cmyk
 ```
@@ -122,17 +133,20 @@ npm run test:cmyk
 ## Deployment
 
 ### Enhanced Deployment Script
+
 ```bash
 npm run deploy:cmyk
 ```
 
 This script:
+
 1. Sets up ICC profiles
 2. Builds Docker image with Ghostscript
 3. Deploys to Cloud Run with CMYK support
 4. Configures environment variables
 
 ### Manual Deployment
+
 ```bash
 # Build and deploy
 docker build -t gcr.io/PROJECT_ID/story-generation-workflow .
@@ -149,16 +163,19 @@ gcloud run deploy story-generation-workflow \
 ## Testing
 
 ### Local Environment Test
+
 ```bash
 npm run test:cmyk
 ```
 
 ### Service Endpoint Test
+
 ```bash
 npm run test:cmyk:service
 ```
 
 ### Manual Ghostscript Test
+
 ```bash
 # Test Ghostscript installation
 gswin64c.exe --version
@@ -170,20 +187,24 @@ ls icc-profiles/CoatedFOGRA39.icc
 ## File Outputs
 
 ### RGB PDFs (Original)
+
 - `interior.pdf`: Standard RGB PDF for screen viewing
 - `cover.pdf`: Standard RGB PDF for screen viewing
 
 ### CMYK PDFs (Print-Ready)
+
 - `interior-cmyk.pdf`: PDF/X-1a compliant, CMYK color space
 - `cover-cmyk.pdf`: PDF/X-1a compliant, CMYK color space
 
 ### HTML Debug Files
+
 - `interior.html`: HTML source for debugging layout
 - `cover.html`: HTML source for debugging layout
 
 ## Technical Details
 
 ### Ghostscript Command
+
 ```bash
 gs -dNOPAUSE -dBATCH -dSAFER -dQUIET \
    -sDEVICE=pdfwrite \
@@ -201,6 +222,7 @@ gs -dNOPAUSE -dBATCH -dSAFER -dQUIET \
 ```
 
 ### PDF/X Metadata
+
 ```postscript
 [/Title (Story Title)
  /Author (Author Name)
@@ -238,7 +260,9 @@ gs -dNOPAUSE -dBATCH -dSAFER -dQUIET \
    - Verify file cleanup
 
 ### Fallback Behavior
+
 If CMYK conversion fails, the system:
+
 1. Logs the error
 2. Continues with RGB PDFs only
 3. Returns partial results
@@ -254,12 +278,14 @@ If CMYK conversion fails, the system:
 ## Monitoring
 
 ### Key Metrics
+
 - CMYK conversion success rate
 - Conversion time per PDF
 - Memory usage during conversion
 - Temporary file cleanup success
 
 ### Logs to Monitor
+
 ```
 "CMYK conversion completed successfully"
 "Ghostscript validation successful"
@@ -278,13 +304,16 @@ If CMYK conversion fails, the system:
 ## Troubleshooting
 
 ### Debug Mode
+
 Set `NODE_ENV=development` for detailed logging:
+
 ```bash
 export NODE_ENV=development
 npm run dev
 ```
 
 ### Manual Testing
+
 ```bash
 # Test Ghostscript directly
 gswin64c.exe -dNOPAUSE -dBATCH -sDEVICE=pdfwrite \
@@ -300,6 +329,7 @@ gs -dNOPAUSE -dBATCH -sDEVICE=nullpage \
 ## Support
 
 For issues with CMYK conversion:
+
 1. Check Ghostscript installation
 2. Verify ICC profile presence
 3. Review logs for specific errors

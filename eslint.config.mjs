@@ -27,11 +27,12 @@ export default [
     },
     plugins: {
       '@typescript-eslint': tseslint,
-    },    rules: {
+    },
+    rules: {
       ...tseslint.configs.recommended.rules,
-      '@typescript-eslint/no-unused-vars': ['error', { 'argsIgnorePattern': '^_' }],
-  // In integration-heavy code paths, `any` is occasionally necessary. Treat as off to keep CI noise low.
-  '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+      // In integration-heavy code paths, `any` is occasionally necessary. Treat as off to keep CI noise low.
+      '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/explicit-function-return-type': 'off', // Too strict for development
       '@typescript-eslint/no-inferrable-types': 'off',
       '@typescript-eslint/no-non-null-assertion': 'warn',
@@ -59,7 +60,8 @@ export default [
         setTimeout: 'readonly',
         clearTimeout: 'readonly',
         setInterval: 'readonly',
-        clearInterval: 'readonly',        jest: 'readonly',
+        clearInterval: 'readonly',
+        jest: 'readonly',
         describe: 'readonly',
         it: 'readonly',
         test: 'readonly',
@@ -77,7 +79,7 @@ export default [
       ...tseslint.configs.recommended.rules,
       '@typescript-eslint/no-explicit-any': 'off',
       'no-console': 'off',
-      '@typescript-eslint/no-unused-vars': ['error', { 'argsIgnorePattern': '^_' }],
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
       '@typescript-eslint/explicit-function-return-type': 'off',
     },
   },

@@ -24,7 +24,7 @@ export function getTTSConfig(): TTSConfig {
     model: process.env.TTS_MODEL || 'gpt-4o-mini-tts',
     voice: process.env.TTS_VOICE || 'nova',
     speed: parseFloat(process.env.TTS_SPEED || '1.0'), // Updated to 1.0x
-    language: process.env.TTS_LANGUAGE || 'en-US'
+    language: process.env.TTS_LANGUAGE || 'en-US',
   };
 }
 
@@ -33,26 +33,46 @@ export function getTTSConfig(): TTSConfig {
  */
 export function processTextForTTS(text: string): string {
   // Apply TTS best practices
-  return text
-    // Add natural pauses with commas for better breathing
-    .replace(/([.!?])\s+/g, '$1 ')
-    // Handle numbers - spell out small numbers
-    .replace(/\b(\d{1,2})\b/g, (match, num) => {
-      const number = parseInt(num);
-      const words = [
-        'zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine',
-        'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 
-        'seventeen', 'eighteen', 'nineteen', 'twenty'
-      ];
-      return number <= 20 && words[number] ? words[number] : match;
-    })
-    // Add pauses for dramatic effect
-    .replace(/\.\.\./g, '... ')
-    // Ensure proper punctuation for pauses
-    .replace(/([,;:])\s*/g, '$1 ')
-    // Clean up extra spaces
-    .replace(/\s+/g, ' ')
-    .trim();
+  return (
+    text
+      // Add natural pauses with commas for better breathing
+      .replace(/([.!?])\s+/g, '$1 ')
+      // Handle numbers - spell out small numbers
+      .replace(/\b(\d{1,2})\b/g, (match, num) => {
+        const number = parseInt(num);
+        const words = [
+          'zero',
+          'one',
+          'two',
+          'three',
+          'four',
+          'five',
+          'six',
+          'seven',
+          'eight',
+          'nine',
+          'ten',
+          'eleven',
+          'twelve',
+          'thirteen',
+          'fourteen',
+          'fifteen',
+          'sixteen',
+          'seventeen',
+          'eighteen',
+          'nineteen',
+          'twenty',
+        ];
+        return number <= 20 && words[number] ? words[number] : match;
+      })
+      // Add pauses for dramatic effect
+      .replace(/\.\.\./g, '... ')
+      // Ensure proper punctuation for pauses
+      .replace(/([,;:])\s*/g, '$1 ')
+      // Clean up extra spaces
+      .replace(/\s+/g, ' ')
+      .trim()
+  );
 }
 
 /**
@@ -75,17 +95,17 @@ export function truncateTextForTTS(text: string, maxLength: number = 4096): stri
 
   logger.warn('Text exceeds recommended length, truncating', {
     originalLength: text.length,
-    maxLength
+    maxLength,
   });
-  
+
   // Truncate at sentence boundary
   const truncated = text.substring(0, maxLength - 200); // Leave some buffer
   const lastSentenceEnd = Math.max(
     truncated.lastIndexOf('.'),
     truncated.lastIndexOf('!'),
-    truncated.lastIndexOf('?')
+    truncated.lastIndexOf('?'),
   );
-  
+
   if (lastSentenceEnd > 0) {
     return truncated.substring(0, lastSentenceEnd + 1);
   } else {
@@ -112,17 +132,26 @@ export async function getTranslatedChapter(storyLanguage: string): Promise<strin
 /**
  * Get translated audio intro message for the given language
  */
-export async function getTranslatedAudioIntro(storyLanguage: string, authorName: string): Promise<string> {
+export async function getTranslatedAudioIntro(
+  storyLanguage: string,
+  authorName: string,
+): Promise<string> {
   return await AudioPromptService.getTranslatedAudioIntro(storyLanguage, authorName);
 }
 
 /**
  * Get Mythoria credit message in the story language
  */
-export async function getMythoriaCreditMessage(storyLanguage: string, authorName: string): Promise<string> {
+export async function getMythoriaCreditMessage(
+  storyLanguage: string,
+  authorName: string,
+): Promise<string> {
   // First try to get from AudioPromptService which uses the proper translation files
   try {
-    const creditMessage = await AudioPromptService.getTranslatedAudioIntro(storyLanguage, authorName);
+    const creditMessage = await AudioPromptService.getTranslatedAudioIntro(
+      storyLanguage,
+      authorName,
+    );
     if (creditMessage && !creditMessage.includes('This story was imagined')) {
       // If we got a non-default translation, use it
       return creditMessage;
@@ -142,8 +171,12 @@ export async function getMythoriaCreditMessage(storyLanguage: string, authorName
     'pt-PT': `Esta história foi imaginada por ${authorName} e criada por Mythoria. Conte a sua própria história.`,
     // Add more languages as needed
   };
-  
-  return translations[storyLanguage] || translations['en-US'] || `This story was imagined by ${authorName} and crafted by Mythoria. Tell your own story.`;
+
+  return (
+    translations[storyLanguage] ||
+    translations['en-US'] ||
+    `This story was imagined by ${authorName} and crafted by Mythoria. Tell your own story.`
+  );
 }
 
 /**
@@ -154,26 +187,26 @@ export async function buildFirstChapterAudioText(
   dedicatoryMessage: string | null,
   authorName: string,
   storyLanguage: string,
-  chapterContent: string
+  chapterContent: string,
 ): Promise<string> {
   let text = storyTitle + '.';
-  
+
   // Add dedicatory message if it exists
   if (dedicatoryMessage && dedicatoryMessage.trim()) {
     text += ` ${dedicatoryMessage.trim()}.`;
   }
-  
+
   // Add the Mythoria credit message
   const creditMessage = await getMythoriaCreditMessage(storyLanguage, authorName);
   text += ` ${creditMessage}`;
-  
+
   // Add translated "Chapter 1"
   const chapterWord = await getTranslatedChapter(storyLanguage);
   text += ` ${chapterWord} 1.`;
-  
+
   // Add the processed chapter content
   text += ` ${processTextForTTS(chapterContent)}`;
-  
+
   return text;
 }
 
@@ -183,13 +216,13 @@ export async function buildFirstChapterAudioText(
 export async function buildChapterAudioText(
   chapterNumber: number,
   storyLanguage: string,
-  chapterContent: string
+  chapterContent: string,
 ): Promise<string> {
   const chapterWord = await getTranslatedChapter(storyLanguage);
   let text = `${chapterWord} ${chapterNumber}.`;
-  
+
   // Add the processed chapter content
   text += ` ${processTextForTTS(chapterContent)}`;
-  
+
   return text;
 }

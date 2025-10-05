@@ -22,56 +22,63 @@ const TextEditJobSchema = z.object({
   storyId: z.string().min(1),
   userRequest: z.string().min(1).max(2000),
   scope: z.enum(['chapter', 'story']).optional().default('chapter'),
-  chapterNumber: z.number().int().min(1).optional()
+  chapterNumber: z.number().int().min(1).optional(),
 });
 
 // Allow gs:// or https://storage.googleapis.com or generic https for imageUrl (existing images are stored in GCS public URL form)
-const gcsOrHttpUrl = z.string().refine(v => {
-  return v.startsWith('gs://') || v.startsWith('http://') || v.startsWith('https://');
-}, { message: 'Must be a gs:// or http(s) URL' });
+const gcsOrHttpUrl = z.string().refine(
+  (v) => {
+    return v.startsWith('gs://') || v.startsWith('http://') || v.startsWith('https://');
+  },
+  { message: 'Must be a gs:// or http(s) URL' },
+);
 
-const ImageEditJobSchema = z.object({
-  storyId: z.string().min(1),
-  imageUrl: gcsOrHttpUrl,
-  imageType: z.enum(['cover', 'backcover', 'chapter']),
-  userRequest: z.string().min(1).max(2000).optional(),
-  chapterNumber: z.number().int().min(1).optional(),
-  graphicalStyle: z.string().optional(),
-  userImageUri: gcsOrHttpUrl.optional(), // reference image for conversion
-  convertToStyle: z.boolean().optional().default(false)
-}).superRefine((data, ctx) => {
-  if (data.convertToStyle) {
-    // For conversion we must have a userImageUri to restyle OR a userRequest to guide edit
-    if (!data.userImageUri) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'userImageUri is required when convertToStyle is true'
-      });
+const ImageEditJobSchema = z
+  .object({
+    storyId: z.string().min(1),
+    imageUrl: gcsOrHttpUrl,
+    imageType: z.enum(['cover', 'backcover', 'chapter']),
+    userRequest: z.string().min(1).max(2000).optional(),
+    chapterNumber: z.number().int().min(1).optional(),
+    graphicalStyle: z.string().optional(),
+    userImageUri: gcsOrHttpUrl.optional(), // reference image for conversion
+    convertToStyle: z.boolean().optional().default(false),
+  })
+  .superRefine((data, ctx) => {
+    if (data.convertToStyle) {
+      // For conversion we must have a userImageUri to restyle OR a userRequest to guide edit
+      if (!data.userImageUri) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'userImageUri is required when convertToStyle is true',
+        });
+      }
+      // userRequest optional during conversion (prompt may be auto-generated)
+    } else {
+      // Normal edit (without conversion toggle) still needs userRequest
+      if (!data.userRequest || data.userRequest.trim().length === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'userRequest is required unless convertToStyle is true',
+        });
+      }
     }
-    // userRequest optional during conversion (prompt may be auto-generated)
-  } else {
-    // Normal edit (without conversion toggle) still needs userRequest
-    if (!data.userRequest || data.userRequest.trim().length === 0) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'userRequest is required unless convertToStyle is true'
-      });
-    }
-  }
-});
+  });
 
 const TranslationJobSchema = z.object({
   storyId: z.string().min(1),
   targetLocale: z.enum([
-    'en-US', 'en-GB',
-    'pt-PT', 'pt-BR',
+    'en-US',
+    'en-GB',
+    'pt-PT',
+    'pt-BR',
     'es-ES',
     'fr-FR',
     'it-IT',
     'de-DE',
     'nl-NL',
-    'pl-PL'
-  ])
+    'pl-PL',
+  ]),
 });
 
 /**
@@ -79,11 +86,11 @@ const TranslationJobSchema = z.object({
  */
 function sendErrorResponse(res: any, statusCode: number, message: string, details?: any) {
   logger.error(`Async job error: ${message}`, details);
-  
+
   res.status(statusCode).json({
     success: false,
     error: message,
-    ...(details && { details })
+    ...(details && { details }),
   });
 }
 
@@ -99,7 +106,7 @@ router.post('/text-edit', async (req, res) => {
       storyId,
       scope,
       chapterNumber,
-      userRequestLength: userRequest.length
+      userRequestLength: userRequest.length,
     });
 
     // Determine chapter count for estimation (we'll need to get this from the story)
@@ -114,13 +121,13 @@ router.post('/text-edit', async (req, res) => {
     // Calculate estimated duration
     const estimatedDuration = getEstimatedDuration('text_edit', {
       operationType: scope,
-      chapterCount
+      chapterCount,
     });
 
     // Create job metadata without undefined values
     const metadata: any = {
       storyId,
-      operationType: scope
+      operationType: scope,
     };
     if (scope === 'story' && chapterCount > 1) {
       metadata.chapterCount = chapterCount;
@@ -136,7 +143,7 @@ router.post('/text-edit', async (req, res) => {
     const jobParams: any = {
       storyId,
       userRequest,
-      scope
+      scope,
     };
     if (chapterNumber) {
       jobParams.chapterNumber = chapterNumber;
@@ -145,10 +152,13 @@ router.post('/text-edit', async (req, res) => {
     processTextEditJob(jobId, jobParams).catch((error: any) => {
       logger.error('Text edit job processing failed', {
         jobId,
-        error: error instanceof Error ? error.message : String(error)
+        error: error instanceof Error ? error.message : String(error),
       });
-      jobManager.updateJobStatus(jobId, 'failed', undefined, 
-        error instanceof Error ? error.message : 'Processing failed'
+      jobManager.updateJobStatus(
+        jobId,
+        'failed',
+        undefined,
+        error instanceof Error ? error.message : 'Processing failed',
       );
     });
 
@@ -157,17 +167,16 @@ router.post('/text-edit', async (req, res) => {
       success: true,
       jobId,
       estimatedDuration,
-      message: 'Text editing job created successfully'
+      message: 'Text editing job created successfully',
     });
-
   } catch (error) {
     if (error instanceof z.ZodError) {
       sendErrorResponse(res, 400, 'Invalid request parameters', {
-        validationErrors: error.errors
+        validationErrors: error.errors,
       });
     } else {
       sendErrorResponse(res, 500, 'Failed to create text edit job', {
-        error: error instanceof Error ? error.message : String(error)
+        error: error instanceof Error ? error.message : String(error),
       });
     }
   }
@@ -179,7 +188,16 @@ router.post('/text-edit', async (req, res) => {
  */
 router.post('/image-edit', async (req, res) => {
   try {
-  const { storyId, imageUrl, imageType, userRequest, chapterNumber, graphicalStyle, userImageUri, convertToStyle } = ImageEditJobSchema.parse(req.body);
+    const {
+      storyId,
+      imageUrl,
+      imageType,
+      userRequest,
+      chapterNumber,
+      graphicalStyle,
+      userImageUri,
+      convertToStyle,
+    } = ImageEditJobSchema.parse(req.body);
 
     logger.info('Image edit job request received', {
       storyId,
@@ -187,8 +205,8 @@ router.post('/image-edit', async (req, res) => {
       chapterNumber,
       userRequestLength: userRequest ? userRequest.length : 0,
       hasGraphicalStyle: !!graphicalStyle,
-  hasUserImageUri: !!userImageUri,
-  convertToStyle
+      hasUserImageUri: !!userImageUri,
+      convertToStyle,
     });
 
     // Calculate estimated duration (always 90 seconds for images)
@@ -200,7 +218,7 @@ router.post('/image-edit', async (req, res) => {
       operationType: 'image_edit',
       imageType,
       ...(userImageUri ? { hasUserImageUri: true } : {}),
-  ...(convertToStyle ? { convertToStyle: true } : {})
+      ...(convertToStyle ? { convertToStyle: true } : {}),
     };
     if (chapterNumber) {
       metadata.chapterNumber = chapterNumber;
@@ -217,17 +235,20 @@ router.post('/image-edit', async (req, res) => {
       userRequest,
       userImageUri,
       convertToStyle,
-      graphicalStyle
+      graphicalStyle,
     };
     if (chapterNumber) jobParams.chapterNumber = chapterNumber;
 
     processImageEditJob(jobId, jobParams).catch((error: any) => {
       logger.error('Image edit job processing failed', {
         jobId,
-        error: error instanceof Error ? error.message : String(error)
+        error: error instanceof Error ? error.message : String(error),
       });
-      jobManager.updateJobStatus(jobId, 'failed', undefined,
-        error instanceof Error ? error.message : 'Processing failed'
+      jobManager.updateJobStatus(
+        jobId,
+        'failed',
+        undefined,
+        error instanceof Error ? error.message : 'Processing failed',
       );
     });
 
@@ -236,17 +257,16 @@ router.post('/image-edit', async (req, res) => {
       success: true,
       jobId,
       estimatedDuration,
-      message: 'Image editing job created successfully'
+      message: 'Image editing job created successfully',
     });
-
   } catch (error) {
     if (error instanceof z.ZodError) {
       sendErrorResponse(res, 400, 'Invalid request parameters', {
-        validationErrors: error.errors
+        validationErrors: error.errors,
       });
     } else {
       sendErrorResponse(res, 500, 'Failed to create image edit job', {
-        error: error instanceof Error ? error.message : String(error)
+        error: error instanceof Error ? error.message : String(error),
       });
     }
   }
@@ -272,7 +292,7 @@ router.post('/translate-text', async (req, res) => {
     if (story.storyLanguage === targetLocale) {
       sendErrorResponse(res, 400, 'Target locale matches current storyLanguage', {
         storyLanguage: story.storyLanguage,
-        targetLocale
+        targetLocale,
       });
       return;
     }
@@ -282,13 +302,16 @@ router.post('/translate-text', async (req, res) => {
     const chapterCount = chapters.length || 1;
 
     // Estimate duration
-    const estimatedDuration = getEstimatedDuration('text_translate', { chapterCount, operationType: 'story' });
+    const estimatedDuration = getEstimatedDuration('text_translate', {
+      chapterCount,
+      operationType: 'story',
+    });
 
     const metadata: any = {
       storyId,
       operationType: 'story',
       chapterCount,
-      targetLocale
+      targetLocale,
     };
 
     const jobId = jobManager.createJob('text_translate', metadata, estimatedDuration);
@@ -297,10 +320,13 @@ router.post('/translate-text', async (req, res) => {
     processTranslationJob(jobId, { storyId, targetLocale }).catch((error: any) => {
       logger.error('Translation job processing failed', {
         jobId,
-        error: error instanceof Error ? error.message : String(error)
+        error: error instanceof Error ? error.message : String(error),
       });
-      jobManager.updateJobStatus(jobId, 'failed', undefined,
-        error instanceof Error ? error.message : 'Processing failed'
+      jobManager.updateJobStatus(
+        jobId,
+        'failed',
+        undefined,
+        error instanceof Error ? error.message : 'Processing failed',
       );
     });
 
@@ -308,14 +334,14 @@ router.post('/translate-text', async (req, res) => {
       success: true,
       jobId,
       estimatedDuration,
-      message: 'Translation job created successfully'
+      message: 'Translation job created successfully',
     });
   } catch (error) {
     if (error instanceof z.ZodError) {
       sendErrorResponse(res, 400, 'Invalid request parameters', { validationErrors: error.errors });
     } else {
       sendErrorResponse(res, 500, 'Failed to create translation job', {
-        error: error instanceof Error ? error.message : String(error)
+        error: error instanceof Error ? error.message : String(error),
       });
     }
   }
@@ -357,14 +383,13 @@ router.get('/:jobId', async (req, res) => {
         estimatedDuration: job.estimatedDuration,
         metadata: job.metadata,
         ...(job.result && { result: job.result }),
-        ...(job.error && { error: job.error })
-      }
+        ...(job.error && { error: job.error }),
+      },
     });
-
   } catch (error) {
     sendErrorResponse(res, 500, 'Failed to get job status', {
       jobId: req.params?.jobId,
-      error: error instanceof Error ? error.message : String(error)
+      error: error instanceof Error ? error.message : String(error),
     });
   }
 });

@@ -18,27 +18,27 @@ export interface StoryGenerationSession {
 
 export class StoryContextService {
   private storyService = new StoryService();
-    /**
+  /**
    * Get context manager instance
    */
   getContextManager() {
     return contextManager;
   }
-  
+
   /**
    * Get story service instance
    */
   getStoryService() {
     return this.storyService;
   }
-  
+
   /**
    * Initialize a story generation session with context
    */
   async initializeStorySession(
     storyId: string,
     runId: string,
-    aiGateway: AIGateway
+    aiGateway: AIGateway,
   ): Promise<StoryGenerationSession> {
     try {
       // Get story context from database
@@ -67,7 +67,7 @@ export class StoryContextService {
         storyId,
         storyContext,
         currentStep: 'initialized',
-        aiGateway
+        aiGateway,
       };
 
       logger.info('Story generation session initialized', {
@@ -75,7 +75,7 @@ export class StoryContextService {
         storyId,
         runId,
         storyTitle: storyContext.story.title,
-        charactersCount: storyContext.characters.length
+        charactersCount: storyContext.characters.length,
       });
 
       return session;
@@ -83,7 +83,7 @@ export class StoryContextService {
       logger.error('Failed to initialize story session', {
         error: error instanceof Error ? error.message : String(error),
         storyId,
-        runId
+        runId,
       });
       throw error;
     }
@@ -94,15 +94,15 @@ export class StoryContextService {
    */
   async generateOutline(
     session: StoryGenerationSession,
-    additionalPrompt?: string
+    additionalPrompt?: string,
   ): Promise<string> {
     try {
       const prompt = this.createOutlinePrompt(session.storyContext, additionalPrompt);
-      
+
       const textService = session.aiGateway.getTextService();
       const outline = await textService.complete(prompt, {
         contextId: session.contextId,
-        temperature: 0.8
+        temperature: 0.8,
       });
 
       // Update session step
@@ -111,14 +111,14 @@ export class StoryContextService {
       logger.info('Story outline generated', {
         contextId: session.contextId,
         storyId: session.storyId,
-        outlineLength: outline.length
+        outlineLength: outline.length,
       });
 
       return outline;
     } catch (error) {
       logger.error('Failed to generate story outline', {
         error: error instanceof Error ? error.message : String(error),
-        contextId: session.contextId
+        contextId: session.contextId,
       });
       throw error;
     }
@@ -131,20 +131,20 @@ export class StoryContextService {
     session: StoryGenerationSession,
     chapterNumber: number,
     chapterTitle: string,
-    outline?: string
+    outline?: string,
   ): Promise<string> {
     try {
       const prompt = this.createChapterPrompt(
         session.storyContext,
         chapterNumber,
         chapterTitle,
-        outline
+        outline,
       );
 
       const textService = session.aiGateway.getTextService();
       const chapter = await textService.complete(prompt, {
         contextId: session.contextId,
-        temperature: 0.7
+        temperature: 0.7,
       });
 
       // Update session step
@@ -154,7 +154,7 @@ export class StoryContextService {
         contextId: session.contextId,
         storyId: session.storyId,
         chapterNumber,
-        chapterLength: chapter.length
+        chapterLength: chapter.length,
       });
 
       return chapter;
@@ -162,7 +162,7 @@ export class StoryContextService {
       logger.error('Failed to generate story chapter', {
         error: error instanceof Error ? error.message : String(error),
         contextId: session.contextId,
-        chapterNumber
+        chapterNumber,
       });
       throw error;
     }
@@ -184,12 +184,12 @@ export class StoryContextService {
 
       logger.info('Story session cleaned up', {
         contextId: session.contextId,
-        storyId: session.storyId
+        storyId: session.storyId,
       });
     } catch (error) {
       logger.error('Failed to cleanup story session', {
         error: error instanceof Error ? error.message : String(error),
-        contextId: session.contextId
+        contextId: session.contextId,
       });
       throw error;
     }
@@ -200,7 +200,7 @@ export class StoryContextService {
    */
   private createSystemPrompt(storyContext: StoryContext): string {
     const { story, characters } = storyContext;
-    
+
     let systemPrompt = `You are a creative storyteller helping to write a personalized story. Here are the story details:
 
 **Story Information:**
@@ -226,13 +226,14 @@ export class StoryContextService {
     }
 
     systemPrompt += `\n\n**Characters:**`;
-    
+
     characters.forEach((char, index) => {
       systemPrompt += `\n${index + 1}. **${char.name}**`;
       if (char.role) systemPrompt += ` (${char.role})`;
       if (char.type) systemPrompt += ` - Type: ${char.type}`;
       if (char.age) systemPrompt += ` - Age: ${char.age}`;
-      if (char.traits && char.traits.length > 0) systemPrompt += ` - Traits: ${char.traits.join(', ')}`;
+      if (char.traits && char.traits.length > 0)
+        systemPrompt += ` - Traits: ${char.traits.join(', ')}`;
       if (char.characteristics) systemPrompt += ` - Characteristics: ${char.characteristics}`;
       if (char.physicalDescription) systemPrompt += ` - Description: ${char.physicalDescription}`;
     });
@@ -289,11 +290,11 @@ The outline should be engaging for the target audience and incorporate all the c
 
   /**
    * Create chapter generation prompt
-   */  private createChapterPrompt(
+   */ private createChapterPrompt(
     _storyContext: StoryContext,
     chapterNumber: number,
     chapterTitle: string,
-    outline?: string
+    outline?: string,
   ): string {
     let prompt = `Please write Chapter ${chapterNumber}: "${chapterTitle}" of the story.`;
 

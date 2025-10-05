@@ -8,18 +8,27 @@ export class EventService {
 
   async hasEvent(eventType: string, storyId: string): Promise<boolean> {
     try {
-      const rows = await this.db.select({ eventId: events.eventId })
+      const rows = await this.db
+        .select({ eventId: events.eventId })
         .from(events)
         .where(and(eq(events.eventType, eventType)));
       // Note: events table does not have storyId column; storing in payload, so we need to filter after fetch
       return rows.length > 0; // Simplified (could scan payload JSON if necessary)
     } catch (e) {
-      logger.error('Failed checking event', { eventType, storyId, error: e instanceof Error ? e.message : String(e) });
+      logger.error('Failed checking event', {
+        eventType,
+        storyId,
+        error: e instanceof Error ? e.message : String(e),
+      });
       return false;
     }
   }
 
-  async recordEvent(eventType: string, authorId: string | null, payload: Record<string, unknown>): Promise<void> {
+  async recordEvent(
+    eventType: string,
+    authorId: string | null,
+    payload: Record<string, unknown>,
+  ): Promise<void> {
     try {
       await this.db.insert(events).values({
         eventType,
@@ -27,7 +36,10 @@ export class EventService {
         payload,
       });
     } catch (e) {
-      logger.error('Failed recording event', { eventType, error: e instanceof Error ? e.message : String(e) });
+      logger.error('Failed recording event', {
+        eventType,
+        error: e instanceof Error ? e.message : String(e),
+      });
     }
   }
 }

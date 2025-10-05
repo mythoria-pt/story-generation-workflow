@@ -171,4 +171,3 @@ describe('StoryService', () => {
     expect(logger.info).toHaveBeenCalled();
   });
 });
-

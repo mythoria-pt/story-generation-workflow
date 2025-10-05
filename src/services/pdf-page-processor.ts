@@ -28,12 +28,15 @@ export class PDFPageProcessor {
             });
           }
           return Promise.resolve('');
-        }
+        },
       };
       await pdfParse(pdfBytes, options);
       return pageText;
     } catch (error) {
-      logger.warn('Error extracting page text', { pageNumber, error: error instanceof Error ? error.message : String(error) });
+      logger.warn('Error extracting page text', {
+        pageNumber,
+        error: error instanceof Error ? error.message : String(error),
+      });
       return '';
     }
   }
@@ -41,7 +44,11 @@ export class PDFPageProcessor {
   /**
    * Fallback: inspect raw page content streams for marker text when text extraction fails.
    */
-  private async rawStreamHasMarker(pdfDoc: PDFDocument, pageIndex: number, marker: string): Promise<boolean> {
+  private async rawStreamHasMarker(
+    pdfDoc: PDFDocument,
+    pageIndex: number,
+    marker: string,
+  ): Promise<boolean> {
     try {
       const page = pdfDoc.getPages()[pageIndex];
       const context: any = (pdfDoc as any).context;
@@ -67,7 +74,10 @@ export class PDFPageProcessor {
         }
       }
     } catch (e) {
-      logger.debug('Raw stream inspection failed', { page: pageIndex + 1, error: (e as Error).message });
+      logger.debug('Raw stream inspection failed', {
+        page: pageIndex + 1,
+        error: (e as Error).message,
+      });
     }
     return false;
   }
@@ -81,8 +91,14 @@ export class PDFPageProcessor {
       const marker = 'EMPTY-PAGE-MARKER';
       const normalMarker = raw.includes(marker);
       const spacedMarker = raw.includes(marker.split('').join(' '));
-      const normalizedMatch = raw.replace(/\s+/g, '').toUpperCase().includes(marker.replace(/\s+/g, '').toUpperCase());
-      const pattern = marker.split('').map(ch => /[-/\\^$*+?.()|[\]{}]/.test(ch) ? `\\${ch}` : ch).join('\\s*');
+      const normalizedMatch = raw
+        .replace(/\s+/g, '')
+        .toUpperCase()
+        .includes(marker.replace(/\s+/g, '').toUpperCase());
+      const pattern = marker
+        .split('')
+        .map((ch) => (/[-/\\^$*+?.()|[\]{}]/.test(ch) ? `\\${ch}` : ch))
+        .join('\\s*');
       const regexMatch = new RegExp(pattern, 'i').test(raw);
       let hasMarker = normalMarker || spacedMarker || normalizedMatch || regexMatch;
 
@@ -97,14 +113,17 @@ export class PDFPageProcessor {
           // Swallowing parse errors is intentional here; log at debug level for traceability
           logger.debug('PDF raw stream fallback failed during marker check', {
             pageNumber,
-            error: err instanceof Error ? err.message : String(err)
+            error: err instanceof Error ? err.message : String(err),
           });
         }
       }
 
       return hasMarker;
     } catch (error) {
-      logger.warn('Marker detection failure', { pageNumber, error: error instanceof Error ? error.message : String(error) });
+      logger.warn('Marker detection failure', {
+        pageNumber,
+        error: error instanceof Error ? error.message : String(error),
+      });
       return false;
     }
   }
@@ -126,7 +145,7 @@ export class PDFPageProcessor {
     let pagesDeleted = 0;
 
     for (let i = 7; i < originalPages.length; i++) {
-      const currentLogicalPageNumber = (i + 1) - pagesDeleted;
+      const currentLogicalPageNumber = i + 1 - pagesDeleted;
       const isEmpty = await this.hasEmptyPageMarker(pdfBytes, i + 1);
 
       if (!isEmpty) continue;
@@ -144,7 +163,13 @@ export class PDFPageProcessor {
     const processedPdfBytes = await pdfDoc.save();
     writeFileSync(outputPath, processedPdfBytes);
 
-    const result: PageProcessingResult = { originalPageCount, finalPageCount: originalPageCount - pagesDeleted, pagesDeleted, deletedPageNumbers, processedFilePath: outputPath };
+    const result: PageProcessingResult = {
+      originalPageCount,
+      finalPageCount: originalPageCount - pagesDeleted,
+      pagesDeleted,
+      deletedPageNumbers,
+      processedFilePath: outputPath,
+    };
     logger.info('PDF page processing done', result);
     return result;
   }
@@ -163,7 +188,11 @@ export class PDFPageProcessor {
       if (pages.length < 10) {
         issues.push(`PDF has unusually few pages: ${pages.length}`);
       }
-      logger.info('Page layout validation completed', { totalPages: pages.length, issuesFound: issues.length, issues });
+      logger.info('Page layout validation completed', {
+        totalPages: pages.length,
+        issuesFound: issues.length,
+        issues,
+      });
       return { isValid: issues.length === 0, issues };
     } catch (error) {
       const errorMessage = `Failed to validate page layout: ${error instanceof Error ? error.message : String(error)}`;

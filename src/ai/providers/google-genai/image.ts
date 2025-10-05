@@ -2,8 +2,8 @@
  * Google Imagen Image Generation Service
  */
 
-import { IImageGenerationService, ImageGenerationOptions } from "../../interfaces.js";
-import { logger } from "@/config/logger.js";
+import { IImageGenerationService, ImageGenerationOptions } from '../../interfaces.js';
+import { logger } from '@/config/logger.js';
 import { ImageGenerationBlockedError } from '@/ai/errors.js';
 // Dynamic import to avoid Jest resolver issues unless Gemini models actually used
 type GoogleGenAIType = any; // Minimal typing to avoid adding types
@@ -12,7 +12,7 @@ export interface GoogleGenAIImageConfig {
   apiKey: string;
   model?: string;
   projectId?: string; // for Vertex (Gemini image) models
-  location?: string;  // e.g. 'us-central1' or 'global'
+  location?: string; // e.g. 'us-central1' or 'global'
 }
 
 interface ImagenGenerateResponse {
@@ -53,61 +53,62 @@ export class GoogleGenAIImageService implements IImageGenerationService {
 
   constructor(config: GoogleGenAIImageConfig) {
     this.apiKey = config.apiKey;
-    this.model = config.model || "gemini-2.5-flash-image-preview";
-  // Only enable vertex mode if explicitly requested; API key + projectId without proper auth can cause 404
-  const useVertex = process.env.GOOGLE_GENAI_USE_VERTEX === 'true';
-  this.projectId = useVertex ? (config.projectId || process.env.GOOGLE_CLOUD_PROJECT_ID || undefined) : undefined;
-  // Use dedicated GENAI region var; default to global
-  this.location = config.location || process.env.GOOGLE_GENAI_CLOUD_REGION || 'global';
+    this.model = config.model || 'gemini-2.5-flash-image-preview';
+    // Only enable vertex mode if explicitly requested; API key + projectId without proper auth can cause 404
+    const useVertex = process.env.GOOGLE_GENAI_USE_VERTEX === 'true';
+    this.projectId = useVertex
+      ? config.projectId || process.env.GOOGLE_CLOUD_PROJECT_ID || undefined
+      : undefined;
+    // Use dedicated GENAI region var; default to global
+    this.location = config.location || process.env.GOOGLE_GENAI_CLOUD_REGION || 'global';
 
     // Map deprecated Imagen REST models (imagen-4.*-generate-001) to current Gemini image model.
     // Google has removed the legacy /models/imagen-*/:generateImage endpoint (404 as of Aug 2025).
-  const disableMapping = process.env.GOOGLE_GENAI_DISABLE_IMAGEN_MAPPING === 'true';
-  if (this.model.startsWith('imagen-') && !disableMapping) {
+    const disableMapping = process.env.GOOGLE_GENAI_DISABLE_IMAGEN_MAPPING === 'true';
+    if (this.model.startsWith('imagen-') && !disableMapping) {
       const legacy = this.model;
       this.model = 'gemini-2.5-flash-image-preview';
       logger.warn('Legacy Google Imagen model detected; mapping to Gemini image model', {
         legacyModel: legacy,
-        mappedModel: this.model
+        mappedModel: this.model,
       });
     }
 
     // Gemini image preview / multimodal generation models start with 'gemini-' and require the @google/genai client
     // For Gemini image models we lazy-load the SDK in generate()
 
-    logger.info("Google Imagen/Gemini Image Service initialized", {
+    logger.info('Google Imagen/Gemini Image Service initialized', {
       model: this.model,
       usingGeminiClient: !!this.genAIClient,
       projectId: this.projectId,
-      location: this.location
+      location: this.location,
     });
   }
 
-  async generate(
-    prompt: string,
-    options?: ImageGenerationOptions,
-  ): Promise<Buffer> {
+  async generate(prompt: string, options?: ImageGenerationOptions): Promise<Buffer> {
     try {
       const model = options?.model || this.model;
 
       // Gemini image (multimodal) path
-  const forceRest = process.env.GOOGLE_GENAI_FORCE_REST === 'true';
+      const forceRest = process.env.GOOGLE_GENAI_FORCE_REST === 'true';
       if (model.startsWith('gemini-') && !forceRest) {
         if (!this.genAIClient) {
           const { GoogleGenAI } = await import('@google/genai');
           // Only pass vertex options if projectId is defined (explicitly enabled)
-            this.genAIClient = this.projectId ? new GoogleGenAI({
-              apiKey: this.apiKey,
-              vertexai: true,
-              project: this.projectId,
-              location: this.location
-            } as any) : new GoogleGenAI({ apiKey: this.apiKey } as any);
+          this.genAIClient = this.projectId
+            ? new GoogleGenAI({
+                apiKey: this.apiKey,
+                vertexai: true,
+                project: this.projectId,
+                location: this.location,
+              } as any)
+            : new GoogleGenAI({ apiKey: this.apiKey } as any);
         }
         logger.debug('Google Gemini Image Debug - using @google/genai client', {
           model,
           projectId: this.projectId,
           location: this.location,
-          promptPreview: prompt.slice(0, 120)
+          promptPreview: prompt.slice(0, 120),
         });
 
         // Build multimodal parts: optional reference images first, then instruction, then prompt text
@@ -120,33 +121,41 @@ export class GoogleGenAIImageService implements IImageGenerationService {
               parts.push({
                 inlineData: {
                   data: ref.buffer.toString('base64'),
-                  mimeType: ref.mimeType || 'image/jpeg'
-                }
+                  mimeType: ref.mimeType || 'image/jpeg',
+                },
               });
             } catch (e) {
-              logger.warn('Failed to encode reference image for Gemini', { error: e instanceof Error ? e.message : String(e) });
+              logger.warn('Failed to encode reference image for Gemini', {
+                error: e instanceof Error ? e.message : String(e),
+              });
             }
           }
-          parts.push({ text: 'The preceding images are authoritative references for characters and artistic style. Maintain consistency in faces, proportions, palette, and clothing unless explicitly instructed otherwise.' });
+          parts.push({
+            text: 'The preceding images are authoritative references for characters and artistic style. Maintain consistency in faces, proportions, palette, and clothing unless explicitly instructed otherwise.',
+          });
         }
         parts.push({ text: prompt });
 
         // Non-streaming generate content per current docs for image generation
         const response = await (this.genAIClient as any).models.generateContent({
           model,
-          contents: [ { role: 'user', parts } ]
+          contents: [{ role: 'user', parts }],
         });
-  logger.debug('Google Gemini Image Debug - raw response keys', { model, hasCandidates: !!response?.candidates, keys: response ? Object.keys(response) : [] });
+        logger.debug('Google Gemini Image Debug - raw response keys', {
+          model,
+          hasCandidates: !!response?.candidates,
+          keys: response ? Object.keys(response) : [],
+        });
         const candidates = response?.candidates || [];
         let imagePartBase64: string | undefined;
         for (const c of candidates) {
           const parts = c?.content?.parts || [];
-            for (const p of parts) {
-              if (p.inlineData?.data) {
-                imagePartBase64 = p.inlineData.data;
-                break;
-              }
+          for (const p of parts) {
+            if (p.inlineData?.data) {
+              imagePartBase64 = p.inlineData.data;
+              break;
             }
+          }
           if (imagePartBase64) break;
         }
         if (!imagePartBase64) {
@@ -155,40 +164,52 @@ export class GoogleGenAIImageService implements IImageGenerationService {
             finishReason: c.finishReason,
             hasContent: !!c.content,
             partCount: c.content?.parts?.length || 0,
-            partSummaries: (c.content?.parts || []).map((p: any) => ({ keys: Object.keys(p), hasInline: !!p.inlineData, hasText: !!p.text }))
+            partSummaries: (c.content?.parts || []).map((p: any) => ({
+              keys: Object.keys(p),
+              hasInline: !!p.inlineData,
+              hasText: !!p.text,
+            })),
           }));
           const finishReasons = Array.from(
-            new Set(candidateDiagnostics.map((d: any) => d.finishReason).filter(Boolean))
+            new Set(candidateDiagnostics.map((d: any) => d.finishReason).filter(Boolean)),
           ) as string[];
           logger.error('Google Gemini Image Debug - no inline image data in response', {
             model,
             candidateCount: candidates.length,
             candidateDiagnostics,
-            finishReasons
+            finishReasons,
           });
           // If all candidates are blocked for prohibited content, surface a structured safety error
-          if (finishReasons.length && finishReasons.every(r => r === 'PROHIBITED_CONTENT')) {
+          if (finishReasons.length && finishReasons.every((r) => r === 'PROHIBITED_CONTENT')) {
             throw new ImageGenerationBlockedError({
               provider: 'google-genai',
               finishReasons,
               diagnostics: candidateDiagnostics,
-              message: 'Image generation blocked by Google safety filters (reason: PROHIBITED_CONTENT). Adjust prompt to comply with content policies.'
+              message:
+                'Image generation blocked by Google safety filters (reason: PROHIBITED_CONTENT). Adjust prompt to comply with content policies.',
             });
           }
           // Generic fallback error with finish reasons context
           throw new Error(
             'No image data returned from Gemini image model' +
-              (finishReasons.length ? ` (finishReasons=${finishReasons.join(',')})` : '')
+              (finishReasons.length ? ` (finishReasons=${finishReasons.join(',')})` : ''),
           );
         }
         const buffer = Buffer.from(imagePartBase64, 'base64');
-        logger.info('Google Gemini Image: image generated', { model, size: buffer.length, referenceImageCount: refCount });
+        logger.info('Google Gemini Image: image generated', {
+          model,
+          size: buffer.length,
+          referenceImageCount: refCount,
+        });
         return buffer;
       }
 
       // Legacy Imagen REST path (imagen-* models)
       if (options?.referenceImages?.length) {
-        logger.warn('Reference images provided but ignored for legacy Imagen REST model', { model, referenceImageCount: options.referenceImages.length });
+        logger.warn('Reference images provided but ignored for legacy Imagen REST model', {
+          model,
+          referenceImageCount: options.referenceImages.length,
+        });
       }
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateImage?key=${this.apiKey}`;
       const body = {
@@ -197,8 +218,8 @@ export class GoogleGenAIImageService implements IImageGenerationService {
           numberOfImages: 1,
           sampleImageSize: '2K',
           aspectRatio: this.getAspectRatio(options?.width, options?.height),
-          personGeneration: 'allow_all'
-        }
+          personGeneration: 'allow_all',
+        },
       };
 
       logger.debug('Google Imagen Debug - request prepared', {
@@ -206,44 +227,64 @@ export class GoogleGenAIImageService implements IImageGenerationService {
         model,
         promptPreview: prompt.slice(0, 120),
         aspectRatio: body.imageGenerationConfig.aspectRatio,
-        hasApiKey: !!this.apiKey
+        hasApiKey: !!this.apiKey,
       });
 
-      const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
       if (!response.ok) {
         let errorText: string | undefined;
-        try { errorText = await response.text(); } catch { /* ignore */ }
+        try {
+          errorText = await response.text();
+        } catch {
+          /* ignore */
+        }
         logger.error('Google Imagen Debug - non 2xx response', {
           status: response.status,
           statusText: response.statusText,
           model,
           url,
           errorText: errorText?.slice(0, 500),
-          headers: Object.fromEntries(response.headers.entries())
+          headers: Object.fromEntries(response.headers.entries()),
         });
         if (response.status === 404) {
-          const hint = 'Model not found (404). Verify model name and API enablement. For Vertex-only model, supply project/location or switch to public imagen-* model.';
-          throw new Error(`Google Imagen API error: ${response.status} ${response.statusText}${errorText ? ' - ' + errorText : ''}. Hint: ${hint}`);
+          const hint =
+            'Model not found (404). Verify model name and API enablement. For Vertex-only model, supply project/location or switch to public imagen-* model.';
+          throw new Error(
+            `Google Imagen API error: ${response.status} ${response.statusText}${errorText ? ' - ' + errorText : ''}. Hint: ${hint}`,
+          );
         }
-        throw new Error(`Google Imagen API error: ${response.status} ${response.statusText}${errorText ? ' - ' + errorText : ''}`);
+        throw new Error(
+          `Google Imagen API error: ${response.status} ${response.statusText}${errorText ? ' - ' + errorText : ''}`,
+        );
       }
       const data = (await response.json()) as ImagenGenerateResponse;
       const imageBytes = data.generatedImages?.[0]?.image?.imageBytes;
       if (!imageBytes) {
-        logger.error('Google Imagen Debug - no imageBytes in response', { keys: Object.keys(data || {}), model });
+        logger.error('Google Imagen Debug - no imageBytes in response', {
+          keys: Object.keys(data || {}),
+          model,
+        });
         throw new Error('No image returned from Google Imagen');
       }
       const buffer = Buffer.from(imageBytes, 'base64');
-      logger.info('Google Imagen: image generated', { model, promptLength: prompt.length, imageSize: buffer.length });
+      logger.info('Google Imagen: image generated', {
+        model,
+        promptLength: prompt.length,
+        imageSize: buffer.length,
+      });
       return buffer;
     } catch (error) {
       const structured = GoogleGenAIImageService.extractGoogleError(error);
-      logger.error("Google Imagen image generation failed", {
+      logger.error('Google Imagen image generation failed', {
         error: error instanceof Error ? error.message : String(error),
         ...structured,
         promptLength: prompt.length,
         model: this.model,
-        promptPreview: prompt.slice(0, 160)
+        promptPreview: prompt.slice(0, 160),
       });
       if (error instanceof Error) {
         throw error;
@@ -253,27 +294,24 @@ export class GoogleGenAIImageService implements IImageGenerationService {
     }
   }
 
-  private getAspectRatio(
-    width?: number,
-    height?: number,
-  ): "1:1" | "3:4" | "4:3" | "9:16" | "16:9" {
+  private getAspectRatio(width?: number, height?: number): '1:1' | '3:4' | '4:3' | '9:16' | '16:9' {
     if (!width || !height) {
-      return "3:4";
+      return '3:4';
     }
 
     const ratio = width / height;
     if (ratio > 1.7) {
-      return "16:9";
+      return '16:9';
     }
     if (ratio > 1.3) {
-      return "4:3";
+      return '4:3';
     }
     if (ratio < 0.6) {
-      return "9:16";
+      return '9:16';
     }
     if (ratio < 0.8) {
-      return "3:4";
+      return '3:4';
     }
-    return "1:1";
+    return '1:1';
   }
 }

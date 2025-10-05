@@ -16,11 +16,11 @@ main:
     # ───────────────────────────────────────────────
     - init:
         assign:
-          - payload:  ${json.decode(base64.decode(event.data.message.data))}
-          - storyId:  ${payload.storyId}
-          - runId:    ${payload.runId}
-          - baseUrl:  "https://story-generation-workflow-x2qrlilyyq-od.a.run.app"
-          - now:      ${time.format(sys.now())}
+          - payload: ${json.decode(base64.decode(event.data.message.data))}
+          - storyId: ${payload.storyId}
+          - runId: ${payload.runId}
+          - baseUrl: 'https://story-generation-workflow-x2qrlilyyq-od.a.run.app'
+          - now: ${time.format(sys.now())}
 
     # Fetch API key secret (returns base64-encoded data)
     - fetchApiKey:
@@ -44,22 +44,22 @@ main:
             - markRunStarted:
                 call: http.request
                 args:
-                  url:    ${baseUrl + "/internal/runs/" + runId}
+                  url: ${baseUrl + "/internal/runs/" + runId}
                   method: PATCH
-                  auth:   { type: OIDC }
+                  auth: { type: OIDC }
                   body:
-                    storyId:      ${storyId}
-                    status:       "running"
-                    currentStep: "generate_outline"
-                    startedAt:   ${time.format(sys.now())}
+                    storyId: ${storyId}
+                    status: 'running'
+                    currentStep: 'generate_outline'
+                    startedAt: ${time.format(sys.now())}
 
             # 2. Generate outline (AI-Gateway)
             - genOutline:
                 call: http.request
                 args:
-                  url:    ${baseUrl + "/ai/text/outline"}
+                  url: ${baseUrl + "/ai/text/outline"}
                   method: POST
-                  auth:   { type: OIDC }
+                  auth: { type: OIDC }
                   headers:
                     x-api-key: ${apiKey}
                   body:
@@ -69,9 +69,9 @@ main:
             - saveOutline:
                 call: http.request
                 args:
-                  url:    ${baseUrl + "/internal/runs/" + runId + "/outline"}
+                  url: ${baseUrl + "/internal/runs/" + runId + "/outline"}
                   method: POST
-                  auth:   { type: OIDC }
+                  auth: { type: OIDC }
                   body:
                     outline: ${outlineResp.body.outline}
 
@@ -83,16 +83,16 @@ main:
             - setChaptersStep:
                 call: http.request
                 args:
-                  url:    ${baseUrl + "/internal/runs/" + runId}
+                  url: ${baseUrl + "/internal/runs/" + runId}
                   method: PATCH
-                  auth:   { type: OIDC }
+                  auth: { type: OIDC }
                   body:
-                    currentStep: "write_chapters"
+                    currentStep: 'write_chapters'
 
             # 3. Write chapters sequentially
             - writeChaptersSequential:
                 for:
-                  range: ${[1, chapters]}   # ← native numeric range
+                  range: ${[1, chapters]} # ← native numeric range
                   value: chapterNum
                   steps:
                     - extractChapterInfo:
@@ -104,9 +104,9 @@ main:
                     - genChapter:
                         call: http.request
                         args:
-                          url:    ${baseUrl + "/ai/text/chapter/" + string(chapterNum)}
+                          url: ${baseUrl + "/ai/text/chapter/" + string(chapterNum)}
                           method: POST
-                          auth:   { type: OIDC }
+                          auth: { type: OIDC }
                           headers:
                             x-api-key: ${apiKey}
                           body:
@@ -122,10 +122,10 @@ main:
                     - saveChapter:
                         call: http.request
                         args:
-                          url:    ${baseUrl + "/internal/runs/" + runId + "/chapter/" + string(chapterNum)}
+                          url: ${baseUrl + "/internal/runs/" + runId + "/chapter/" + string(chapterNum)}
                           method: POST
-                          auth:   { type: OIDC }
-                          body: 
+                          auth: { type: OIDC }
+                          body:
                             chapter: ${chapterResp.body.chapter}
                             chapterTitle: ${chapterTitle}
 
@@ -133,18 +133,18 @@ main:
             - setFrontCoverStep:
                 call: http.request
                 args:
-                  url:    ${baseUrl + "/internal/runs/" + runId}
+                  url: ${baseUrl + "/internal/runs/" + runId}
                   method: PATCH
-                  auth:   { type: OIDC }
+                  auth: { type: OIDC }
                   body:
-                    currentStep: "generate_front_cover"
+                    currentStep: 'generate_front_cover'
 
             - getFrontCoverPrompt:
                 call: http.request
                 args:
-                  url:    ${baseUrl + "/internal/prompts/" + runId + "/book-cover/front"}
+                  url: ${baseUrl + "/internal/prompts/" + runId + "/book-cover/front"}
                   method: GET
-                  auth:   { type: OIDC }
+                  auth: { type: OIDC }
                 result: frontCoverPromptResp
 
             - genFrontCover:
@@ -153,15 +153,15 @@ main:
                     - frontCoverRequest:
                         call: http.request
                         args:
-                          url:    ${baseUrl + "/ai/image"}
+                          url: ${baseUrl + "/ai/image"}
                           method: POST
-                          auth:   { type: OIDC }
+                          auth: { type: OIDC }
                           headers:
                             x-api-key: ${apiKey}
                           body:
                             storyId: ${storyId}
                             runId: ${runId}
-                            imageType: "front_cover"
+                            imageType: 'front_cover'
                             prompt: ${frontCoverPromptResp.body}
                         result: frontCoverResp
                 except:
@@ -176,29 +176,29 @@ main:
                     - markRunBlockedFrontCover:
                         call: http.request
                         args:
-                          url:    ${baseUrl + "/internal/runs/" + runId}
+                          url: ${baseUrl + "/internal/runs/" + runId}
                           method: PATCH
-                          auth:   { type: OIDC }
+                          auth: { type: OIDC }
                           body:
-                            status:       "blocked"
-                            currentStep:  "blocked"
+                            status: 'blocked'
+                            currentStep: 'blocked'
                             errorMessage: ${frontCoverError.message}
-                            endedAt:      ${time.format(sys.now())}
+                            endedAt: ${time.format(sys.now())}
                     - returnBlockedFrontCover:
                         return:
                           storyId: ${storyId}
-                          runId:   ${runId}
-                          status:  "blocked"
-                          reason:  "safety_blocked_front_cover"
+                          runId: ${runId}
+                          status: 'blocked'
+                          reason: 'safety_blocked_front_cover'
 
             - storeFrontCoverResult:
                 call: http.request
                 args:
-                  url:    ${baseUrl + "/internal/runs/" + runId + "/image"}
+                  url: ${baseUrl + "/internal/runs/" + runId + "/image"}
                   method: POST
-                  auth:   { type: OIDC }
+                  auth: { type: OIDC }
                   body:
-                    imageType: "front_cover"
+                    imageType: 'front_cover'
                     imageUrl: ${frontCoverResp.body.image.url}
                     filename: ${frontCoverResp.body.image.filename}
                     metadata:
@@ -209,18 +209,18 @@ main:
             - setBackCoverStep:
                 call: http.request
                 args:
-                  url:    ${baseUrl + "/internal/runs/" + runId}
+                  url: ${baseUrl + "/internal/runs/" + runId}
                   method: PATCH
-                  auth:   { type: OIDC }
+                  auth: { type: OIDC }
                   body:
-                    currentStep: "generate_back_cover"
+                    currentStep: 'generate_back_cover'
 
             - getBackCoverPrompt:
                 call: http.request
                 args:
-                  url:    ${baseUrl + "/internal/prompts/" + runId + "/book-cover/back"}
+                  url: ${baseUrl + "/internal/prompts/" + runId + "/book-cover/back"}
                   method: GET
-                  auth:   { type: OIDC }
+                  auth: { type: OIDC }
                 result: backCoverPromptResp
 
             - genBackCover:
@@ -229,15 +229,15 @@ main:
                     - backCoverRequest:
                         call: http.request
                         args:
-                          url:    ${baseUrl + "/ai/image"}
+                          url: ${baseUrl + "/ai/image"}
                           method: POST
-                          auth:   { type: OIDC }
+                          auth: { type: OIDC }
                           headers:
                             x-api-key: ${apiKey}
                           body:
                             storyId: ${storyId}
                             runId: ${runId}
-                            imageType: "back_cover"
+                            imageType: 'back_cover'
                             prompt: ${backCoverPromptResp.body}
                         result: backCoverResp
                 except:
@@ -252,29 +252,29 @@ main:
                     - markRunBlockedBackCover:
                         call: http.request
                         args:
-                          url:    ${baseUrl + "/internal/runs/" + runId}
+                          url: ${baseUrl + "/internal/runs/" + runId}
                           method: PATCH
-                          auth:   { type: OIDC }
+                          auth: { type: OIDC }
                           body:
-                            status:       "blocked"
-                            currentStep:  "blocked"
+                            status: 'blocked'
+                            currentStep: 'blocked'
                             errorMessage: ${backCoverError.message}
-                            endedAt:      ${time.format(sys.now())}
+                            endedAt: ${time.format(sys.now())}
                     - returnBlockedBackCover:
                         return:
                           storyId: ${storyId}
-                          runId:   ${runId}
-                          status:  "blocked"
-                          reason:  "safety_blocked_back_cover"
+                          runId: ${runId}
+                          status: 'blocked'
+                          reason: 'safety_blocked_back_cover'
 
             - storeBackCoverResult:
                 call: http.request
                 args:
-                  url:    ${baseUrl + "/internal/runs/" + runId + "/image"}
+                  url: ${baseUrl + "/internal/runs/" + runId + "/image"}
                   method: POST
-                  auth:   { type: OIDC }
+                  auth: { type: OIDC }
                   body:
-                    imageType: "back_cover"
+                    imageType: 'back_cover'
                     imageUrl: ${backCoverResp.body.image.url}
                     filename: ${backCoverResp.body.image.filename}
                     metadata:
@@ -285,11 +285,11 @@ main:
             - setImagesStep:
                 call: http.request
                 args:
-                  url:    ${baseUrl + "/internal/runs/" + runId}
+                  url: ${baseUrl + "/internal/runs/" + runId}
                   method: PATCH
-                  auth:   { type: OIDC }
+                  auth: { type: OIDC }
                   body:
-                    currentStep: "generate_images"
+                    currentStep: 'generate_images'
 
             - generateImagesSequential:
                 for:
@@ -299,9 +299,9 @@ main:
                     - getPrompt:
                         call: http.request
                         args:
-                          url:    ${baseUrl + "/internal/prompts/" + runId + "/" + string(chapterNum)}
+                          url: ${baseUrl + "/internal/prompts/" + runId + "/" + string(chapterNum)}
                           method: GET
-                          auth:   { type: OIDC }
+                          auth: { type: OIDC }
                         result: promptResp
                     - genImage:
                         try:
@@ -309,16 +309,16 @@ main:
                             - chapterImageRequest:
                                 call: http.request
                                 args:
-                                  url:    ${baseUrl + "/ai/image"}
+                                  url: ${baseUrl + "/ai/image"}
                                   method: POST
-                                  auth:   { type: OIDC }
+                                  auth: { type: OIDC }
                                   headers:
                                     x-api-key: ${apiKey}
                                   body:
                                     storyId: ${storyId}
                                     runId: ${runId}
                                     chapterNumber: ${chapterNum}
-                                    imageType: "chapter"
+                                    imageType: 'chapter'
                                     prompt: ${promptResp.body}
                                 result: imageResp
                         except:
@@ -333,42 +333,42 @@ main:
                             - markRunBlockedChapterImage:
                                 call: http.request
                                 args:
-                                  url:    ${baseUrl + "/internal/runs/" + runId}
+                                  url: ${baseUrl + "/internal/runs/" + runId}
                                   method: PATCH
-                                  auth:   { type: OIDC }
+                                  auth: { type: OIDC }
                                   body:
-                                    status:       "blocked"
-                                    currentStep:  "blocked"
+                                    status: 'blocked'
+                                    currentStep: 'blocked'
                                     errorMessage: ${chapterImageError.message}
-                                    endedAt:      ${time.format(sys.now())}
+                                    endedAt: ${time.format(sys.now())}
                             - returnBlockedChapterImage:
                                 return:
                                   storyId: ${storyId}
-                                  runId:   ${runId}
-                                  status:  "blocked"
-                                  reason:  "safety_blocked_chapter_image"
+                                  runId: ${runId}
+                                  status: 'blocked'
+                                  reason: 'safety_blocked_chapter_image'
                     - storeImageResult:
                         call: http.request
                         args:
-                          url:    ${baseUrl + "/internal/runs/" + runId + "/image"}
+                          url: ${baseUrl + "/internal/runs/" + runId + "/image"}
                           method: POST
-                          auth:   { type: OIDC }
+                          auth: { type: OIDC }
                           body:
                             chapterNumber: ${chapterNum}
-                            imageType: "chapter"
+                            imageType: 'chapter'
                             imageUrl: ${imageResp.body.image.url}
                             filename: ${imageResp.body.image.filename}
                             metadata:
                               format: ${imageResp.body.image.format}
                               size: ${imageResp.body.image.size}
-            
+
             # 8. Mark run completed
             - clearContext:
                 call: http.request
                 args:
-                  url:    ${baseUrl + "/ai/text/context/clear"}
+                  url: ${baseUrl + "/ai/text/context/clear"}
                   method: POST
-                  auth:   { type: OIDC }
+                  auth: { type: OIDC }
                   headers:
                     x-api-key: ${apiKey}
                   body:
@@ -377,19 +377,19 @@ main:
             - markCompleted:
                 call: http.request
                 args:
-                  url:    ${baseUrl + "/internal/runs/" + runId}
+                  url: ${baseUrl + "/internal/runs/" + runId}
                   method: PATCH
-                  auth:   { type: OIDC }
+                  auth: { type: OIDC }
                   body:
-                    status:      "completed"
-                    currentStep: "done"
-                    endedAt:     ${time.format(sys.now())}
+                    status: 'completed'
+                    currentStep: 'done'
+                    endedAt: ${time.format(sys.now())}
 
             - return_result:
                 return:
                   storyId: ${storyId}
-                  runId:   ${runId}
-                  status:  "completed"
+                  runId: ${runId}
+                  status: 'completed'
 
         except:
           as: wfError
@@ -397,14 +397,14 @@ main:
             - markFailedRun:
                 call: http.request
                 args:
-                  url:    ${baseUrl + "/internal/runs/" + runId}
+                  url: ${baseUrl + "/internal/runs/" + runId}
                   method: PATCH
-                  auth:   { type: OIDC }
+                  auth: { type: OIDC }
                   body:
-                    status:       "failed"
-                    currentStep:  "unknown"
+                    status: 'failed'
+                    currentStep: 'unknown'
                     errorMessage: ${wfError.message}
-                    endedAt:      ${time.format(sys.now())}
+                    endedAt: ${time.format(sys.now())}
 
             - rethrow:
                 raise: ${wfError}

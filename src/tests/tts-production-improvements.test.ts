@@ -19,28 +19,28 @@ describe('TTS Production Improvements', () => {
     test('should recommend appropriate voice for children content', () => {
       const systemPrompt = 'You are a fun and funny storyteller for children';
       const voice = AudioPromptService.getRecommendedVoice(systemPrompt, 'en-US', 'children');
-      
+
       expect(['alloy', 'nova']).toContain(voice);
     });
 
     test('should recommend fable for emotional content', () => {
       const systemPrompt = 'You speak passionately and with a lot of emotion';
       const voice = AudioPromptService.getRecommendedVoice(systemPrompt, 'en-US');
-      
+
       expect(voice).toBe('fable');
     });
 
     test('should recommend onyx for adult content', () => {
       const systemPrompt = 'You are a professional storyteller';
       const voice = AudioPromptService.getRecommendedVoice(systemPrompt, 'en-US', 'adults');
-      
+
       expect(voice).toBe('onyx');
     });
 
     test('should default to nova for general storytelling', () => {
       const systemPrompt = 'You are a storyteller';
       const voice = AudioPromptService.getRecommendedVoice(systemPrompt, 'en-US');
-      
+
       expect(voice).toBe('nova');
     });
   });
@@ -48,7 +48,7 @@ describe('TTS Production Improvements', () => {
   describe('AudioPromptService Speed Recommendations', () => {
     test('should recommend slower speed for toddlers', () => {
       const speed = AudioPromptService.getRecommendedSpeed('toddlers', []);
-      
+
       expect(speed).toBeLessThanOrEqual(1.0);
       expect(speed).toBeGreaterThanOrEqual(0.25);
     });
@@ -56,15 +56,18 @@ describe('TTS Production Improvements', () => {
     test('should recommend faster speed for adults', () => {
       const baseSpeed = parseFloat(process.env.TTS_SPEED || '1.0');
       const speed = AudioPromptService.getRecommendedSpeed('adults', []);
-      
+
       expect(speed).toBeGreaterThanOrEqual(baseSpeed);
       expect(speed).toBeLessThanOrEqual(4.0);
     });
 
     test('should adjust speed based on pace instructions', () => {
-      const speedWithPace = AudioPromptService.getRecommendedSpeed('adults', ['speak slowly', 'maintain appropriate pace']);
+      const speedWithPace = AudioPromptService.getRecommendedSpeed('adults', [
+        'speak slowly',
+        'maintain appropriate pace',
+      ]);
       const speedWithoutPace = AudioPromptService.getRecommendedSpeed('adults', ['be expressive']);
-      
+
       // Since the actual implementation might have specific speed calculations,
       // just test that both speeds are within valid ranges
       expect(speedWithPace).toBeGreaterThanOrEqual(0.25);
@@ -75,7 +78,7 @@ describe('TTS Production Improvements', () => {
 
     test('should respect OpenAI TTS speed limits', () => {
       const speed = AudioPromptService.getRecommendedSpeed('adults', []);
-      
+
       expect(speed).toBeGreaterThanOrEqual(0.25);
       expect(speed).toBeLessThanOrEqual(4.0);
     });
@@ -86,12 +89,16 @@ describe('TTS Production Improvements', () => {
       const originalText = 'Hello! she said excitedly. "How are you?"';
       const systemPrompt = 'You are a passionate storyteller';
       const instructions = ['Use proper punctuation'];
-      
-      const enhanced = AudioPromptService.enhanceTextForTTS(originalText, systemPrompt, instructions);
-      
+
+      const enhanced = AudioPromptService.enhanceTextForTTS(
+        originalText,
+        systemPrompt,
+        instructions,
+      );
+
       // Should not include system prompt in the text
       expect(enhanced).not.toContain('You are a passionate storyteller');
-      
+
       // Should contain the original text
       expect(enhanced).toContain('Hello!');
       expect(enhanced).toContain('How are you?');
@@ -101,9 +108,13 @@ describe('TTS Production Improvements', () => {
       const originalText = 'Amazing! That was incredible...';
       const systemPrompt = 'You speak with emotion and passion';
       const instructions = [];
-      
-      const enhanced = AudioPromptService.enhanceTextForTTS(originalText, systemPrompt, instructions);
-      
+
+      const enhanced = AudioPromptService.enhanceTextForTTS(
+        originalText,
+        systemPrompt,
+        instructions,
+      );
+
       // Should have enhanced spacing for pauses
       expect(enhanced).toContain('Amazing!');
       expect(enhanced).toContain('incredible');
@@ -113,9 +124,13 @@ describe('TTS Production Improvements', () => {
       const originalText = "It's wonderful! They're amazing.";
       const systemPrompt = 'You are a storyteller';
       const instructions = ['Pronounce all words clearly'];
-      
-      const enhanced = AudioPromptService.enhanceTextForTTS(originalText, systemPrompt, instructions);
-      
+
+      const enhanced = AudioPromptService.enhanceTextForTTS(
+        originalText,
+        systemPrompt,
+        instructions,
+      );
+
       // Should separate contractions for better pronunciation
       expect(enhanced).toContain('It s wonderful');
       expect(enhanced).toContain('They re amazing');
@@ -125,9 +140,13 @@ describe('TTS Production Improvements', () => {
       const originalText = 'Hello    world!   How  are   you?';
       const systemPrompt = 'You are a storyteller';
       const instructions = [];
-      
-      const enhanced = AudioPromptService.enhanceTextForTTS(originalText, systemPrompt, instructions);
-      
+
+      const enhanced = AudioPromptService.enhanceTextForTTS(
+        originalText,
+        systemPrompt,
+        instructions,
+      );
+
       expect(enhanced).toBe('Hello world! How are you?');
     });
   });
@@ -135,19 +154,19 @@ describe('TTS Production Improvements', () => {
   describe('AudioPromptService Error Handling', () => {
     test('should handle missing audio prompt files gracefully', async () => {
       const instructions = await AudioPromptService.getTTSInstructions('invalid-lang');
-      
+
       expect(instructions).toBeNull();
     });
 
     test('should provide fallback voice when prompt loading fails', () => {
       const voice = AudioPromptService.getRecommendedVoice('', 'invalid-lang');
-      
+
       expect(voice).toBe('nova'); // Default fallback
     });
 
     test('should provide valid speed when no target age is specified', () => {
       const speed = AudioPromptService.getRecommendedSpeed(undefined, []);
-      
+
       expect(speed).toBeGreaterThanOrEqual(0.25);
       expect(speed).toBeLessThanOrEqual(4.0);
     });

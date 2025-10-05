@@ -21,14 +21,14 @@ app.use(express.urlencoded({ extended: true }));
 app.get('/health', async (_req, res) => {
   try {
     const healthStatus = await healthService.checkHealth(env.NODE_ENV);
-    
+
     // Set appropriate HTTP status code based on health
     const statusCode = healthStatus.status === 'healthy' ? 200 : 503;
-    
+
     res.status(statusCode).json(healthStatus);
   } catch (error) {
     logger.error('Health check endpoint error:', error);
-    
+
     res.status(503).json({
       status: 'unhealthy',
       service: 'story-generation-workflow',
@@ -38,14 +38,14 @@ app.get('/health', async (_req, res) => {
       checks: {
         database: {
           status: 'unhealthy',
-          message: 'Health check failed to execute'
+          message: 'Health check failed to execute',
         },
         internet: {
           status: 'unhealthy',
           message: 'Health check failed to execute',
-          url: 'https://www.google.com'
-        }
-      }
+          url: 'https://www.google.com',
+        },
+      },
     });
   }
 });
@@ -55,7 +55,7 @@ app.get('/', (_req, res) => {
   res.json({
     message: 'Story Generation Workflow Service',
     version: '0.1.0',
-    environment: env.NODE_ENV
+    environment: env.NODE_ENV,
   });
 });
 
@@ -85,28 +85,31 @@ app.use('/internal', internalRouter); // keep internal open or handle separately
 app.use('/internal/print', printRouter);
 app.use('/api/story-edit', apiKeyAuth, storyEditRouter);
 app.use('/api/jobs', apiKeyAuth, asyncJobRouter);
-app.use('/', apiKeyAuth, pingRouter);  // ping/test endpoints protected as well
+app.use('/', apiKeyAuth, pingRouter); // ping/test endpoints protected as well
 
 // Error handling middleware
-app.use((error: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  logger.error('Unhandled error:', error);
-  res.status(500).json({
-    error: 'Internal server error',
-    message: env.NODE_ENV === 'development' ? error.message : 'Something went wrong'
-  });
-});
+app.use(
+  (error: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    logger.error('Unhandled error:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: env.NODE_ENV === 'development' ? error.message : 'Something went wrong',
+    });
+  },
+);
 
 // 404 handler
 app.use((req: express.Request, res: express.Response) => {
   res.status(404).json({
     error: 'Not found',
-    path: req.path
+    path: req.path,
   });
 });
 
 // Graceful server startup with port conflict handling
 async function startServer() {
-  const port = env.PORT;    const tryStartServer = (portToTry: number): Promise<Server> => {
+  const port = env.PORT;
+  const tryStartServer = (portToTry: number): Promise<Server> => {
     return new Promise<Server>((resolve, reject) => {
       const server = app.listen(portToTry, () => {
         logger.info(`🚀 Story Generation Workflow Service started`);
@@ -126,7 +129,9 @@ async function startServer() {
                 logger.warn('Ghostscript not available; CMYK conversion will be skipped');
               }
             } catch (e) {
-              logger.warn('Ghostscript validation encountered an error', { error: e instanceof Error ? e.message : String(e) });
+              logger.warn('Ghostscript validation encountered an error', {
+                error: e instanceof Error ? e.message : String(e),
+              });
             }
           })();
           logger.info('Warm-up: core singletons initialized');
@@ -134,7 +139,8 @@ async function startServer() {
           logger.error('Warm-up failed (continuing):', warmErr);
         }
         resolve(server);
-      });      server.on('error', (err: NodeJS.ErrnoException) => {
+      });
+      server.on('error', (err: NodeJS.ErrnoException) => {
         if (err.code === 'EADDRINUSE') {
           reject(err);
         } else {
@@ -145,8 +151,9 @@ async function startServer() {
     });
   };
 
-  let currentPort = port;  let server: Server | undefined;
-  
+  let currentPort = port;
+  let server: Server | undefined;
+
   // Try to start server, handling port conflicts
   while (!server && currentPort < port + 10) {
     try {

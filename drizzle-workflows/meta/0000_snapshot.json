@@ -228,12 +228,8 @@
           "name": "story_generation_steps_run_id_story_generation_runs_run_id_fk",
           "tableFrom": "story_generation_steps",
           "tableTo": "story_generation_runs",
-          "columnsFrom": [
-            "run_id"
-          ],
-          "columnsTo": [
-            "run_id"
-          ],
+          "columnsFrom": ["run_id"],
+          "columnsTo": ["run_id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -241,10 +237,7 @@
       "compositePrimaryKeys": {
         "story_generation_steps_run_id_step_name_pk": {
           "name": "story_generation_steps_run_id_step_name_pk",
-          "columns": [
-            "run_id",
-            "step_name"
-          ]
+          "columns": ["run_id", "step_name"]
         }
       },
       "uniqueConstraints": {},
@@ -447,23 +440,12 @@
     "public.run_status": {
       "name": "run_status",
       "schema": "public",
-      "values": [
-        "queued",
-        "running",
-        "failed",
-        "completed",
-        "cancelled"
-      ]
+      "values": ["queued", "running", "failed", "completed", "cancelled"]
     },
     "public.step_status": {
       "name": "step_status",
       "schema": "public",
-      "values": [
-        "pending",
-        "running",
-        "failed",
-        "completed"
-      ]
+      "values": ["pending", "running", "failed", "completed"]
     }
   },
   "schemas": {},

@@ -15,20 +15,24 @@ export class StorageService {
   constructor() {
     const env = getEnvironment();
     this.storage = new Storage({
-      projectId: env.GOOGLE_CLOUD_PROJECT_ID
+      projectId: env.GOOGLE_CLOUD_PROJECT_ID,
     });
     this.bucketName = env.STORAGE_BUCKET_NAME;
 
     logger.info('Storage Service initialized', {
       projectId: env.GOOGLE_CLOUD_PROJECT_ID,
-      bucketName: this.bucketName
+      bucketName: this.bucketName,
     });
   }
 
   /**
    * Generate a V4 signed URL for uploading a file directly to GCS
    */
-  async generateSignedUploadUrl(filename: string, contentType: string, expiresInSeconds = 900): Promise<{ uploadUrl: string; publicUrl: string }>{
+  async generateSignedUploadUrl(
+    filename: string,
+    contentType: string,
+    expiresInSeconds = 900,
+  ): Promise<{ uploadUrl: string; publicUrl: string }> {
     try {
       const bucket = this.storage.bucket(this.bucketName);
       const file = bucket.file(filename);
@@ -38,7 +42,7 @@ export class StorageService {
         version: 'v4',
         action: 'write',
         contentType,
-        expires
+        expires,
       });
 
       const publicUrl = `https://storage.googleapis.com/${this.bucketName}/${filename}`;
@@ -49,7 +53,7 @@ export class StorageService {
         filename,
         contentType,
         bucketName: this.bucketName,
-        operation: 'generateSignedUploadUrl'
+        operation: 'generateSignedUploadUrl',
       });
       logger.error('Failed to generate signed upload URL', errorDetails);
       throw error;
@@ -59,7 +63,7 @@ export class StorageService {
   /**
    * Get file metadata (e.g., contentType, size) from GCS
    */
-  async getFileMetadata(filename: string): Promise<{ contentType?: string; size?: number }>{
+  async getFileMetadata(filename: string): Promise<{ contentType?: string; size?: number }> {
     try {
       const bucket = this.storage.bucket(this.bucketName);
       const file = bucket.file(filename);
@@ -82,7 +86,7 @@ export class StorageService {
       const errorDetails = handleGCSError(error, {
         filename,
         bucketName: this.bucketName,
-        operation: 'getFileMetadata'
+        operation: 'getFileMetadata',
       });
       logger.error('Failed to get file metadata', errorDetails);
       throw error;
@@ -99,11 +103,12 @@ export class StorageService {
       logger.debug('Uploading file to GCS', {
         filename,
         size: buffer.length,
-        contentType
-      });      await file.save(buffer, {
+        contentType,
+      });
+      await file.save(buffer, {
         metadata: {
-          contentType
-        }
+          contentType,
+        },
         // Removed 'public: true' to avoid ACL conflicts with uniform bucket-level access
         // Public access should be configured at the bucket level via IAM policies
       });
@@ -114,7 +119,7 @@ export class StorageService {
       logger.info('File uploaded successfully', {
         filename,
         publicUrl,
-        size: buffer.length
+        size: buffer.length,
       });
 
       return publicUrl;
@@ -125,7 +130,7 @@ export class StorageService {
         size: buffer.length,
         contentType,
         bucketName: this.bucketName,
-        operation: 'uploadFile'
+        operation: 'uploadFile',
       });
 
       logger.error('Failed to upload file', errorDetails);
@@ -135,50 +140,58 @@ export class StorageService {
   /**
    * Upload multiple files
    */
-  async uploadFiles(files: Array<{ filename: string; buffer: Buffer; contentType: string }>): Promise<string[]> {
+  async uploadFiles(
+    files: Array<{ filename: string; buffer: Buffer; contentType: string }>,
+  ): Promise<string[]> {
     try {
-      const uploadPromises = files.map(file =>
-        this.uploadFile(file.filename, file.buffer, file.contentType)
+      const uploadPromises = files.map((file) =>
+        this.uploadFile(file.filename, file.buffer, file.contentType),
       );
 
       const urls = await Promise.all(uploadPromises);
 
       logger.info('Multiple files uploaded successfully', {
         count: files.length,
-        urls
+        urls,
       });
 
       return urls;
     } catch (error) {
       const errorDetails = handleGCSError(error, {
         fileCount: files.length,
-        filenames: files.map(f => f.filename),
+        filenames: files.map((f) => f.filename),
         totalSize: files.reduce((sum, f) => sum + f.buffer.length, 0),
-        operation: 'uploadFiles'
+        operation: 'uploadFiles',
       });
 
       logger.error('Failed to upload multiple files', errorDetails);
       throw error;
     }
-  }  /**
+  } /**
    * List files in a directory/prefix in the bucket
    */
-  async listFiles(prefix?: string): Promise<Array<{ name: string; timeCreated?: string; size?: number }>> {
+  async listFiles(
+    prefix?: string,
+  ): Promise<Array<{ name: string; timeCreated?: string; size?: number }>> {
     try {
       const bucket = this.storage.bucket(this.bucketName);
       const options = prefix ? { prefix } : {};
-      const [files] = await bucket.getFiles(options);      return files.map(file => {
+      const [files] = await bucket.getFiles(options);
+      return files.map((file) => {
         const result: { name: string; timeCreated?: string; size?: number } = { name: file.name };
         if (file.metadata.timeCreated) result.timeCreated = file.metadata.timeCreated;
         if (file.metadata.size) {
-          result.size = typeof file.metadata.size === 'string' ? parseInt(file.metadata.size) : file.metadata.size;
+          result.size =
+            typeof file.metadata.size === 'string'
+              ? parseInt(file.metadata.size)
+              : file.metadata.size;
         }
         return result;
       });
     } catch (error) {
       const errorDetails = handleGCSError(error, {
         prefix,
-        operation: 'listFiles'
+        operation: 'listFiles',
       });
 
       logger.error('Failed to list files', errorDetails);
@@ -207,7 +220,7 @@ export class StorageService {
     } catch (error) {
       const errorDetails = handleGCSError(error, {
         filename,
-        operation: 'deleteFile'
+        operation: 'deleteFile',
       });
 
       logger.error('Failed to delete file', errorDetails);
@@ -228,7 +241,7 @@ export class StorageService {
     } catch (error) {
       const errorDetails = handleGCSError(error, {
         filename,
-        operation: 'fileExists'
+        operation: 'fileExists',
       });
 
       logger.error('Failed to check file existence', errorDetails);
@@ -239,11 +252,14 @@ export class StorageService {
   /**
    * Test storage configuration and permissions
    */
-  async testConnection(): Promise<{ success: boolean; details: Record<string, unknown> | ErrorDetails }> {
+  async testConnection(): Promise<{
+    success: boolean;
+    details: Record<string, unknown> | ErrorDetails;
+  }> {
     try {
       logger.info('Testing Google Cloud Storage connection', {
         bucketName: this.bucketName,
-        projectId: this.storage.projectId
+        projectId: this.storage.projectId,
       });
 
       const bucket = this.storage.bucket(this.bucketName);
@@ -259,9 +275,9 @@ export class StorageService {
             suggestions: [
               'Verify STORAGE_BUCKET_NAME environment variable',
               'Ensure bucket exists in Google Cloud Console',
-              'Check if bucket is in the correct project'
-            ]
-          }
+              'Check if bucket is in the correct project',
+            ],
+          },
         };
       }
 
@@ -280,7 +296,7 @@ export class StorageService {
       logger.info('Storage connection test successful', {
         bucketName: this.bucketName,
         location: metadata.location,
-        storageClass: metadata.storageClass
+        storageClass: metadata.storageClass,
       });
 
       return {
@@ -290,21 +306,20 @@ export class StorageService {
           projectId: this.storage.projectId,
           location: metadata.location,
           storageClass: metadata.storageClass,
-          timeClass: metadata.timeCreated
-        }
+          timeClass: metadata.timeCreated,
+        },
       };
-
     } catch (error) {
       const errorDetails = handleGCSError(error, {
         bucketName: this.bucketName,
-        operation: 'testConnection'
+        operation: 'testConnection',
       });
 
       logger.error('Storage connection test failed', errorDetails);
 
       return {
         success: false,
-        details: errorDetails
+        details: errorDetails,
       };
     }
   }
@@ -324,7 +339,7 @@ export class StorageService {
     } catch (error) {
       const errorDetails = handleGCSError(error, {
         filename,
-        operation: 'makeFilePublic'
+        operation: 'makeFilePublic',
       });
 
       logger.error('Failed to make file public', errorDetails);
@@ -341,22 +356,30 @@ export class StorageService {
       const [metadata] = await bucket.getMetadata();
       const [iam] = await bucket.iam.getPolicy();
 
-      const recommendations: string[] = [];      // Check if uniform bucket-level access is enabled
+      const recommendations: string[] = []; // Check if uniform bucket-level access is enabled
       const uniformAccess = metadata.uniformBucketLevelAccess as { enabled?: boolean } | undefined;
       if (uniformAccess?.enabled) {
-        recommendations.push('✅ Uniform bucket-level access is enabled (recommended for security)');
-        recommendations.push('ℹ️  To make files publicly accessible, configure IAM policy at bucket level:');
+        recommendations.push(
+          '✅ Uniform bucket-level access is enabled (recommended for security)',
+        );
+        recommendations.push(
+          'ℹ️  To make files publicly accessible, configure IAM policy at bucket level:',
+        );
         recommendations.push('   - Add "allUsers" member with "Storage Object Viewer" role');
-        recommendations.push('   - Or use gsutil: gsutil iam ch allUsers:objectViewer gs://' + this.bucketName);
+        recommendations.push(
+          '   - Or use gsutil: gsutil iam ch allUsers:objectViewer gs://' + this.bucketName,
+        );
       } else {
         recommendations.push('⚠️  Legacy ACL access is enabled');
-        recommendations.push('💡 Consider enabling uniform bucket-level access for better security');
+        recommendations.push(
+          '💡 Consider enabling uniform bucket-level access for better security',
+        );
       }
 
       // Check public access
-      const hasPublicAccess = iam.bindings?.some(binding => 
-        binding.members?.includes('allUsers') && 
-        binding.role === 'roles/storage.objectViewer'
+      const hasPublicAccess = iam.bindings?.some(
+        (binding) =>
+          binding.members?.includes('allUsers') && binding.role === 'roles/storage.objectViewer',
       );
 
       if (hasPublicAccess) {
@@ -364,7 +387,11 @@ export class StorageService {
       } else {
         recommendations.push('⚠️  Bucket is not configured for public access');
         recommendations.push('💡 To allow public access to uploaded images:');
-        recommendations.push('   gcloud storage buckets add-iam-policy-binding gs://' + this.bucketName + ' --member=allUsers --role=roles/storage.objectViewer');
+        recommendations.push(
+          '   gcloud storage buckets add-iam-policy-binding gs://' +
+            this.bucketName +
+            ' --member=allUsers --role=roles/storage.objectViewer',
+        );
       }
 
       return {
@@ -374,14 +401,14 @@ export class StorageService {
           storageClass: metadata.storageClass,
           uniformBucketLevelAccess: metadata.uniformBucketLevelAccess,
           publicAccessPrevention: metadata.publicAccessPrevention,
-          hasPublicAccess
+          hasPublicAccess,
         },
-        recommendations
+        recommendations,
       };
-
     } catch (error) {
-      const errorDetails = handleGCSError(error, {        bucketName: this.bucketName,
-        operation: 'getBucketInfo'
+      const errorDetails = handleGCSError(error, {
+        bucketName: this.bucketName,
+        operation: 'getBucketInfo',
       });
 
       logger.error('Failed to get bucket info', errorDetails);
@@ -399,7 +426,7 @@ export class StorageService {
 
       logger.debug('Downloading file from GCS', {
         filename,
-        bucketName: this.bucketName
+        bucketName: this.bucketName,
       });
 
       const [exists] = await file.exists();
@@ -412,7 +439,7 @@ export class StorageService {
 
       logger.info('File downloaded successfully', {
         filename,
-        size: contents.length
+        size: contents.length,
       });
 
       return fileContent;
@@ -420,7 +447,7 @@ export class StorageService {
       const errorDetails = handleGCSError(error, {
         filename,
         bucketName: this.bucketName,
-        operation: 'downloadFile'
+        operation: 'downloadFile',
       });
 
       logger.error('Failed to download file', errorDetails);
@@ -438,7 +465,7 @@ export class StorageService {
 
       logger.debug('Downloading file as buffer from GCS', {
         filename,
-        bucketName: this.bucketName
+        bucketName: this.bucketName,
       });
 
       const [exists] = await file.exists();
@@ -450,7 +477,7 @@ export class StorageService {
 
       logger.info('File downloaded as buffer successfully', {
         filename,
-        size: contents.length
+        size: contents.length,
       });
 
       return contents;
@@ -458,7 +485,7 @@ export class StorageService {
       const errorDetails = handleGCSError(error, {
         filename,
         bucketName: this.bucketName,
-        operation: 'downloadFileAsBuffer'
+        operation: 'downloadFileAsBuffer',
       });
 
       logger.error('Failed to download file as buffer', errorDetails);

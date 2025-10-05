@@ -16,7 +16,7 @@ describe('Image Prompt Conditional Custom Instructions', () => {
     const result = PromptService.buildPrompt(frontCoverTemplate, {
       bookTitle: 'Test Book',
       promptText: 'A castle on a hill',
-      customInstructions: 'Use a warm golden sunset palette.'
+      customInstructions: 'Use a warm golden sunset palette.',
     });
 
     expect(result).toContain('Use a warm golden sunset palette.');
@@ -28,7 +28,7 @@ describe('Image Prompt Conditional Custom Instructions', () => {
     const result = PromptService.buildPrompt(frontCoverTemplate, {
       bookTitle: 'Test Book',
       promptText: 'A castle on a hill',
-      customInstructions: ''
+      customInstructions: '',
     });
 
     expect(result).not.toContain('<custom_instructions>');

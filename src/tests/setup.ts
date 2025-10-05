@@ -10,7 +10,7 @@ if (!process.env.NODE_ENV) {
   process.env.NODE_ENV = 'test';
 }
 
-// Mock logger to reduce noise in tests  
+// Mock logger to reduce noise in tests
 // Removed logger mocks since we're using console.log directly in the context manager
 
 // Mock Google Cloud services for tests
@@ -21,7 +21,8 @@ jest.mock('@google-cloud/storage', () => ({
         save: jest.fn(),
         getSignedUrl: jest.fn(),
         delete: jest.fn(),
-      })),    })),
+      })),
+    })),
   })),
 }));
 

@@ -35,39 +35,39 @@ export function formatFileSize(bytes: number): string {
   const sizes = ['Bytes', 'KB', 'MB', 'GB'];
   if (bytes === 0) return '0 Bytes';
   const i = Math.floor(Math.log(bytes) / Math.log(1024));
-  return Math.round(bytes / Math.pow(1024, i) * 100) / 100 + ' ' + sizes[i];
+  return Math.round((bytes / Math.pow(1024, i)) * 100) / 100 + ' ' + sizes[i];
 }
 
 export function delay(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export function countWords(text: string): number {
-  return text.split(/\s+/).filter(word => word.length > 0).length;
+  return text.split(/\s+/).filter((word) => word.length > 0).length;
 }
 
 export async function retry<T>(
   fn: () => Promise<T>,
   maxRetries: number = 3,
-  delayMs: number = 1000
+  delayMs: number = 1000,
 ): Promise<T> {
   let lastError: Error = new Error('Retry function failed');
-  
+
   for (let i = 0; i <= maxRetries; i++) {
     try {
       const result = await fn();
       return result;
     } catch (error) {
       lastError = error as Error;
-      
+
       if (i === maxRetries) {
         throw lastError;
       }
-      
+
       await delay(delayMs * Math.pow(2, i)); // Exponential backoff
     }
   }
-  
+
   // This should never be reached, but TypeScript requires it
   throw lastError;
 }
@@ -103,8 +103,6 @@ export interface StoryContext {
   characters: StoryCharacter[];
 }
 
-
-
 /**
  * Converts language code to human-readable name
  */
@@ -122,15 +120,15 @@ export function getLanguageName(languageCode: string): string {
     'de-AT': 'German from Austria',
     'it-IT': 'Italian from Italy',
     'nl-NL': 'Dutch from Netherlands',
-  'pl-PL': 'Polish from Poland',
+    'pl-PL': 'Polish from Poland',
     'zh-CN': 'Chinese (Simplified)',
     'zh-TW': 'Chinese (Traditional)',
     'ja-JP': 'Japanese from Japan',
     'ko-KR': 'Korean from South Korea',
     'ru-RU': 'Russian from Russia',
-  'ar-SA': 'Arabic from Saudi Arabia'
+    'ar-SA': 'Arabic from Saudi Arabia',
   };
-  
+
   return languageMap[languageCode] || 'English';
 }
 
@@ -138,16 +136,16 @@ export function getLanguageName(languageCode: string): string {
  * Prepares characters for prompt (removing IDs to reduce tokens)
  */
 export function prepareCharactersForPrompt(characters: StoryCharacter[]): string {
-  const charactersWithoutIds = characters.map(char => ({
+  const charactersWithoutIds = characters.map((char) => ({
     name: char.name,
     type: char.type,
     role: char.role,
     age: char.age,
     traits: char.traits,
     characteristics: char.characteristics,
-    physicalDescription: char.physicalDescription
+    physicalDescription: char.physicalDescription,
   }));
-  
+
   return JSON.stringify(charactersWithoutIds, null, 2);
 }
 
@@ -156,7 +154,7 @@ export function prepareCharactersForPrompt(characters: StoryCharacter[]): string
  */
 export function formatTargetAudience(targetAudience?: string): string {
   if (!targetAudience) return 'children ages 7-10';
-  
+
   const audienceMap: Record<string, string> = {
     'children_0-2': 'babies and toddlers (0-2 years)',
     'children_3-6': 'preschoolers (3-6 years)',
@@ -164,9 +162,9 @@ export function formatTargetAudience(targetAudience?: string): string {
     'children_11-14': 'middle grade children (11-14 years)',
     'young_adult_15-17': 'young adults (15-17 years)',
     'adult_18+': 'adults (18+ years)',
-    'all_ages': 'readers of all ages'
+    all_ages: 'readers of all ages',
   };
-  
+
   return audienceMap[targetAudience] || 'children ages 7-10';
 }
 
@@ -175,7 +173,7 @@ export function formatTargetAudience(targetAudience?: string): string {
  */
 export function extractTargetAge(targetAudience?: string | null): string | undefined {
   if (!targetAudience) return undefined;
-  
+
   // Map target audience enum values to audio prompt target age categories
   const ageMap: Record<string, string> = {
     'children_0-2': 'toddlers',
@@ -184,9 +182,9 @@ export function extractTargetAge(targetAudience?: string | null): string | undef
     'children_11-14': 'children',
     'young_adult_15-17': 'young adults',
     'adult_18+': 'adults',
-    'all_ages': 'general audience'
+    all_ages: 'general audience',
   };
-  
+
   return ageMap[targetAudience];
 }
 
@@ -196,21 +194,21 @@ export function extractTargetAge(targetAudience?: string | null): string | undef
 export function getStoryDescription(storyContext: StoryContext): string {
   const { story } = storyContext;
   let description = '';
-  
+
   if (story.synopsis) {
     description += story.synopsis;
   } else if (story.plotDescription) {
     description += story.plotDescription;
   }
-  
+
   if (story.place) {
     description += ` The story takes place in ${story.place}.`;
   }
-  
+
   if (story.additionalRequests) {
     description += ` Additional requirements: ${story.additionalRequests}`;
   }
-  
+
   return description || 'A story about the adventures and relationships of the main characters.';
 }
 
@@ -219,7 +217,7 @@ export function getStoryDescription(storyContext: StoryContext): string {
  */
 export function parseAIResponse(response: string): unknown {
   let cleanedResponse = response.trim();
-  
+
   // Handle markdown code blocks
   if (response.includes('```json')) {
     const jsonMatch = response.match(/```json\s*([\s\S]*?)\s*```/);
@@ -238,7 +236,7 @@ export function parseAIResponse(response: string): unknown {
     // Handle case where entire response is wrapped in code blocks without language
     cleanedResponse = response.replace(/^```[\s\S]*?```$/, '').trim();
   }
-  
+
   // Extract JSON if response contains other text
   if (!cleanedResponse.startsWith('{') && !cleanedResponse.startsWith('[')) {
     const startIndex = cleanedResponse.indexOf('{');
@@ -247,6 +245,6 @@ export function parseAIResponse(response: string): unknown {
       cleanedResponse = cleanedResponse.substring(startIndex, lastIndex + 1);
     }
   }
-  
+
   return JSON.parse(cleanedResponse);
 }

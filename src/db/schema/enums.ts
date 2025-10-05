@@ -1,4 +1,4 @@
-import { pgEnum } from "drizzle-orm/pg-core";
+import { pgEnum } from 'drizzle-orm/pg-core';
 import { CHARACTER_ROLES, CHARACTER_AGES, CHARACTER_TRAITS } from '../../types/character-enums';
 
 // -----------------------------------------------------------------------------
@@ -6,17 +6,26 @@ import { CHARACTER_ROLES, CHARACTER_AGES, CHARACTER_TRAITS } from '../../types/c
 // -----------------------------------------------------------------------------
 
 // Character enums using centralized definitions (type is now free text)
-export const characterRoleEnum = pgEnum("character_role", CHARACTER_ROLES);
-export const characterAgeEnum = pgEnum("character_age", CHARACTER_AGES);
-export const characterTraitEnum = pgEnum("character_trait", CHARACTER_TRAITS);
+export const characterRoleEnum = pgEnum('character_role', CHARACTER_ROLES);
+export const characterAgeEnum = pgEnum('character_age', CHARACTER_AGES);
+export const characterTraitEnum = pgEnum('character_trait', CHARACTER_TRAITS);
 
-export const storyStatusEnum = pgEnum("story_status", ['draft', 'writing', 'published']);
-export const audiobookStatusEnum = pgEnum("audiobook_status", ['generating', 'completed', 'failed']);
-export const addressTypeEnum = pgEnum("address_type", ['billing', 'delivery']);
-export const paymentProviderEnum = pgEnum("payment_provider", ['stripe', 'paypal', 'revolut', 'other']);
-export const creditEventTypeEnum = pgEnum("credit_event_type", [
+export const storyStatusEnum = pgEnum('story_status', ['draft', 'writing', 'published']);
+export const audiobookStatusEnum = pgEnum('audiobook_status', [
+  'generating',
+  'completed',
+  'failed',
+]);
+export const addressTypeEnum = pgEnum('address_type', ['billing', 'delivery']);
+export const paymentProviderEnum = pgEnum('payment_provider', [
+  'stripe',
+  'paypal',
+  'revolut',
+  'other',
+]);
+export const creditEventTypeEnum = pgEnum('credit_event_type', [
   'initialCredit',
-  'creditPurchase', 
+  'creditPurchase',
   'eBookGeneration',
   'audioBookGeneration',
   'printOrder',
@@ -24,37 +33,37 @@ export const creditEventTypeEnum = pgEnum("credit_event_type", [
   'voucher',
   'promotion',
   'textEdit',
-  'imageEdit'
+  'imageEdit',
 ]);
 
 // Sharing functionality enums
-export const accessLevelEnum = pgEnum("access_level", ['view', 'edit']);
-export const collaboratorRoleEnum = pgEnum("collaborator_role", ['editor', 'viewer']);
+export const accessLevelEnum = pgEnum('access_level', ['view', 'edit']);
+export const collaboratorRoleEnum = pgEnum('collaborator_role', ['editor', 'viewer']);
 
 // Story generation workflow enums
-export const runStatusEnum = pgEnum("run_status", [
+export const runStatusEnum = pgEnum('run_status', [
   'queued',
   'running',
   'failed',
   'completed',
   'cancelled',
-  'blocked'
+  'blocked',
 ]);
 
-export const storyRatingEnum = pgEnum("story_rating", ['1', '2', '3', '4', '5']);
+export const storyRatingEnum = pgEnum('story_rating', ['1', '2', '3', '4', '5']);
 
 // Story attribute enums
-export const targetAudienceEnum = pgEnum("target_audience", [
-  'children_0-2',     // Babies/Toddlers
-  'children_3-6',     // Preschoolers
-  'children_7-10',    // Early Elementary
-  'children_11-14',   // Middle Grade
+export const targetAudienceEnum = pgEnum('target_audience', [
+  'children_0-2', // Babies/Toddlers
+  'children_3-6', // Preschoolers
+  'children_7-10', // Early Elementary
+  'children_11-14', // Middle Grade
   'young_adult_15-17', // Young Adult
-  'adult_18+',        // Adults
-  'all_ages'          // All Ages
+  'adult_18+', // Adults
+  'all_ages', // All Ages
 ]);
 
-export const novelStyleEnum = pgEnum("novel_style", [
+export const novelStyleEnum = pgEnum('novel_style', [
   'adventure',
   'fantasy',
   'mystery',
@@ -70,10 +79,10 @@ export const novelStyleEnum = pgEnum("novel_style", [
   'biography',
   'educational',
   'poetry',
-  'sports_adventure'
+  'sports_adventure',
 ]);
 
-export const graphicalStyleEnum = pgEnum("graphical_style", [
+export const graphicalStyleEnum = pgEnum('graphical_style', [
   'cartoon',
   'realistic',
   'watercolor',
@@ -87,10 +96,10 @@ export const graphicalStyleEnum = pgEnum("graphical_style", [
   'disney_style',
   'sketch',
   'oil_painting',
-  'colored_pencil'
+  'colored_pencil',
 ]);
 
-export const aiActionTypeEnum = pgEnum("ai_action_type", [
+export const aiActionTypeEnum = pgEnum('ai_action_type', [
   'story_structure',
   'story_outline',
   'chapter_writing',
@@ -101,36 +110,35 @@ export const aiActionTypeEnum = pgEnum("ai_action_type", [
   'story_enhancement',
   'audio_generation',
   'content_validation',
-  'test'
+  'test',
 ]);
 
 // Print request enums
-export const printRequestStatusEnum = pgEnum("print_request_status", [
+export const printRequestStatusEnum = pgEnum('print_request_status', [
   'requested',
   'in_printing',
   'packing',
   'shipped',
   'delivered',
-  'cancelled', 'blocked',
-  'error'
+  'cancelled',
+  'blocked',
+  'error',
 ]);
 
-export const printProviderIntegrationEnum = pgEnum("print_provider_integration", [
-  'email',
-  'api'
-]);
+export const printProviderIntegrationEnum = pgEnum('print_provider_integration', ['email', 'api']);
 
 // Payment order and event enums
-export const paymentOrderStatusEnum = pgEnum("payment_order_status", [
+export const paymentOrderStatusEnum = pgEnum('payment_order_status', [
   'pending',
-  'processing', 
+  'processing',
   'completed',
   'failed',
-  'cancelled', 'blocked',
-  'expired'
+  'cancelled',
+  'blocked',
+  'expired',
 ]);
 
-export const paymentEventTypeEnum = pgEnum("payment_event_type", [
+export const paymentEventTypeEnum = pgEnum('payment_event_type', [
   'order_created',
   'order_updated',
   'payment_initiated',
@@ -140,28 +148,24 @@ export const paymentEventTypeEnum = pgEnum("payment_event_type", [
   'webhook_received',
   'credits_added',
   'refund_initiated',
-  'refund_completed'
+  'refund_completed',
 ]);
 
 // Add missing payment enums that exist in database
-export const paymentMethodTypeEnum = pgEnum("payment_method_type", [
+export const paymentMethodTypeEnum = pgEnum('payment_method_type', [
   'card',
-  'revolut_pay', 
+  'revolut_pay',
   'apple_pay',
-  'google_pay'
+  'google_pay',
 ]);
 
-export const paymentStatusEnum = pgEnum("payment_status", [
+export const paymentStatusEnum = pgEnum('payment_status', [
   'pending',
   'processing',
-  'completed', 
+  'completed',
   'failed',
   'cancelled',
-  'expired'
+  'expired',
 ]);
 
-export const transactionTypeEnum = pgEnum("transaction_type", [
-  'purchase',
-  'bonus', 
-  'refund'
-]);
+export const transactionTypeEnum = pgEnum('transaction_type', ['purchase', 'bonus', 'refund']);

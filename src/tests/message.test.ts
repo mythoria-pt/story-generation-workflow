@@ -67,7 +67,9 @@ describe('MessageService', () => {
   });
 
   it('returns default messages when en-US missing', async () => {
-    (readFileSync as jest.Mock).mockImplementation(() => { throw new Error('missing'); });
+    (readFileSync as jest.Mock).mockImplementation(() => {
+      throw new Error('missing');
+    });
 
     const messages = await MessageService.loadMessages('fr');
     expect(messages.Story.tableOfContents).toBe('Table of Contents');
@@ -97,4 +99,3 @@ describe('MessageService', () => {
     expect(MessageService.getSupportedLocales()).toEqual(['en-US', 'pt-PT']);
   });
 });
-

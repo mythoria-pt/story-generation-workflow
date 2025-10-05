@@ -36,11 +36,14 @@ export class AIGatewayWithTokenTracking {
           primary: service,
           fallback,
           primaryName: 'google-genai',
-          fallbackName: 'openai'
+          fallbackName: 'openai',
         });
       } catch (e) {
         // If fallback construction fails, log and proceed without fallback.
-        console.warn('Failed to initialize fallback image service (OpenAI). Proceeding without fallback.', e);
+        console.warn(
+          'Failed to initialize fallback image service (OpenAI). Proceeding without fallback.',
+          e,
+        );
       }
     }
 

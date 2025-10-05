@@ -6,10 +6,13 @@ export default {
   testMatch: ['**/__tests__/**/*.ts', '**/?(*.)+(spec|test).ts'],
   setupFilesAfterEnv: ['<rootDir>/src/tests/setup.ts'],
   transform: {
-    '^.+\\.ts$': ['ts-jest', { 
-      useESM: true,
-      tsconfig: 'tsconfig.test.json'
-    }],
+    '^.+\\.ts$': [
+      'ts-jest',
+      {
+        useESM: true,
+        tsconfig: 'tsconfig.test.json',
+      },
+    ],
   },
   collectCoverageFrom: [
     'src/**/*.ts',
@@ -19,14 +22,13 @@ export default {
     '!src/index.ts',
   ],
   coverageDirectory: 'coverage',
-  coverageReporters: ['text', 'lcov', 'html'],  moduleNameMapper: {
+  coverageReporters: ['text', 'lcov', 'html'],
+  moduleNameMapper: {
     '^@/(.*)\\.js$': '<rootDir>/src/$1.ts',
     '^@/(.*)$': '<rootDir>/src/$1',
-    '^(.+)\\.js$': '$1'
+    '^(.+)\\.js$': '$1',
   },
   extensionsToTreatAsEsm: ['.ts'],
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node'],
-  transformIgnorePatterns: [
-    'node_modules/(?!(.*\\.mjs$))'
-  ]
+  transformIgnorePatterns: ['node_modules/(?!(.*\\.mjs$))'],
 };

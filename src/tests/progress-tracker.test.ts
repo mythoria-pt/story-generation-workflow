@@ -1,14 +1,7 @@
-import {
-  describe,
-  it,
-  expect,
-  beforeEach,
-  afterEach,
-  jest,
-} from "@jest/globals";
-import "./setup/environment-mock";
+import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals';
+import './setup/environment-mock';
 
-jest.mock("@/config/logger", () => ({
+jest.mock('@/config/logger', () => ({
   logger: {
     info: jest.fn(),
     debug: jest.fn(),
@@ -17,7 +10,7 @@ jest.mock("@/config/logger", () => ({
   },
 }));
 
-jest.mock("@/shared/utils", () => ({
+jest.mock('@/shared/utils', () => ({
   retry: jest.fn((fn: () => Promise<unknown>) => fn()),
 }));
 
@@ -32,25 +25,25 @@ const mockStoryService = {
   updateStoryStatus: jest.fn(),
 };
 
-jest.mock("../services/runs", () => ({
+jest.mock('../services/runs', () => ({
   RunsService: jest.fn().mockImplementation(() => mockRunsService),
 }));
 
-jest.mock("../services/story", () => ({
+jest.mock('../services/story', () => ({
   StoryService: jest.fn().mockImplementation(() => mockStoryService),
 }));
 
-jest.mock("../services/event", () => ({
+jest.mock('../services/event', () => ({
   eventService: {
     hasEvent: jest.fn().mockResolvedValue(false),
     recordEvent: jest.fn(),
   },
 }));
 
-import { ProgressTrackerService } from "../services/progress-tracker";
-import { logger } from "@/config/logger";
+import { ProgressTrackerService } from '../services/progress-tracker';
+import { logger } from '@/config/logger';
 
-describe("ProgressTrackerService", () => {
+describe('ProgressTrackerService', () => {
   let service: ProgressTrackerService;
 
   beforeEach(() => {
@@ -63,73 +56,66 @@ describe("ProgressTrackerService", () => {
     jest.clearAllTimers();
   });
 
-  it("caches chapter counts from outline", async () => {
+  it('caches chapter counts from outline', async () => {
     mockRunsService.getStepResult.mockResolvedValue({
       detailJson: { chapters: [1, 2, 3] },
     });
-    const count1 = await (service as any).getChapterCount("r1");
-    const count2 = await (service as any).getChapterCount("r1");
+    const count1 = await (service as any).getChapterCount('r1');
+    const count2 = await (service as any).getChapterCount('r1');
     expect(count1).toBe(3);
     expect(count2).toBe(3);
     expect(mockRunsService.getStepResult).toHaveBeenCalledTimes(1);
   });
 
-  it("calculates progress based on completed steps", async () => {
+  it('calculates progress based on completed steps', async () => {
     mockRunsService.getRun.mockResolvedValue({
-      runId: "r1",
-      storyId: "s1",
-      status: "running",
-      currentStep: "write_chapter_1",
+      runId: 'r1',
+      storyId: 's1',
+      status: 'running',
+      currentStep: 'write_chapter_1',
     });
     mockRunsService.getStepResult.mockResolvedValue({
       detailJson: { chapters: [{}, {}] },
     });
     mockRunsService.getRunSteps.mockResolvedValue([
-      { stepName: "generate_outline", status: "completed" },
-      { stepName: "write_chapter_1", status: "completed" },
+      { stepName: 'generate_outline', status: 'completed' },
+      { stepName: 'write_chapter_1', status: 'completed' },
     ]);
 
-    const result = await service.calculateProgress("r1");
+    const result = await service.calculateProgress('r1');
     expect(result.completedPercentage).toBe(14);
     expect(result.totalEstimatedTime).toBeGreaterThan(200);
     expect(result.completedSteps).toHaveLength(2);
     expect(logger.debug).toHaveBeenCalled();
   });
 
-  it("updates story progress and publishes on completion", async () => {
+  it('updates story progress and publishes on completion', async () => {
     mockRunsService.getRun.mockResolvedValue({
-      runId: "r1",
-      storyId: "s1",
-      status: "completed",
-      currentStep: "done",
+      runId: 'r1',
+      storyId: 's1',
+      status: 'completed',
+      currentStep: 'done',
     });
-    jest.spyOn(service, "calculateProgress").mockResolvedValue({
+    jest.spyOn(service, 'calculateProgress').mockResolvedValue({
       completedPercentage: 80,
       totalEstimatedTime: 0,
       elapsedTime: 0,
       remainingTime: 0,
-      currentStep: "done",
+      currentStep: 'done',
       completedSteps: [],
       totalSteps: 0,
     });
 
-    await service.updateStoryProgress("r1");
+    await service.updateStoryProgress('r1');
 
-    expect(
-      mockStoryService.updateStoryCompletionPercentage,
-    ).toHaveBeenCalledWith("s1", 100);
-    expect(mockStoryService.updateStoryStatus).toHaveBeenCalledWith(
-      "s1",
-      "published",
-    );
+    expect(mockStoryService.updateStoryCompletionPercentage).toHaveBeenCalledWith('s1', 100);
+    expect(mockStoryService.updateStoryStatus).toHaveBeenCalledWith('s1', 'published');
     expect(logger.info).toHaveBeenCalled();
   });
 
-  it("throws when run not found", async () => {
+  it('throws when run not found', async () => {
     mockRunsService.getRun.mockResolvedValue(null);
-    await expect(service.calculateProgress("bad")).rejects.toThrow(
-      "Run not found",
-    );
+    await expect(service.calculateProgress('bad')).rejects.toThrow('Run not found');
     expect(logger.error).toHaveBeenCalled();
   });
 });

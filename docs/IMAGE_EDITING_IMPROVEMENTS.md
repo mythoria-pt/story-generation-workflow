@@ -1,18 +1,21 @@
 # Image Editing Improvements Implementation Summary
 
 ## Overview
+
 This document outlines the comprehensive improvements made to the image editing functionality to address the identified issues and implement best practices for OpenAI image generation.
 
 ## Issues Addressed
 
 ### ✅ 1. Original Image Attachment
+
 - **Problem**: The system was using `generate()` instead of `edit()` method
-- **Solution**: 
+- **Solution**:
   - Added `downloadFileAsBuffer()` method to `StorageService`
   - Updated all image edit routes to download original images from Google Cloud Storage
   - Modified routes to use the `edit()` method with original image buffers
 
 ### ✅ 2. Image Format Configuration
+
 - **Problem**: Hard-coded image dimensions (1024x1024 for chapters, 1024x1536 inconsistent)
 - **Solution**:
   - Added environment variables for image dimensions in `.env`, `.env.production`, and `cloudbuild.yaml`
@@ -20,6 +23,7 @@ This document outlines the comprehensive improvements made to the image editing 
   - Created `getImageDimensions()` utility function for consistent sizing
 
 ### ✅ 3. Improved Prompt Structure
+
 - **Problem**: Poor prompt structure with redundant story title and missing edit instructions
 - **Solution**:
   - Created `buildImageEditPrompt()` utility function with structured format
@@ -27,6 +31,7 @@ This document outlines the comprehensive improvements made to the image editing 
   - Integrated style information from `imageStyles.json` through `PromptService`
 
 ### ✅ 4. Enhanced Error Handling and Logging
+
 - **Problem**: Basic error handling without detailed console logging
 - **Solution**:
   - Added comprehensive error logging to console and logger
@@ -36,16 +41,19 @@ This document outlines the comprehensive improvements made to the image editing 
 ## Files Modified
 
 ### Configuration Files
+
 - `.env` - Added image dimension environment variables
 - `.env.production` - Added image dimension environment variables
 - `cloudbuild.yaml` - Added image dimension variables to deployment configuration
 - `src/config/environment.ts` - Added image dimension schema validation
 
 ### Services
+
 - `src/services/storage.ts` - Added `downloadFileAsBuffer()` method
 - `src/ai/providers/openai/image.ts` - Updated to use environment configuration for default sizes
 
 ### Utilities
+
 - `src/utils/imageUtils.ts` - New utility file with:
   - `extractFilenameFromUri()` - Extract filename from Google Storage URIs
   - `getImageDimensions()` - Get dimensions based on image type and environment
@@ -53,6 +61,7 @@ This document outlines the comprehensive improvements made to the image editing 
   - `buildImageEditPrompt()` - Structure prompts for image editing
 
 ### Routes
+
 - `src/routes/image-edit.ts` - Complete rewrite with:
   - Original image download and attachment
   - Proper `edit()` method usage instead of `generate()`
@@ -76,16 +85,20 @@ IMAGE_COVER_HEIGHT=1536
 ## Key Improvements
 
 ### 1. Image Editing Process
+
 ```typescript
 // Before (Generation)
 const imageBuffer = await aiGateway.getImageService(aiContext).generate(prompt, options);
 
 // After (Editing with original image)
 const originalImageBuffer = await storageService.downloadFileAsBuffer(filename);
-const imageBuffer = await aiGateway.getImageService(aiContext).edit(prompt, originalImageBuffer, options);
+const imageBuffer = await aiGateway
+  .getImageService(aiContext)
+  .edit(prompt, originalImageBuffer, options);
 ```
 
 ### 2. Prompt Structure
+
 ```typescript
 // Before
 const prompt = `Chapter illustration for "${title}". ${userRequest}. Style: ${style}.`;
@@ -96,6 +109,7 @@ const prompt = buildImageEditPrompt(userRequest, graphicalStyle, stylePrompt);
 ```
 
 ### 3. Centralized Configuration
+
 ```typescript
 // Before
 width: 1024, height: 1024 // Hard-coded

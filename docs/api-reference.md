@@ -28,6 +28,7 @@ POST /api/stories
 ```
 
 **Request Body:**
+
 ```json
 {
   "title": "The Adventure Begins",
@@ -44,6 +45,7 @@ POST /api/stories
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -63,6 +65,7 @@ GET /api/stories/{storyId}
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -100,6 +103,7 @@ PUT /api/stories/{storyId}
 ```
 
 **Request Body:**
+
 ```json
 {
   "title": "Updated Title",
@@ -119,6 +123,7 @@ DELETE /api/stories/{storyId}
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -137,6 +142,7 @@ POST /api/story-edit
 ```
 
 **Request Body:**
+
 ```json
 {
   "storyId": "uuid-string",
@@ -146,6 +152,7 @@ POST /api/story-edit
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -164,6 +171,7 @@ POST /api/story-edit
 ```
 
 **Error Responses:**
+
 - `404`: Story not found
 - `400`: Invalid request parameters
 - `409`: Story is currently being processed
@@ -180,6 +188,7 @@ POST /api/ai/generate
 ```
 
 **Request Body:**
+
 ```json
 {
   "type": "text|image|audio",
@@ -194,6 +203,7 @@ POST /api/ai/generate
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -217,6 +227,7 @@ GET /api/ai/providers
 ```
 
 **Response:**
+
 ```json
 {
   "providers": {
@@ -247,6 +258,7 @@ POST /ai/text/structure
 ```
 
 **Request Body:**
+
 ```json
 {
   "storyId": "uuid-string",
@@ -260,6 +272,7 @@ POST /ai/text/structure
 ```
 
 **Parameters:**
+
 - **storyId** (required): UUID of the story to generate structure for
 - **userDescription** (optional): Text description of the story idea
 - **characterIds** (optional): Array of character UUIDs to include in the story generation. If not provided, no existing characters will be used
@@ -269,6 +282,7 @@ POST /ai/text/structure
 - **audioData** (optional): Base64-encoded audio data (legacy, discouraged)
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -299,6 +313,7 @@ POST /ai/text/structure
 ```
 
 **Error Responses:**
+
 - `400`: Missing required parameters or invalid input
 - `401`: Authentication required
 - `404`: Story not found or access denied
@@ -315,11 +330,13 @@ POST /api/jobs/image-edit
 ```
 
 #### Modes
+
 1. Standard AI edit (existing behavior)
 2. AI edit with user reference image (guides the transformation)
 3. Direct replacement with user image (no AI call) using `useUserImage = true`
 
 #### Request Body (Base)
+
 ```json
 {
   "storyId": "uuid-string",
@@ -334,6 +351,7 @@ POST /api/jobs/image-edit
 ```
 
 #### Parameter Details
+
 - `storyId` (required): Story UUID.
 - `imageUrl` (required): Existing story image URI (gs:// or https URL) to version from.
 - `imageType` (required): `cover`, `backcover`, or `chapter`.
@@ -344,19 +362,22 @@ POST /api/jobs/image-edit
 - `useUserImage` (optional, default `false`): When `true`, performs a direct replacement (no AI) copying `userImageUri` into a new incremented version of the original image filename.
 
 Validation rules:
+
 - If `useUserImage = true`, `userImageUri` is mandatory and `userRequest` becomes optional.
 - If `useUserImage = false`, `userRequest` is mandatory.
 
 #### Behavior Summary
-| Scenario | AI Used | New Filename | Prompt Augmentation |
-|----------|---------|--------------|---------------------|
-| Standard edit (no `userImageUri`) | Yes | version increment | Standard prompt with optional style |
-| Reference edit (`userImageUri`, `useUserImage=false`) | Yes | version increment | Adds guidance to leverage reference image stylistically |
-| Direct replacement (`useUserImage=true`) | No | version increment | N/A (no AI call) |
+
+| Scenario                                              | AI Used | New Filename      | Prompt Augmentation                                     |
+| ----------------------------------------------------- | ------- | ----------------- | ------------------------------------------------------- |
+| Standard edit (no `userImageUri`)                     | Yes     | version increment | Standard prompt with optional style                     |
+| Reference edit (`userImageUri`, `useUserImage=false`) | Yes     | version increment | Adds guidance to leverage reference image stylistically |
+| Direct replacement (`useUserImage=true`)              | No      | version increment | N/A (no AI call)                                        |
 
 #### Examples
 
 Standard AI Edit:
+
 ```json
 {
   "storyId": "a1b2c3",
@@ -367,6 +388,7 @@ Standard AI Edit:
 ```
 
 AI Edit With Reference Image:
+
 ```json
 {
   "storyId": "a1b2c3",
@@ -379,6 +401,7 @@ AI Edit With Reference Image:
 ```
 
 Direct Replacement:
+
 ```json
 {
   "storyId": "a1b2c3",
@@ -390,6 +413,7 @@ Direct Replacement:
 ```
 
 #### Response (Job Creation)
+
 ```json
 {
   "success": true,
@@ -400,11 +424,13 @@ Direct Replacement:
 ```
 
 Poll:
+
 ```http
 GET /api/jobs/{jobId}
 ```
 
 On completion (AI or replacement):
+
 ```json
 {
   "success": true,
@@ -431,6 +457,7 @@ On completion (AI or replacement):
 ```
 
 **Error Responses:**
+
 - `400`: Validation failure (e.g., `userImageUri` missing when `useUserImage=true`)
 - `404`: Story or image not found
 - `500`: Processing failure
@@ -446,6 +473,7 @@ POST /api/jobs/translate-text
 ```
 
 **Request Body:**
+
 ```json
 {
   "storyId": "uuid-string",
@@ -454,6 +482,7 @@ POST /api/jobs/translate-text
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -466,6 +495,7 @@ POST /api/jobs/translate-text
 Use `GET /api/jobs/{jobId}` to retrieve status and results.
 
 **Job Result (on completion):**
+
 ```json
 {
   "success": true,
@@ -473,7 +503,12 @@ Use `GET /api/jobs/{jobId}` to retrieve status and results.
   "storyId": "uuid",
   "targetLocale": "pt-PT",
   "updatedChapters": [
-    { "chapterNumber": 1, "titleTranslated": "...", "htmlLengthBefore": 1200, "htmlLengthAfter": 1215 },
+    {
+      "chapterNumber": 1,
+      "titleTranslated": "...",
+      "htmlLengthBefore": 1200,
+      "htmlLengthAfter": 1215
+    },
     { "chapterNumber": 2, "error": "..." }
   ],
   "totalChapters": 6,
@@ -485,6 +520,7 @@ Use `GET /api/jobs/{jobId}` to retrieve status and results.
 ```
 
 **Validation & Errors:**
+
 - `400`: Target locale equals current story language
 - `404`: Story not found
 - `500`: Translation job creation failed
@@ -500,6 +536,7 @@ POST /api/tts/generate
 ```
 
 **Request Body:**
+
 ```json
 {
   "text": "Once upon a time, in a land far away...",
@@ -511,6 +548,7 @@ POST /api/tts/generate
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -534,6 +572,7 @@ POST /api/internal/tts/{runId}
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -562,14 +601,14 @@ POST /api/internal/tts/{runId}
 
 Available voice options for TTS generation:
 
-| Voice | Description | Best For |
-|-------|-------------|----------|
-| `nova` | Young and energetic | Children's stories, adventure tales |
-| `fable` | British accent, storytelling | Fantasy, classic literature |
-| `alloy` | Neutral and balanced | General purpose, educational content |
-| `onyx` | Deep and dramatic | Thrillers, dramatic narratives |
-| `shimmer` | Bright and upbeat | Comedy, light-hearted stories |
-| `echo` | Male, authoritative | Documentary style, serious topics |
+| Voice     | Description                  | Best For                             |
+| --------- | ---------------------------- | ------------------------------------ |
+| `nova`    | Young and energetic          | Children's stories, adventure tales  |
+| `fable`   | British accent, storytelling | Fantasy, classic literature          |
+| `alloy`   | Neutral and balanced         | General purpose, educational content |
+| `onyx`    | Deep and dramatic            | Thrillers, dramatic narratives       |
+| `shimmer` | Bright and upbeat            | Comedy, light-hearted stories        |
+| `echo`    | Male, authoritative          | Documentary style, serious topics    |
 
 ### Speed Options
 
@@ -591,6 +630,7 @@ GET /api/workflows/{workflowId}
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -630,6 +670,7 @@ DELETE /api/workflows/{workflowId}
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -649,6 +690,7 @@ GET /api/health
 ```
 
 **Response:**
+
 ```json
 {
   "status": "healthy",
@@ -677,6 +719,7 @@ GET /api/metrics
 ```
 
 **Response:**
+
 ```json
 {
   "performance": {
@@ -687,7 +730,7 @@ GET /api/metrics
   },
   "ai_usage": {
     "total_tokens_today": 125000,
-    "cost_today": 12.50,
+    "cost_today": 12.5,
     "provider_distribution": {
       "vertex": 0.6,
       "openai": 0.3,
@@ -724,17 +767,17 @@ All endpoints return consistent error responses:
 
 ### Common Error Codes
 
-| Code | Description | HTTP Status |
-|------|-------------|-------------|
-| `INVALID_REQUEST` | Request validation failed | 400 |
-| `UNAUTHORIZED` | Authentication required | 401 |
-| `FORBIDDEN` | Insufficient permissions | 403 |
-| `STORY_NOT_FOUND` | Story does not exist | 404 |
-| `CONFLICT` | Resource conflict | 409 |
-| `VALIDATION_ERROR` | Input validation failed | 422 |
-| `RATE_LIMITED` | Too many requests | 429 |
-| `INTERNAL_ERROR` | Server error | 500 |
-| `SERVICE_UNAVAILABLE` | Service temporarily unavailable | 503 |
+| Code                  | Description                     | HTTP Status |
+| --------------------- | ------------------------------- | ----------- |
+| `INVALID_REQUEST`     | Request validation failed       | 400         |
+| `UNAUTHORIZED`        | Authentication required         | 401         |
+| `FORBIDDEN`           | Insufficient permissions        | 403         |
+| `STORY_NOT_FOUND`     | Story does not exist            | 404         |
+| `CONFLICT`            | Resource conflict               | 409         |
+| `VALIDATION_ERROR`    | Input validation failed         | 422         |
+| `RATE_LIMITED`        | Too many requests               | 429         |
+| `INTERNAL_ERROR`      | Server error                    | 500         |
+| `SERVICE_UNAVAILABLE` | Service temporarily unavailable | 503         |
 
 ## Rate Limiting
 

@@ -79,19 +79,21 @@ export interface WorkflowStepHandler<TParams = unknown, TResult = unknown> {
   execute(params: TParams): Promise<TResult>;
 }
 
-export class StoryOutlineHandler implements WorkflowStepHandler<StoryOutlineParams, StoryOutlineResult> {
+export class StoryOutlineHandler
+  implements WorkflowStepHandler<StoryOutlineParams, StoryOutlineResult>
+{
   private storyContextService = new StoryContextService();
 
   async execute(params: StoryOutlineParams): Promise<StoryOutlineResult> {
     try {
       // Create AI Gateway from environment
-  const aiGateway = getAIGateway();
-      
+      const aiGateway = getAIGateway();
+
       // Initialize story session with context
       const session = await this.storyContextService.initializeStorySession(
         params.storyId,
         params.workflowId,
-        aiGateway
+        aiGateway,
       );
 
       // Generate outline with context
@@ -106,28 +108,29 @@ export class StoryOutlineHandler implements WorkflowStepHandler<StoryOutlinePara
       logger.info('Story outline generation completed', {
         storyId: params.storyId,
         workflowId: params.workflowId,
-        chaptersCount: chapters.length
+        chaptersCount: chapters.length,
       });
 
       return {
         outline,
-        chapters
+        chapters,
       };
     } catch (error) {
       logger.error('Story outline generation failed', {
         error: error instanceof Error ? error.message : String(error),
         storyId: params.storyId,
-        workflowId: params.workflowId
+        workflowId: params.workflowId,
       });
       throw error;
     }
-  }  private extractChapterTitles(outline: string): string[] {
+  }
+  private extractChapterTitles(outline: string): string[] {
     // Simple regex to extract chapter titles from outline
     // This is a basic implementation - you might want to improve this
     const chapterMatches = outline.match(/Chapter \d+[:−]?\s*([^\n\r]+)/gi);
-    
+
     if (chapterMatches) {
-      return chapterMatches.map(match => {
+      return chapterMatches.map((match) => {
         // Extract the title part after "Chapter X:"
         const titleMatch = match.match(/Chapter \d+[:−]?\s*(.+)/i);
         return titleMatch?.[1]?.trim() || match.trim();
@@ -139,33 +142,41 @@ export class StoryOutlineHandler implements WorkflowStepHandler<StoryOutlinePara
   }
 }
 
-export class ChapterWritingHandler implements WorkflowStepHandler<ChapterWritingParams, ChapterWritingResult> {
+export class ChapterWritingHandler
+  implements WorkflowStepHandler<ChapterWritingParams, ChapterWritingResult>
+{
   private storyContextService = new StoryContextService();
 
   async execute(params: ChapterWritingParams): Promise<ChapterWritingResult> {
     try {
       // Create AI Gateway from environment
-  const aiGateway = getAIGateway();
-      
+      const aiGateway = getAIGateway();
+
       // Create context ID from story and workflow ID
       const contextId = `${params.storyId}-${params.workflowId}`;
-        // Try to get existing session or create new one
+      // Try to get existing session or create new one
       let session;
       try {
         // Check if we have an existing context for this story
-        const existingContext = await this.storyContextService.getContextManager().getContext(contextId);        if (existingContext) {
+        const existingContext = await this.storyContextService
+          .getContextManager()
+          .getContext(contextId);
+        if (existingContext) {
           // Reuse existing session
-          const storyContext = await this.storyContextService.getStoryService().getStoryContext(params.storyId);
+          const storyContext = await this.storyContextService
+            .getStoryService()
+            .getStoryContext(params.storyId);
           if (storyContext) {
             session = {
               contextId,
               storyId: params.storyId,
               storyContext,
               currentStep: `chapter-${params.chapterIndex}`,
-              aiGateway
+              aiGateway,
             };
           }
-        }      } catch {
+        }
+      } catch {
         logger.debug('No existing context found, creating new session', { contextId });
       }
 
@@ -174,7 +185,7 @@ export class ChapterWritingHandler implements WorkflowStepHandler<ChapterWriting
         session = await this.storyContextService.initializeStorySession(
           params.storyId,
           params.workflowId,
-          aiGateway
+          aiGateway,
         );
       }
 
@@ -186,7 +197,7 @@ export class ChapterWritingHandler implements WorkflowStepHandler<ChapterWriting
         session,
         params.chapterIndex,
         chapterTitle,
-        params.outline
+        params.outline,
       );
 
       // Calculate word count (simple implementation)
@@ -196,26 +207,28 @@ export class ChapterWritingHandler implements WorkflowStepHandler<ChapterWriting
         storyId: params.storyId,
         workflowId: params.workflowId,
         chapterIndex: params.chapterIndex,
-        wordCount
+        wordCount,
       });
 
       return {
         chapterContent,
-        wordCount
+        wordCount,
       };
     } catch (error) {
       logger.error('Chapter generation failed', {
         error: error instanceof Error ? error.message : String(error),
         storyId: params.storyId,
         workflowId: params.workflowId,
-        chapterIndex: params.chapterIndex
+        chapterIndex: params.chapterIndex,
       });
       throw error;
     }
   }
 }
 
-export class ImageGenerationHandler implements WorkflowStepHandler<ImageGenerationParams, ImageGenerationResult> {
+export class ImageGenerationHandler
+  implements WorkflowStepHandler<ImageGenerationParams, ImageGenerationResult>
+{
   private storyService = new StoryService();
 
   async execute(params: ImageGenerationParams): Promise<ImageGenerationResult> {
@@ -223,7 +236,7 @@ export class ImageGenerationHandler implements WorkflowStepHandler<ImageGenerati
       logger.info('Starting image generation', {
         storyId: params.storyId,
         workflowId: params.workflowId,
-        imageType: params.style
+        imageType: params.style,
       });
 
       // Load story context to get custom instructions
@@ -236,7 +249,7 @@ export class ImageGenerationHandler implements WorkflowStepHandler<ImageGenerati
       const customInstructions = storyContext.story.imageGenerationInstructions;
 
       // Create AI Gateway from environment
-  const aiGateway = getAIGateway();
+      const aiGateway = getAIGateway();
 
       // Determine image type and load appropriate prompt template
       let imageType: 'front_cover' | 'back_cover' | 'chapter';
@@ -253,7 +266,7 @@ export class ImageGenerationHandler implements WorkflowStepHandler<ImageGenerati
       const finalPrompt = PromptService.buildPrompt(promptTemplate, {
         bookTitle: storyContext.story.title,
         promptText: params.description,
-        customInstructions: customInstructions || ''
+        customInstructions: customInstructions || '',
       });
 
       // Generate image using AI
@@ -261,11 +274,11 @@ export class ImageGenerationHandler implements WorkflowStepHandler<ImageGenerati
       const imageBuffer = await imageService.generate(finalPrompt, {
         width: 1024,
         height: 1024,
-        imageType: imageType
+        imageType: imageType,
       });
 
       // Upload to storage
-  const storageService = getStorageService();
+      const storageService = getStorageService();
       const filename = this.generateImageFilename(params.storyId, imageType);
       const imageUrl = await storageService.uploadFile(filename, imageBuffer, 'image/jpeg');
 
@@ -274,19 +287,18 @@ export class ImageGenerationHandler implements WorkflowStepHandler<ImageGenerati
         workflowId: params.workflowId,
         imageType,
         imageUrl,
-        hasCustomInstructions: !!customInstructions
+        hasCustomInstructions: !!customInstructions,
       });
 
       return {
         imageUrl,
-        description: params.description
+        description: params.description,
       };
-
     } catch (error) {
       logger.error('Image generation failed', {
         error: error instanceof Error ? error.message : String(error),
         storyId: params.storyId,
-        workflowId: params.workflowId
+        workflowId: params.workflowId,
       });
       throw error;
     }
@@ -306,28 +318,32 @@ export class ImageGenerationHandler implements WorkflowStepHandler<ImageGenerati
   }
 }
 
-export class FinalProductionHandler implements WorkflowStepHandler<FinalProductionParams, FinalProductionResult> {
+export class FinalProductionHandler
+  implements WorkflowStepHandler<FinalProductionParams, FinalProductionResult>
+{
   async execute(params: FinalProductionParams): Promise<FinalProductionResult> {
     // TODO: Implement final production (HTML + PDF) using Puppeteer
-    
+
     // Placeholder return
     return {
       htmlUrl: `https://storage.googleapis.com/story-output/${params.storyId}/story_v001.html`,
       pdfUrl: `https://storage.googleapis.com/story-output/${params.storyId}/story.pdf`,
-      status: 'completed'
+      status: 'completed',
     };
   }
 }
 
-export class AudioRecordingHandler implements WorkflowStepHandler<AudioRecordingParams, AudioRecordingResult> {
+export class AudioRecordingHandler
+  implements WorkflowStepHandler<AudioRecordingParams, AudioRecordingResult>
+{
   async execute(params: AudioRecordingParams): Promise<AudioRecordingResult> {
     // TODO: Implement audio recording using Google Cloud Text-to-Speech
-    
+
     // Placeholder return
     return {
       audioUrl: `https://storage.googleapis.com/story-audio/${params.storyId}/story.mp3`,
       duration: 300, // seconds
-      status: 'completed'
+      status: 'completed',
     };
   }
 }
@@ -350,7 +366,9 @@ export interface PrintGenerationResult {
   status: string;
 }
 
-export class PrintGenerationHandler implements WorkflowStepHandler<PrintGenerationParams, PrintGenerationResult> {
+export class PrintGenerationHandler
+  implements WorkflowStepHandler<PrintGenerationParams, PrintGenerationResult>
+{
   private printService = new PrintService();
   private storyService = new StoryService();
   private storageService = getStorageService();
@@ -358,20 +376,20 @@ export class PrintGenerationHandler implements WorkflowStepHandler<PrintGenerati
   async execute(params: PrintGenerationParams): Promise<PrintGenerationResult> {
     try {
       logger.info(`Starting print generation for story ${params.storyId}`, {
-        generateCMYK: params.generateCMYK || false
+        generateCMYK: params.generateCMYK || false,
       });
 
       // Fetch story data
       const storyData = await this.storyService.getStoryForPrint(params.storyId);
-      
+
       if (!storyData) {
         throw new Error(`Story not found: ${params.storyId}`);
       }
 
-      logger.debug('Story data fetched for print generation', { 
+      logger.debug('Story data fetched for print generation', {
         storyId: params.storyId,
         title: storyData.title,
-        chapterCount: storyData.chapters?.length || 0
+        chapterCount: storyData.chapters?.length || 0,
       });
 
       // Generate temporary file paths
@@ -383,7 +401,7 @@ export class PrintGenerationHandler implements WorkflowStepHandler<PrintGenerati
         storyData,
         interiorPath,
         coverPath,
-        { generateCMYK: params.generateCMYK !== false }
+        { generateCMYK: params.generateCMYK !== false },
       );
 
       // Upload RGB PDFs to storage
@@ -395,22 +413,22 @@ export class PrintGenerationHandler implements WorkflowStepHandler<PrintGenerati
       const interiorPdfUrl = await this.storageService.uploadFile(
         `${params.storyId}/print/interior.pdf`,
         interiorBuffer,
-        'application/pdf'
+        'application/pdf',
       );
 
       const coverPdfUrl = await this.storageService.uploadFile(
         `${params.storyId}/print/cover.pdf`,
         coverBuffer,
-        'application/pdf'
+        'application/pdf',
       );
 
       // Prepare result
       const result: PrintGenerationResult = {
         interiorPdfUrl,
         coverPdfUrl,
-  interiorCmykPdfUrl: null,
-  coverCmykPdfUrl: null,
-        status: 'completed'
+        interiorCmykPdfUrl: null,
+        coverCmykPdfUrl: null,
+        status: 'completed',
       };
 
       // Upload CMYK PDFs if they were generated
@@ -420,12 +438,12 @@ export class PrintGenerationHandler implements WorkflowStepHandler<PrintGenerati
         const interiorCmykUrl = await this.storageService.uploadFile(
           `${params.storyId}/print/interior_cmyk.pdf`,
           interiorCmykBuffer,
-            'application/pdf'
+          'application/pdf',
         );
         const coverCmykUrl = await this.storageService.uploadFile(
           `${params.storyId}/print/cover_cmyk.pdf`,
           coverCmykBuffer,
-          'application/pdf'
+          'application/pdf',
         );
         result.interiorCmykPdfUrl = interiorCmykUrl;
         result.coverCmykPdfUrl = coverCmykUrl;
@@ -444,19 +462,19 @@ export class PrintGenerationHandler implements WorkflowStepHandler<PrintGenerati
       await this.storageService.uploadFile(
         `${params.storyId}/print/interior.html`,
         interiorHtmlBuffer,
-        'text/html'
+        'text/html',
       );
 
       await this.storageService.uploadFile(
         `${params.storyId}/print/cover.html`,
         coverHtmlBuffer,
-        'text/html'
+        'text/html',
       );
 
       // Update story with preferred PDF URLs (prefer CMYK when available)
       await this.storyService.updateStoryPrintUrls(params.storyId, {
         interiorPdfUri: result.interiorCmykPdfUrl ?? result.interiorPdfUrl,
-        coverPdfUri: result.coverCmykPdfUrl ?? result.coverPdfUrl
+        coverPdfUri: result.coverCmykPdfUrl ?? result.coverPdfUrl,
       });
 
       logger.info(`Print generation completed for story ${params.storyId}`, {
@@ -464,11 +482,10 @@ export class PrintGenerationHandler implements WorkflowStepHandler<PrintGenerati
         coverPdfUrl: result.coverPdfUrl,
         interiorCmykPdfUrl: result.interiorCmykPdfUrl,
         coverCmykPdfUrl: result.coverCmykPdfUrl,
-        htmlFilesGenerated: true
+        htmlFilesGenerated: true,
       });
 
       return result;
-
     } catch (error) {
       logger.error(`Print generation failed for story ${params.storyId}:`, error);
       throw error;
@@ -480,7 +497,7 @@ export class PrintGenerationHandler implements WorkflowStepHandler<PrintGenerati
     const frontMatterPages = 5;
     const pagesPerChapter = 2;
     const finalBlankPage = 1;
-    
-    return frontMatterPages + (storyData.chapters.length * pagesPerChapter) + finalBlankPage;
+
+    return frontMatterPages + storyData.chapters.length * pagesPerChapter + finalBlankPage;
   }
 }

@@ -38,17 +38,20 @@ export class ProgressTrackerService {
     { stepName: 'generate_images', estimatedTime: 30, isPerChapter: true },
     { stepName: 'assemble', estimatedTime: 10 },
     { stepName: 'generate_audiobook', estimatedTime: 20 },
-    { stepName: 'done', estimatedTime: 1 }
+    { stepName: 'done', estimatedTime: 1 },
   ];
 
   constructor() {
     this.runsService = new RunsService();
     this.storyService = new StoryService();
-    
+
     // Clean up expired cache entries periodically
-    setInterval(() => {
-      this.cleanupExpiredCache();
-    }, 5 * 60 * 1000); // Every 5 minutes
+    setInterval(
+      () => {
+        this.cleanupExpiredCache();
+      },
+      5 * 60 * 1000,
+    ); // Every 5 minutes
   }
 
   /**
@@ -80,28 +83,28 @@ export class ProgressTrackerService {
 
       // First, try to get chapter count from the outline
       const outlineStep = await this.runsService.getStepResult(runId, 'generate_outline');
-      
+
       if (outlineStep?.detailJson && typeof outlineStep.detailJson === 'object') {
         const outline = outlineStep.detailJson as any;
-        
+
         // Try to extract chapter count from outline structure
         if (outline.chapters && Array.isArray(outline.chapters)) {
-          logger.debug('Chapter count determined from outline', { 
-            runId, 
-            chapterCount: outline.chapters.length 
+          logger.debug('Chapter count determined from outline', {
+            runId,
+            chapterCount: outline.chapters.length,
           });
           const count = outline.chapters.length;
           this.chapterCountCache.set(runId, { count, timestamp: Date.now() });
           return count;
         }
-        
+
         // Alternative: look for numbered chapters in the outline
         if (outline.content && typeof outline.content === 'string') {
           const chapterMatches = outline.content.match(/Chapter\s+\d+/gi);
           if (chapterMatches) {
-            logger.debug('Chapter count determined from outline content', { 
-              runId, 
-              chapterCount: chapterMatches.length 
+            logger.debug('Chapter count determined from outline content', {
+              runId,
+              chapterCount: chapterMatches.length,
             });
             const count = chapterMatches.length;
             this.chapterCountCache.set(runId, { count, timestamp: Date.now() });
@@ -109,35 +112,37 @@ export class ProgressTrackerService {
           }
         }
       }
-      
+
       // If outline doesn't have chapter count, read from database
       logger.debug('Chapter count not available in outline, checking database', { runId });
-      
+
       const run = await this.runsService.getRun(runId);
       if (run?.storyId) {
         const story = await this.storyService.getStory(run.storyId);
         if (story?.chapterCount) {
-          logger.debug('Chapter count determined from database', { 
-            runId, 
+          logger.debug('Chapter count determined from database', {
+            runId,
             storyId: run.storyId,
-            chapterCount: story.chapterCount 
+            chapterCount: story.chapterCount,
           });
           const count = story.chapterCount;
           this.chapterCountCache.set(runId, { count, timestamp: Date.now() });
           return count;
         }
       }
-      
+
       // Final fallback - typical children's book has 3-5 chapters
-      logger.warn('Could not determine chapter count from outline or database, using default of 4', { runId });
+      logger.warn(
+        'Could not determine chapter count from outline or database, using default of 4',
+        { runId },
+      );
       const count = 4;
       this.chapterCountCache.set(runId, { count, timestamp: Date.now() });
       return count;
-      
     } catch (error) {
       logger.error('Failed to get chapter count', {
         error: error instanceof Error ? error.message : String(error),
-        runId
+        runId,
       });
       // Cache the default value to prevent repeated failures
       const count = 4;
@@ -169,17 +174,15 @@ export class ProgressTrackerService {
   private async getCompletedSteps(runId: string): Promise<string[]> {
     try {
       const steps = await this.runsService.getRunSteps(runId);
-      return steps
-        .filter(step => step.status === 'completed')
-        .map(step => step.stepName);
+      return steps.filter((step) => step.status === 'completed').map((step) => step.stepName);
     } catch (error) {
       logger.error('Failed to get completed steps', {
         error: error instanceof Error ? error.message : String(error),
-        runId
+        runId,
       });
       return [];
     }
-  }  /**
+  } /**
    * Calculate elapsed time for completed steps
    */
   private async calculateElapsedTime(runId: string, completedSteps: string[]): Promise<number> {
@@ -189,19 +192,23 @@ export class ProgressTrackerService {
     for (const stepName of completedSteps) {
       // Handle individual chapter steps
       if (stepName.startsWith('write_chapter_')) {
-        const writeChaptersStep = this.baseWorkflowSteps.find(ws => ws.stepName === 'write_chapters');
+        const writeChaptersStep = this.baseWorkflowSteps.find(
+          (ws) => ws.stepName === 'write_chapters',
+        );
         if (writeChaptersStep) {
           elapsedTime += writeChaptersStep.estimatedTime; // Add time for each completed chapter
         }
       } else if (stepName.startsWith('generate_image_chapter_')) {
         // Handle individual chapter image generation steps
-        const generateImagesStep = this.baseWorkflowSteps.find(ws => ws.stepName === 'generate_images');
+        const generateImagesStep = this.baseWorkflowSteps.find(
+          (ws) => ws.stepName === 'generate_images',
+        );
         if (generateImagesStep) {
           elapsedTime += generateImagesStep.estimatedTime; // Add time for each completed chapter image
         }
       } else {
         // Handle other workflow steps
-        const workflowStep = this.baseWorkflowSteps.find(ws => ws.stepName === stepName);
+        const workflowStep = this.baseWorkflowSteps.find((ws) => ws.stepName === stepName);
         if (workflowStep) {
           if (workflowStep.isPerChapter) {
             elapsedTime += workflowStep.estimatedTime * chapterCount;
@@ -228,15 +235,15 @@ export class ProgressTrackerService {
       const totalEstimatedTime = await this.calculateTotalEstimatedTime(runId);
       const completedSteps = await this.getCompletedSteps(runId);
       const elapsedTime = await this.calculateElapsedTime(runId, completedSteps);
-      
+
       const completedPercentage = Math.min(
         Math.round((elapsedTime / totalEstimatedTime) * 100),
-        100
+        100,
       );
 
       const remainingTime = Math.max(totalEstimatedTime - elapsedTime, 0);
       const chapterCount = await this.getChapterCount(runId);
-      
+
       // Calculate total steps considering dynamic chapter count
       const totalSteps = this.baseWorkflowSteps.reduce((total, step) => {
         return total + (step.isPerChapter ? chapterCount : 1);
@@ -249,20 +256,19 @@ export class ProgressTrackerService {
         remainingTime,
         currentStep: run.currentStep || 'unknown',
         completedSteps,
-        totalSteps
+        totalSteps,
       };
 
       logger.debug('Progress calculated', {
         runId,
-        ...result
+        ...result,
       });
 
       return result;
-
     } catch (error) {
       logger.error('Failed to calculate progress', {
         error: error instanceof Error ? error.message : String(error),
-        runId
+        runId,
       });
       throw error;
     }
@@ -282,64 +288,68 @@ export class ProgressTrackerService {
     }
 
     this.activeUpdates.add(runId);
-    
+
     try {
       // Use retry logic for the entire progress update operation
-      await retry(async () => {
-        const run = await this.runsService.getRun(runId);
-        if (!run) {
-          throw new Error(`Run not found: ${runId}`);
-        }
+      await retry(
+        async () => {
+          const run = await this.runsService.getRun(runId);
+          if (!run) {
+            throw new Error(`Run not found: ${runId}`);
+          }
 
-        // Skip progress updates for failed runs to avoid repetitive processing
-        if (run.status === 'failed') {
-          logger.debug('Skipping progress update for failed run', { runId, status: run.status });
-          return;
-        }
+          // Skip progress updates for failed runs to avoid repetitive processing
+          if (run.status === 'failed') {
+            logger.debug('Skipping progress update for failed run', { runId, status: run.status });
+            return;
+          }
 
-        const progress = await this.calculateProgress(runId);
-        
-        // If the run is completed, ensure 100% completion
-        let finalPercentage = progress.completedPercentage;
-  if (run.status === 'completed') {
-          finalPercentage = 100;
-        }
-        
-        // Update the story's completion percentage
-        await this.storyService.updateStoryCompletionPercentage(
-          run.storyId,
-          finalPercentage
-        );
+          const progress = await this.calculateProgress(runId);
 
-        // If the run is completed, update story status to published
-        if (run.status === 'completed') {
-          logger.info('Story run completed, updating status to published and dispatching email', { 
-            runId, 
+          // If the run is completed, ensure 100% completion
+          let finalPercentage = progress.completedPercentage;
+          if (run.status === 'completed') {
+            finalPercentage = 100;
+          }
+
+          // Update the story's completion percentage
+          await this.storyService.updateStoryCompletionPercentage(run.storyId, finalPercentage);
+
+          // If the run is completed, update story status to published
+          if (run.status === 'completed') {
+            logger.info('Story run completed, updating status to published and dispatching email', {
+              runId,
+              storyId: run.storyId,
+              finalPercentage,
+            });
+
+            await this.storyService.updateStoryStatus(run.storyId, 'published');
+
+            // Fire-and-forget story-created email (non-blocking)
+            void this.dispatchStoryCreatedEmail(run.storyId).catch((err) => {
+              logger.error('Failed dispatching story-created email', {
+                storyId: run.storyId,
+                error: err instanceof Error ? err.message : String(err),
+              });
+            });
+          }
+          logger.info('Story progress updated', {
+            runId,
             storyId: run.storyId,
-            finalPercentage 
+            completedPercentage: finalPercentage,
+            currentStep: progress.currentStep,
+            completedSteps: progress.completedSteps.length,
+            totalSteps: progress.totalSteps,
+            storyStatus: run.status === 'completed' ? 'published' : 'unchanged',
           });
-          
-          await this.storyService.updateStoryStatus(run.storyId, 'published');
-          
-          // Fire-and-forget story-created email (non-blocking)
-          void this.dispatchStoryCreatedEmail(run.storyId).catch(err => {
-            logger.error('Failed dispatching story-created email', { storyId: run.storyId, error: err instanceof Error ? err.message : String(err) });
-          });
-        }        logger.info('Story progress updated', {
-          runId,
-          storyId: run.storyId,
-          completedPercentage: finalPercentage,
-          currentStep: progress.currentStep,
-          completedSteps: progress.completedSteps.length,
-          totalSteps: progress.totalSteps,
-          storyStatus: run.status === 'completed' ? 'published' : 'unchanged'
-        });
-      }, 3, 1000); // 3 retries, starting with 1s delay
-
+        },
+        3,
+        1000,
+      ); // 3 retries, starting with 1s delay
     } catch (error) {
       logger.error('Failed to update story progress', {
         error: error instanceof Error ? error.message : String(error),
-        runId
+        runId,
       });
       throw error;
     } finally {
@@ -356,11 +366,18 @@ export class ProgressTrackerService {
       return;
     }
     if (!story.authorEmail) {
-      logger.warn('Cannot send story-created email; author email missing', { storyId, story: { storyId: story.storyId, title: story.title } });
+      logger.warn('Cannot send story-created email; author email missing', {
+        storyId,
+        story: { storyId: story.storyId, title: story.title },
+      });
       return;
     }
-    
-    const language = (story.authorPreferredLocale && ['en-US','pt-PT','es-ES','fr-FR'].includes(story.authorPreferredLocale)) ? story.authorPreferredLocale : 'en-US';
+
+    const language =
+      story.authorPreferredLocale &&
+      ['en-US', 'pt-PT', 'es-ES', 'fr-FR'].includes(story.authorPreferredLocale)
+        ? story.authorPreferredLocale
+        : 'en-US';
     const baseLocalePath = 'en-US'; // requirement: always use en-US paths
     const readStoryURL = `https://mythoria.pt/${baseLocalePath}/stories/read/${storyId}`;
     const shareStoryURL = readStoryURL;
@@ -372,28 +389,31 @@ export class ProgressTrackerService {
       Synopsis: story.synopsis || '',
       readStoryURL,
       shareStoryURL,
-      orderPrintURL
+      orderPrintURL,
     };
-    
-    logger.info('Prepared email variables for story-created notification', { 
-      storyId, 
+
+    logger.info('Prepared email variables for story-created notification', {
+      storyId,
       recipient: story.authorEmail,
       language,
-      variables 
+      variables,
     });
-    
+
     const sent = await sendStoryCreatedEmail({
       templateId: 'story-created',
       recipients: [{ email: story.authorEmail, name: story.author, language }],
       variables,
       priority: 'normal',
-      metadata: { storyId }
+      metadata: { storyId },
     });
-    
+
     if (sent) {
       logger.info('Story-created email sent successfully', { storyId, authorId: story.authorId });
     } else {
-      logger.error('Failed to send story-created email', { storyId, authorEmail: story.authorEmail });
+      logger.error('Failed to send story-created email', {
+        storyId,
+        authorEmail: story.authorEmail,
+      });
     }
   }
 
@@ -401,21 +421,27 @@ export class ProgressTrackerService {
    * Get the estimated completion percentage for a specific step
    * This is useful for real-time updates during step execution
    */
-  async getStepCompletionEstimate(runId: string, stepName: string, stepProgress: number = 0): Promise<number> {
+  async getStepCompletionEstimate(
+    runId: string,
+    stepName: string,
+    stepProgress: number = 0,
+  ): Promise<number> {
     try {
       const baseProgress = await this.calculateProgress(runId);
       const chapterCount = await this.getChapterCount(runId);
-      
+
       // Handle individual chapter steps
       let currentWorkflowStep: WorkflowStep | undefined;
       if (stepName.startsWith('write_chapter_')) {
-        currentWorkflowStep = this.baseWorkflowSteps.find(ws => ws.stepName === 'write_chapters');
+        currentWorkflowStep = this.baseWorkflowSteps.find((ws) => ws.stepName === 'write_chapters');
       } else if (stepName.startsWith('generate_image_chapter_')) {
-        currentWorkflowStep = this.baseWorkflowSteps.find(ws => ws.stepName === 'generate_images');
+        currentWorkflowStep = this.baseWorkflowSteps.find(
+          (ws) => ws.stepName === 'generate_images',
+        );
       } else {
-        currentWorkflowStep = this.baseWorkflowSteps.find(ws => ws.stepName === stepName);
+        currentWorkflowStep = this.baseWorkflowSteps.find((ws) => ws.stepName === stepName);
       }
-      
+
       if (!currentWorkflowStep) {
         return baseProgress.completedPercentage;
       }
@@ -426,7 +452,7 @@ export class ProgressTrackerService {
         // For individual chapters or chapter images, use the time for one chapter
         currentStepTime = currentWorkflowStep.estimatedTime;
       } else {
-        currentStepTime = currentWorkflowStep.isPerChapter 
+        currentStepTime = currentWorkflowStep.isPerChapter
           ? currentWorkflowStep.estimatedTime * chapterCount
           : currentWorkflowStep.estimatedTime;
       }
@@ -434,20 +460,19 @@ export class ProgressTrackerService {
       // Add the progress within the current step
       const additionalTime = currentStepTime * (stepProgress / 100);
       const totalElapsedTime = baseProgress.elapsedTime + additionalTime;
-      
+
       const estimatedPercentage = Math.min(
         Math.round((totalElapsedTime / baseProgress.totalEstimatedTime) * 100),
-        100
+        100,
       );
 
       return estimatedPercentage;
-
     } catch (error) {
       logger.error('Failed to get step completion estimate', {
         error: error instanceof Error ? error.message : String(error),
         runId,
         stepName,
-        stepProgress
+        stepProgress,
       });
       return 0;
     }

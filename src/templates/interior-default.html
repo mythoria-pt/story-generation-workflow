@@ -1,513 +1,498 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="color-profile" content="CMYK">
-  <title>{{title}}</title>
-  <link rel="stylesheet" href="https://use.typekit.net/lda8yth.css">
-  <style>
-    @page {
-      size: {{pageWidthMM}}mm {{pageHeightMM}}mm;
-      margin: 0;
-      bleed: 3mm;
-      marks: crop cross;
-    }
-
-    /* Named page for chapter content with consistent margins */
-    @page chapter {
-      size: {{pageWidthMM}}mm {{pageHeightMM}}mm;
-      margin-top: {{chapterTopMarginMM}}mm;
-      margin-bottom: {{safeZoneMM}}mm;
-      margin-left: 21mm;
-      margin-right: 21mm;
-      @top-center {
-        content: none;
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-profile" content="CMYK" />
+    <title>{{title}}</title>
+    <link rel="stylesheet" href="https://use.typekit.net/lda8yth.css" />
+    <style>
+      @page {
+        size: {{pageWidthMM}}mm {{pageHeightMM}}mm;
+        margin: 0;
+        bleed: 3mm;
+        marks: crop cross;
       }
-    }
 
-    /* Special rule for first page of chapter with extra space for title */
-    @page chapter:first {
-      margin-top: {{chapterFirstPageTopMarginMM}}mm; /* Increased by 1cm */
-    }
+      /* Named page for chapter content with consistent margins */
+      @page chapter {
+        size: {{pageWidthMM}}mm {{pageHeightMM}}mm;
+        margin-top: {{chapterTopMarginMM}}mm;
+        margin-bottom: {{safeZoneMM}}mm;
+        margin-left: 21mm;
+        margin-right: 21mm;
+        @top-center {
+          content: none;
+        }
+      }
 
-    body {
-      margin: 0;
-      padding: 0;
-      font-family: 'source-serif-4', 'Times New Roman', 'Liberation Serif', serif;
-      font-size: 11.5pt;
-      line-height: 15.3pt;
-      text-align: justify;
-      font-display: block;
-      orphans: 3;
-      widows: 3;
-    }
+      /* Special rule for first page of chapter with extra space for title */
+      @page chapter:first {
+        margin-top: {{chapterFirstPageTopMarginMM}}mm; /* Increased by 1cm */
+      }
 
-    /* Global orphans and widows for all text elements */
-    p, div, span {
-      orphans: 3;
-      widows: 3;
-    }
+      body {
+        margin: 0;
+        padding: 0;
+        font-family: 'source-serif-4', 'Times New Roman', 'Liberation Serif', serif;
+        font-size: 11.5pt;
+        line-height: 15.3pt;
+        text-align: justify;
+        font-display: block;
+        orphans: 3;
+        widows: 3;
+      }
 
-    .page {
-      page-break-after: always;
-      width: {{pageWidthMM}}mm;
-      height: {{pageHeightMM}}mm;
-      display: flex;
-      flex-direction: column;
-      box-sizing: border-box;
-      margin: 0;
-      padding: {{interiorBleedMM}}mm;
-      position: relative;
-    }
+      /* Global orphans and widows for all text elements */
+      p, div, span {
+        orphans: 3;
+        widows: 3;
+      }
 
-    .page:last-child {
-      page-break-after: avoid;
-    }
+      .page {
+        page-break-after: always;
+        width: {{pageWidthMM}}mm;
+        height: {{pageHeightMM}}mm;
+        display: flex;
+        flex-direction: column;
+        box-sizing: border-box;
+        margin: 0;
+        padding: {{interiorBleedMM}}mm;
+        position: relative;
+      }
 
-    /* Content wrapper for consistent margins */
-    .page-content {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      padding: 15mm;
-      box-sizing: border-box;
-    }
+      .page:last-child {
+        page-break-after: avoid;
+      }
 
-    .title-page .page-content {
-      justify-content: center;
-      align-items: flex-end;
-      text-align: right;
-    }
+      /* Content wrapper for consistent margins */
+      .page-content {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        padding: 15mm;
+        box-sizing: border-box;
+      }
 
-    .title-page h1 {
-      font-size: 24pt;
-      font-weight: bold;
-      margin: 0;
-      text-align: right;
-      line-height: 1.25;
-    }
+      .title-page .page-content {
+        justify-content: center;
+        align-items: flex-end;
+        text-align: right;
+      }
 
-    .copyright-page .page-content {
-      justify-content: flex-end;
-      align-items: flex-start;
-      text-align: left;
-    }
+      .title-page h1 {
+        font-size: 24pt;
+        font-weight: bold;
+        margin: 0;
+        text-align: right;
+        line-height: 1.25;
+      }
 
-    .copyright-content {
-      font-size: 9pt;
-      color: #555;
-      line-height: 1.4;
-      orphans: 3;
-      widows: 3;
-    }
+      .copyright-page .page-content {
+        justify-content: flex-end;
+        align-items: flex-start;
+        text-align: left;
+      }
 
-    .copyright-content .label {
-      font-weight: bold;
-      margin-top: 1em;
-    }
+      .copyright-content {
+        font-size: 9pt;
+        color: #555;
+        line-height: 1.4;
+        orphans: 3;
+        widows: 3;
+      }
 
-    .copyright-content .label:first-child {
-      margin-top: 0;
-    }
+      .copyright-content .label {
+        font-weight: bold;
+        margin-top: 1em;
+      }
 
-    .copyright-text {
-      margin: 0em 0;
-      text-align: justify;
-    }
+      .copyright-content .label:first-child {
+        margin-top: 0;
+      }
 
-    .mythoria-promotion {
-      background-color: #eeeeee;
-      padding: 1em;
-      margin-top: 2em;
-      border-radius: 3px;
-      text-align: center;
-    }
+      .copyright-text {
+        margin: 0em 0;
+        text-align: justify;
+      }
 
-    .mythoria-promotion p {
-      margin: 0.5em 0;
-      font-size: 10pt;
-    }
+      .mythoria-promotion {
+        background-color: #eeeeee;
+        padding: 1em;
+        margin-top: 2em;
+        border-radius: 3px;
+        text-align: center;
+      }
 
-    .qr-code {
-      margin-top: 1em;
-    }
+      .mythoria-promotion p {
+        margin: 0.5em 0;
+        font-size: 10pt;
+      }
 
-    .qr-code img {
-      width: 3cm;
-      height: 3cm;
-    }
+      .qr-code {
+        margin-top: 1em;
+      }
 
-    .dedication-page .page-content {
-      justify-content: center;
-      text-align: center;
-    }
+      .qr-code img {
+        width: 3cm;
+        height: 3cm;
+      }
 
-    .dedication-content {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-    }
+      .dedication-page .page-content {
+        justify-content: center;
+        text-align: center;
+      }
 
-    .dedication-author {
-      text-align: right;
-      font-style: italic;
-      margin-top: 20px;
-    }
+      .dedication-content {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+      }
 
-    .mythoria-credit {
-      text-align: center;
-      font-size: 9pt;
-      color: #666;
-    }
+      .dedication-author {
+        text-align: right;
+        font-style: italic;
+        margin-top: 20px;
+      }
 
-    .synopsis-page .page-content {
-      justify-content: flex-start;
-      align-items: flex-start;
-      text-align: left;
-    }
+      .mythoria-credit {
+        text-align: center;
+        font-size: 9pt;
+        color: #666;
+      }
 
-    .synopsis-title {
-      font-size: 18pt;
-      font-weight: bold;
-      text-align: center;
-      margin-top: 80px;
-      margin-bottom: 40px;
-    }
+      .synopsis-page .page-content {
+        justify-content: flex-start;
+        align-items: flex-start;
+        text-align: left;
+      }
 
-    .synopsis-content {
-      font-size: 11.5pt;
-      line-height: 15.3pt;
-      text-align: justify;
-      max-width: 100%;
-      orphans: 3;
-      widows: 3;
-    }
+      .synopsis-title {
+        font-size: 18pt;
+        font-weight: bold;
+        text-align: center;
+        margin-top: 80px;
+        margin-bottom: 40px;
+      }
 
-    .toc {
-      flex: 1;
-      margin-top: 70px;
-      display: flex;
-      flex-direction: column;
-      text-align: center; /* Center align everything */
-    }
+      .synopsis-content {
+        font-size: 11.5pt;
+        line-height: 15.3pt;
+        text-align: justify;
+        max-width: 100%;
+        orphans: 3;
+        widows: 3;
+      }
 
-    .toc h2 {
-      text-align: center;
-      font-size: 18pt;
-      margin-bottom: 30px;
-      color: #333;
-    }
+      .toc {
+        flex: 1;
+        margin-top: 70px;
+        display: flex;
+        flex-direction: column;
+        text-align: center; /* Center align everything */
+      }
 
-    .toc-item {
-      margin-bottom: 12px;
-      text-align: center;
-      color: #333;
-      display: block; /* Remove flex display */
-    }
+      .toc h2 {
+        text-align: center;
+        font-size: 18pt;
+        margin-bottom: 30px;
+        color: #333;
+      }
 
-    .toc-item::after {
-      content: none; /* Remove dotted line */
-    }
+      .toc-item {
+        margin-bottom: 12px;
+        text-align: center;
+        color: #333;
+        display: block; /* Remove flex display */
+      }
 
-    .toc-chapter-title {
-      margin-top: 50mm !important;
-      font-size: 12pt;
-      font-weight: bold;
-      color: #000;
-    }
+      .toc-item::after {
+        content: none; /* Remove dotted line */
+      }
 
-    .toc-page-number {
-      display: none; /* Hide page numbers */
-    }
+      .toc-chapter-title {
+        margin-top: 50mm !important;
+        font-size: 12pt;
+        font-weight: bold;
+        color: #000;
+      }
 
-    /* Chapter image page (even page - left side) */
-    .chapter-image-page {
-      page-break-after: always;
-      margin: 0;
-      padding: 0;
-      width: {{pageWidthMM}}mm;
-      height: {{pageHeightMM}}mm;
-      overflow: hidden;
-      position: relative;
-    }
+      .toc-page-number {
+        display: none; /* Hide page numbers */
+      }
 
-    .chapter-image {
-      width: 100%;
-      height: 100%;
-      margin: 0;
-      padding: 0;
-      position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-    }
+      /* Chapter image page (even page - left side) */
+      .chapter-image-page {
+        page-break-after: always;
+        margin: 0;
+        padding: 0;
+        width: {{pageWidthMM}}mm;
+        height: {{pageHeightMM}}mm;
+        overflow: hidden;
+        position: relative;
+      }
 
-    .chapter-image img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      object-position: center;
-      display: block;
-      margin: 0;
-      padding: 0;
-    }
+      .chapter-image {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+      }
 
-    /* Chapter content page (odd page - right side) */
-    .chapter-content-page {
-      page: chapter; /* Apply named page for consistent margins */
-      page-break-after: auto; /* Changed from 'always' to allow content flow */
-      width: 100%; /* Use 100% since @page handles margins */
-      height: auto; /* Changed from fixed height to allow natural flow */
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0; /* Remove padding since @page handles margins */
-      position: relative;
-    }
+      .chapter-image img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        object-position: center;
+        display: block;
+        margin: 0;
+        padding: 0;
+      }
 
-    /* Add consistent padding to all chapter content pages */
-    .chapter-content-wrapper {
-      /* @page margins handle spacing now */
-      box-sizing: border-box;
-      padding: 0; /* @page margins handle spacing now */
-      display: flex;
-      flex-direction: column;
-      height: 100%;
-    }
-
-    /* First page of a chapter (with title) - @page chapter:first handles margins */
-    .chapter-first-page .chapter-content-wrapper {
-      /* @page chapter:first handles extra top margin for title */
-    }
-
-    /* Continuation pages - @page chapter handles consistent margins automatically */
-    .chapter-continuation-page .chapter-content-wrapper {
-      /* @page chapter handles standard margins for continuation pages */
-    }
-
-    .chapter-number {
-      font-size: 14pt;
-      font-weight: normal;
-      color: #666;
-      margin-bottom: 0.5em;
-      text-align: left;
-    }
-
-    .chapter-title {
-      font-size: 18pt;
-      font-weight: bold;
-      margin-bottom: 2em;
-      text-align: left;
-      line-height: 1.2;
-    }
-
-    .chapter-content {
-      font-size: 11pt;
-      line-height: 15pt;
-      orphans: 3;
-      widows: 3;
-      /* Remove flex: 1 and overflow: hidden */
-      /* Let content flow naturally across pages */
-    }
-
-    /* Target audience specific font sizes */
-    .chapter-content.target-children-0-2 {
-      font-size: 20pt;
-      line-height: 26pt;
-    }
-
-    .chapter-content.target-children-3-6 {
-      font-size: 18pt;
-      line-height: 24pt;
-    }
-
-    .chapter-content.target-children-7-10 {
-      font-size: 14pt;
-      line-height: 18pt;
-    }
-
-    .chapter-content.target-children-11-14 {
-      font-size: 12pt;
-      line-height: 16pt;
-    }
-
-    .chapter-content.target-young-adult-15-17 {
-      font-size: 11pt;
-      line-height: 15pt;
-    }
-
-    .chapter-content.target-adult-18-plus {
-      font-size: 10pt;
-      line-height: 14pt;
-    }
-
-    .chapter-content.target-all-ages {
-      font-size: 11pt;
-      line-height: 15pt;
-    }
-
-    .chapter-content p {
-      margin-bottom: 15.3pt;
-      text-align: justify;
-      orphans: 3;
-      widows: 3;
-      page-break-inside: auto; /* Prevent breaking inside paragraphs */
-    }
-
-    /* Ensure proper page breaks between paragraphs */
-    .chapter-content p:last-child {
-      margin-bottom: 0; /* Remove bottom margin from last paragraph */
-    }
-
-    /* First paragraph after chapter title - no indentation */
-    .chapter-content p:first-of-type {
-      text-indent: 0;
-      margin-top: 0;
-    }
-
-    /* All other paragraphs - indented */
-    .chapter-content p:not(:first-of-type) {
-      text-indent: 1.5em;
-    }
-
-    /* Drop cap for first letter of first paragraph */
-    .chapter-content p:first-of-type::first-letter {
-      float: left;
-      font-size: 3.5em;
-      line-height: 0.8;
-      margin: 0.1em 0.1em 0 0;
-      font-weight: bold;
-      color: #333;
-    }
-
-    /* Media print rules for proper multi-page content flow */
-    @media print {
+      /* Chapter content page (odd page - right side) */
       .chapter-content-page {
-        height: auto;
+        page: chapter; /* Apply named page for consistent margins */
+        page-break-after: auto; /* Changed from 'always' to allow content flow */
+        width: 100%; /* Use 100% since @page handles margins */
+        height: auto; /* Changed from fixed height to allow natural flow */
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0; /* Remove padding since @page handles margins */
+        position: relative;
       }
-      
-      /* Ensure content flows naturally */
+
+      /* Add consistent padding to all chapter content pages */
       .chapter-content-wrapper {
-        height: auto;
+        /* @page margins handle spacing now */
+        box-sizing: border-box;
+        padding: 0; /* @page margins handle spacing now */
+        display: flex;
+        flex-direction: column;
+        height: 100%;
       }
-    }
 
-    /* Blank page for even/odd page alignment */
-    .blank-page {
-      page-break-after: always;
-      width: {{pageWidthMM}}mm;
-      height: {{pageHeightMM}}mm;
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
+      /* First page of a chapter (with title) - @page chapter:first handles margins */
+      .chapter-first-page .chapter-content-wrapper {
+        /* @page chapter:first handles extra top margin for title */
+      }
 
-    /* Page break without visible content */
-    .page-break {
-      page-break-after: always;
-      width: {{pageWidthMM}}mm;
-      height: {{pageHeightMM}}mm;
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-  </style>
-</head>
-<body>
-  <!-- Page 1: Title -->
-  <div class="page title-page">
-    <div class="page-content">
-      <h1>{{title}}</h1>
+      /* Continuation pages - @page chapter handles consistent margins automatically */
+      .chapter-continuation-page .chapter-content-wrapper {
+        /* @page chapter handles standard margins for continuation pages */
+      }
+
+      .chapter-number {
+        font-size: 14pt;
+        font-weight: normal;
+        color: #666;
+        margin-bottom: 0.5em;
+        text-align: left;
+      }
+
+      .chapter-title {
+        font-size: 18pt;
+        font-weight: bold;
+        margin-bottom: 2em;
+        text-align: left;
+        line-height: 1.2;
+      }
+
+      .chapter-content {
+        font-size: 11pt;
+        line-height: 15pt;
+        orphans: 3;
+        widows: 3;
+        /* Remove flex: 1 and overflow: hidden */
+        /* Let content flow naturally across pages */
+      }
+
+      /* Target audience specific font sizes */
+      .chapter-content.target-children-0-2 {
+        font-size: 20pt;
+        line-height: 26pt;
+      }
+
+      .chapter-content.target-children-3-6 {
+        font-size: 18pt;
+        line-height: 24pt;
+      }
+
+      .chapter-content.target-children-7-10 {
+        font-size: 14pt;
+        line-height: 18pt;
+      }
+
+      .chapter-content.target-children-11-14 {
+        font-size: 12pt;
+        line-height: 16pt;
+      }
+
+      .chapter-content.target-young-adult-15-17 {
+        font-size: 11pt;
+        line-height: 15pt;
+      }
+
+      .chapter-content.target-adult-18-plus {
+        font-size: 10pt;
+        line-height: 14pt;
+      }
+
+      .chapter-content.target-all-ages {
+        font-size: 11pt;
+        line-height: 15pt;
+      }
+
+      .chapter-content p {
+        margin-bottom: 15.3pt;
+        text-align: justify;
+        orphans: 3;
+        widows: 3;
+        page-break-inside: auto; /* Prevent breaking inside paragraphs */
+      }
+
+      /* Ensure proper page breaks between paragraphs */
+      .chapter-content p:last-child {
+        margin-bottom: 0; /* Remove bottom margin from last paragraph */
+      }
+
+      /* First paragraph after chapter title - no indentation */
+      .chapter-content p:first-of-type {
+        text-indent: 0;
+        margin-top: 0;
+      }
+
+      /* All other paragraphs - indented */
+      .chapter-content p:not(:first-of-type) {
+        text-indent: 1.5em;
+      }
+
+      /* Drop cap for first letter of first paragraph */
+      .chapter-content p:first-of-type::first-letter {
+        float: left;
+        font-size: 3.5em;
+        line-height: 0.8;
+        margin: 0.1em 0.1em 0 0;
+        font-weight: bold;
+        color: #333;
+      }
+
+      /* Media print rules for proper multi-page content flow */
+      @media print {
+        .chapter-content-page {
+          height: auto;
+        }
+
+        /* Ensure content flows naturally */
+        .chapter-content-wrapper {
+          height: auto;
+        }
+      }
+
+      /* Blank page for even/odd page alignment */
+      .blank-page {
+        page-break-after: always;
+        width: {{pageWidthMM}}mm;
+        height: {{pageHeightMM}}mm;
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      /* Page break without visible content */
+      .page-break {
+        page-break-after: always;
+        width: {{pageWidthMM}}mm;
+        height: {{pageHeightMM}}mm;
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Page 1: Title -->
+    <div class="page title-page">
+      <div class="page-content">
+        <h1>{{title}}</h1>
+      </div>
     </div>
-  </div>
 
-  <!-- Page 2: Book Technical Information -->
-  <div class="page copyright-page">
-    <div class="page-content">
-      <div class="copyright-content">
-        <div class="label">
-          {{titleLabel}}:
-        </div>
-        <div>{{title}}</div>
-        
-        <div class="label">
-          {{authorLabel}}:
-        </div>
-        <div>{{customAuthor}}</div>
-        
-        <div class="label">
-          {{publishDateLabel}}:
-        </div>
-        <div>{{publishDate}}</div>
-        
-        <div class="label">
-          {{editingCompanyLabel}}:
-        </div>
-        <div>Mythoria</div>
-        
-        <div class="label">
-          {{websiteLabel}}:
-        </div>
-        <div>mythoria.pt</div>
-        
-        <div class="label">
-          {{copyrightLabel}}:
-        </div>
-        <div class="copyright-text">{{copyrightText}}</div>
-        
-        <div class="mythoria-promotion">
-          <p>{{promotionText}}</p>
-          <div class="qr-code">
-            <img src="https://storage.googleapis.com/mythoria-generated-stories/qr-code.png" alt="QR Code to Mythoria website" />
+    <!-- Page 2: Book Technical Information -->
+    <div class="page copyright-page">
+      <div class="page-content">
+        <div class="copyright-content">
+          <div class="label">{{titleLabel}}:</div>
+          <div>{{title}}</div>
+
+          <div class="label">{{authorLabel}}:</div>
+          <div>{{customAuthor}}</div>
+
+          <div class="label">{{publishDateLabel}}:</div>
+          <div>{{publishDate}}</div>
+
+          <div class="label">{{editingCompanyLabel}}:</div>
+          <div>Mythoria</div>
+
+          <div class="label">{{websiteLabel}}:</div>
+          <div>mythoria.pt</div>
+
+          <div class="label">{{copyrightLabel}}:</div>
+          <div class="copyright-text">{{copyrightText}}</div>
+
+          <div class="mythoria-promotion">
+            <p>{{promotionText}}</p>
+            <div class="qr-code">
+              <img
+                src="https://storage.googleapis.com/mythoria-generated-stories/qr-code.png"
+                alt="QR Code to Mythoria website"
+              />
+            </div>
           </div>
         </div>
       </div>
     </div>
-  </div>
 
-  <!-- Page 3: Dedication -->
-  <div class="page dedication-page">
-    <div class="page-content">
-      <div class="dedication-content">
-        <h2 style="text-align: center; font-size: 18pt; margin-bottom: 30px;">{{title}}</h2>
-        <div style="margin-top: 40px;">{{dedicationMessage}}</div>
-        <div class="dedication-author">- {{customAuthor}}</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Page 4: Synopsis -->
-  <div class="page synopsis-page">
-    <div class="page-content">
-      <div style="width: 100%;">
-        <div class="synopsis-title">
-          {{synopsisTitle}}
-        </div>
-        <div class="synopsis-content">
-          {{synopsis}}
+    <!-- Page 3: Dedication -->
+    <div class="page dedication-page">
+      <div class="page-content">
+        <div class="dedication-content">
+          <h2 style="text-align: center; font-size: 18pt; margin-bottom: 30px">{{title}}</h2>
+          <div style="margin-top: 40px">{{dedicationMessage}}</div>
+          <div class="dedication-author">- {{customAuthor}}</div>
         </div>
       </div>
     </div>
-  </div>
 
-  <!-- Page 5: Table of Contents -->
-  <div class="page toc-page">
-    <div class="page-content">
-      <div class="toc">
-        <h2>
-          {{tocTitle}}
-        </h2>
-        {{tableOfContents}}
+    <!-- Page 4: Synopsis -->
+    <div class="page synopsis-page">
+      <div class="page-content">
+        <div style="width: 100%">
+          <div class="synopsis-title">{{synopsisTitle}}</div>
+          <div class="synopsis-content">{{synopsis}}</div>
+        </div>
       </div>
     </div>
-  </div>
 
-  <!-- Chapters -->
-  {{chapters}}
+    <!-- Page 5: Table of Contents -->
+    <div class="page toc-page">
+      <div class="page-content">
+        <div class="toc">
+          <h2>{{tocTitle}}</h2>
+          {{tableOfContents}}
+        </div>
+      </div>
+    </div>
 
-  <!-- Final empty page to end on recto -->
-  <div class="page"></div>
-</body>
+    <!-- Chapters -->
+    {{chapters}}
+
+    <!-- Final empty page to end on recto -->
+    <div class="page"></div>
+  </body>
 </html>

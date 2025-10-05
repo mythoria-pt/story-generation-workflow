@@ -8,19 +8,19 @@ import { existsSync } from 'fs';
  */
 export function getResourceBasePath(): string {
   const cwd = process.cwd();
-  
+
   // Check if we're running from the dist folder (production)
   // Multiple ways to detect this:
   // 1. Check if src folder exists (development has it, production doesn't)
   // 2. Check if we're running from dist/index.js
   // 3. Check NODE_ENV
   // 4. Check if dist/prompts exists (production build result)
-  
+
   const srcExists = existsSync(join(cwd, 'src'));
   const distPromptsExists = existsSync(join(cwd, 'dist', 'prompts'));
   const isRunningFromDist = __filename.includes('dist/') || __filename.includes('dist\\');
   const isProduction = process.env.NODE_ENV === 'production';
-  
+
   // If we're in production or running from dist, or if src doesn't exist but dist/prompts does
   if (isProduction || isRunningFromDist || (!srcExists && distPromptsExists)) {
     // In production, static files are copied to dist/ (copyfiles -u 1 strips src/ prefix)
@@ -51,5 +51,3 @@ export function getMessagesPath(): string {
 export function getTemplatesPath(): string {
   return join(getResourceBasePath(), 'templates');
 }
-
-

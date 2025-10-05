@@ -10,7 +10,7 @@ export const ImageRequestSchema = z.object({
   imageType: z.enum(['front_cover', 'back_cover', 'chapter']).optional(),
   width: z.number().int().positive().optional(),
   height: z.number().int().positive().optional(),
-  style: z.enum(['vivid', 'natural']).optional()
+  style: z.enum(['vivid', 'natural']).optional(),
 });
 
 export type ImageRequest = z.infer<typeof ImageRequestSchema>;
@@ -49,7 +49,11 @@ export function generateImageFilename(params: {
 /**
  * Format an error object with request context for logging and responses.
  */
-export function formatImageError(error: unknown, reqData: Partial<ImageRequest>, currentStep: string): Record<string, unknown> {
+export function formatImageError(
+  error: unknown,
+  reqData: Partial<ImageRequest>,
+  currentStep: string,
+): Record<string, unknown> {
   const base: Record<string, any> = {
     message: error instanceof Error ? error.message : String(error),
     stack: error instanceof Error ? error.stack : undefined,
@@ -61,9 +65,10 @@ export function formatImageError(error: unknown, reqData: Partial<ImageRequest>,
     currentStep,
     requestDetails: {
       promptLength: reqData.prompt?.length,
-      dimensions: reqData.width && reqData.height ? `${reqData.width}x${reqData.height}` : 'default',
-      style: reqData.style
-    }
+      dimensions:
+        reqData.width && reqData.height ? `${reqData.width}x${reqData.height}` : 'default',
+      style: reqData.style,
+    },
   };
 
   // Enrich for safety blocked errors
@@ -89,4 +94,3 @@ export function formatImageError(error: unknown, reqData: Partial<ImageRequest>,
 
   return base;
 }
-
