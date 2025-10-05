@@ -87,7 +87,7 @@ Story Generation Workflow is a Node.js 22+ service that orchestrates Google Clou
 ## Code style and conventions
 
 - TypeScript is compiled in strict mode (`tsconfig.json`) with path aliases rooted at `src` (`@/...`). Use named exports where possible and keep imports aligned with the module boundaries above.
-- Stick to two-space indentation, single quotes, and semicolons. Run `npm run format` (Prettier) and `npm run lint` (ESLint with `@typescript-eslint`) before committing.
+- Stick to two-space indentation, single quotes, and semicolons. Run `npm run format` (Prettier) after every code change and `npm run lint` (ESLint with `@typescript-eslint`) before committing.
 - Prefer dependency-free utilities in `src/shared` for logic that can be reused by both services and routes; heavier integrations belong in `src/services` or adapters.
 - Use the shared Winston logger from `src/config/logger.ts` for structured logging instead of `console.log` outside of tests.
 
