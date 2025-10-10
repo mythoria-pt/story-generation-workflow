@@ -20,11 +20,11 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 # ---- Configuration ----------------------------------------------------------
-$PROJECT_ID        = 'oceanic-beach-460916-n5'
+$PROJECT_ID = 'oceanic-beach-460916-n5'
 $BASE_SERVICE_NAME = 'story-generation-workflow'
-$SERVICE_NAME      = if ($Staging) { "$BASE_SERVICE_NAME-staging" } else { $BASE_SERVICE_NAME }
-$REGION            = 'europe-west9'
-$IMAGE_NAME        = "gcr.io/$PROJECT_ID/$SERVICE_NAME"
+$SERVICE_NAME = if ($Staging) { "$BASE_SERVICE_NAME-staging" } else { $BASE_SERVICE_NAME }
+$REGION = 'europe-west9'
+$IMAGE_NAME = "gcr.io/$PROJECT_ID/$SERVICE_NAME"
 # -----------------------------------------------------------------------------
 
 function Show-Help {
@@ -41,10 +41,10 @@ function Show-Help {
 }
 
 # --- Console helpers ---------------------------------------------------------
-function Write-Info     { param([string]$Msg) Write-Host "[INFO] $Msg" -ForegroundColor Blue }
-function Write-Success  { param([string]$Msg) Write-Host "[SUCCESS] $Msg" -ForegroundColor Green }
-function Write-Warn     { param([string]$Msg) Write-Host "[WARN] $Msg" -ForegroundColor Yellow }
-function Write-Err      { param([string]$Msg) Write-Host "[ERROR] $Msg" -ForegroundColor Red }
+function Write-Info { param([string]$Msg) Write-Host "[INFO] $Msg" -ForegroundColor Blue }
+function Write-Success { param([string]$Msg) Write-Host "[SUCCESS] $Msg" -ForegroundColor Green }
+function Write-Warn { param([string]$Msg) Write-Host "[WARN] $Msg" -ForegroundColor Yellow }
+function Write-Err { param([string]$Msg) Write-Host "[ERROR] $Msg" -ForegroundColor Red }
 # -----------------------------------------------------------------------------
 
 # --- Policy Guards -----------------------------------------------------------
@@ -59,10 +59,12 @@ function Assert-NoWorkflowDeploymentStepInCloudBuild {
         if ($cb -match '(?i)workflows\s+deploy') {
             Write-Err "Forbidden workflow deployment directive detected in cloudbuild.yaml. Remove it before deploying."
             throw "Disallowed workflow deployment step present"
-        } else {
+        }
+        else {
             Write-Info "Verified cloudbuild.yaml contains no workflow deployment step."
         }
-    } catch {
+    }
+    catch {
         throw
     }
 }
@@ -74,7 +76,8 @@ function Test-Prerequisites {
     try {
         & gcloud --version  | Out-Null
         Write-Success "Google Cloud CLI is available"
-    } catch {
+    }
+    catch {
         Write-Err "Google Cloud CLI is not installed or not on PATH."
         throw
     }
@@ -86,7 +89,8 @@ function Test-Prerequisites {
             throw "Unauthenticated"
         }
         Write-Success "Authenticated as $account"
-    } catch {
+    }
+    catch {
         throw
     }
 
@@ -107,10 +111,12 @@ function Build-Application {
         $env:NODE_ENV = 'development'
         try {
             & npm run lint
-        } finally {
+        }
+        finally {
             if ($null -ne $originalNodeEnv) { $env:NODE_ENV = $originalNodeEnv } else { Remove-Item Env:NODE_ENV -ErrorAction SilentlyContinue }
         }
-    } else {
+    }
+    else {
         Write-Warn "Skipping lint (SkipLint flag provided)"
     }
     Write-Info "Typecheck (npm run typecheck)"
@@ -140,6 +146,9 @@ function Deploy-Fast {
         Write-Err "No prior image found for $IMAGE_NAME. Fast deploy requires an existing image."
         throw "Missing image"
     }
+    if ($digest -like 'sha256:*') {
+        $digest = $digest.Substring('sha256:'.Length)
+    }
     $imageRef = "$IMAGE_NAME@sha256:$digest"
     Write-Info "Deploying image $imageRef to Cloud Run service $SERVICE_NAME in $REGION"
     & gcloud run deploy $SERVICE_NAME --image $imageRef --region $REGION --platform managed --quiet
@@ -156,7 +165,8 @@ function Test-Deployment {
         Write-Host "Service URL: $serviceUrl" -ForegroundColor Cyan
         Write-Host "Console: https://console.cloud.google.com/run/detail/$REGION/$SERVICE_NAME" -ForegroundColor Cyan
         Write-Host ""
-    } else {
+    }
+    else {
         Write-Err "Unable to determine service URL"
         throw "Describe failed"
     }
@@ -174,7 +184,8 @@ function Main {
     Test-Prerequisites
     if ($Fast) {
         Deploy-Fast
-    } else {
+    }
+    else {
         Build-Application -SkipLint:$SkipLint
         Deploy-With-CloudBuild
     }
@@ -185,7 +196,8 @@ function Main {
 
 try {
     Main
-} catch {
+}
+catch {
     Write-Err "Deployment failed:`n$($_.Exception.Message)"
     exit 1
 }
