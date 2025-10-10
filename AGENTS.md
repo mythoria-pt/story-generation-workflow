@@ -71,6 +71,37 @@ Story Generation Workflow is a Node.js 22+ service that orchestrates Google Clou
 - Deployment helpers under `scripts/` are PowerShell-based: `npm run deploy`, `npm run deploy:fast`, `npm run setup-secrets`, `npm run check-secrets`, and `npm run verify`. Use PowerShell Core (`pwsh`) on macOS/Linux.
 - Logs and diagnostics: `npm run logs` and `npm run logs:tail` wrap `scripts/logs.ps1`, while `npm run get-logs` issues a `gcloud logging read` against the Cloud Run service defined in `service.json`.
 
+### Retry Strategy
+
+Image generation includes automatic retry logic for transient errors:
+
+**Workflow-Level Retries** (`workflows/story-generation.yaml`):
+- Max 3 attempts per image (front cover, back cover, each chapter)
+- 60-second delay between attempts (fixed, no exponential backoff)
+- Retries: 500 (server error), 503 (unavailable), 429 (rate limit), timeouts
+- No retry: 422 (safety block), 400 (bad request), 401/403 (auth errors)
+
+**Safety Block Handling** (`src/routes/ai.ts`):
+- Detects 422 status or OpenAI `moderation_blocked` error code
+- Uses GenAI to rewrite prompt with safety guidelines (`src/prompts/en-US/image-prompt-safety-rewrite.json`)
+- Single retry with rewritten prompt
+- If still blocked, marks run as 'blocked' status
+
+**Error Classification** (`src/shared/retry-utils.ts`):
+- `isSafetyBlockError(error)` - checks for 422, moderation codes
+- `isTransientError(error)` - checks for 500, 503, 429, network errors
+
+**Debugging Failed Workflows**:
+```powershell
+# Check Cloud Run logs
+npm run logs
+
+# Check specific run status
+SELECT status, current_step, error_message FROM story_generation_runs WHERE id = '<runId>';
+```
+
+Run status codes: `completed` (success), `blocked` (safety block), `failed` (transient error or unknown), `running` (in progress).
+
 ## Architecture map
 
 - `src/index.ts` boots Express, applies security middleware, registers routers, and wires graceful shutdown (`closeDatabaseConnection`).

@@ -150,20 +150,76 @@ main:
             - genFrontCover:
                 try:
                   steps:
-                    - frontCoverRequest:
-                        call: http.request
-                        args:
-                          url: ${baseUrl + "/ai/image"}
-                          method: POST
-                          auth: { type: OIDC }
-                          headers:
-                            x-api-key: ${apiKey}
-                          body:
-                            storyId: ${storyId}
-                            runId: ${runId}
-                            imageType: 'front_cover'
-                            prompt: ${frontCoverPromptResp.body}
-                        result: frontCoverResp
+                    # Initialize retry variables
+                    - initFrontCoverRetry:
+                        assign:
+                          - frontCoverMaxAttempts: 3
+                          - frontCoverRetryDelay: 60
+                          - frontCoverSuccess: false
+                          - frontCoverLastError: null
+                          - frontCoverResp: null
+
+                    # Retry loop for front cover generation
+                    - frontCoverRetryLoop:
+                        for:
+                          value: attempt
+                          range: ${[1, frontCoverMaxAttempts]}
+                          steps:
+                            - checkFrontCoverAlreadySuccessful:
+                                switch:
+                                  - condition: ${frontCoverSuccess}
+                                    next: continue
+                            - tryFrontCoverGeneration:
+                                try:
+                                  steps:
+                                    - frontCoverRequest:
+                                        call: http.request
+                                        args:
+                                          url: ${baseUrl + "/ai/image"}
+                                          method: POST
+                                          auth: { type: OIDC }
+                                          headers:
+                                            x-api-key: ${apiKey}
+                                          body:
+                                            storyId: ${storyId}
+                                            runId: ${runId}
+                                            imageType: 'front_cover'
+                                            prompt: ${frontCoverPromptResp.body}
+                                        result: frontCoverRespTemp
+                                    - saveFrontCoverResponse:
+                                        assign:
+                                          - frontCoverResp: ${frontCoverRespTemp}
+                                          - frontCoverSuccess: true
+                                except:
+                                  as: frontCoverAttemptError
+                                  steps:
+                                    - saveFrontCoverError:
+                                        assign:
+                                          - frontCoverLastError: ${frontCoverAttemptError}
+                                    - checkFrontCoverErrorType:
+                                        switch:
+                                          # Safety block (422) - mark as blocked and exit
+                                          - condition: ${frontCoverAttemptError.code == 422}
+                                            raise: ${frontCoverAttemptError}
+                                          # Last attempt - fail
+                                          - condition: ${attempt >= frontCoverMaxAttempts}
+                                            raise: ${frontCoverAttemptError}
+                                          # Retryable error - log and continue to delay
+                                    - logFrontCoverRetry:
+                                        call: sys.log
+                                        args:
+                                          severity: WARNING
+                                          text: '${"Front cover attempt " + string(attempt) + " failed, retrying after " + string(frontCoverRetryDelay) + "s: " + frontCoverAttemptError.message}'
+                                    - delayFrontCoverRetry:
+                                        call: sys.sleep
+                                        args:
+                                          seconds: ${frontCoverRetryDelay}
+
+                    # Check if we succeeded after the loop
+                    - checkFrontCoverSuccess:
+                        switch:
+                          - condition: ${not(frontCoverSuccess)}
+                            raise: ${frontCoverLastError}
                 except:
                   as: frontCoverError
                   steps:
@@ -226,20 +282,76 @@ main:
             - genBackCover:
                 try:
                   steps:
-                    - backCoverRequest:
-                        call: http.request
-                        args:
-                          url: ${baseUrl + "/ai/image"}
-                          method: POST
-                          auth: { type: OIDC }
-                          headers:
-                            x-api-key: ${apiKey}
-                          body:
-                            storyId: ${storyId}
-                            runId: ${runId}
-                            imageType: 'back_cover'
-                            prompt: ${backCoverPromptResp.body}
-                        result: backCoverResp
+                    # Initialize retry variables
+                    - initBackCoverRetry:
+                        assign:
+                          - backCoverMaxAttempts: 3
+                          - backCoverRetryDelay: 60
+                          - backCoverSuccess: false
+                          - backCoverLastError: null
+                          - backCoverResp: null
+
+                    # Retry loop for back cover generation
+                    - backCoverRetryLoop:
+                        for:
+                          value: attempt
+                          range: ${[1, backCoverMaxAttempts]}
+                          steps:
+                            - checkBackCoverAlreadySuccessful:
+                                switch:
+                                  - condition: ${backCoverSuccess}
+                                    next: continue
+                            - tryBackCoverGeneration:
+                                try:
+                                  steps:
+                                    - backCoverRequest:
+                                        call: http.request
+                                        args:
+                                          url: ${baseUrl + "/ai/image"}
+                                          method: POST
+                                          auth: { type: OIDC }
+                                          headers:
+                                            x-api-key: ${apiKey}
+                                          body:
+                                            storyId: ${storyId}
+                                            runId: ${runId}
+                                            imageType: 'back_cover'
+                                            prompt: ${backCoverPromptResp.body}
+                                        result: backCoverRespTemp
+                                    - saveBackCoverResponse:
+                                        assign:
+                                          - backCoverResp: ${backCoverRespTemp}
+                                          - backCoverSuccess: true
+                                except:
+                                  as: backCoverAttemptError
+                                  steps:
+                                    - saveBackCoverError:
+                                        assign:
+                                          - backCoverLastError: ${backCoverAttemptError}
+                                    - checkBackCoverErrorType:
+                                        switch:
+                                          # Safety block (422) - mark as blocked and exit
+                                          - condition: ${backCoverAttemptError.code == 422}
+                                            raise: ${backCoverAttemptError}
+                                          # Last attempt - fail
+                                          - condition: ${attempt >= backCoverMaxAttempts}
+                                            raise: ${backCoverAttemptError}
+                                          # Retryable error - log and continue to delay
+                                    - logBackCoverRetry:
+                                        call: sys.log
+                                        args:
+                                          severity: WARNING
+                                          text: '${"Back cover attempt " + string(attempt) + " failed, retrying after " + string(backCoverRetryDelay) + "s: " + backCoverAttemptError.message}'
+                                    - delayBackCoverRetry:
+                                        call: sys.sleep
+                                        args:
+                                          seconds: ${backCoverRetryDelay}
+
+                    # Check if we succeeded after the loop
+                    - checkBackCoverSuccess:
+                        switch:
+                          - condition: ${not(backCoverSuccess)}
+                            raise: ${backCoverLastError}
                 except:
                   as: backCoverError
                   steps:
@@ -306,21 +418,77 @@ main:
                     - genImage:
                         try:
                           steps:
-                            - chapterImageRequest:
-                                call: http.request
-                                args:
-                                  url: ${baseUrl + "/ai/image"}
-                                  method: POST
-                                  auth: { type: OIDC }
-                                  headers:
-                                    x-api-key: ${apiKey}
-                                  body:
-                                    storyId: ${storyId}
-                                    runId: ${runId}
-                                    chapterNumber: ${chapterNum}
-                                    imageType: 'chapter'
-                                    prompt: ${promptResp.body}
-                                result: imageResp
+                            # Initialize retry variables for this chapter
+                            - initChapterImageRetry:
+                                assign:
+                                  - chapterImageMaxAttempts: 3
+                                  - chapterImageRetryDelay: 60
+                                  - chapterImageSuccess: false
+                                  - chapterImageLastError: null
+                                  - imageResp: null
+
+                            # Retry loop for chapter image generation
+                            - chapterImageRetryLoop:
+                                for:
+                                  value: attempt
+                                  range: ${[1, chapterImageMaxAttempts]}
+                                  steps:
+                                    - checkChapterImageAlreadySuccessful:
+                                        switch:
+                                          - condition: ${chapterImageSuccess}
+                                            next: continue
+                                    - tryChapterImageGeneration:
+                                        try:
+                                          steps:
+                                            - chapterImageRequest:
+                                                call: http.request
+                                                args:
+                                                  url: ${baseUrl + "/ai/image"}
+                                                  method: POST
+                                                  auth: { type: OIDC }
+                                                  headers:
+                                                    x-api-key: ${apiKey}
+                                                  body:
+                                                    storyId: ${storyId}
+                                                    runId: ${runId}
+                                                    chapterNumber: ${chapterNum}
+                                                    imageType: 'chapter'
+                                                    prompt: ${promptResp.body}
+                                                result: imageRespTemp
+                                            - saveChapterImageResponse:
+                                                assign:
+                                                  - imageResp: ${imageRespTemp}
+                                                  - chapterImageSuccess: true
+                                        except:
+                                          as: chapterImageAttemptError
+                                          steps:
+                                            - saveChapterImageError:
+                                                assign:
+                                                  - chapterImageLastError: ${chapterImageAttemptError}
+                                            - checkChapterImageErrorType:
+                                                switch:
+                                                  # Safety block (422) - mark as blocked and exit
+                                                  - condition: ${chapterImageAttemptError.code == 422}
+                                                    raise: ${chapterImageAttemptError}
+                                                  # Last attempt - fail
+                                                  - condition: ${attempt >= chapterImageMaxAttempts}
+                                                    raise: ${chapterImageAttemptError}
+                                                  # Retryable error - log and continue to delay
+                                            - logChapterImageRetry:
+                                                call: sys.log
+                                                args:
+                                                  severity: WARNING
+                                                  text: '${"Chapter " + string(chapterNum) + " image attempt " + string(attempt) + " failed, retrying after " + string(chapterImageRetryDelay) + "s: " + chapterImageAttemptError.message}'
+                                            - delayChapterImageRetry:
+                                                call: sys.sleep
+                                                args:
+                                                  seconds: ${chapterImageRetryDelay}
+
+                            # Check if we succeeded after the loop
+                            - checkChapterImageSuccess:
+                                switch:
+                                  - condition: ${not(chapterImageSuccess)}
+                                    raise: ${chapterImageLastError}
                         except:
                           as: chapterImageError
                           steps:

@@ -248,6 +248,17 @@ export class ImageGenerationHandler
       // Get custom image instructions from the story
       const customInstructions = storyContext.story.imageGenerationInstructions;
 
+      // Debug logging for custom instructions
+      logger.debug('Custom instructions retrieved for image generation', {
+        storyId: params.storyId,
+        workflowId: params.workflowId,
+        hasCustomInstructions: !!customInstructions,
+        customInstructionsLength: customInstructions?.length || 0,
+        customInstructionsPreview: customInstructions
+          ? customInstructions.substring(0, 100) + (customInstructions.length > 100 ? '...' : '')
+          : '(empty)',
+      });
+
       // Create AI Gateway from environment
       const aiGateway = getAIGateway();
 

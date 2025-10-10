@@ -21,5 +21,6 @@ export const aiActionType = pgEnum('ai_action_type', [
   'audio_generation',
   'content_validation',
   'image_edit',
+  'prompt_rewrite',
   'test',
 ]);

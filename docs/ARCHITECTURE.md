@@ -362,33 +362,201 @@ stateDiagram-v2
 
 ## Error Handling Strategy
 
+### Multi-Layered Retry Strategy
+
+The service implements a comprehensive retry mechanism for transient errors while properly handling permanent failures like safety blocks. The strategy operates at two levels:
+
+#### 1. Workflow Layer (Primary)
+
+Implemented in `workflows/story-generation.yaml` for all image generation operations:
+
+**Retry Configuration:**
+- **Max Attempts**: 3 per image
+- **Retry Delay**: 60 seconds (fixed, no exponential backoff at workflow level)
+- **Scope**: Front cover, back cover, and all chapter images
+
+**Retryable Errors:**
+- HTTP 500 (Internal Server Error)
+- HTTP 503 (Service Unavailable)
+- HTTP 429 (Rate Limit Exceeded)
+- Network timeouts and connection errors
+
+**Non-Retryable Errors:**
+- HTTP 422 (Safety Block) - triggers prompt rewrite instead
+- HTTP 400 (Bad Request) - invalid parameters
+- HTTP 401/403 (Authentication errors)
+
+**Example Workflow Retry Loop:**
+```yaml
+- genFrontCover:
+    try:
+      steps:
+        - initFrontCoverRetry:
+            assign:
+              - frontCoverMaxAttempts: 3
+              - frontCoverRetryDelay: 60
+              - frontCoverSuccess: false
+        - frontCoverRetryLoop:
+            for:
+              value: attempt
+              range: ${[1, frontCoverMaxAttempts]}
+              steps:
+                - tryFrontCoverGeneration:
+                    try:
+                      steps:
+                        - frontCoverRequest:
+                            call: http.request
+                            args:
+                              url: ${baseUrl + "/ai/image"}
+                              # ... request body
+                        - breakOnSuccess:
+                            next: storeFrontCoverResult
+                    except:
+                      as: frontCoverAttemptError
+                      steps:
+                        - checkErrorType:
+                            switch:
+                              # Safety block - exit to prompt rewrite
+                              - condition: ${frontCoverAttemptError.code == 422}
+                                next: markRunBlockedFrontCover
+                              # Last attempt - fail
+                              - condition: ${attempt >= frontCoverMaxAttempts}
+                                raise: ${frontCoverAttemptError}
+                        # Retryable error - delay and retry
+                        - delay:
+                            call: sys.sleep
+                            args:
+                              seconds: ${frontCoverRetryDelay}
+```
+
+#### 2. Safety Block Handling (Phase 2)
+
+When an image generation request is blocked by AI safety systems (HTTP 422 or 400 with `moderation_blocked`), the service automatically attempts to rewrite the prompt using Google GenAI:
+
+**Rewrite Process:**
+1. **Detect Safety Block**: Route detects 422 status or moderation error codes
+2. **Load Rewrite Template**: Use `src/prompts/en-US/image-prompt-safety-rewrite.json`
+3. **Call GenAI**: Request prompt rewrite with safety guidelines
+4. **Single Retry**: Attempt image generation once with rewritten prompt
+5. **Final Failure**: If still blocked, mark run as 'blocked' status
+
+**Prompt Rewrite Template Variables:**
+```typescript
+{
+  safetyError: "The exact error message from AI safety system",
+  imageType: "front_cover | back_cover | chapter",
+  bookTitle: "Title of the book",
+  graphicalStyle: "Visual style (e.g., 'Pixar style')",
+  chapterNumber: "Chapter number if applicable",
+  originalPrompt: "The original blocked prompt"
+}
+```
+
+**Safety Rewrite Guidelines:**
+- Avoid sensitive terms (intimate, exposed, bare, hatching)
+- Add contextual safety markers (classroom, zoo, museum)
+- Change camera angles (distant/medium vs close-up)
+- Generalize specific details
+- Focus on actions/emotions over physical attributes
+- Use indirect descriptions ("nearby" vs "holding")
+
+#### 3. Application Layer (Utility)
+
+`src/shared/retry-utils.ts` provides utility functions for error classification:
+
+```typescript
+// Classify errors
+isSafetyBlockError(error): boolean   // 422, moderation_blocked
+isTransientError(error): boolean     // 500, 503, 429, timeouts
+
+// Retry wrapper (currently used for reference, workflow handles retries)
+withRetry<T>(fn: () => Promise<T>, options: RetryOptions): Promise<T>
+```
+
+#### 4. Error Response Handling
+
+**422 Response (Safety Block after rewrite failure):**
+```json
+{
+  "success": false,
+  "error": "SAFETY_BLOCKED: Your request was rejected by the safety system",
+  "failedAt": "generating_image",
+  "code": "IMAGE_SAFETY_BLOCKED",
+  "category": "safety_blocked",
+  "provider": "openai",
+  "promptRewriteAttempted": true,
+  "promptRewriteError": "Still blocked after rewrite",
+  "requestId": "5159ede1-16d3-4359-9766-671cf539339f",
+  "timestamp": "2025-10-10T12:44:15.040Z"
+}
+```
+
+**500 Response (Transient error after 3 retries):**
+```json
+{
+  "success": false,
+  "error": "Service unavailable, max retries exceeded",
+  "failedAt": "generating_image",
+  "requestId": "...",
+  "timestamp": "..."
+}
+```
+
+### Workflow Error States
+
+The workflow marks runs with appropriate status codes:
+
+| Status | Trigger | Description | User Action |
+|--------|---------|-------------|-------------|
+| `blocked` | 422 after prompt rewrite | Safety system rejected content | Review/adjust story content |
+| `failed` | 500/503 after 3 retries | Service error, transient failure | Retry story generation |
+| `failed` | Other errors | Unexpected failure | Contact support |
+| `completed` | Success | All steps completed | N/A |
+
 ### Workflow-Level Error Handling
 
 ```yaml
-# Google Cloud Workflows error handling
+# Google Cloud Workflows error handling (outer try/catch)
 try:
   steps:
-    # All workflow steps
+    # All workflow steps (outline, chapters, images)
 except:
-  as: error
+  as: wfError
   steps:
-    - logError:
+    - markFailedRun:
         call: http.request
         args:
           url: ${baseUrl + "/internal/runs/" + runId}
           method: PATCH
           body:
             status: 'failed'
-            error_message: ${error.message}
-    - reraise: ${error}
+            currentStep: 'unknown'
+            errorMessage: ${wfError.message}
+            endedAt: ${time.format(sys.now())}
+    - rethrow:
+        raise: ${wfError}
 ```
 
-### Application-Level Error Handling
+### Debugging Failed Workflows
 
-- Structured error responses with error codes
-- Retry mechanisms for transient failures
-- Graceful degradation for optional features (TTS)
-- Comprehensive logging for debugging
+**Check Workflow Logs:**
+```powershell
+npm run logs
+# or
+gcloud logging read "resource.type=cloud_run_revision AND resource.labels.service_name=story-generation-workflow" --limit=100
+```
+
+**Check Run Status:**
+```sql
+SELECT id, status, current_step, error_message, started_at, ended_at
+FROM story_generation_runs
+WHERE id = '<runId>';
+```
+
+**Common Issues:**
+- **Multiple 422 responses**: Prompt contains inherently unsafe content - manual review needed
+- **Timeout after 3 attempts**: Provider overload - retry story generation
+- **500 from /ai/image**: Check Cloud Run logs for application errors
 
 ## Deployment Architecture
 

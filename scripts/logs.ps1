@@ -2,7 +2,7 @@ Param(
     [string]$ProjectId = "oceanic-beach-460916-n5",
     [string]$Region = "europe-west9",
     [string]$ServiceName = "story-generation-workflow",
-    [int]$Limit = 50,
+    [int]$Limit = 300,
     [switch]$Follow,
     [string]$OutFile
 )
@@ -28,16 +28,17 @@ try {
     if ($Follow) {
         # Tail logs in real-time
         gcloud logs tail "projects/$ProjectId/logs/run.googleapis.com%2Fstdout" --filter="resource.labels.service_name=$ServiceName AND resource.labels.location=$Region"
-    } else {
+    }
+    else {
         # Read latest logs in JSON and write to file
-    $gcloudArgs = @(
+        $gcloudArgs = @(
             "run", "services", "logs", "read", $ServiceName,
             "--region", $Region,
             "--project", $ProjectId,
             "--limit", $Limit,
             "--format", "json"
         )
-    gcloud @gcloudArgs 2>&1 | Tee-Object -FilePath $OutFile | Out-Null
+        gcloud @gcloudArgs 2>&1 | Tee-Object -FilePath $OutFile | Out-Null
         Write-Host "Saved logs to: $OutFile"
     }
 }

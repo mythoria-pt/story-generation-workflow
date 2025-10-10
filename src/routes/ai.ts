@@ -911,12 +911,18 @@ router.post('/text/context/clear', async (req, res) => {
 /**
  * POST /ai/image
  * Generate an image using AI image generation and store it in Google Cloud Storage
+ * Includes safety block handling with automatic prompt rewriting
  */
 router.post('/image', async (req, res) => {
   let currentStep = 'parsing_request';
+  let promptRewriteAttempted = false;
+  let originalPrompt: string | undefined;
+
   try {
     const { prompt, storyId, runId, chapterNumber, imageType, width, height, style } =
       validateImageRequest(req.body);
+
+    originalPrompt = prompt;
 
     // Get story context to extract authorId for token tracking
     const storyContext = await storyService.getStoryContext(storyId);
@@ -1025,18 +1031,147 @@ router.post('/image', async (req, res) => {
       totalSizeBytes: referenceImages.reduce((acc, r) => acc + r.buffer.length, 0),
     });
 
+    // Helper function to attempt image generation
+    const attemptImageGeneration = async (promptToUse: string): Promise<Buffer> => {
+      return await aiGateway.getImageService(imageContext).generate(promptToUse, {
+        ...(imageWidth && { width: imageWidth }),
+        ...(imageHeight && { height: imageHeight }),
+        ...(style && { style }),
+        bookTitle: storyContext.story.title,
+        ...(storyContext.story.graphicalStyle && {
+          graphicalStyle: storyContext.story.graphicalStyle,
+        }),
+        ...(imageType && { imageType }),
+        ...(referenceImages.length > 0 && { referenceImages }),
+      });
+    };
+
+    // Try image generation with safety block handling
     currentStep = 'generating_image';
-    const imageBuffer = await aiGateway.getImageService(imageContext).generate(prompt, {
-      ...(imageWidth && { width: imageWidth }),
-      ...(imageHeight && { height: imageHeight }),
-      ...(style && { style }),
-      bookTitle: storyContext.story.title,
-      ...(storyContext.story.graphicalStyle && {
-        graphicalStyle: storyContext.story.graphicalStyle,
-      }),
-      ...(imageType && { imageType }),
-      ...(referenceImages.length > 0 && { referenceImages }),
-    });
+    let imageBuffer: Buffer;
+    let finalPrompt = prompt;
+
+    try {
+      // First attempt with original prompt
+      imageBuffer = await attemptImageGeneration(prompt);
+    } catch (firstError) {
+      // Check if this is a safety block error
+      const { isSafetyBlockError } = await import('@/shared/retry-utils.js');
+
+      if (isSafetyBlockError(firstError)) {
+        logger.warn('Image generation blocked by safety system, attempting prompt rewrite', {
+          storyId,
+          runId,
+          imageType,
+          chapterNumber,
+          originalPromptLength: prompt.length,
+          error: firstError instanceof Error ? firstError.message : String(firstError),
+        });
+
+        currentStep = 'rewriting_prompt';
+        promptRewriteAttempted = true;
+
+        try {
+          // Load the safety rewrite prompt template
+          const rewritePromptTemplate = await PromptService.loadPrompt(
+            'en-US',
+            'image-prompt-safety-rewrite',
+          );
+
+          // Prepare template variables
+          const rewriteVars = {
+            safetyError: firstError instanceof Error ? firstError.message : String(firstError),
+            imageType: imageType || 'chapter',
+            bookTitle: storyContext.story.title,
+            graphicalStyle: storyContext.story.graphicalStyle || 'illustration',
+            chapterNumber: chapterNumber?.toString() || '',
+            originalPrompt: prompt,
+          };
+
+          // Build the rewrite prompt
+          const rewritePrompt = PromptService.buildPrompt(rewritePromptTemplate, rewriteVars);
+
+          // Use GenAI (Google) to rewrite the prompt - force TEXT_PROVIDER temporarily
+          const originalProvider = process.env.TEXT_PROVIDER;
+          process.env.TEXT_PROVIDER = 'google-genai';
+
+          try {
+            // Create a text context for the rewrite
+            const textContext = {
+              authorId: storyContext.story.authorId,
+              storyId: storyId,
+              action: 'prompt_rewrite' as const,
+            };
+
+            // Get the rewritten prompt from GenAI
+            const rewrittenPrompt = await aiGateway
+              .getTextService(textContext)
+              .complete(rewritePrompt, {
+                temperature: 0.7, // Moderate creativity for rewriting
+                maxTokens: 300, // Reasonable length for a prompt
+              });
+
+            // Restore original provider
+            if (originalProvider) {
+              process.env.TEXT_PROVIDER = originalProvider;
+            }
+
+            // Clean up the rewritten prompt
+            finalPrompt = rewrittenPrompt.trim();
+
+            // Check if GenAI refused to rewrite
+            if (finalPrompt.startsWith('UNABLE_TO_REWRITE:')) {
+              throw new Error(
+                'GenAI determined the prompt is fundamentally unsafe and cannot be rewritten',
+              );
+            }
+
+            logger.info('Prompt successfully rewritten by GenAI', {
+              storyId,
+              runId,
+              imageType,
+              originalLength: prompt.length,
+              rewrittenLength: finalPrompt.length,
+              rewrittenPrompt: finalPrompt.substring(0, 100) + '...',
+            });
+
+            // Retry image generation with rewritten prompt (one attempt only)
+            currentStep = 'generating_image_with_rewritten_prompt';
+            imageBuffer = await attemptImageGeneration(finalPrompt);
+
+            logger.info('Image generation succeeded with rewritten prompt', {
+              storyId,
+              runId,
+              imageType,
+              chapterNumber,
+            });
+          } finally {
+            // Restore original provider in case of error
+            if (originalProvider) {
+              process.env.TEXT_PROVIDER = originalProvider;
+            }
+          }
+        } catch (rewriteError) {
+          logger.error('Prompt rewrite or retry failed', {
+            storyId,
+            runId,
+            imageType,
+            chapterNumber,
+            error: rewriteError instanceof Error ? rewriteError.message : String(rewriteError),
+          });
+
+          // Re-throw the original safety block error with metadata
+          const enrichedError: any = firstError;
+          enrichedError.promptRewriteAttempted = true;
+          enrichedError.promptRewriteError =
+            rewriteError instanceof Error ? rewriteError.message : String(rewriteError);
+          throw enrichedError;
+        }
+      } else {
+        // Not a safety block, re-throw as-is
+        throw firstError;
+      }
+    }
 
     currentStep = 'preparing_upload';
     const filename = generateImageFilename({
@@ -1060,11 +1195,20 @@ router.post('/image', async (req, res) => {
         referenceImageCount: referenceImages.length,
         referenceImageSources: referenceImages.map((r) => r.source),
       },
+      ...(promptRewriteAttempted && {
+        promptRewriteApplied: true,
+        originalPrompt: originalPrompt,
+        rewrittenPrompt: finalPrompt,
+      }),
     });
   } catch (error) {
     const errorDetails = formatImageError(error, req.body, currentStep);
 
-    const statusCode = errorDetails.code === 'IMAGE_SAFETY_BLOCKED' ? 422 : 500;
+    // Check if it's a safety block to return 422 instead of 500
+    const { isSafetyBlockError } = await import('@/shared/retry-utils.js');
+    const isSafetyBlock = isSafetyBlockError(error);
+
+    const statusCode = isSafetyBlock ? 422 : 500;
     const resp: any = {
       success: false,
       error: errorDetails.message,
@@ -1078,6 +1222,8 @@ router.post('/image', async (req, res) => {
     if (errorDetails.providerFinishReasons)
       resp.providerFinishReasons = errorDetails.providerFinishReasons;
     if (errorDetails.suggestions) resp.suggestions = errorDetails.suggestions;
+    if (promptRewriteAttempted) resp.promptRewriteAttempted = true;
+    if ((error as any)?.promptRewriteError) resp.promptRewriteError = (error as any).promptRewriteError;
     if ((error as any)?.fallbackAttempted) resp.fallbackAttempted = true;
     if ((error as any)?.fallbackError) resp.fallbackError = (error as any).fallbackError;
     res.status(statusCode).json(resp);

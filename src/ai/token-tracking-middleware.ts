@@ -26,6 +26,7 @@ export interface AICallContext {
     | 'audio_generation'
     | 'content_validation'
     | 'image_edit'
+    | 'prompt_rewrite'
     | 'test';
 }
 

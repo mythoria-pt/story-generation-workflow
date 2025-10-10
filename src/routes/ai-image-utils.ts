@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ImageGenerationBlockedError } from '@/ai/errors.js';
+import { isSafetyBlockError, isTransientError } from '@/shared/retry-utils.js';
 
 // Schema for image generation requests
 export const ImageRequestSchema = z.object({
@@ -94,3 +95,53 @@ export function formatImageError(
 
   return base;
 }
+
+/**
+ * Determine if an error is retryable (transient error)
+ */
+export function isRetryableImageError(error: unknown): boolean {
+  // Safety blocks are never retryable
+  if (isSafetyBlockError(error)) {
+    return false;
+  }
+
+  // Use the shared transient error check
+  return isTransientError(error);
+}
+
+/**
+ * Extract error metadata for diagnostics
+ */
+export function extractErrorMetadata(error: unknown): {
+  isSafetyBlock: boolean;
+  isTransient: boolean;
+  statusCode?: number | undefined;
+  errorCode?: string | undefined;
+  message: string;
+} {
+  const metadata: {
+    isSafetyBlock: boolean;
+    isTransient: boolean;
+    statusCode?: number | undefined;
+    errorCode?: string | undefined;
+    message: string;
+  } = {
+    isSafetyBlock: isSafetyBlockError(error),
+    isTransient: isTransientError(error),
+    message: error instanceof Error ? error.message : String(error),
+  };
+
+  if (typeof error === 'object' && error !== null) {
+    const err = error as any;
+    const statusCode = err.status || err.statusCode || err.code;
+    if (typeof statusCode === 'number') {
+      metadata.statusCode = statusCode;
+    }
+    if (typeof err.code === 'string') {
+      metadata.errorCode = err.code;
+    }
+  }
+
+  return metadata;
+}
+

@@ -22,6 +22,7 @@ export interface TokenUsageRequest {
     | 'audio_generation'
     | 'content_validation'
     | 'image_edit'
+    | 'prompt_rewrite'
     | 'test';
   aiModel: string;
   inputTokens: number;
