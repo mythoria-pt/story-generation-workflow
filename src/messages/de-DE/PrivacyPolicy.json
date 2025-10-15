@@ -1,0 +1,134 @@
+{
+  "title": "Datenschutzerklärung",
+  "lastUpdated": "Zuletzt aktualisiert: 15. Oktober 2025",
+  "intro": [
+    "Mythoria (\"wir\", \"uns\" oder \"unser\") verpflichtet sich, deine Privatsphäre zu schützen. Diese Datenschutzerklärung erklärt, welche personenbezogenen Daten wir im Zusammenhang mit der Mythoria-Webanwendung erfassen, wie wir sie verwenden, offenlegen, speichern und schützen sowie welche Rechte dir nach geltendem Datenschutzrecht zustehen.",
+    "Wenn du unsere Dienste nutzt, bestätigst du, dass du diese Datenschutzerklärung gelesen hast. Wenn du mit den hierin beschriebenen Praktiken nicht einverstanden bist, nutze die Dienste bitte nicht."
+  ],
+  "sections": {
+    "scope": {
+      "heading": "Geltungsbereich",
+      "body": [
+        "Diese Datenschutzerklärung gilt für alle digitalen Angebote von Mythoria, einschließlich unserer Website, Web-App, Mobilfunktionen und Kundenbetreuung. Sie gilt nicht für Dienste, die von Dritten betrieben werden, die du über Mythoria aufrufst; deren Datenschutzpraktiken werden durch deren eigene Richtlinien geregelt."
+      ]
+    },
+    "dataWeCollect": {
+      "heading": "Welche Daten wir erheben",
+      "intro": "Wir verarbeiten verschiedene Kategorien personenbezogener Daten, je nachdem, wie du mit Mythoria interagierst:",
+      "items": [
+        {
+          "title": "Daten, die du bereitstellst",
+          "description": [
+            "Kontaktdaten wie dein Name, deine E-Mail-Adresse oder Zahlungsinformationen, wenn du ein Konto erstellst, Käufe tätigst oder den Support kontaktierst.",
+            "Inhalte, die du hochlädst oder generierst, einschließlich Story-Ideen, Texteingaben, Bildbeschreibungen, Audioaufnahmen oder Feedback."
+          ]
+        },
+        {
+          "title": "Automatisch erfasste Nutzungsdaten",
+          "description": [
+            "Technische Daten wie Geräte- und Browserinformationen, IP-Adresse, Zeitzone sowie Protokolle darüber, wie du mit Funktionen interagierst.",
+            "Diagnose- und Leistungsdaten, die uns helfen, Fehler zu beheben, Missbrauch zu verhindern und die Stabilität des Dienstes sicherzustellen."
+          ]
+        },
+        {
+          "title": "Daten aus Drittquellen",
+          "description": [
+            "Informationen von Zahlungsdienstleistern, Identitätsprüfern oder Marketingpartnern, soweit dies für die Erfüllung unserer vertraglichen oder rechtlichen Verpflichtungen erforderlich ist."
+          ]
+        }
+      ]
+    },
+    "howWeUseData": {
+      "heading": "Wie wir Daten verwenden",
+      "body": [
+        "Zur Bereitstellung, Personalisierung und Pflege der Dienste, einschließlich der Erstellung und Speicherung deiner Geschichten, Bilder oder Audioinhalte.",
+        "Zur Kommunikation mit dir über Updates, Sicherheitswarnungen, Supportanfragen und Änderungen unserer Geschäftsbedingungen.",
+        "Zur Analyse der Nutzung, zur Verbesserung unserer Produkte, zur Entwicklung neuer Funktionen und zur Durchführung interner Forschung.",
+        "Zur Aufdeckung, Verhinderung und Untersuchung von Sicherheitsvorfällen, Betrug, Missbrauch oder Verstößen gegen unsere Nutzungsbedingungen.",
+        "Zur Einhaltung gesetzlicher Verpflichtungen und zur Durchsetzung unserer Rechte."
+      ]
+    },
+    "legalBases": {
+      "heading": "Rechtsgrundlagen der Verarbeitung",
+      "body": [
+        "Wir stützen uns auf unterschiedliche Rechtsgrundlagen gemäß der Datenschutz-Grundverordnung (DSGVO):",
+        "Vertragserfüllung, wenn die Verarbeitung erforderlich ist, um dir die Dienste bereitzustellen.",
+        "Berechtigte Interessen, etwa zur Gewährleistung der Sicherheit, Verbesserung der Benutzererfahrung oder Betrugsprävention. Wenn wir uns auf berechtigte Interessen stützen, wägen wir deine Rechte und Erwartungen sorgfältig ab.",
+        "Gesetzliche Verpflichtungen, beispielsweise zur Buchführung, Steuererfüllung oder Beantwortung rechtmäßiger behördlicher Anfragen.",
+        "Deine Einwilligung, wenn wir dich ausdrücklich um Zustimmung zu einer bestimmten Verarbeitung bitten (z.\u00a0B. für optionale Marketing-Mitteilungen). Du kannst eine erteilte Einwilligung jederzeit widerrufen, ohne dass dies die Rechtmäßigkeit der bis zum Widerruf erfolgten Verarbeitung berührt."
+      ]
+    },
+    "sharing": {
+      "heading": "Wann wir Daten weitergeben",
+      "body": [
+        "Wir verkaufen deine personenbezogenen Daten nicht. Wir geben sie nur unter folgenden Umständen weiter:",
+        "Dienstleister, die in unserem Auftrag Leistungen wie Hosting, Cloud-Speicherung, Zahlungsabwicklung, Kundenbetreuung, Analyse oder Sicherheitsüberwachung erbringen, und die vertraglich verpflichtet sind, deine Daten zu schützen.",
+        "Geschäftspartner, wenn eine Integration oder ein gemeinsames Angebot deine ausdrückliche Zustimmung erfordert oder du die Weitergabe selbst veranlasst.",
+        "Behördliche Stellen oder andere Dritte, wenn dies gesetzlich vorgeschrieben ist, zur Durchsetzung unserer Vereinbarungen oder zum Schutz der Rechte, Sicherheit oder Eigentums von Mythoria, dir oder anderen.",
+        "Im Rahmen einer Unternehmensumstrukturierung (z.\u00a0B. Fusion, Übernahme oder Verkauf von Vermögenswerten), sofern die Empfängerin sich verpflichtet, diese Datenschutzerklärung einzuhalten und dich vor der Übertragung informiert."
+      ]
+    },
+    "internationalTransfers": {
+      "heading": "Internationale Datenübermittlungen",
+      "body": [
+        "Wir betreiben Mythoria weltweit. Wenn Daten in Länder außerhalb des Europäischen Wirtschaftsraums übertragen werden, stellen wir sicher, dass geeignete Schutzmechanismen bestehen, beispielsweise EU-Standardvertragsklauseln oder Angemessenheitsbeschlüsse. Auf Anfrage stellen wir dir weitere Informationen zu diesen Schutzmaßnahmen zur Verfügung."
+      ]
+    },
+    "dataRetention": {
+      "heading": "Speicherdauer",
+      "body": [
+        "Wir speichern personenbezogene Daten nur so lange, wie es für die in dieser Datenschutzerklärung beschriebenen Zwecke erforderlich ist oder wie es gesetzlich vorgeschrieben ist. Kriterien für die Speicherdauer sind unter anderem die Dauer deiner aktiven Nutzung, rechtliche Aufbewahrungsfristen sowie die Notwendigkeit, Streitigkeiten beizulegen oder unsere Vereinbarungen durchzusetzen.",
+        "Wenn du dein Konto schließt, löschen oder anonymisieren wir deine personenbezogenen Daten innerhalb angemessener Fristen, sofern wir sie nicht aus rechtlichen Gründen länger aufbewahren müssen."
+      ]
+    },
+    "security": {
+      "heading": "Sicherheit",
+      "body": [
+        "Wir setzen technische und organisatorische Maßnahmen ein, um personenbezogene Daten vor Verlust, Diebstahl, Missbrauch oder unbefugtem Zugriff zu schützen. Dazu zählen Verschlüsselung, Zugriffskontrollen, regelmäßige Sicherheitsprüfungen und Schulungen unseres Teams. Keine Methode der Übertragung oder Speicherung ist jedoch vollkommen sicher; wir können keine absolute Sicherheit garantieren."
+      ]
+    },
+    "children": {
+      "heading": "Schutz von Minderjährigen",
+      "body": [
+        "Mythoria richtet sich nicht an Kinder unter 13 Jahren (oder dem jeweils geltenden Mindestalter). Wir erfassen wissentlich keine personenbezogenen Daten von Kindern in dieser Altersgruppe. Wenn wir erfahren, dass wir dennoch Daten eines Kindes erfasst haben, werden wir geeignete Schritte einleiten, um diese Daten zu löschen. Eltern oder Erziehungsberechtigte, die glauben, dass ihr Kind uns Daten bereitgestellt hat, sollten uns kontaktieren."
+      ]
+    },
+    "rights": {
+      "heading": "Deine Datenschutzrechte",
+      "intro": "Je nach Wohnsitz und geltendem Recht stehen dir unter anderem folgende Rechte zu:",
+      "items": [
+        "Auskunft darüber, ob wir personenbezogene Daten über dich verarbeiten, und Zugang zu einer Kopie dieser Daten.",
+        "Berichtigung unvollständiger oder unrichtiger Daten.",
+        "Löschung deiner Daten (\"Recht auf Vergessenwerden\") unter bestimmten Voraussetzungen.",
+        "Einschränkung der Verarbeitung, wenn du die Richtigkeit bestreitest oder die Verarbeitung unrechtmäßig ist.",
+        "Widerspruch gegen die Verarbeitung, soweit wir uns auf berechtigte Interessen stützen, einschließlich Profiling.",
+        "Datenübertragbarkeit für Daten, die du uns bereitgestellt hast und die wir automatisiert verarbeiten.",
+        "Widerruf einer erteilten Einwilligung sowie das Recht, sich bei einer Datenschutzaufsichtsbehörde zu beschweren."
+      ]
+    },
+    "exercisingRights": {
+      "heading": "So übst du deine Rechte aus",
+      "body": [
+        "Du kannst deine Rechte ausüben, indem du uns über die unten angegebenen Kontaktdaten erreichst oder die Kontoeinstellungen in der Mythoria-App verwendest. Wir werden jede Anfrage gemäß geltendem Recht prüfen und innerhalb eines angemessenen Zeitrahmens beantworten. Zur Verifizierung deiner Identität können wir zusätzliche Informationen anfordern."
+      ]
+    },
+    "thirdParties": {
+      "heading": "Dienste von Drittanbietern",
+      "body": [
+        "Unsere Dienste können Links zu Webseiten, Anwendungen oder Diensten von Drittanbietern enthalten. Wir kontrollieren deren Datenschutzpraktiken nicht und sind nicht für deren Inhalte verantwortlich. Wir empfehlen dir, die Datenschutzerklärungen der jeweiligen Anbieter zu lesen, bevor du personenbezogene Daten weitergibst oder deren Dienste nutzt."
+      ]
+    },
+    "changes": {
+      "heading": "Änderungen dieser Datenschutzerklärung",
+      "body": [
+        "Wir können diese Datenschutzerklärung gelegentlich aktualisieren, um Änderungen unserer Verarbeitungstätigkeiten, gesetzliche Anforderungen oder technologische Entwicklungen widerzuspiegeln. Die aktualisierte Fassung wird mit einem neuen \"Zuletzt aktualisiert\"-Datum veröffentlicht. Bei wesentlichen Änderungen informieren wir dich über die Dienste oder per E-Mail, soweit angemessen."
+      ]
+    },
+    "contact": {
+      "heading": "Kontakt",
+      "body": [
+        "Wenn du Fragen oder Anliegen zu dieser Datenschutzerklärung oder zur Verarbeitung deiner personenbezogenen Daten hast, kontaktiere uns bitte unter privacy@mythoria.app oder per Post an Mythoria Labs, Datenschutzteam, c/o Mythoria HQ, Rosenthaler Straße 38, 10178 Berlin, Deutschland."
+      ]
+    }
+  }
+}
