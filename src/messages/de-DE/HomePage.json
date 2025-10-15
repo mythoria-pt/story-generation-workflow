@@ -1,0 +1,166 @@
+{
+  "Hero": {
+    "eyebrow": "AI-Storytelling für Familien",
+    "title": "Erwecke eure Ideen mit Mythoria zu lebendigen Abenteuern.",
+    "description": "Mythoria verwandelt eure spontanen Einfälle in reich illustrierte Geschichten – zum Vorlesen, Anhören oder Ausdrucken. In wenigen Minuten entsteht ein persönliches Abenteuer, das jeden Abend aufs Neue begeistert.",
+    "primaryCta": "Jetzt Geschichte starten",
+    "secondaryCta": "Interaktive Demo ansehen",
+    "trustedBy": "Bereits von Eltern, Pädagog:innen und jungen Autor:innen in ganz Europa geliebt",
+    "stats": {
+      "stories": {
+        "label": "geschriebene Geschichten",
+        "value": "120.000+"
+      },
+      "languages": {
+        "label": "verfügbare Sprachen",
+        "value": "6"
+      },
+      "creationTime": {
+        "label": "durchschnittliche Erstellungszeit",
+        "value": "unter 3 Minuten"
+      }
+    }
+  },
+  "StoryPreview": {
+    "badge": "Live-Vorschau",
+    "title": "So klingt eine Mythoria-Geschichte",
+    "description": "Jede Story kombiniert maßgeschriebene Texte, passende Illustrationen und optionale Erzählerstimmen. Passe Figuren, Stimmungen und Schauplätze an – Mythoria sorgt dafür, dass alles harmonisch zusammenpasst.",
+    "cta": "Mehr Beispielgeschichten entdecken"
+  },
+  "Highlights": {
+    "title": "Warum Mythoria begeistert",
+    "items": [
+      {
+        "title": "Co-Kreation mit deiner Familie",
+        "description": "Kinder bringen ihre Ideen ein, Erwachsene steuern den roten Faden – Mythoria verknüpft alles zu einer runden Geschichte, die allen gehört."
+      },
+      {
+        "title": "Illustrationen, die wirklich passen",
+        "description": "Wähle euren Stil – von Aquarell bis Comic. Unsere Bildmodelle halten Figuren konsistent und schaffen visuelle Welten, die ihr sofort wiedererkennt."
+      },
+      {
+        "title": "Sofort zum Vorlesen oder Verschenken",
+        "description": "Exportiere hochwertige PDFs für Tablet, Druck oder Buchbindung. Ergänze auf Wunsch Hörfassungen, damit Geschichten überall mitreisen."
+      }
+    ]
+  },
+  "HowItWorks": {
+    "title": "In vier Schritten zur eigenen Story",
+    "steps": [
+      {
+        "title": "1. Idee skizzieren",
+        "description": "Beschreibt Figuren, Stimmung und gewünschte Länge. Mythoria versteht freie Texteingaben ebenso wie Bulletpoints."
+      },
+      {
+        "title": "2. Handlung entwerfen",
+        "description": "Der Story-Planer strukturiert Kapitel, entwickelt Charakterbögen und schlägt passende Wendepunkte vor."
+      },
+      {
+        "title": "3. Illustrationen gestalten",
+        "description": "Wählt euren Zeichenstil. Mythoria generiert konsistente Bilder für Cover, Kapitel und wichtige Szenen."
+      },
+      {
+        "title": "4. Teilen und drucken",
+        "description": "Ladet PDF, Hörbuch oder einzelne Kapitel herunter und teilt sie mit eurer Community oder im Klassenzimmer."
+      }
+    ],
+    "cta": "Kostenlos ausprobieren"
+  },
+  "Audience": {
+    "title": "Für wen Mythoria gemacht ist",
+    "groups": [
+      {
+        "title": "Familien",
+        "description": "Gestaltet persönliche Gute-Nacht-Geschichten, die Kinder zu Held:innen machen – ideal für gemeinsame Rituale."
+      },
+      {
+        "title": "Pädagog:innen",
+        "description": "Erstellt Unterrichtsmaterial oder Leseprojekte, die Lernziele mit kreativen Narrativen verbinden."
+      },
+      {
+        "title": "Autor:innen & Kreative",
+        "description": "Nutze Mythoria als Ideenmaschine für Serien, Charaktere oder Pitch-Decks – inklusive Visuals und Audio."
+      }
+    ]
+  },
+  "Production": {
+    "title": "Jede Geschichte sitzt bis ins Detail",
+    "description": "Von der ersten Inspiration bis zum gedruckten Buch begleitet dich Mythoria mit Werkzeugen, die professionelle Ergebnisse liefern.",
+    "items": [
+      {
+        "title": "Kapitel- und Layoutkontrolle",
+        "description": "Passe Szenen, Absätze und Sprecher:innen jederzeit an, ohne Kohärenz zu verlieren."
+      },
+      {
+        "title": "Audio-Studio",
+        "description": "Erzeuge lebendige Hörfassungen mit Stimmen, die zu deinem Publikum passen – inklusive Hintergrundsound."
+      },
+      {
+        "title": "Druckfertige Exporte",
+        "description": "Erhalte CMYK-optimierte PDFs, Cover-Layouts und Schnittmarken für Profi-Druckereien."
+      }
+    ]
+  },
+  "Testimonials": {
+    "title": "Stimmen aus der Community",
+    "items": [
+      {
+        "quote": "Meine Kids überlegen sich jeden Abend neue Figuren – Mythoria macht daraus in Minuten ein fertiges Abenteuer.",
+        "author": "Lena, Mutter aus Berlin"
+      },
+      {
+        "quote": "Ich setze Mythoria im Unterricht ein, um kreative Schreibprojekte zu starten. Die Ergebnisse sind jedes Mal verblüffend.",
+        "author": "Tobias, Grundschullehrer"
+      },
+      {
+        "quote": "Als Indie-Autorin nutze ich Mythoria, um schnell visuelle Konzepte für Verlage vorzubereiten.",
+        "author": "Sofia, Kinderbuchautorin"
+      }
+    ]
+  },
+  "Security": {
+    "title": "Sicher, privat und verantwortungsvoll",
+    "items": [
+      {
+        "title": "Datenschutz made in EU",
+        "description": "Alle Inhalte werden in EU-Rechenzentren verarbeitet. Du behältst jederzeit die Kontrolle über deine Geschichten."
+      },
+      {
+        "title": "Sichere Freigabelinks",
+        "description": "Teile Storys nur mit Menschen, denen du vertraust – mit Ablaufdatum und optionalem Passwortschutz."
+      },
+      {
+        "title": "Inhaltsfilter",
+        "description": "Automatische Sicherheitschecks schützen vor ungeeigneten Inhalten und garantieren kindgerechte Ergebnisse."
+      }
+    ]
+  },
+  "Faq": {
+    "title": "Häufige Fragen",
+    "items": [
+      {
+        "question": "Kann ich Mythoria kostenlos testen?",
+        "answer": "Ja, starte mit einer kostenlosen Testphase inklusive mehrerer Geschichten und Basis-Exports. Upgrade jederzeit für unbegrenzte Projekte."
+      },
+      {
+        "question": "Welche Sprachen unterstützt Mythoria?",
+        "answer": "Aktuell sind Deutsch, Englisch, Portugiesisch, Spanisch und Französisch verfügbar – weitere Sprachen sind in Vorbereitung."
+      },
+      {
+        "question": "Kann ich fertige Bücher drucken lassen?",
+        "answer": "Natürlich. Exportiere druckfertige Dateien oder bestelle direkt über unsere Partner-Druckereien hochwertige Hardcover und Softcover."
+      },
+      {
+        "question": "Wie flexibel ist die Bildgestaltung?",
+        "answer": "Wähle aus kuratierten Stilen oder beschreibe deinen Wunsch-Look. Mythoria sorgt dafür, dass Figuren über alle Kapitel hinweg wiedererkennbar bleiben."
+      }
+    ],
+    "cta": "Weitere Fragen? Schreib uns."
+  },
+  "FinalCta": {
+    "title": "Bereit für euer nächstes Abenteuer?",
+    "description": "Legt jetzt los und erlebt, wie schnell Mythoria aus euren Ideen eine Geschichte macht, die ihr stolz teilen könnt.",
+    "primaryCta": "Kostenlos starten",
+    "secondaryCta": "Mit dem Team sprechen"
+  }
+}
