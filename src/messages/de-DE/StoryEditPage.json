@@ -1,0 +1,73 @@
+{
+  "meta": {
+    "title": "Geschichte bearbeiten",
+    "description": "Passe Text, Ton und Struktur deiner Geschichte an und sieh Änderungen in Echtzeit."
+  },
+  "header": {
+    "title": "Editor",
+    "subtitle": "Forme jede Szene, während der ursprüngliche Entwurf sicher gespeichert bleibt.",
+    "back": "Zurück zu meinen Geschichten",
+    "publish": "Aktualisierte Version veröffentlichen",
+    "saveDraft": "Änderungen speichern"
+  },
+  "sidebar": {
+    "outline": "Kapitelübersicht",
+    "notes": "Notizen",
+    "history": "Versionen",
+    "aiAssists": "KI-Hilfen"
+  },
+  "aiAssist": {
+    "title": "KI-Unterstützung",
+    "placeholder": "Beschreibe, was wir verbessern oder umschreiben sollen…",
+    "toneLabel": "Ton",
+    "lengthLabel": "Länge",
+    "apply": "Vorschlag übernehmen",
+    "regenerate": "Neu vorschlagen",
+    "stop": "Anhalten"
+  },
+  "panel": {
+    "original": "Original",
+    "proposal": "Vorschlag",
+    "diff": "Änderungen",
+    "applyAll": "Alle Änderungen übernehmen",
+    "discardAll": "Alle verwerfen"
+  },
+  "notifications": {
+    "saving": "Änderungen werden gespeichert…",
+    "saved": "Alle Änderungen gespeichert.",
+    "publishing": "Neue Version wird veröffentlicht…",
+    "published": "Geschichte veröffentlicht!",
+    "error": "Die Änderung konnte nicht gespeichert werden. Bitte versuche es erneut.",
+    "publishError": "Veröffentlichung fehlgeschlagen. Überprüfe die Änderungen und starte es nochmal."
+  },
+  "modals": {
+    "leave": {
+      "title": "Editor verlassen?",
+      "description": "Ungespeicherte Änderungen gehen verloren. Speichere deine Arbeit, bevor du zurückgehst.",
+      "stay": "Im Editor bleiben",
+      "leave": "Ohne Speichern verlassen"
+    },
+    "history": {
+      "title": "Ältere Version wiederherstellen",
+      "description": "Ersetze den aktuellen Text mit dieser Version. Deine momentanen Änderungen werden überschrieben.",
+      "confirm": "Version wiederherstellen",
+      "cancel": "Abbrechen"
+    }
+  },
+  "history": {
+    "empty": "Hier erscheinen gespeicherte Versionen deiner Geschichte.",
+    "timestamp": "Gespeichert {timestamp}",
+    "restore": "Wiederherstellen"
+  },
+  "notes": {
+    "placeholder": "Füge Beobachtungen, offene Fragen oder To-dos hinzu…",
+    "saved": "Notizen gespeichert"
+  },
+  "comments": {
+    "title": "Feedback",
+    "empty": "Noch kein Feedback. Lade andere ein oder hinterlasse dir selbst Anmerkungen.",
+    "add": "Kommentar hinzufügen",
+    "resolve": "Als erledigt markieren",
+    "reopen": "Wieder öffnen"
+  }
+}

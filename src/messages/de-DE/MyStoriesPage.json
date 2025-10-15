@@ -1,0 +1,78 @@
+{
+  "meta": {
+    "title": "Meine Geschichten",
+    "description": "Verwalte alle Geschichten, die du mit Mythoria begonnen hast, und spring direkt wieder in deine Welten zurück."
+  },
+  "hero": {
+    "title": "Alles an einem Ort",
+    "subtitle": "Behalte den Überblick über jedes Abenteuer, egal ob es noch in Arbeit ist oder bereits fertiggestellt wurde.",
+    "createStory": "Neue Geschichte beginnen"
+  },
+  "filters": {
+    "searchPlaceholder": "Nach Titel oder Figur suchen",
+    "status": {
+      "label": "Status",
+      "all": "Alle",
+      "draft": "Entwurf",
+      "generating": "Wird erstellt",
+      "ready": "Bereit",
+      "archived": "Archiviert",
+      "favorite": "Favoriten"
+    },
+    "sort": {
+      "label": "Sortieren nach",
+      "recent": "Zuletzt aktualisiert",
+      "oldest": "Älteste zuerst",
+      "alphabetical": "Alphabetisch"
+    }
+  },
+  "emptyState": {
+    "title": "Hier ist noch alles leer",
+    "description": "Starte deine erste Geschichte oder importiere eine bestehende Idee, um deinen Kreativbereich zu füllen.",
+    "primaryCta": "Erste Geschichte verfassen",
+    "secondaryCta": "Vorlage importieren"
+  },
+  "list": {
+    "loading": "Geschichten werden geladen…",
+    "loadMore": "Mehr laden",
+    "noResults": {
+      "title": "Keine Ergebnisse",
+      "description": "Passe deine Filter an oder suche nach einem anderen Titel."
+    },
+    "error": {
+      "title": "Geschichten konnten nicht geladen werden",
+      "description": "Etwas ist schiefgegangen. Bitte versuche es in ein paar Sekunden erneut.",
+      "retry": "Erneut laden"
+    }
+  },
+  "storyCard": {
+    "status": {
+      "draft": "Entwurf",
+      "generating": "Wird erstellt",
+      "ready": "Bereit",
+      "error": "Fehlgeschlagen"
+    },
+    "chapters": "Kapitel",
+    "updatedAt": "Zuletzt aktualisiert {relativeTime}",
+    "badges": {
+      "favorite": "Favorit",
+      "temporary": "Temporär"
+    },
+    "actions": {
+      "open": "Öffnen",
+      "continue": "Fortsetzen",
+      "edit": "Bearbeiten",
+      "duplicate": "Duplizieren",
+      "download": "Download",
+      "delete": "Löschen"
+    }
+  },
+  "deleteDialog": {
+    "title": "Geschichte löschen?",
+    "description": "Diese Geschichte wird dauerhaft entfernt. Du kannst sie später nicht wiederherstellen.",
+    "confirm": "Endgültig löschen",
+    "cancel": "Abbrechen",
+    "successToast": "Geschichte wurde gelöscht.",
+    "errorToast": "Die Geschichte konnte nicht gelöscht werden. Bitte versuche es später erneut."
+  }
+}

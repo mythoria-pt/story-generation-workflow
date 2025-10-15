@@ -1,0 +1,68 @@
+{
+  "meta": {
+    "title": "Inspiration finden",
+    "description": "Entdecke Ideen, Genres und Schreibimpulse, um deiner nächsten Geschichte den richtigen Kick zu geben."
+  },
+  "hero": {
+    "title": "Lass dich inspirieren",
+    "subtitle": "Blättere durch kuratierte Sammlungen, ausprobierte Schreibansätze und Community-Favoriten.",
+    "cta": "Neue Inspiration generieren"
+  },
+  "collections": {
+    "trending": {
+      "title": "Gerade angesagt",
+      "description": "Frische Themen, die von Mythoria-Autor*innen besonders oft gestartet werden."
+    },
+    "genres": {
+      "title": "Genres entdecken",
+      "description": "Wähle ein Genre aus und erhalte sofort passende Schauplätze, Figuren und Konflikte."
+    },
+    "writingPrompts": {
+      "title": "Schreibimpulse",
+      "description": "Kurze Aufhänger, die du direkt in den Story-Editor übernehmen kannst."
+    },
+    "forYou": {
+      "title": "Für dich zusammengestellt",
+      "description": "Empfehlungen basierend auf deinen letzten Geschichten und Lieblingsstilen."
+    }
+  },
+  "prompt": {
+    "seedLabel": "Eingabe",
+    "surpriseMe": "Überrasch mich",
+    "copy": "Kopieren",
+    "copied": "In die Zwischenablage kopiert",
+    "generate": "Neue Idee erzeugen",
+    "regenerate": "Noch eine Idee"
+  },
+  "promptDetails": {
+    "setting": "Schauplatz",
+    "protagonist": "Protagonist*in",
+    "conflict": "Konflikt",
+    "twist": "Wendung",
+    "tone": "Ton",
+    "audience": "Zielgruppe",
+    "length": "Länge"
+  },
+  "emptyState": {
+    "title": "Noch keine Empfehlungen",
+    "description": "Erstelle ein paar Geschichten oder speichere Inspirationsquellen, damit wir dir persönliche Vorschläge zeigen können.",
+    "cta": "Erste Inspiration entdecken"
+  },
+  "errors": {
+    "load": {
+      "title": "Inspiration konnte nicht geladen werden",
+      "description": "Unsere Muse ist kurz abgelenkt. Aktualisiere die Seite oder versuche es gleich noch einmal.",
+      "retry": "Erneut versuchen"
+    },
+    "generate": {
+      "title": "Idee konnte nicht erstellt werden",
+      "description": "Bitte überprüfe deine Eingabe oder probiere es mit einem anderen Stichwort.",
+      "retry": "Nochmals generieren"
+    }
+  },
+  "saved": {
+    "title": "Gespeicherte Ideen",
+    "description": "Deine favorisierten Impulse landen hier, damit du sie jederzeit wiederfindest.",
+    "empty": "Du hast noch keine Ideen gespeichert. Tippe auf das Herzsymbol, um Favoriten zu sammeln."
+  }
+}
