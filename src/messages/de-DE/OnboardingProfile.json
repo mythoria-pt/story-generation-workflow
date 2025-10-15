@@ -1,0 +1,80 @@
+{
+  "title": "Lass uns Mythoria auf deine:n Leser:in zuschneiden",
+  "subtitle": "Beantworte ein paar kurze Fragen, damit sich jede Geschichte persönlich anfühlt.",
+  "progress": {
+    "step": "Schritt {current} von {total}"
+  },
+  "sections": {
+    "reader": {
+      "title": "Für wen ist die Geschichte?",
+      "description": "Mit diesen Angaben treffen Erzählerin und Tempo genau den richtigen Ton."
+    },
+    "preferences": {
+      "title": "Lieblingsaspekte festlegen",
+      "description": "Bestimme die Stimmung, Genres und Charaktereigenschaften, die am meisten begeistern."
+    },
+    "extras": {
+      "title": "Persönliche Akzente hinzufügen",
+      "description": "Teil uns Besonderheiten mit, die wir in jedes Abenteuer einweben sollen."
+    }
+  },
+  "fields": {
+    "readerName": {
+      "label": "Name der lesenden Person",
+      "placeholder": "z. B. Alex, Leni, Kapitän:in vom Mond",
+      "helper": "So können wir Kapitelansprachen und Dialoge individuell gestalten."
+    },
+    "age": {
+      "label": "Alter",
+      "placeholder": "Wähle eine Altersgruppe",
+      "helper": "Wir passen Wortschatz und Tempo an das Leselevel an."
+    },
+    "pronouns": {
+      "label": "Pronomen",
+      "placeholder": "Pronomen auswählen",
+      "helper": "Wähle die Pronomen, die zu deiner lesenden Person passen."
+    },
+    "tone": {
+      "label": "Ton der Geschichte",
+      "placeholder": "Eine oder mehrere Stimmungen wählen",
+      "helper": "Von gemütlichen Gutenachtgeschichten bis zu wagemutigen Quests – leg die gewünschte Atmosphäre fest."
+    },
+    "genres": {
+      "label": "Lieblingsgenres",
+      "placeholder": "Wähle bis zu drei",
+      "helper": "Diese Themen priorisieren wir beim Erstellen neuer Geschichten."
+    },
+    "interests": {
+      "label": "Aktuelle Obsessionen",
+      "placeholder": "Dinosaurier, Magie, Weltraumpiraten …",
+      "helper": "Notiere Themen oder Figuren, über die gerade nonstop gesprochen wird."
+    },
+    "readingGoal": {
+      "label": "Leseziel",
+      "placeholder": "Lege fest, wie lang sich Geschichten anfühlen sollen",
+      "helper": "Sag uns, ob es eher eine kurze Gutenachtgeschichte oder ein Wochenendepos sein darf."
+    },
+    "notes": {
+      "label": "Noch etwas?",
+      "placeholder": "Teil Empfindlichkeiten, Muss-Elemente oder Rituale",
+      "helper": "Wir respektieren Grenzen und streuen genau die Magie ein, die wichtig ist."
+    }
+  },
+  "actions": {
+    "skip": "Für später überspringen",
+    "back": "Zurück",
+    "next": "Weiter",
+    "save": "Profil speichern",
+    "updating": "Speichern …",
+    "completed": "Profil gespeichert!"
+  },
+  "preview": {
+    "title": "Dein Story-Baukasten",
+    "subtitle": "So beginnt Mythoria Abenteuer für {name} zu formen.",
+    "empty": "Füll oben ein paar Angaben aus, um eine Live-Vorschau zu sehen."
+  },
+  "toasts": {
+    "success": "Profil aktualisiert. Wir stimmen jede Geschichte darauf ab.",
+    "error": "Profil konnte nicht gespeichert werden. Versuch es noch einmal."
+  }
+}

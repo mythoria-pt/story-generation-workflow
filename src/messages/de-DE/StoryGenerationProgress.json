@@ -1,0 +1,72 @@
+{
+  "status": {
+    "queued": {
+      "label": "Wartet in der Reihe",
+      "description": "Deine Story-Anfrage ist eingereiht und startet gleich."
+    },
+    "running": {
+      "label": "In Arbeit",
+      "description": "Mythoria webt gerade Kapitel, Bilder und Vertonung zusammen."
+    },
+    "completed": {
+      "label": "Fertiggestellt",
+      "description": "Alles ist bereit. Schau dir die Geschichte an und teile die Magie."
+    },
+    "failed": {
+      "label": "Erfordert Aufmerksamkeit",
+      "description": "Etwas ist schiefgelaufen. Versuch es noch einmal oder melde dich beim Support, falls es bleibt."
+    },
+    "cancelled": {
+      "label": "Abgebrochen",
+      "description": "Dieser Durchlauf wurde vor dem Abschluss gestoppt. Starte jederzeit einen neuen."
+    },
+    "blocked": {
+      "label": "Aus Sicherheitsgründen pausiert",
+      "description": "Filter haben einen Teil der Anfrage markiert. Passe die Eingabe an und versuch es erneut."
+    }
+  },
+  "steps": {
+    "generate_outline": {
+      "label": "Handlungsgerüst entwerfen",
+      "description": "Wir planen Spannungsbogen, wichtige Ereignisse und Figuren."
+    },
+    "write_chapters": {
+      "label": "Kapitel schreiben",
+      "description": "Jedes Kapitel entsteht mit passendem Ton und Tempo."
+    },
+    "generate_front_cover": {
+      "label": "Titelbild gestalten",
+      "description": "Wir erschaffen die auffällige Illustration für den Buchanfang."
+    },
+    "generate_back_cover": {
+      "label": "Rückseite ausarbeiten",
+      "description": "Die Illustration und das Kurzexposé der Rückseite werden finalisiert."
+    },
+    "generate_images": {
+      "label": "Kapitel illustrieren",
+      "description": "Für jedes Kapitel entsteht eine passende Szene."
+    },
+    "assemble": {
+      "label": "Buch zusammenfügen",
+      "description": "Text, Bilder und Layout werden zu einem stimmigen Gesamtwerk vereint."
+    },
+    "generate_audiobook": {
+      "label": "Erzählstimme aufnehmen",
+      "description": "Für jedes Kapitel werden Sprachspuren generiert."
+    },
+    "done": {
+      "label": "Alles bereit",
+      "description": "Letzte Checks sind durch – deine Geschichte wartet."
+    }
+  },
+  "timeline": {
+    "currentStep": "Aktueller Schritt",
+    "completed": "Abgeschlossene Schritte",
+    "remaining": "Als Nächstes"
+  },
+  "eta": {
+    "title": "Geschätzte Restzeit",
+    "minutes": "Noch etwa {minutes} Min",
+    "seconds": "Weniger als eine Minute übrig"
+  }
+}
