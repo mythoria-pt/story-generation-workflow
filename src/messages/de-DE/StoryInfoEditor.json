@@ -1,0 +1,129 @@
+{
+  "header": {
+    "title": "Story-Infos",
+    "subtitle": "Feile an den Details, die Leser:innen sehen, bevor sie in euer Abenteuer eintauchen.",
+    "updated": "Zuletzt gespeichert {time}"
+  },
+  "status": {
+    "autosaving": "Speichern…",
+    "saved": "Alle Änderungen gespeichert",
+    "error": "Autosave fehlgeschlagen. Noch einmal versuchen?"
+  },
+  "sections": {
+    "basics": {
+      "title": "Grundlagen",
+      "description": "Gib deiner Story eine wiedererkennbare Identität."
+    },
+    "audience": {
+      "title": "Zielgruppe",
+      "description": "Für wen du schreibst, bestimmt Ton und Wortwahl in Mythoria."
+    },
+    "structure": {
+      "title": "Struktur",
+      "description": "Lege fest, wie Kapitel, Tempo und Erzählstil zusammenspielen."
+    },
+    "metadata": {
+      "title": "Metadaten",
+      "description": "Verbessere die Auffindbarkeit mit Tags und Kataloginformationen."
+    }
+  },
+  "fields": {
+    "title": {
+      "label": "Story-Titel",
+      "placeholder": "Eine Überschrift, die neugierig macht",
+      "helper": "Bitte unter 80 Zeichen bleiben."
+    },
+    "tagline": {
+      "label": "Tagline",
+      "placeholder": "Ein Satz, der sofort packt",
+      "helper": "Fass die Idee in 120 Zeichen zusammen."
+    },
+    "summary": {
+      "label": "Story-Zusammenfassung",
+      "placeholder": "Beschreibe Handlung, Hauptkonflikt und Auflösung",
+      "helper": "Erscheint auf öffentlichen Freigabelinks und Umschlägen."
+    },
+    "ageGroup": {
+      "label": "Hauptzielgruppe",
+      "placeholder": "Altersbereich wählen"
+    },
+    "readingLevel": {
+      "label": "Leseniveau",
+      "options": {
+        "emerging": "Erste Leseerfahrungen",
+        "independent": "Selbstständige Leser:innen",
+        "advanced": "Fortgeschrittene Leser:innen"
+      }
+    },
+    "narrator": {
+      "label": "Erzählperspektive",
+      "placeholder": "Ich-Perspektive, auktorial, wechselnd…"
+    },
+    "chapters": {
+      "label": "Kapitelanzahl",
+      "helper": "Hilft, Plotpunkte und Illustrations-Slots zu balancieren."
+    },
+    "tone": {
+      "label": "Ton",
+      "placeholder": "Warm, verspielt, spannend…"
+    },
+    "themes": {
+      "label": "Themen",
+      "placeholder": "Freundschaft, Mut, Klimaschutz…"
+    },
+    "contentWarnings": {
+      "label": "Inhaltshinweise",
+      "placeholder": "Markiere sensible Themen oder Grenzen"
+    },
+    "tags": {
+      "label": "Tags",
+      "placeholder": "Bis zu 10 Tags hinzufügen"
+    },
+    "series": {
+      "label": "Reihe",
+      "placeholder": "Optionaler Reihen- oder Sammlungsname"
+    },
+    "dedication": {
+      "label": "Widmung",
+      "placeholder": "Für Leser:innen, Mitwirkende oder Supporter"
+    },
+    "coverNotes": {
+      "label": "Cover-Hinweise",
+      "placeholder": "Anweisungen für Illustrator:innen oder Druckpartner"
+    }
+  },
+  "helpers": {
+    "markdown": "Du kannst einfache Markdown-Formatierung für Hervorhebungen und Listen verwenden.",
+    "translation": "Braucht ihr eine weitere Sprache? Dupliziere die Story und passe die Lokalisierung an."
+  },
+  "placeholders": {
+    "summary": "Als ein Berliner Kind einen Tunnel unter der U-Bahn entdeckt…"
+  },
+  "actions": {
+    "saveDraft": "Entwurf speichern",
+    "preview": "Vorschau",
+    "discard": "Änderungen verwerfen",
+    "publish": "Metadaten veröffentlichen"
+  },
+  "modals": {
+    "discard": {
+      "title": "Ungespeicherte Änderungen verwerfen?",
+      "description": "Alles seit dem letzten Autosave geht verloren.",
+      "confirm": "Verwerfen",
+      "cancel": "Weiter bearbeiten"
+    }
+  },
+  "validation": {
+    "titleRequired": "Ein Titel ist erforderlich.",
+    "titleLength": "Der Titel muss zwischen 3 und 80 Zeichen liegen.",
+    "taglineLength": "Die Tagline darf höchstens 120 Zeichen umfassen.",
+    "summaryLength": "Die Zusammenfassung darf maximal 800 Wörter enthalten.",
+    "tags": "Es sind bis zu 10 Tags möglich.",
+    "dedicationLength": "Die Widmung darf höchstens 200 Zeichen enthalten."
+  },
+  "toasts": {
+    "saved": "Story-Infos gespeichert.",
+    "published": "Metadaten erfolgreich veröffentlicht.",
+    "error": "Die Story-Infos konnten nicht aktualisiert werden."
+  }
+}

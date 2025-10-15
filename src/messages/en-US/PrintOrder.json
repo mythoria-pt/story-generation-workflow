@@ -1,0 +1,140 @@
+{
+  "header": {
+    "title": "Print your story",
+    "subtitle": "Choose formats, confirm delivery, and let Mythoria handle production."
+  },
+  "steps": {
+    "details": {
+      "title": "1. Choose format",
+      "description": "Select the edition and extras that fit your reader."
+    },
+    "shipping": {
+      "title": "2. Shipping",
+      "description": "Tell us where to send the finished books."
+    },
+    "review": {
+      "title": "3. Review & pay",
+      "description": "Double-check everything before placing the order."
+    },
+    "confirmation": {
+      "title": "Order placed",
+      "description": "We'll email tracking details as soon as production starts."
+    }
+  },
+  "products": {
+    "hardcover": {
+      "title": "Hardcover",
+      "description": "Premium linen cover, matte pages, lay-flat binding.",
+      "badge": "Most popular"
+    },
+    "softcover": {
+      "title": "Softcover",
+      "description": "Flexible cover, lightweight and perfect for sharing."
+    },
+    "storybook": {
+      "title": "Story magazine",
+      "description": "Staple-bound booklet ideal for events and classrooms."
+    }
+  },
+  "options": {
+    "copies": {
+      "label": "Number of copies",
+      "helper": "Volume discounts apply automatically."
+    },
+    "size": {
+      "label": "Trim size",
+      "placeholder": "Select size"
+    },
+    "paper": {
+      "label": "Paper",
+      "placeholder": "Choose paper finish"
+    },
+    "extras": {
+      "title": "Upgrades",
+      "spotFoil": "Spot foil title",
+      "endpapers": "Illustrated endpapers",
+      "bookmark": "Matching bookmark set"
+    },
+    "notes": {
+      "label": "Production notes",
+      "placeholder": "Requests for the print studio"
+    }
+  },
+  "shipping": {
+    "address": {
+      "title": "Shipping address",
+      "helper": "We partner with EU-based printers; customs fees may apply outside the EU.",
+      "fields": {
+        "name": "Full name",
+        "company": "Company (optional)",
+        "email": "Contact email",
+        "phone": "Phone",
+        "line1": "Address line 1",
+        "line2": "Address line 2 (optional)",
+        "city": "City",
+        "postalCode": "Postal code",
+        "country": "Country"
+      }
+    },
+    "method": {
+      "title": "Delivery speed",
+      "options": {
+        "standard": {
+          "title": "Standard",
+          "description": "Printed in 7–9 business days plus shipping."
+        },
+        "express": {
+          "title": "Express",
+          "description": "Rush production in 3–4 business days."
+        }
+      }
+    },
+    "estimate": {
+      "title": "Estimated arrival",
+      "range": "Arrives between {start} and {end}"
+    }
+  },
+  "summary": {
+    "title": "Order summary",
+    "items": "Items",
+    "subtotal": "Subtotal",
+    "shipping": "Shipping",
+    "vat": "VAT",
+    "total": "Total",
+    "creditsApplied": "Credits applied",
+    "dueToday": "Due today"
+  },
+  "payment": {
+    "title": "Payment",
+    "method": "Pay with Revolut Pay or credit card",
+    "secure": "Secure checkout powered by Revolut.",
+    "cta": "Place order"
+  },
+  "review": {
+    "title": "Review",
+    "description": "Confirm print files, address, and billing details before paying.",
+    "downloadProof": "Download print proof",
+    "editStory": "Back to story"
+  },
+  "confirmation": {
+    "title": "Thank you!",
+    "description": "Your print order is locked in. We'll notify you when it ships.",
+    "reference": "Reference ID",
+    "nextSteps": {
+      "title": "What's next",
+      "production": "Production kicks off within 24 hours on business days.",
+      "tracking": "We'll send tracking details as soon as the carrier picks up the package.",
+      "support": "Need to tweak something? Contact support within 6 hours."
+    }
+  },
+  "errors": {
+    "loadFailed": "We couldn't load the print options. Please refresh.",
+    "pricingFailed": "Pricing unavailable. Try again in a moment.",
+    "orderFailed": "Order could not be placed."
+  },
+  "toasts": {
+    "saved": "Print preferences saved.",
+    "orderPlaced": "Order confirmed!",
+    "orderFailed": "Something went wrong while placing the order."
+  }
+}
