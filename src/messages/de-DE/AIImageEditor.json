@@ -1,0 +1,60 @@
+{
+  "title": "KI-Bildeditor",
+  "subtitle": "Passe deine Illustration in wenigen Sekunden an, ohne den ursprünglichen Look zu verlieren.",
+  "loadOriginal": "Originalbild laden",
+  "uploadNew": "Bild austauschen",
+  "prompt": {
+    "label": "Änderungswunsch",
+    "placeholder": "Beschreibe präzise, was in diesem Bild verändert werden soll...",
+    "helper": "Beschreibe jede Anpassung einzeln. Nenne Farben, Perspektiven oder Kompositionen, die erhalten bleiben sollen."
+  },
+  "style": {
+    "label": "Stilhinweise",
+    "placeholder": "Z. B. \"Comicstil\", \"Realistische Beleuchtung\" oder eine konkrete Referenz",
+    "helper": "Optional: Ergänze zusätzliche Stichwörter, die den künstlerischen Stil oder die Atmosphäre verstärken."
+  },
+  "actions": {
+    "generate": "Varianten erzeugen",
+    "cancel": "Abbrechen",
+    "reset": "Zurücksetzen",
+    "apply": "Änderungen übernehmen"
+  },
+  "status": {
+    "preparing": "Bereite Bearbeitung vor...",
+    "generating": "KI generiert deine neue Version...",
+    "upscaling": "Bild wird für die Vorschau optimiert...",
+    "succeeded": "Bearbeitung erfolgreich abgeschlossen",
+    "failed": "Etwas ist schiefgelaufen. Bitte versuche es erneut.",
+    "retry": "Erneut versuchen"
+  },
+  "preview": {
+    "title": "Vorschau",
+    "original": "Original",
+    "edited": "Bearbeitet",
+    "zoom": "Zoom",
+    "download": "Download",
+    "compare": "Vorher/Nachher vergleichen"
+  },
+  "history": {
+    "title": "Versionen",
+    "empty": "Noch keine Varianten gespeichert. Starte eine Bearbeitung, um hier eine Historie zu sehen.",
+    "restore": "Diese Version wiederherstellen"
+  },
+  "errors": {
+    "imageTooLarge": "Dieses Bild überschreitet die maximal erlaubte Dateigröße von {size}.",
+    "unsupportedFormat": "Dieses Dateiformat wird nicht unterstützt. Bitte verwende PNG oder JPG.",
+    "promptMissing": "Bitte formuliere zuerst deinen Änderungswunsch.",
+    "styleConflict": "Einige Stilhinweise widersprechen sich. Prüfe deine Eingaben nochmals."
+  },
+  "tooltips": {
+    "mask": "Markiere Bereiche, die unverändert bleiben sollen.",
+    "removeMask": "Maske entfernen",
+    "brushSize": "Pinselgröße einstellen"
+  },
+  "shortcuts": {
+    "title": "Tastenkürzel",
+    "toggleMask": "M drückt die Maskierung umschalten",
+    "compare": "C blendet den Vorher/Nachher-Schieber ein",
+    "undo": "⌘Z / Ctrl+Z: letzten Schritt rückgängig"
+  }
+}

@@ -1,0 +1,70 @@
+{
+  "header": {
+    "title": "KI-Texteditor",
+    "subtitle": "Überarbeite Kapitel, Dialoge und Beschreibungen, ohne die Stimme deiner Geschichte zu verlieren."
+  },
+  "toolbar": {
+    "rewrite": "Neu formulieren",
+    "shorten": "Kürzen",
+    "expand": "Ausbauen",
+    "tone": "Ton anpassen",
+    "summarize": "Zusammenfassen",
+    "restore": "Original wiederherstellen"
+  },
+  "panels": {
+    "instructions": {
+      "title": "Dein Briefing an die KI",
+      "placeholder": "Welche Passage soll angepasst werden? Gib Hinweise zu Tempo, Gefühlen oder Perspektive.",
+      "helper": "Je genauer du deine Erwartungen formulierst, desto präziser reagiert die KI."
+    },
+    "context": {
+      "title": "Kontext",
+      "character": "Figurenfokus",
+      "setting": "Schauplatz",
+      "mood": "Stimmung",
+      "plot": "Handlungsnotizen"
+    },
+    "suggestions": {
+      "title": "Vorschläge",
+      "empty": "Noch keine KI-Vorschläge. Wähle eine Passage aus und fordere eine Anpassung an.",
+      "apply": "Übernehmen",
+      "discard": "Verwerfen",
+      "feedback": {
+        "better": "Passt besser",
+        "worse": "Passt nicht"
+      }
+    }
+  },
+  "editor": {
+    "placeholder": "Starte mit deiner Geschichte oder füge hier einen bestehenden Abschnitt ein...",
+    "wordCount": "{count} Wörter",
+    "readingTime": "Lesezeit: {minutes} Min",
+    "lastSaved": "Zuletzt gespeichert um {time}"
+  },
+  "modals": {
+    "tone": {
+      "title": "Ton anpassen",
+      "neutral": "Neutral",
+      "playful": "Verspielt",
+      "dramatic": "Dramatisch",
+      "romantic": "Romantisch",
+      "dark": "Düster"
+    },
+    "summary": {
+      "title": "Kurzzusammenfassung",
+      "copy": "In Zwischenablage kopieren"
+    }
+  },
+  "notifications": {
+    "generating": "Die KI arbeitet an deiner neuen Version...",
+    "saved": "Änderung gespeichert",
+    "error": "Die KI konnte keinen Vorschlag erstellen. Bitte probiere es erneut.",
+    "rateLimit": "Du hast das Limit für schnelle Bearbeitungen erreicht. Warte kurz und versuche es nochmals."
+  },
+  "shortcuts": {
+    "title": "Editor-Kürzel",
+    "save": "⌘S / Ctrl+S: speichern",
+    "comment": "⌘/ / Ctrl+/ : Kommentar hinzufügen",
+    "highlight": "⌘E / Ctrl+E: KI-Vorschlag hervorheben"
+  }
+}
