@@ -1,9 +1,9 @@
 {
   "Story": {
-    "credits": "Mythoria - tell your own story.",
-    "tableOfContents": "Table of Contents",
-    "storyImaginedBy": "This story was imagined by",
-    "craftedWith": "Crafted with:",
-    "byAuthor": "by {author}"
+    "credits": "Mythoria – Erzähle deine eigene Geschichte.",
+    "tableOfContents": "Inhaltsverzeichnis",
+    "storyImaginedBy": "Diese Geschichte wurde erdacht von",
+    "craftedWith": "Geschaffen mit:",
+    "byAuthor": "von {author}"
   }
 }
