@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit",
     "format": "prettier --check .",
     "format:fix": "prettier --write .",
+    "format_fix": "npm run format:fix",
     "logs": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\logs.ps1",
     "logs:tail": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\logs.ps1 -Follow",
     "test": "jest",
@@ -37,7 +38,10 @@
     "schema:sync": "powershell -ExecutionPolicy Bypass -File .\\scripts\\sync-schema.ps1",
     "schema:sync-dry": "powershell -ExecutionPolicy Bypass -File .\\scripts\\sync-schema.ps1 -DryRun",
     "schema:sync-verbose": "powershell -ExecutionPolicy Bypass -File .\\scripts\\sync-schema.ps1 -Verbose",
-    "clean": "rimraf dist"
+    "clean": "rimraf dist",
+    "lint:bash": "bash ./scripts/lint.sh",
+    "i18n:keys": "tsx scripts/check-i18n.ts keys de-DE",
+    "i18n:parity": "tsx scripts/check-i18n.ts parity de-DE"
   },
   "dependencies": {
     "@google-cloud/storage": "^7.14.0",

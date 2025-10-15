@@ -6,6 +6,7 @@
 import { readFileSync } from 'fs';
 import { posix as pathPosix } from 'path';
 import { logger } from '@/config/logger.js';
+import { DEFAULT_LOCALE, SUPPORTED_LOCALES, normalizeLocale } from '@/config/locales.js';
 import { getMessagesPath } from '../shared/path-utils.js';
 
 export interface MessageData {
@@ -35,23 +36,27 @@ export class MessageService {
 
     try {
       // Convert locale format (en-US -> en-US, pt -> pt-PT, etc.)
-      const normalizedLocale = this.normalizeLocale(locale);
+      const normalizedLocale = normalizeLocale(locale);
 
       const messagesPath = pathPosix.join(getMessagesPath(), normalizedLocale, 'common.json');
       const messagesContent = readFileSync(messagesPath, 'utf-8');
       const messages = JSON.parse(messagesContent) as MessageData;
 
       // Cache the messages
-      this.messagesCache.set(locale, messages);
       this.messagesCache.set(normalizedLocale, messages);
+      if (locale !== normalizedLocale) {
+        this.messagesCache.set(locale, messages);
+      }
 
       return messages;
     } catch (error) {
-      logger.warn(`Failed to load messages for locale ${locale}, falling back to en-US`, { error });
+      logger.warn(`Failed to load messages for locale ${locale}, falling back to ${DEFAULT_LOCALE}`, {
+        error,
+      });
 
       // Fallback to en-US
-      if (locale !== 'en-US') {
-        return this.loadMessages('en-US');
+      if (locale !== DEFAULT_LOCALE) {
+        return this.loadMessages(DEFAULT_LOCALE);
       }
       // If even en-US fails, return default messages
       const defaultMessages: MessageData = {
@@ -111,33 +116,9 @@ export class MessageService {
   }
 
   /**
-   * Normalize locale format for consistency
-   */
-  private static normalizeLocale(locale: string): string {
-    // Map common locale formats to our supported locales
-    const localeMap: Record<string, string> = {
-      en: 'en-US',
-      english: 'en-US',
-      pt: 'pt-PT',
-      portuguese: 'pt-PT',
-      'pt-BR': 'pt-PT', // Use pt-PT as fallback for Brazilian Portuguese
-      french: 'fr-FR',
-      fr: 'fr-FR',
-      es: 'es-ES',
-      spanish: 'es-ES',
-    };
-
-    const normalized = localeMap[locale.toLowerCase()] || locale;
-
-    // Check if we support this locale, otherwise fallback to en-US
-    const supportedLocales = ['en-US', 'pt-PT'];
-    return supportedLocales.includes(normalized) ? normalized : 'en-US';
-  }
-
-  /**
    * Get all supported locales
    */
   static getSupportedLocales(): string[] {
-    return ['en-US', 'pt-PT'];
+    return Array.from(SUPPORTED_LOCALES);
   }
 }

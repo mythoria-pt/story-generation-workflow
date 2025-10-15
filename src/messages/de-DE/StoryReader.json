@@ -1,0 +1,64 @@
+{
+  "header": {
+    "title": "Story-Reader",
+    "subtitle": "Genieße deine Geschichte Kapitel für Kapitel – mit Text, Audio und Illustrationen."
+  },
+  "controls": {
+    "play": "Abspielen",
+    "pause": "Pause",
+    "previous": "Zurück",
+    "next": "Weiter",
+    "speed": "Geschwindigkeit",
+    "voice": "Stimme",
+    "download": "Herunterladen",
+    "fullscreen": "Vollbild"
+  },
+  "chapters": {
+    "title": "Kapitelübersicht",
+    "current": "Aktuelles Kapitel",
+    "empty": "Es wurden noch keine Kapitel erstellt.",
+    "estimatedTime": "Lesedauer: {minutes} Min"
+  },
+  "audio": {
+    "title": "Erzählstimme",
+    "loading": "Audio wird vorbereitet...",
+    "unavailable": "Für dieses Kapitel ist noch keine Audiospur vorhanden.",
+    "error": "Die Audio-Wiedergabe ist fehlgeschlagen. Bitte versuche es später erneut.",
+    "voices": {
+      "default": "Standard",
+      "warm": "Warm",
+      "energetic": "Energiegeladen",
+      "dramatic": "Dramatisch"
+    }
+  },
+  "actions": {
+    "share": "Teilen",
+    "print": "Drucken",
+    "bookmark": "Lesezeichen setzen",
+    "removeBookmark": "Lesezeichen entfernen"
+  },
+  "readingMode": {
+    "title": "Lesemodus",
+    "day": "Tag",
+    "night": "Nacht",
+    "sepia": "Sepia",
+    "auto": "Automatisch"
+  },
+  "annotations": {
+    "title": "Notizen",
+    "add": "Notiz hinzufügen",
+    "placeholder": "Halte hier deine Gedanken oder Ideen fest...",
+    "empty": "Noch keine Notizen gespeichert.",
+    "delete": "Löschen"
+  },
+  "progress": {
+    "label": "Fortschritt",
+    "completed": "Abgeschlossen",
+    "remaining": "Verbleibend"
+  },
+  "alerts": {
+    "offline": "Keine Internetverbindung. Offline-Version wird angezeigt.",
+    "sync": "Synchronisiere Änderungen...",
+    "synced": "Aktueller Stand gespeichert"
+  }
+}

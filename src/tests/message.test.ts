@@ -16,6 +16,7 @@ jest.mock('@/shared/path-utils', () => ({
 
 import { readFileSync } from 'fs';
 import { MessageService } from '../services/message';
+import { SUPPORTED_LOCALES } from '@/config/locales.js';
 import { logger } from '@/config/logger';
 
 describe('MessageService', () => {
@@ -96,6 +97,6 @@ describe('MessageService', () => {
   });
 
   it('lists supported locales', () => {
-    expect(MessageService.getSupportedLocales()).toEqual(['en-US', 'pt-PT']);
+    expect(MessageService.getSupportedLocales()).toEqual(Array.from(SUPPORTED_LOCALES));
   });
 });
