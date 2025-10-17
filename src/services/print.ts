@@ -310,7 +310,7 @@ export class PrintService {
       textTotalMarginMM: (safeZoneMM * 2).toString(), // Total margin for text content
       // Chapter-specific margins
       chapterTopMarginMM: chapterTopMarginMM.toString(),
-      chapterBottomMarginMM: '15',
+      chapterBottomMarginMM: '20',
       chapterFirstPageTopMarginMM: chapterFirstPageTopMarginMM.toString(),
       dedicationMessage: storyData.dedicationMessage || '',
       customAuthor: storyData.customAuthor || 'Anonymous',

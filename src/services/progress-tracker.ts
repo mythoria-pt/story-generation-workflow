@@ -6,6 +6,7 @@
 import { RunsService } from './runs.js';
 import { StoryService } from './story.js';
 import { logger } from '@/config/logger.js';
+import { DEFAULT_LOCALE, isSupportedLocale } from '@/config/locales.js';
 import { retry } from '@/shared/utils.js';
 import { sendStoryCreatedEmail } from './notification-client.js';
 
@@ -373,11 +374,9 @@ export class ProgressTrackerService {
       return;
     }
 
-    const language =
-      story.authorPreferredLocale &&
-      ['en-US', 'pt-PT', 'es-ES', 'fr-FR'].includes(story.authorPreferredLocale)
-        ? story.authorPreferredLocale
-        : 'en-US';
+    const language = isSupportedLocale(story.authorPreferredLocale)
+      ? story.authorPreferredLocale
+      : DEFAULT_LOCALE;
     const baseLocalePath = 'en-US'; // requirement: always use en-US paths
     const readStoryURL = `https://mythoria.pt/${baseLocalePath}/stories/read/${storyId}`;
     const shareStoryURL = readStoryURL;
