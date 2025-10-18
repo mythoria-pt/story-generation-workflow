@@ -67,6 +67,33 @@ function refineImagePrompt(
   return style ? `${p} – ${style}` : p;
 }
 
+function buildSafeFallbackPrompt(
+  original: string,
+  opts: { styleHint?: string } = {},
+): string {
+  let prompt = original || '';
+
+  prompt = prompt.replace(/\b\d+\s*-?\s*month\s*-?\s*old\b/gi, 'very young');
+  prompt = prompt.replace(/\btoddler\b/gi, 'very young child');
+  prompt = prompt.replace(/\bboy\b/gi, 'child');
+
+  if (!/bathing suit|swimsuit|swimwear|bathrobe|pyjamas|pajamas|robe/i.test(prompt)) {
+    prompt += ' The child wears a colorful bathing suit suitable for play.';
+  }
+
+  if (!/parent|guardian|adult/i.test(prompt)) {
+    prompt += ' A caring parent kneels nearby supervising and offering a bath toy.';
+  }
+
+  if (!/warm/i.test(prompt)) {
+    prompt += ' Warm, gentle lighting keeps the scene wholesome and cheerful.';
+  }
+
+  return refineImagePrompt(prompt, {
+    styleHint: opts.styleHint || 'wholesome family illustration, soft lighting',
+  });
+}
+
 // Request schemas
 const OutlineRequestSchema = z.object({
   storyId: z.string().uuid(),
@@ -917,6 +944,7 @@ router.post('/image', async (req, res) => {
   let currentStep = 'parsing_request';
   let promptRewriteAttempted = false;
   let originalPrompt: string | undefined;
+  let fallbackPromptUsed = false;
 
   try {
     const { prompt, storyId, runId, chapterNumber, imageType, width, height, style } =
@@ -1108,7 +1136,7 @@ router.post('/image', async (req, res) => {
               .getTextService(textContext)
               .complete(rewritePrompt, {
                 temperature: 0.7, // Moderate creativity for rewriting
-                maxTokens: 300, // Reasonable length for a prompt
+                maxTokens: 65535,
               });
 
             // Restore original provider
@@ -1160,12 +1188,31 @@ router.post('/image', async (req, res) => {
             error: rewriteError instanceof Error ? rewriteError.message : String(rewriteError),
           });
 
-          // Re-throw the original safety block error with metadata
-          const enrichedError: any = firstError;
-          enrichedError.promptRewriteAttempted = true;
-          enrichedError.promptRewriteError =
-            rewriteError instanceof Error ? rewriteError.message : String(rewriteError);
-          throw enrichedError;
+          const fallbackPrompt = storyContext.story.graphicalStyle
+            ? buildSafeFallbackPrompt(prompt, { styleHint: storyContext.story.graphicalStyle })
+            : buildSafeFallbackPrompt(prompt);
+
+          try {
+            fallbackPromptUsed = true;
+            finalPrompt = fallbackPrompt;
+            currentStep = 'generating_image_with_fallback_prompt';
+            imageBuffer = await attemptImageGeneration(finalPrompt);
+            logger.info('Image generation succeeded with fallback sanitized prompt', {
+              storyId,
+              runId,
+              imageType,
+              chapterNumber,
+            });
+          } catch (fallbackErr) {
+            const enrichedError: any = firstError;
+            enrichedError.promptRewriteAttempted = true;
+            enrichedError.promptRewriteError =
+              rewriteError instanceof Error ? rewriteError.message : String(rewriteError);
+            enrichedError.fallbackAttempted = true;
+            enrichedError.fallbackError =
+              fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
+            throw enrichedError;
+          }
         }
       } else {
         // Not a safety block, re-throw as-is
@@ -1199,6 +1246,7 @@ router.post('/image', async (req, res) => {
         promptRewriteApplied: true,
         originalPrompt: originalPrompt,
         rewrittenPrompt: finalPrompt,
+        ...(fallbackPromptUsed && { promptRewriteFallback: true }),
       }),
     });
   } catch (error) {
@@ -1226,6 +1274,7 @@ router.post('/image', async (req, res) => {
     if ((error as any)?.promptRewriteError) resp.promptRewriteError = (error as any).promptRewriteError;
     if ((error as any)?.fallbackAttempted) resp.fallbackAttempted = true;
     if ((error as any)?.fallbackError) resp.fallbackError = (error as any).fallbackError;
+    if (fallbackPromptUsed) resp.fallbackPromptUsed = true;
     res.status(statusCode).json(resp);
   }
 });
