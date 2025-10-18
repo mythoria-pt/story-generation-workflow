@@ -123,6 +123,7 @@ export class StoryService {
           synopsis: story.synopsis || undefined,
           place: story.place || undefined,
           additionalRequests: story.additionalRequests || undefined,
+          imageGenerationInstructions: story.imageGenerationInstructions || undefined,
           targetAudience: story.targetAudience || undefined,
           novelStyle: story.novelStyle || undefined,
           graphicalStyle: story.graphicalStyle || undefined,

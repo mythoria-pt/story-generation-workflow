@@ -461,16 +461,58 @@ export class GoogleGenAITextService implements ITextGenerationService {
       }
 
       // Try to extract text from first candidate; if empty, scan other candidates
+      const collectCandidateParts = (cand: any): any[] => {
+        if (!cand) return [];
+        const parts: any[] = [];
+
+        const includeParts = (input: any) => {
+          if (!input) return;
+          if (Array.isArray(input)) {
+            for (const item of input) {
+              if (!item) continue;
+              if (Array.isArray(item.parts)) {
+                parts.push(...item.parts);
+              } else if (item.parts) {
+                parts.push(item.parts);
+              } else if (item.text || item.inlineData) {
+                parts.push(item);
+              }
+            }
+            return;
+          }
+
+          if (Array.isArray(input.parts)) {
+            parts.push(...input.parts);
+            return;
+          }
+
+          if (input.text || input.inlineData) {
+            parts.push(input);
+          }
+        };
+
+        includeParts(cand.parts);
+        includeParts(cand.content);
+        includeParts(cand?.content?.parts);
+
+        return parts;
+      };
+
       const extractTextFromCandidate = (cand: any): string | undefined => {
-        let tc = cand?.content?.parts?.[0]?.text as string | undefined;
-        if (!tc && Array.isArray(cand?.content?.parts)) {
-          const combined = cand.content.parts
-            .map((p: any) => p.text)
-            .filter((t: any) => typeof t === 'string' && t.length > 0)
-            .join('\n');
-          if (combined.length > 0) tc = combined;
+        const parts = collectCandidateParts(cand);
+        const textChunks = parts
+          .map((p: any) => p?.text)
+          .filter((t: any): t is string => typeof t === 'string' && t.length > 0);
+        if (textChunks.length > 0) {
+          return textChunks.join('\n');
         }
-        return tc;
+
+        const directText = cand?.outputText || cand?.output_text || cand?.text;
+        if (typeof directText === 'string' && directText.length > 0) {
+          return directText;
+        }
+
+        return undefined;
       };
 
       let textContent = extractTextFromCandidate(firstCandidate);
@@ -486,18 +528,20 @@ export class GoogleGenAITextService implements ITextGenerationService {
           }
         }
       }
+      if (!textContent && typeof (raw?.response?.text) === 'string' && raw.response.text.length > 0) {
+        textContent = raw.response.text;
+      }
       if (!textContent) {
         const candidate = firstCandidate; // for diagnostics naming
         const finishReason = candidate.finishReason;
         const safety = candidate.safetyRatings || candidate.safety || candidate.safetyFeedback;
-        const partDiagnostics = Array.isArray(candidate.content?.parts)
-          ? candidate.content.parts.map((p: any) => ({
-              keys: Object.keys(p),
-              hasText: !!p.text,
-              hasInlineData: !!p.inlineData,
-              mime: p.inlineData?.mimeType,
-            }))
-          : [];
+        const candidateParts = collectCandidateParts(candidate);
+        const partDiagnostics = candidateParts.map((p: any) => ({
+          keys: Object.keys(p ?? {}),
+          hasText: !!p?.text,
+          hasInlineData: !!p?.inlineData,
+          mime: p?.inlineData?.mimeType,
+        }));
         logger.error('Google GenAI Debug - No text content. Raw candidate snapshot', {
           hasResponse: !!(response as any).response,
           finishReason,

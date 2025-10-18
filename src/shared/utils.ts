@@ -246,5 +246,67 @@ export function parseAIResponse(response: string): unknown {
     }
   }
 
-  return JSON.parse(cleanedResponse);
+  const extractFirstJsonBlock = (input: string): string | null => {
+    let startIndex = -1;
+    const stack: string[] = [];
+    let inString = false;
+    let escaping = false;
+
+    for (let i = 0; i < input.length; i++) {
+      const char = input[i];
+
+      if (inString) {
+        if (escaping) {
+          escaping = false;
+          continue;
+        }
+        if (char === '\\') {
+          escaping = true;
+          continue;
+        }
+        if (char === '"') {
+          inString = false;
+        }
+        continue;
+      }
+
+      if (char === '"') {
+        inString = true;
+        continue;
+      }
+
+      if (char === '{' || char === '[') {
+        if (stack.length === 0) {
+          startIndex = i;
+        }
+        stack.push(char === '{' ? '}' : ']');
+        continue;
+      }
+
+      if ((char === '}' || char === ']') && stack.length > 0) {
+        const expected = stack.pop();
+        if ((char === '}' && expected !== '}') || (char === ']' && expected !== ']')) {
+          // Mismatched braces, reset and continue searching
+          stack.length = 0;
+          startIndex = -1;
+          continue;
+        }
+        if (stack.length === 0 && startIndex !== -1) {
+          return input.slice(startIndex, i + 1);
+        }
+      }
+    }
+
+    return null;
+  };
+
+  try {
+    return JSON.parse(cleanedResponse);
+  } catch (primaryError) {
+    const fallbackJson = extractFirstJsonBlock(cleanedResponse);
+    if (fallbackJson) {
+      return JSON.parse(fallbackJson);
+    }
+    throw primaryError;
+  }
 }

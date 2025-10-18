@@ -20,7 +20,6 @@ async function testOpenAIIntegration() {
     const textService = new OpenAITextService({
       apiKey: env.OPENAI_API_KEY,
       model: 'gpt-4.1',
-      useResponsesAPI: true,
     });
 
     const imageService = new OpenAIImageService({
@@ -31,7 +30,7 @@ async function testOpenAIIntegration() {
     // Test text generation
     console.log('\n📝 Testing text generation...');
     const textResponse = await textService.complete('Write a short story about a magical forest.', {
-      maxTokens: 200,
+      maxTokens: 65535,
       temperature: 0.7,
     });
     console.log('✅ Text generated:', textResponse.substring(0, 100) + '...');
