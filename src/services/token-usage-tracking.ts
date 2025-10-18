@@ -97,38 +97,26 @@ export class TokenUsageTrackingService {
     let outputCostPer1KTokens = 0;
 
     // Cost calculations in USD (will convert to EUR)
-    // Pricing as of 2024 - these should be configurable in production
+    // Pricing as of October 2025
     if (estimation.provider === 'openai') {
-      if (estimation.model.includes('gpt-4')) {
-        if (estimation.model.includes('gpt-4o')) {
-          // GPT-4o pricing
-          inputCostPer1KTokens = 0.0025; // $0.0025 per 1K input tokens
-          outputCostPer1KTokens = 0.01; // $0.01 per 1K output tokens
-        } else if (estimation.model.includes('gpt-4-turbo')) {
-          // GPT-4 Turbo pricing
-          inputCostPer1KTokens = 0.01; // $0.01 per 1K input tokens
-          outputCostPer1KTokens = 0.03; // $0.03 per 1K output tokens
-        } else {
-          // Standard GPT-4 pricing
-          inputCostPer1KTokens = 0.03; // $0.03 per 1K input tokens
-          outputCostPer1KTokens = 0.06; // $0.06 per 1K output tokens
-        }
-      } else if (estimation.model.includes('gpt-3.5')) {
-        // GPT-3.5 Turbo pricing
-        inputCostPer1KTokens = 0.0005; // $0.0005 per 1K input tokens
-        outputCostPer1KTokens = 0.0015; // $0.0015 per 1K output tokens      } else if (estimation.model.includes('dall-e')) {
-        // DALL-E pricing is per image, not per token
-        // Estimating based on typical token usage for image prompts
+      if (estimation.model.includes('gpt-5')) {
+        // GPT-5 pricing (October 2025)
+        inputCostPer1KTokens = 0.00125; // $1.25 per 1M tokens = $0.00125 per 1K tokens
+        outputCostPer1KTokens = 0.01; // $10.00 per 1M tokens = $0.01 per 1K tokens
+      } else if (estimation.model.includes('gpt-image-1-mini')) {
+        // GPT-image-1-mini pricing is per image, not per token
+        // Using medium quality as default: $0.011 per image
         const imagesGenerated = Math.max(1, Math.floor(estimation.outputTokens / 100));
-        if (estimation.model.includes('dall-e-3')) {
-          const costPerImage = 0.04; // $0.04 per image for standard quality
-          estimation.estimatedCostInEuros = imagesGenerated * costPerImage * 0.92; // Convert USD to EUR (approximate)
-          return estimation;
-        } else {
-          const costPerImage = 0.02; // $0.02 per image for DALL-E 2
-          estimation.estimatedCostInEuros = imagesGenerated * costPerImage * 0.92; // Convert USD to EUR (approximate)
-          return estimation;
-        }
+        const costPerImage = 0.011; // $0.011 per image for medium quality
+        estimation.estimatedCostInEuros = imagesGenerated * costPerImage * 0.92; // Convert USD to EUR (approximate)
+        return estimation;
+      } else if (estimation.model.includes('gpt-image-1')) {
+        // GPT-image-1 pricing is per image, not per token
+        // Using medium quality as default: $0.04 per image
+        const imagesGenerated = Math.max(1, Math.floor(estimation.outputTokens / 100));
+        const costPerImage = 0.04; // $0.04 per image for medium quality
+        estimation.estimatedCostInEuros = imagesGenerated * costPerImage * 0.92; // Convert USD to EUR (approximate)
+        return estimation;
       } else if (estimation.model.includes('tts-')) {
         // TTS pricing is per character, not per token
         // For TTS, inputTokens represents the number of characters in the input text
@@ -141,18 +129,18 @@ export class TokenUsageTrackingService {
       }
     } else if (estimation.provider === 'google-genai') {
       if (estimation.model.includes('gemini')) {
-        if (estimation.model.includes('gemini-2.0-flash')) {
-          // Gemini 2.0 Flash pricing
-          inputCostPer1KTokens = 0.00075; // $0.00075 per 1K input tokens
-          outputCostPer1KTokens = 0.003; // $0.003 per 1K output tokens
-        } else if (estimation.model.includes('gemini-1.5-pro')) {
-          // Gemini 1.5 Pro pricing
-          inputCostPer1KTokens = 0.0035; // $0.0035 per 1K input tokens
-          outputCostPer1KTokens = 0.0105; // $0.0105 per 1K output tokens
+        if (estimation.model.includes('gemini-2.5-pro')) {
+          // Gemini 2.5 Pro pricing (October 2025)
+          inputCostPer1KTokens = 0.00125; // $1.25 per 1M tokens = $0.00125 per 1K tokens
+          outputCostPer1KTokens = 0.01; // $10.00 per 1M tokens = $0.01 per 1K tokens
+        } else if (estimation.model.includes('gemini-2.5-flash')) {
+          // Gemini 2.5 Flash pricing (October 2025)
+          inputCostPer1KTokens = 0.0003; // $0.30 per 1M tokens = $0.0003 per 1K tokens
+          outputCostPer1KTokens = 0.0025; // $2.50 per 1M tokens = $0.0025 per 1K tokens
         } else {
-          // Default Gemini pricing
-          inputCostPer1KTokens = 0.00025; // $0.00025 per 1K input tokens
-          outputCostPer1KTokens = 0.0005; // $0.0005 per 1K output tokens
+          // Default Gemini pricing (fallback for unspecified versions)
+          inputCostPer1KTokens = 0.0003; // $0.30 per 1M tokens
+          outputCostPer1KTokens = 0.0025; // $2.50 per 1M tokens
         }
       } else if (estimation.model.includes('imagen')) {
         // Imagen pricing is per image
