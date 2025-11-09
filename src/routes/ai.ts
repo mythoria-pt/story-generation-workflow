@@ -811,52 +811,150 @@ router.post('/text/chapter/:chapterNumber', async (req, res) => {
     };
 
     // Build dynamic memory (previous chapters) heuristic: fetch saved chapters < current
-    let memoryPrefix = '';
+    let memoryBlock = '';
     try {
       if (chapterNumber > 1) {
         const { ChaptersService } = await import('@/services/chapters.js');
         const chaptersService = new ChaptersService();
         const existing = await chaptersService.getStoryChapters(storyId);
         const prior = existing.filter((c) => c.chapterNumber < chapterNumber);
-        // Summaries for all but last two, full text for last two
+
         prior.sort((a, b) => a.chapterNumber - b.chapterNumber);
-        const lastTwo = prior.slice(-2);
-        const earlier = prior.slice(0, Math.max(0, prior.length - 2));
-        const summarize = (html: string) => {
-          const plain = html
-            .replace(/<[^>]+>/g, ' ')
-            .replace(/\s+/g, ' ')
-            .trim();
-          // Heuristic summary: first ~450 chars or first 3 sentences
-          const sentences = plain
-            .split(/(?<=[.!?])\s+/)
-            .slice(0, 3)
-            .join(' ');
-          const snippet =
-            sentences.length > 120 && sentences.length < 500 ? sentences : plain.slice(0, 450);
-          return snippet;
-        };
-        const earlierSummaries = earlier.map(
-          (c) => `Ch${c.chapterNumber} Summary: ${summarize(c.htmlContent)}`,
-        );
-        const lastTwoFull = lastTwo.map(
-          (c) => `Ch${c.chapterNumber} Full: ${c.htmlContent.replace(/<[^>]+>/g, ' ').trim()}`,
-        );
-        const outlineChapters = req.body.outline?.chapters
-          ? req.body.outline.chapters
-              .map((c: any) => `${c.chapterNumber}.${c.chapterTitle}`)
-              .join(' | ')
-          : '';
-        const parts = [
-          outlineChapters && `Outline Chapters: ${outlineChapters}`,
-          earlierSummaries.join('\n'),
-          lastTwoFull.join('\n'),
-          `You are now writing Chapter ${chapterNumber}. Maintain continuity with prior chapters.`,
-        ].filter(Boolean);
-        const rawMemory = parts.join('\n\n');
-        // Enforce env-based char cap
-        const maxChars = parseInt(process.env.STORY_CONTEXT_MAX_CHARS || '12000', 10);
-        memoryPrefix = rawMemory.slice(-maxChars); // keep tail (most recent) if overflow
+        if (prior.length > 0) {
+          const toPlainText = (html: string) =>
+            html
+              .replace(/<[^>]+>/g, ' ')
+              .replace(/\s+/g, ' ')
+              .trim();
+
+          const summarize = (html: string) => {
+            const plain = toPlainText(html);
+            const sentences = plain
+              .split(/(?<=[.!?])\s+/)
+              .filter((segment) => segment.length > 0);
+            const firstSentences = sentences.slice(0, 3).join(' ');
+            if (firstSentences.length >= 120 && firstSentences.length <= 500) {
+              return firstSentences;
+            }
+            return plain.slice(0, 450);
+          };
+
+          const earlier = prior.slice(0, Math.max(0, prior.length - 2));
+          const recent = prior.slice(-2);
+
+          const summaryEntries = earlier.map((chapter) => ({
+            chapterNumber: chapter.chapterNumber,
+            summary: summarize(chapter.htmlContent),
+          }));
+
+          const recentEntries = recent.map((chapter) => ({
+            chapterNumber: chapter.chapterNumber,
+            full: toPlainText(chapter.htmlContent),
+            summary: summarize(chapter.htmlContent),
+            mode: 'full' as 'full' | 'summary',
+          }));
+
+          let outlineOverview = req.body.outline?.chapters
+            ? req.body.outline.chapters
+                .map((c: any) => `${c.chapterNumber}. ${c.chapterTitle}`)
+                .join(' | ')
+            : '';
+
+          let continuityNote = `You are now writing Chapter ${chapterNumber}. Maintain continuity with prior chapters.`;
+          const maxChars = parseInt(process.env.STORY_CONTEXT_MAX_CHARS || '12000', 10);
+
+          const serializeSection = () => {
+            const sections: string[] = [];
+
+            if (outlineOverview) {
+              sections.push(
+                `  <outline_overview>${outlineOverview}</outline_overview>`,
+              );
+            }
+
+            if (summaryEntries.length > 0) {
+              const summaries = summaryEntries
+                .map(
+                  (entry) =>
+                    `    <chapter_summary number="${entry.chapterNumber}">${entry.summary}</chapter_summary>`,
+                )
+                .join('\n');
+              sections.push(
+                ['  <previous_chapter_summaries>', summaries, '  </previous_chapter_summaries>'].join(
+                  '\n',
+                ),
+              );
+            }
+
+            if (recentEntries.length > 0) {
+              const recents = recentEntries
+                .map((entry) => {
+                  const tag = entry.mode === 'full' ? 'chapter_full' : 'chapter_summary';
+                  const content = entry.mode === 'full' ? entry.full : entry.summary;
+                  return `    <${tag} number="${entry.chapterNumber}">${content}</${tag}>`;
+                })
+                .join('\n');
+              sections.push(['  <recent_chapters>', recents, '  </recent_chapters>'].join('\n'));
+            }
+
+            if (continuityNote) {
+              sections.push(`  <continuity_note>${continuityNote}</continuity_note>`);
+            }
+
+            if (sections.length === 0) {
+              return '';
+            }
+
+            return `<story_context>\n${sections.join('\n')}\n</story_context>`;
+          };
+
+          let serialized = serializeSection();
+          let iterations = 0;
+
+          while (serialized && serialized.length > maxChars && iterations < 20) {
+            iterations += 1;
+            let changed = false;
+
+            if (summaryEntries.length > 0) {
+              summaryEntries.shift();
+              changed = true;
+            } else {
+              const fullEntry = recentEntries.find((entry) => entry.mode === 'full');
+              if (fullEntry && fullEntry.summary.length > 0) {
+                fullEntry.mode = 'summary';
+                changed = true;
+              } else if (outlineOverview) {
+                outlineOverview = '';
+                changed = true;
+              } else if (continuityNote.length > 0) {
+                continuityNote = '';
+                changed = true;
+              }
+            }
+
+            if (!changed) {
+              break;
+            }
+
+            serialized = serializeSection();
+          }
+
+          if (serialized && serialized.length > 0) {
+            if (serialized.length > maxChars) {
+              const truncated = serialized.slice(serialized.length - maxChars);
+              memoryBlock = `<story_context_truncated>${truncated}</story_context_truncated>`;
+              logger.warn('Story context exceeded max characters, using truncated block', {
+                storyId,
+                runId,
+                chapterNumber,
+                maxChars,
+                serializedLength: serialized.length,
+              });
+            } else {
+              memoryBlock = serialized;
+            }
+          }
+        }
       }
     } catch (memErr) {
       logger.warn('Failed building chapter memory', {
@@ -867,9 +965,9 @@ router.post('/text/chapter/:chapterNumber', async (req, res) => {
       });
     }
 
-    // Build the complete prompt with memory prefix
+    // Build the complete prompt with memory block
     const basePrompt = PromptService.buildPrompt(promptTemplate, templateVariables);
-    const chapterPrompt = memoryPrefix ? `${memoryPrefix}\n\n${basePrompt}` : basePrompt;
+    const chapterPrompt = memoryBlock ? `${memoryBlock}\n\n${basePrompt}` : basePrompt;
 
     // Create context for token tracking
     const chapterContext = {

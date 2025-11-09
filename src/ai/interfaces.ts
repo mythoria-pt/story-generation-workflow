@@ -3,6 +3,14 @@
  * Provider-agnostic interfaces for text and image generation services
  */
 
+export interface TextGenerationUsage {
+  provider?: 'google-genai' | 'openai' | 'unknown';
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  billedUnits?: number;
+}
+
 export interface ITextGenerationService {
   /**
    * Complete a text generation request
@@ -57,6 +65,7 @@ export interface TextGenerationOptions {
   contextId?: string; // For context preservation across requests
   jsonSchema?: object; // JSON schema for structured output
   mediaParts?: Array<{ mimeType: string; data: Buffer | string }>; // Optional media attachments for multimodal
+  usageObserver?: (usage: TextGenerationUsage) => void; // Optional callback for provider usage metadata
 }
 
 export interface ImageGenerationOptions {

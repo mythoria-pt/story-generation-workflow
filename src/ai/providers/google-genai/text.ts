@@ -463,39 +463,84 @@ export class GoogleGenAITextService implements ITextGenerationService {
       // Try to extract text from first candidate; if empty, scan other candidates
       const collectCandidateParts = (cand: any): any[] => {
         if (!cand) return [];
-        const parts: any[] = [];
 
-        const includeParts = (input: any) => {
-          if (!input) return;
+        const collected: any[] = [];
+        const seen = new WeakSet<object>();
+
+        const visit = (input: any): void => {
+          if (!input) {
+            return;
+          }
+
           if (Array.isArray(input)) {
+            if (seen.has(input)) {
+              return;
+            }
+            seen.add(input);
             for (const item of input) {
-              if (!item) continue;
-              if (Array.isArray(item.parts)) {
-                parts.push(...item.parts);
-              } else if (item.parts) {
-                parts.push(item.parts);
-              } else if (item.text || item.inlineData) {
-                parts.push(item);
-              }
+              visit(item);
             }
             return;
           }
 
-          if (Array.isArray(input.parts)) {
-            parts.push(...input.parts);
+          if (typeof input === 'object') {
+            if (input === null) {
+              return;
+            }
+
+            if (seen.has(input)) {
+              return;
+            }
+            seen.add(input);
+
+            const obj: any = input;
+
+            if (Array.isArray(obj.parts)) {
+              visit(obj.parts);
+              return;
+            }
+
+            if (obj.parts) {
+              visit(obj.parts);
+              return;
+            }
+
+            if (typeof obj.text === 'string' || obj.inlineData) {
+              collected.push(obj);
+              return;
+            }
+
+            if (typeof obj.outputText === 'string' || typeof obj.output_text === 'string') {
+              collected.push({ text: obj.outputText ?? obj.output_text });
+              return;
+            }
+
+            if (Array.isArray(obj.candidates)) {
+              visit(obj.candidates);
+            }
+
+            if (Array.isArray(obj.contents)) {
+              visit(obj.contents);
+            }
+
+            for (const value of Object.values(obj)) {
+              if (typeof value === 'object') {
+                visit(value);
+              }
+            }
+
             return;
           }
 
-          if (input.text || input.inlineData) {
-            parts.push(input);
+          if (typeof input === 'string' && input.trim().length > 0) {
+            collected.push({ text: input });
           }
         };
 
-        includeParts(cand.parts);
-        includeParts(cand.content);
-        includeParts(cand?.content?.parts);
+        visit(cand.parts);
+        visit(cand.content);
 
-        return parts;
+        return collected;
       };
 
       const extractTextFromCandidate = (cand: any): string | undefined => {
@@ -553,6 +598,31 @@ export class GoogleGenAITextService implements ITextGenerationService {
         });
         const reasonHint = finishReason ? ` finishReason=${finishReason}` : '';
         throw new Error('No text content in Google GenAI response.' + reasonHint);
+      }
+
+      try {
+        const usageMetadata = raw?.response?.usageMetadata;
+        if (usageMetadata && options?.usageObserver) {
+          const inputTokens = usageMetadata.promptTokenCount;
+          const totalTokens = usageMetadata.totalTokenCount;
+          const outputTokens = usageMetadata.candidatesTokenCount ??
+            (typeof totalTokens === 'number' && typeof inputTokens === 'number'
+              ? Math.max(totalTokens - inputTokens, 0)
+              : undefined);
+
+          options.usageObserver({
+            provider: 'google-genai',
+            inputTokens,
+            outputTokens,
+            totalTokens,
+            billedUnits: usageMetadata.cachedContentTokenCount,
+          });
+        }
+      } catch (usageError) {
+        logger.warn('Failed to forward Google GenAI usage metadata', {
+          error: usageError instanceof Error ? usageError.message : String(usageError),
+          contextId: options?.contextId,
+        });
       }
 
       logger.info('Google GenAI Debug - Response received', {

@@ -8,6 +8,7 @@ import {
   IImageGenerationService,
   TextGenerationOptions,
   ImageGenerationOptions,
+  TextGenerationUsage,
 } from '@/ai/interfaces.js';
 import { tokenUsageTrackingService } from '@/services/token-usage-tracking.js';
 import { logger } from '@/config/logger.js';
@@ -49,22 +50,43 @@ export class TextGenerationMiddleware implements ITextGenerationService {
         model: options?.model,
       });
 
+      const baseOptions: TextGenerationOptions = options ? { ...options } : {};
+      let observedUsage: TextGenerationUsage | undefined;
+
+      if (baseOptions.usageObserver) {
+        const originalObserver = baseOptions.usageObserver;
+        baseOptions.usageObserver = (usage) => {
+          observedUsage = usage;
+          try {
+            originalObserver(usage);
+          } catch (observerError) {
+            logger.warn('Usage observer failed, continuing without interruption', {
+              error: observerError instanceof Error ? observerError.message : String(observerError),
+              context: this.context,
+            });
+          }
+        };
+      } else {
+        baseOptions.usageObserver = (usage) => {
+          observedUsage = usage;
+        };
+      }
+
       // Make the actual AI call
-      const result = await this.baseService.complete(prompt, options);
+      const result = await this.baseService.complete(prompt, baseOptions);
 
       // Calculate processing time
       const processingTimeMs = Date.now() - startTime;
 
-      // Estimate token usage (rough approximation)
-      const tokenUsage = this.estimateTokenUsage(prompt, result);
+      const tokenUsage = this.resolveTokenUsage(prompt, result, observedUsage);
 
       // Record the usage asynchronously to avoid blocking the response
-      const sanitizedOptions = this.sanitizeOptions(options);
+      const sanitizedOptions = this.sanitizeOptions(baseOptions);
       this.recordUsageAsync({
         authorId: this.context.authorId,
         storyId: this.context.storyId,
         action: this.context.action,
-        aiModel: this.determineModel(options),
+        aiModel: this.determineModel(baseOptions),
         inputTokens: tokenUsage.inputTokens,
         outputTokens: tokenUsage.outputTokens,
         inputPromptJson: {
@@ -119,8 +141,9 @@ export class TextGenerationMiddleware implements ITextGenerationService {
    */
   private sanitizeOptions(options?: TextGenerationOptions): Record<string, unknown> {
     if (!options) return {};
-    const { mediaParts, ...rest } = options as any;
-    const sanitized: Record<string, unknown> = { ...rest };
+  const { mediaParts, ...rest } = options as any;
+  const sanitized: Record<string, unknown> = { ...rest };
+  delete sanitized.usageObserver;
     if (Array.isArray(mediaParts)) {
       sanitized.mediaParts = mediaParts.map((mp: any) => {
         const isString = typeof mp?.data === 'string';
@@ -174,6 +197,32 @@ export class TextGenerationMiddleware implements ITextGenerationService {
       inputTokens: Math.ceil(prompt.length / 4),
       outputTokens: Math.ceil(result.length / 4),
     };
+  }
+
+  private resolveTokenUsage(
+    prompt: string,
+    result: string,
+    observedUsage?: TextGenerationUsage,
+  ): {
+    inputTokens: number;
+    outputTokens: number;
+  } {
+    if (observedUsage) {
+      const inputTokens = observedUsage.inputTokens ?? Math.ceil(prompt.length / 4);
+      let outputTokens = observedUsage.outputTokens;
+
+      if (outputTokens == null && observedUsage.totalTokens != null) {
+        outputTokens = Math.max(observedUsage.totalTokens - (observedUsage.inputTokens ?? 0), 0);
+      }
+
+      if (outputTokens == null) {
+        outputTokens = Math.ceil(result.length / 4);
+      }
+
+      return { inputTokens, outputTokens };
+    }
+
+    return this.estimateTokenUsage(prompt, result);
   }
 
   /**
