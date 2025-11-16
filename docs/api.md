@@ -1,830 +1,177 @@
-# Story Generation Workflow - API Reference
+# API Reference
 
-## Overview
+Story Generation Workflow exposes a small, opinionated REST surface for Mythoria services. The spec in `docs/openapi.yaml` mirrors everything below.
 
-The Story Generation Workflow API provides comprehensive endpoints for AI-powered story creation, editing, and management. All endpoints support JSON requests and responses with consistent error handling and authentication.
-
-## Base URL
-
-- **Production**: `https://story-generation-workflow-803421888801.europe-west9.run.app`
-- **Development**: `http://localhost:3000`
+| Environment | Base URL |
+| --- | --- |
+| Production | `https://story-generation-workflow-803421888801.europe-west9.run.app` |
+| Local dev | `http://localhost:3000` |
 
 ## Authentication
 
-All API endpoints require JWT authentication in the Authorization header:
+- External routes (`/ai`, `/audio`, `/api/story-edit`, `/api/jobs`, `/ping*`) require `x-api-key: <STORY_GENERATION_WORKFLOW_API_KEY>`.
+- `/health`, `/`, `/debug/*`, `/internal/*`, and `/internal/print/*` are unauthenticated. Deploy behind VPC/Secure Web Proxy when exposed.
+- No OAuth/JWT support. Rotate keys through Secret Manager and redeploy Cloud Run.
 
-```http
-Authorization: Bearer <jwt_token>
-```
+## External APIs (protected)
 
-## Core Story API
+### AI text + media (`src/routes/ai.ts`)
 
-### Create Story
+| Endpoint | Description |
+| --- | --- |
+| `POST /ai/text/outline` | Generates outline, cover prompts, and character briefs from `storyId`/`runId`. Returns refined prompts for downstream image generation. |
+| `POST /ai/text/structure` | Turns user description plus optional media (`imageObjectPath`, `audioObjectPath`, base64) into structured story metadata and characters. |
+| `POST /ai/media/upload` | Accepts base64 + content type, stores in `storyId/inputs`, returns public URL. |
+| `POST /ai/media/story-image-upload` | Uploads user-supplied cover/back/chapter art, handling filename versioning (`*_v00n`). |
+| `POST /ai/text/chapter/{chapterNumber}` | Generates chapter prose given outline context, prior chapters, and chapter synopsis. |
+| `POST /ai/text/context/clear` | Clears the chat context for `<storyId>:<runId>` once workflows finish. |
+| `POST /ai/image` | Creates cover/back/chapter illustrations. Automatically retries via safety rewrite logic; `422` signals `blocked`. |
+| `GET /ai/test-text` | Smoke test for whichever provider `TEXT_PROVIDER` points to (Gemini/OpenAI). |
 
-Generate a new story with AI assistance.
-
-```http
-POST /api/stories
-```
-
-**Request Body:**
-
-```json
-{
-  "title": "The Adventure Begins",
-  "prompt": "A young explorer discovers an ancient map",
-  "genre": "adventure",
-  "style": "descriptive",
-  "chapters": 5,
-  "parameters": {
-    "tone": "optimistic",
-    "complexity": "intermediate",
-    "target_audience": "young_adult"
-  }
-}
-```
-
-**Response:**
+Sample image request:
 
 ```json
 {
-  "success": true,
-  "storyId": "uuid-string",
-  "status": "queued",
-  "estimatedCompletion": "2025-06-27T15:30:00Z",
-  "workflowId": "workflow-execution-id"
-}
-```
-
-### Get Story
-
-Retrieve a story by its ID.
-
-```http
-GET /api/stories/{storyId}
-```
-
-**Response:**
-
-```json
-{
-  "success": true,
-  "story": {
-    "id": "uuid-string",
-    "title": "The Adventure Begins",
-    "status": "completed",
-    "htmlContent": "<html>...</html>",
-    "metadata": {
-      "wordCount": 2500,
-      "chapters": 5,
-      "genre": "adventure",
-      "createdAt": "2025-06-27T14:00:00Z",
-      "completedAt": "2025-06-27T14:30:00Z"
-    },
-    "elements": [
-      {
-        "id": "element-uuid",
-        "type": "chapter",
-        "sequenceOrder": 1,
-        "content": "Chapter 1 content...",
-        "status": "completed"
-      }
-    ]
-  }
-}
-```
-
-### Update Story
-
-Update story details or trigger regeneration.
-
-```http
-PUT /api/stories/{storyId}
-```
-
-**Request Body:**
-
-```json
-{
-  "title": "Updated Title",
-  "regenerateChapter": 3,
-  "parameters": {
-    "style": "more_dramatic"
-  }
-}
-```
-
-### Delete Story
-
-Remove a story and all associated content.
-
-```http
-DELETE /api/stories/{storyId}
-```
-
-**Response:**
-
-```json
-{
-  "success": true,
-  "message": "Story deleted successfully"
-}
-```
-
-## Story Editing API
-
-### Edit Story
-
-Request AI-powered edits to existing published stories.
-
-```http
-POST /api/story-edit
-```
-
-**Request Body:**
-
-```json
-{
-  "storyId": "uuid-string",
-  "chapterNumber": 3,
-  "userRequest": "Make the dialogue more dramatic and add more suspense to the scene"
-}
-```
-
-**Response:**
-
-```json
-{
-  "success": true,
-  "storyId": "uuid-string",
-  "chapterNumber": 3,
-  "context": "Chapter 3",
-  "userRequest": "Make the dialogue more dramatic...",
-  "updatedHtml": "<html>...</html>",
-  "metadata": {
-    "originalLength": 1500,
-    "editedLength": 1620,
-    "htmlLength": 8940,
-    "timestamp": "2025-06-27T15:45:00Z"
-  }
-}
-```
-
-**Error Responses:**
-
-- `404`: Story not found
-- `400`: Invalid request parameters
-- `409`: Story is currently being processed
-- `422`: User request exceeds character limit (2000 chars)
-
-## AI Generation API
-
-### Generate Content
-
-Direct AI content generation endpoint.
-
-```http
-POST /api/ai/generate
-```
-
-**Request Body:**
-
-```json
-{
-  "type": "text|image|audio",
-  "provider": "vertex|openai|stability",
-  "prompt": "Generation prompt",
-  "parameters": {
-    "model": "gemini-2.0-flash",
-    "temperature": 0.7,
-    "max_tokens": 1000
-  }
-}
-```
-
-**Response:**
-
-```json
-{
-  "success": true,
-  "content": "Generated content or URL",
-  "metadata": {
-    "provider": "vertex",
-    "model": "gemini-2.0-flash",
-    "tokens_used": 150,
-    "cost": 0.002,
-    "generation_time": 2.3
-  }
-}
-```
-
-### AI Provider Status
-
-Check the status and capabilities of AI providers.
-
-```http
-GET /api/ai/providers
-```
-
-**Response:**
-
-```json
-{
-  "providers": {
-    "vertex": {
-      "status": "available",
-      "models": ["gemini-2.0-flash", "imagen-3.0"],
-      "capabilities": ["text", "image"],
-      "latency": 1.2,
-      "error_rate": 0.01
-    },
-    "openai": {
-      "status": "available",
-      "models": ["gpt-4", "dall-e-3", "tts-1"],
-      "capabilities": ["text", "image", "audio"],
-      "latency": 2.1,
-      "error_rate": 0.02
-    }
-  }
-}
-```
-
-### Generate Story Structure
-
-Generate a structured story with characters from user input (text, images, or audio).
-
-```http
-POST /ai/text/structure
-```
-
-**Request Body:**
-
-```json
-{
-  "storyId": "uuid-string",
-  "userDescription": "A young wizard discovers a magical book",
-  "characterIds": ["uuid-1", "uuid-2"],
-  "imageObjectPath": "optional-gs://bucket/path/to/image.png",
-  "audioObjectPath": "optional-gs://bucket/path/to/audio.wav",
-  "imageData": "optional-base64-image-data",
-  "audioData": "optional-base64-audio-data"
-}
-```
-
-**Parameters:**
-
-- **storyId** (required): UUID of the story to generate structure for
-- **userDescription** (optional): Text description of the story idea
-- **characterIds** (optional): Array of character UUIDs to include in the story generation. If not provided, no existing characters will be used
-- **imageObjectPath** (optional): Google Cloud Storage path to image (preferred over base64)
-- **audioObjectPath** (optional): Google Cloud Storage path to audio (preferred over base64)
-- **imageData** (optional): Base64-encoded image data (legacy, discouraged)
-- **audioData** (optional): Base64-encoded audio data (legacy, discouraged)
-
-**Response:**
-
-```json
-{
-  "success": true,
-  "story": {
-    "title": "The Magical Discovery",
-    "plotDescription": "A young wizard finds an ancient spellbook...",
-    "synopsis": "An epic adventure of magic and friendship",
-    "place": "The Enchanted Forest",
-    "additionalRequests": "Include scenes with magical creatures",
-    "targetAudience": "children_7-10",
-    "novelStyle": "fantasy",
-    "graphicalStyle": "digital_art",
-    "storyLanguage": "en-US"
-  },
-  "characters": [
-    {
-      "characterId": "uuid-1",
-      "name": "Luna the Wise",
-      "type": "girl",
-      "age": "school_age",
-      "traits": ["brave", "curious", "intelligent"],
-      "characteristics": "A thoughtful young wizard with...",
-      "physicalDescription": "Long brown hair, bright green eyes...",
-      "role": "protagonist"
-    }
-  ]
-}
-```
-
-**Error Responses:**
-
-- `400`: Missing required parameters or invalid input
-- `401`: Authentication required
-- `404`: Story not found or access denied
-- `500`: AI generation failed
-
-## Image Editing API
-
-### Edit Images (Async Jobs)
-
-AI-powered or direct replacement image editing. This endpoint creates an asynchronous job; poll the job status to obtain results.
-
-```http
-POST /api/jobs/image-edit
-```
-
-#### Modes
-
-1. Standard AI edit (existing behavior)
-2. AI edit with user reference image (guides the transformation)
-3. Direct replacement with user image (no AI call) using `useUserImage = true`
-
-#### Request Body (Base)
-
-```json
-{
-  "storyId": "uuid-string",
-  "imageUrl": "gs://mythoria-generated-stories/story123/frontcover_v001.jpg",
-  "imageType": "cover|backcover|chapter",
-  "userRequest": "Describe desired changes (required unless useUserImage=true)",
-  "graphicalStyle": "optional-style-id",
-  "chapterNumber": 2,
-  "userImageUri": "gs://mythoria-generated-stories/story123/inputs/reference1.jpg",
-  "useUserImage": false
-}
-```
-
-#### Parameter Details
-
-- `storyId` (required): Story UUID.
-- `imageUrl` (required): Existing story image URI (gs:// or https URL) to version from.
-- `imageType` (required): `cover`, `backcover`, or `chapter`.
-- `chapterNumber` (required when `imageType = chapter`).
-- `userRequest` (required unless `useUserImage = true`): Natural language description (1–2000 chars) of edits.
-- `graphicalStyle` (optional): Style key integrated into prompt.
-- `userImageUri` (optional): User-provided image (gs:// or https) used either as reference or as direct replacement source.
-- `useUserImage` (optional, default `false`): When `true`, performs a direct replacement (no AI) copying `userImageUri` into a new incremented version of the original image filename.
-
-Validation rules:
-
-- If `useUserImage = true`, `userImageUri` is mandatory and `userRequest` becomes optional.
-- If `useUserImage = false`, `userRequest` is mandatory.
-
-#### Behavior Summary
-
-| Scenario                                              | AI Used | New Filename      | Prompt Augmentation                                     |
-| ----------------------------------------------------- | ------- | ----------------- | ------------------------------------------------------- |
-| Standard edit (no `userImageUri`)                     | Yes     | version increment | Standard prompt with optional style                     |
-| Reference edit (`userImageUri`, `useUserImage=false`) | Yes     | version increment | Adds guidance to leverage reference image stylistically |
-| Direct replacement (`useUserImage=true`)              | No      | version increment | N/A (no AI call)                                        |
-
-#### Examples
-
-Standard AI Edit:
-
-```json
-{
-  "storyId": "a1b2c3",
-  "imageUrl": "gs://mythoria-generated-stories/a1b2c3/frontcover_v001.jpg",
-  "imageType": "cover",
-  "userRequest": "Add a dramatic sunset sky while keeping the characters intact"
-}
-```
-
-AI Edit With Reference Image:
-
-```json
-{
-  "storyId": "a1b2c3",
-  "imageUrl": "gs://mythoria-generated-stories/a1b2c3/chapter_2_v003.jpg",
+  "storyId": "c2f5...",
+  "runId": "f41b...",
   "imageType": "chapter",
-  "chapterNumber": 2,
-  "userRequest": "Make the forest denser and add mist",
-  "userImageUri": "gs://mythoria-generated-stories/a1b2c3/inputs/forest_reference.jpg"
+  "chapterNumber": 3,
+  "prompt": "Moonlit river with two siblings on a raft",
+  "graphicalStyle": "storybook"
 }
 ```
 
-Direct Replacement:
-
-```json
-{
-  "storyId": "a1b2c3",
-  "imageUrl": "gs://mythoria-generated-stories/a1b2c3/backcover_v001.jpg",
-  "imageType": "backcover",
-  "userImageUri": "gs://mythoria-generated-stories/a1b2c3/inputs/new_back_cover.jpg",
-  "useUserImage": true
-}
-```
-
-#### Response (Job Creation)
+Safety metadata surfaced on response:
 
 ```json
 {
   "success": true,
-  "jobId": "uuid-string",
-  "estimatedDuration": 90000,
-  "message": "Image editing job created successfully"
+  "image": { "filename": "..._v004.jpg", "url": "..." },
+  "promptRewriteApplied": true,
+  "originalPrompt": "...",
+  "rewrittenPrompt": "..."
 }
 ```
 
-Poll:
+If both rewrite and fallback fail, the error payload includes `promptRewriteAttempted`, `promptRewriteError`, `fallbackAttempted`, and `fallbackError` so workflows can mark the run as `blocked`.
 
-```http
-GET /api/jobs/{jobId}
-```
+### Audio (`src/routes/audio.ts`)
 
-On completion (AI or replacement):
+| Endpoint | Notes |
+| --- | --- |
+| `POST /audio/create-audiobook` | Triggers the `audiobook-generation` Cloud Workflow for a story (`voice` defaults to `coral`). |
+| `POST /audio/internal/audiobook/chapter` | Workflow callback for per-chapter TTS generation. Requires chapter HTML plus metadata flags (e.g., `isFirstChapter`). |
+| `POST /audio/internal/audiobook/finalize` | Aggregates stored chapter audio in GCS, updates story record with URLs. |
+
+Even though two endpoints live under `/audio/internal/*`, they still require the external API key because they share the `/audio` mount.
+
+### Story editing (`src/routes/story-edit.ts`)
+
+- `PATCH /api/story-edit/stories/{storyId}/chapters/{chapterNumber}`: Edits a single chapter per user instructions (1–2000 chars). Returns edited HTML and length metadata.
+- `PATCH /api/story-edit/stories/{storyId}/chapters`: Applies the same instruction to every stored chapter, returning a per-chapter result array. Failures on individual chapters are surfaced inside the response payload; HTTP status remains 200.
+
+### Async jobs (`src/routes/async-jobs.ts`)
+
+| Endpoint | Description |
+| --- | --- |
+| `POST /api/jobs/text-edit` | Enqueues a background job to edit one chapter (`scope: 'chapter'`) or an entire story (`scope: 'story'`). |
+| `POST /api/jobs/image-edit` | Creates an async image edit/replacement job. Supports `userImageUri` conversions and styled replacements (`convertToStyle`). |
+| `POST /api/jobs/translate-text` | Translates all chapters to `targetLocale`. Rejects if the locale matches the current story language. |
+| `GET /api/jobs/{jobId}` | Returns status, simulated progress, and optional result/error blob. |
+
+All job creation responses follow:
 
 ```json
 {
   "success": true,
-  "job": {
-    "id": "uuid",
-    "type": "image_edit",
-    "status": "completed",
-    "result": {
-      "success": true,
-      "storyId": "a1b2c3",
-      "imageType": "front_cover",
-      "newImageUrl": "https://storage.googleapis.com/mythoria-generated-stories/a1b2c3/frontcover_v002.jpg",
-      "metadata": {
-        "mode": "direct_replacement|ai_edit",
-        "originalUri": "gs://.../frontcover_v001.jpg",
-        "userImageUri": "gs://.../inputs/reference.jpg",
-        "filename": "a1b2c3/frontcover_v002.jpg",
-        "timestamp": "2025-09-06T10:15:00.123Z",
-        "userRequest": "Add a dramatic sunset sky..."
-      }
-    }
-  }
+  "jobId": "4a0f...",
+  "estimatedDuration": 90000
 }
 ```
 
-**Error Responses:**
+### Ping + diagnostics
 
-- `400`: Validation failure (e.g., `userImageUri` missing when `useUserImage=true`)
-- `404`: Story or image not found
-- `500`: Processing failure
+| Endpoint | Auth | Purpose |
+| --- | --- | --- |
+| `GET /ping` | API key | Lightweight liveness + version info. |
+| `POST /ping/pubsub-test` | API key | Simulates a Pub/Sub publish to validate connectivity. |
+| `POST /test/pubsub-ping` | API key | Echo endpoint used by the web app to test Pub/Sub round trips. |
+| `GET /health` | none | Aggregated database, storage, AI, and internet health checks. Returns 503 when any probe fails. |
+| `GET /` | none | Static banner (`message`, `version`, `environment`). |
 
-## Translation API
-
-### Translate Story (Async)
-
-Translate the entire story (all chapters) into a new locale. This preserves chapter HTML structure and translates chapter titles, synopsis, plot description, and the main story title. Dedication message is not translated. The story's `storyLanguage` is updated only if all chapter translations succeed.
-
-```http
-POST /api/jobs/translate-text
-```
-
-**Request Body:**
-
-```json
-{
-  "storyId": "uuid-string",
-  "targetLocale": "en-US | en-GB | pt-PT | pt-BR | es-ES | fr-FR | it-IT | de-DE | nl-NL | pl-PL"
-}
-```
-
-**Response:**
+Sample `/ping` output:
 
 ```json
 {
   "success": true,
-  "jobId": "uuid-string",
-  "estimatedDuration": 180000,
-  "message": "Translation job created successfully"
-}
-```
-
-Use `GET /api/jobs/{jobId}` to retrieve status and results.
-
-**Job Result (on completion):**
-
-```json
-{
-  "success": true,
-  "type": "full_story_translation",
-  "storyId": "uuid",
-  "targetLocale": "pt-PT",
-  "updatedChapters": [
-    {
-      "chapterNumber": 1,
-      "titleTranslated": "...",
-      "htmlLengthBefore": 1200,
-      "htmlLengthAfter": 1215
-    },
-    { "chapterNumber": 2, "error": "..." }
-  ],
-  "totalChapters": 6,
-  "successfulTranslations": 5,
-  "failedTranslations": 1,
-  "metadataUpdated": false,
-  "timestamp": "2025-08-19T12:00:00Z"
-}
-```
-
-**Validation & Errors:**
-
-- `400`: Target locale equals current story language
-- `404`: Story not found
-- `500`: Translation job creation failed
-
-## Text-to-Speech API
-
-### Generate Audio
-
-Convert text to high-quality speech.
-
-```http
-POST /api/tts/generate
-```
-
-**Request Body:**
-
-```json
-{
-  "text": "Once upon a time, in a land far away...",
-  "voice": "nova|alloy|echo|fable|onyx|shimmer",
-  "format": "mp3|wav|opus",
-  "speed": 1.0,
-  "chapterNumber": 1
-}
-```
-
-**Response:**
-
-```json
-{
-  "success": true,
-  "audioUrl": "https://storage.googleapis.com/bucket/audio.mp3",
-  "metadata": {
-    "duration": 45.2,
-    "voice": "nova",
-    "format": "mp3",
-    "size": 724800,
-    "provider": "openai"
-  }
-}
-```
-
-### Generate TTS for Story
-
-Generate audio narration for an entire story.
-
-```http
-POST /api/internal/tts/{runId}
-```
-
-**Response:**
-
-```json
-{
-  "success": true,
-  "runId": "story-run-123",
-  "result": {
-    "audioUrls": {
-      "1": "https://storage.googleapis.com/bucket/audio/chapter_1.mp3",
-      "2": "https://storage.googleapis.com/bucket/audio/chapter_2.mp3",
-      "3": "https://storage.googleapis.com/bucket/audio/chapter_3.mp3"
-    },
-    "totalDuration": 540,
-    "format": "mp3",
-    "provider": "openai",
-    "voice": "nova",
-    "metadata": {
-      "totalWords": 450,
-      "generatedAt": "2025-06-27T16:00:00.000Z",
-      "model": "tts-1",
-      "speed": 0.9
-    }
-  }
-}
-```
-
-### Voice Options
-
-Available voice options for TTS generation:
-
-| Voice     | Description                  | Best For                             |
-| --------- | ---------------------------- | ------------------------------------ |
-| `nova`    | Young and energetic          | Children's stories, adventure tales  |
-| `fable`   | British accent, storytelling | Fantasy, classic literature          |
-| `alloy`   | Neutral and balanced         | General purpose, educational content |
-| `onyx`    | Deep and dramatic            | Thrillers, dramatic narratives       |
-| `shimmer` | Bright and upbeat            | Comedy, light-hearted stories        |
-| `echo`    | Male, authoritative          | Documentary style, serious topics    |
-
-### Speed Options
-
-Configure narration speed:
-
-- `0.7` - Slower, suitable for younger children
-- `0.9` - Standard storytelling speed
-- `1.0` - Normal conversational speed
-- `1.2` - Faster pace for adults
-
-## Workflow Management API
-
-### Get Workflow Status
-
-Check the status of story generation workflows.
-
-```http
-GET /api/workflows/{workflowId}
-```
-
-**Response:**
-
-```json
-{
-  "success": true,
-  "workflow": {
-    "id": "workflow-execution-id",
-    "status": "running|completed|failed",
-    "progress": {
-      "current_step": "generate_chapters",
-      "total_steps": 5,
-      "completed_steps": 3,
-      "percentage": 60
-    },
-    "steps": [
-      {
-        "name": "create_outline",
-        "status": "completed",
-        "duration": 2.1,
-        "output": "Story outline generated"
-      },
-      {
-        "name": "generate_chapters",
-        "status": "running",
-        "progress": 75,
-        "estimated_completion": "2025-06-27T16:05:00Z"
-      }
-    ]
-  }
-}
-```
-
-### Cancel Workflow
-
-Stop a running workflow execution.
-
-```http
-DELETE /api/workflows/{workflowId}
-```
-
-**Response:**
-
-```json
-{
-  "success": true,
-  "message": "Workflow cancelled successfully",
-  "status": "cancelled"
-}
-```
-
-## Health and Monitoring
-
-### Health Check
-
-Service health and status endpoint.
-
-```http
-GET /api/health
-```
-
-**Response:**
-
-```json
-{
+  "service": "story-generation-workflow",
   "status": "healthy",
-  "timestamp": "2025-06-27T16:00:00Z",
-  "version": "0.1.0",
-  "services": {
-    "database": "healthy",
-    "ai_providers": "healthy",
-    "storage": "healthy",
-    "workflows": "healthy"
-  },
-  "metrics": {
-    "uptime": 86400,
-    "active_workflows": 5,
-    "total_stories": 1250
-  }
+  "version": "0.1.0"
 }
 ```
 
-### Service Metrics
+## Internal + print APIs (unauthenticated)
 
-Get detailed service performance metrics.
+Mounted via `/internal` without the API key middleware. Restrict ingress at the network layer.
 
-```http
-GET /api/metrics
-```
+| Endpoint | Method | Purpose |
+| --- | --- | --- |
+| `/internal/auth/status` | GET | Returns `apiKeyConfigured` metadata without leaking the secret. |
+| `/internal/runs/{runId}` | GET/PATCH | Fetch or update workflow run state (creates run on PATCH when `storyId` provided). |
+| `/internal/prompts/{runId}/{chapterNumber}` | GET | Retrieves stored chapter illustration prompt from outline step. |
+| `/internal/runs/{runId}/outline` | POST | Stores outline JSON and refreshes progress tracking. |
+| `/internal/runs/{runId}/chapter/{chapterNumber}` | POST | Persists generated chapter HTML and metadata. |
+| `/internal/prompts/{runId}/book-cover/{coverType}` | GET | Returns front/back cover prompt from outline. |
+| `/internal/runs/{runId}/image` | POST | Records generated image metadata and updates story/chapter URIs. |
+| `/internal/stories/{storyId}` | GET | Story metadata snapshot (title, language, feature flags). |
+| `/internal/stories/{storyId}/html` | GET | Raw chapter text (HTML stripped) for audiobook workflows. |
+| `/internal/audiobook/chapter` | POST | TTS generation without API key (used by Workflows). |
+| `/internal/audiobook/finalize` | POST | Marks audiobook completion and updates URIs. |
+| `/internal/stories/{storyId}/audiobook-status` | PATCH | Updates audiobook status (`generating`, `completed`, `failed`). |
 
-**Response:**
+### Print pipeline (`src/routes/print.ts`)
+
+`POST /internal/print/generate`
 
 ```json
 {
-  "performance": {
-    "average_response_time": 250,
-    "requests_per_minute": 45,
-    "error_rate": 0.02,
-    "active_connections": 12
-  },
-  "ai_usage": {
-    "total_tokens_today": 125000,
-    "cost_today": 12.5,
-    "provider_distribution": {
-      "vertex": 0.6,
-      "openai": 0.3,
-      "stability": 0.1
-    }
-  },
-  "stories": {
-    "completed_today": 23,
-    "average_generation_time": 180,
-    "queue_length": 3
-  }
+  "storyId": "c2f5...",
+  "workflowId": "print-run-001",
+  "generateCMYK": true
 }
 ```
 
-## Error Handling
+Returns storage URLs for RGB and CMYK PDFs (cover + interior). Ghostscript failures surface a `500` but partial uploads remain available in GCS.
 
-### Standard Error Response
+## Debug endpoints (unauthenticated)
 
-All endpoints return consistent error responses:
+- `GET /debug/image` — Returns provider diagnostics (`model`, `usedVertex`, `timingMs`). Append `?image=true` to embed the generated JPEG as base64.
+- `POST /debug/image` — Same metadata plus base64 image for a custom `prompt` in the JSON body.
+
+## Error + safety semantics
+
+All success payloads include `success: true`. Error payloads include `success: false`, `error`, and a `requestId` header for log correlation.
+
+| HTTP status | Typical cause |
+| --- | --- |
+| `400` | Validation failure (missing storyId, invalid locale, etc.). |
+| `401` | Missing or incorrect `x-api-key`. |
+| `404` | Story/job/run not found or not linked to the requester. |
+| `409` | Concurrent edits or conflicting workflow state. |
+| `422` | Safety systems blocked the prompt or request length exceeded limits. |
+| `429` | Upstream provider rate limits bubbled through the gateway. |
+| `500` | Unexpected exception; see Cloud Run logs filtered by `requestId`. |
+
+Safety-blocked image requests always include extra metadata:
 
 ```json
 {
   "success": false,
-  "error": {
-    "code": "STORY_NOT_FOUND",
-    "message": "The requested story could not be found",
-    "details": {
-      "storyId": "invalid-uuid",
-      "timestamp": "2025-06-27T16:00:00Z"
-    }
-  }
+  "error": "SAFETY_BLOCKED: ...",
+  "code": "IMAGE_SAFETY_BLOCKED",
+  "promptRewriteAttempted": true,
+  "fallbackAttempted": true
 }
 ```
 
-### Common Error Codes
-
-| Code                  | Description                     | HTTP Status |
-| --------------------- | ------------------------------- | ----------- |
-| `INVALID_REQUEST`     | Request validation failed       | 400         |
-| `UNAUTHORIZED`        | Authentication required         | 401         |
-| `FORBIDDEN`           | Insufficient permissions        | 403         |
-| `STORY_NOT_FOUND`     | Story does not exist            | 404         |
-| `CONFLICT`            | Resource conflict               | 409         |
-| `VALIDATION_ERROR`    | Input validation failed         | 422         |
-| `RATE_LIMITED`        | Too many requests               | 429         |
-| `INTERNAL_ERROR`      | Server error                    | 500         |
-| `SERVICE_UNAVAILABLE` | Service temporarily unavailable | 503         |
-
-## Rate Limiting
-
-- **Default Limit**: 100 requests per minute per user
-- **Burst Limit**: 200 requests in a 5-minute window
-- **Headers**: Rate limit information included in response headers
-
-```http
-X-RateLimit-Limit: 100
-X-RateLimit-Remaining: 95
-X-RateLimit-Reset: 1625097600
-```
-
-## Webhooks
-
-### Webhook Events
-
-Configure webhooks to receive notifications for story events:
-
-- `story.created` - New story initiated
-- `story.completed` - Story generation finished
-- `story.failed` - Story generation failed
-- `story.updated` - Story modified
-- `audio.generated` - Audio narration completed
-
-### Webhook Payload
-
-```json
-{
-  "event": "story.completed",
-  "timestamp": "2025-06-27T16:00:00Z",
-  "data": {
-    "storyId": "uuid-string",
-    "userId": "user-uuid",
-    "title": "The Adventure Begins",
-    "status": "completed",
-    "metadata": {
-      "wordCount": 2500,
-      "chapters": 5,
-      "generationTime": 180
-    }
-  }
-}
-```
-
----
-
-**API Version**: 1.0.0  
-**Last Updated**: June 27, 2025  
-**OpenAPI Specification**: Available at `/api/docs`
+Need schemas or examples? Use `docs/openapi.yaml` (regenerated 2025‑11‑16) as the source of truth for request/response contracts.

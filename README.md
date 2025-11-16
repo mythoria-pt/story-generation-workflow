@@ -1,62 +1,48 @@
 # Mythoria Story Generation Workflow
 
-Mythoria's Story Generation Workflow (SGW) service orchestrates narrative text, illustration, and narrated audio production for the platform. It runs on Google Cloud Run, coordinates Google Cloud Workflows, and exposes REST APIs consumed by Mythoria web properties and partner systems.
+Story Generation Workflow (SGW) orchestrates the AI pipeline that turns a request from Mythoria products into publishable prose, illustrations, audio, and print-ready assets. The service runs on Google Cloud Run, leans on Google Cloud Workflows for orchestration, and exposes locked-down HTTP routes that partner services call through API keys.
 
-## Mythoria Ecosystem Fit
+## Quick Start
 
-- **Mythoria WebApp** – initiates story runs, consumes generated assets, and renders real-time progress.
-- **Mythoria Admin** – manages authors, templates, moderation decisions, and manual overrides for generation runs.
-- **Story Generation Workflow** – this service; brokers AI calls, persists state, dispatches background jobs, and packages deliverables.
-- **Notification Engine** – triggers user notifications based on SGW lifecycle events (run updates, asset availability).
+- **Requirements**: Node.js 22+, pnpm or npm, PostgreSQL access shared with `mythoria-webapp`, Google Cloud credentials with permission to invoke Workflows and Storage, PowerShell (all local scripts are `.ps1`).
+- **Bootstrap**:
 
-## Key Capabilities
+```powershell
+pwsh -NoProfile -Command "npm install"
+pwsh -NoProfile -Command "cp .env.example .env"
+pwsh -NoProfile -Command "npm run env:validate"
+pwsh -NoProfile -Command "npm run dev"
+```
 
-- **End-to-end story orchestration** – outlines, chapter drafts, illustration prompts, final narration, and print-ready packaging.
-- **Provider-agnostic AI gateway** – Google GenAI and OpenAI support with runtime selection, guardrails, and token tracking.
-- **Workflow-driven coordination** – Google Cloud Workflows and Pub/Sub events manage long-running generation pipelines.
-- **Progress and quality telemetry** – run progress, token usage, retry counts, and error surfaces exposed to downstream consumers.
-- **Multi-modal output management** – handles storage for text, images, PDFs, audio masters, and localized assets.
-- **Operational safeguards** – API key enforcement, observability hooks, and graceful retry logic for transient failures.
+Point the webapp or integration tests at `http://localhost:3000` with the same `STORY_GENERATION_WORKFLOW_API_KEY` you load locally.
 
-## High-Level Architecture
+## Why This Service Exists
 
-- **Entry layer** – Express server (`src/index.ts`) with API-key middleware, health checks, and route grouping for AI, audio, print, async jobs, and internal utilities.
-- **Workflow handlers** – `src/workflows/handlers.ts` receives Cloud Workflow callbacks, prepares domain inputs, and invokes services.
-- **Domain services** – `src/services/` encapsulates story lifecycle management, run state transitions, prompt construction, TTS, storage, and progress tracking.
-- **AI gateway** – `src/ai/` abstracts provider APIs, enforces model limits, injects token tracking, and exposes fallbacks.
-- **Adapters & infrastructure** – `src/adapters/` wraps database access, Google Cloud clients, and storage operations via Drizzle ORM and SDK facades.
-- **Workers** – `src/workers/` hosts long-running processors for translation, image editing, and text refinements invoked from Workflows or async jobs.
-- **Shared domain logic** – `src/shared/` provides pure, dependency-free utilities, validators, and type definitions reused across services.
-- **Templates & assets** – `src/templates/` holds HTML layouts and CMYK resources for print-ready exports.
+- **Story lifecycle management** – Owns outlines, chapters, prompts, translations, TTS, and print packaging.
+- **Provider-agnostic AI gateway** – Hot-swappable integrations with Google GenAI and OpenAI plus token tracking, retries, and safety rewrites.
+- **Workflow coordination** – Cloud Workflows drives image/text/audio generation phases while this service persists state and surfaces progress.
+- **Operational guardrails** – API-key enforcement, audit-friendly token usage tables, structured logging, and CMYK conversion tooling for the print line.
 
-## Workflow Lifecycle
+## Architecture Snapshot
 
-1. **Trigger** – WebApp or Admin publishes a story request (Pub/Sub) and inserts run metadata in the shared PostgreSQL database.
-2. **Orchestration** – Google Cloud Workflow executes generation steps and invokes SGW HTTP handlers.
-3. **Narrative planning** – AI gateway produces outlines, character beats, and chapter descriptions using provider-specific prompts.
-4. **Content production** – Chapters, illustrations, and audio scripts are generated in parallel via AI providers; results are persisted and stored in Cloud Storage.
-5. **Quality gates** – Token usage, safety classifiers, and schema validators ensure outputs meet platform standards.
-6. **Packaging & delivery** – TTS voiceovers, PDFs, and localized assets are assembled; SGW emits run status updates for Notification Engine consumption.
+- `src/index.ts` wires Express, security middleware, graceful shutdown, and route registration.
+- `src/routes/` groups external APIs (`/ai`, `/audio`, `/api/story-edit`, `/api/jobs`, `/debug`) behind `apiKeyAuth`, plus internal and health routes.
+- `src/ai/` implements the multi-provider gateway, context preservation, and token accounting; providers live in `src/ai/providers/*`.
+- `src/services/` houses domain logic (stories, chapters, prompts, printers, retry helpers, notification dispatch).
+- `src/workflows/` mirrors Google Cloud Workflow handlers, while `workflows/*.yaml` defines orchestration logic executed in GCP.
+- `src/templates/` + Ghostscript produce RGB + CMYK PDFs; `src/services/tts.ts` handles audiobook generation via OpenAI TTS.
 
-## Data & Integrations
+See `docs/overview.md` for the end-to-end flow diagram and dependency map.
 
-- **Database** – Drizzle ORM models shared tables (`stories`, `runs`, `assets`, etc.) aligning with Mythoria's global schema.
-- **Storage** – Google Cloud Storage buckets store intermediate prompts, generated images, CMYK assets, and final deliverables.
-- **Secrets** – Google Secret Manager manages sensitive credentials referenced in Cloud Run deployments.
-- **Observability** – Winston logging, structured health checks, and Cloud Logging integration support tracing and alerting.
+## Documentation Map
 
-## Extensibility Principles
+- `docs/overview.md` – system narrative, workflow lifecycle, and component responsibilities.
+- `docs/development.md` – local environment, common scripts, database + workflow testing tips.
+- `docs/deployment.md` – Cloud Run + Workflows release checklist, IAM, and rollback guidance.
+- `docs/api.md` – external/internal route contract, authentication rules, and sample payloads.
+- `docs/ai.md` – provider strategy, prompt patterns, rewrite/safety flow, and retry matrix.
+- `docs/print.md` – print/C++YK stack, Ghostscript requirements, troubleshooting tree.
+- `docs/features.md` – product-level capability matrix for Mythoria stakeholders.
+- `docs/backlog.md` – clean-up and follow-up tasks that have not moved to GitHub issues yet.
 
-- Add new AI providers by extending `src/ai/providers/` and registering through the gateway without altering domain modules.
-- Introduce workflow steps via `docs/ARCHITECTURE.md`–aligned diagrams, new handlers in `src/workflows/`, and corresponding service methods.
-- Maintain pure functions in `src/shared/` (see `src/shared/AGENTS.md`) to keep business logic portable across services.
-- For new run states or notification hooks, update `src/services/progress-tracker.ts` and ensure downstream consumers handle the additions.
-
-## Further Reading
-
-- `AGENTS.md` – operational guide for automated code agents working in this repo.
-- `docs/ARCHITECTURE.md` – diagrams and deeper component relationships.
-- `docs/DEVELOPMENT.md` – local tooling, debugging flags, and contributor practices.
-- `docs/DEPLOYMENT.md` – Cloud Run build/deploy workflows and secret management.
-- `docs/TTS_IMPLEMENTATION.md` – narration pipeline details.
-- `docs/PROGRESS_TRACKING_IMPLEMENTATION.md` – run telemetry contract.
+For automation guidance refer to `AGENTS.md`; for route-level implementation details browse `src/routes/*.ts`.

@@ -1,16 +1,16 @@
 openapi: 3.1.0
 info:
   title: Story Generation Workflow API
-  version: 1.0.0
+  version: 2025.11.16
   description: |
-    Design-first specification for the Story Generation Workflow service. This document captures
-    the currently implemented Express route handlers and internal services that orchestrate story
-    creation, editing, media generation, audiobook production, and workflow coordination.
+    Regenerated on 2025-11-16 from the Express routers in `src/routes/*`. This document mirrors the
+    behavior described in `docs/api.md` and the Node.js services that orchestrate story creation,
+    editing, media generation, audiobook production, and workflow coordination.
 servers:
-  - url: https://story-generation-workflow.example.com
-    description: Production
-  - url: http://localhost:8080
-    description: Local development
+  - url: https://story-generation-workflow-803421888801.europe-west9.run.app
+    description: Production (Cloud Run)
+  - url: http://localhost:3000
+    description: Local development (npm run dev)
 security:
   - {}
 tags:
@@ -26,6 +26,8 @@ tags:
     description: Asynchronous job orchestration.
   - name: Internal
     description: Workflow coordination and internal automation callbacks.
+  - name: Print
+    description: Print asset generation and CMYK conversion workflows.
   - name: Debug
     description: Non-production debugging utilities.
   - name: Ping
@@ -1131,7 +1133,7 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
   /internal/print/generate:
     post:
-      tags: [Internal]
+      tags: [Print]
       summary: Generate print assets
       description: Invokes the print generation workflow handler for the specified story and workflow identifiers.
       requestBody:
@@ -1492,7 +1494,13 @@ components:
           format: uuid
         title:
           type: string
+        plotDescription:
+          type: string
         synopsis:
+          type: string
+        place:
+          type: string
+        additionalRequests:
           type: string
         targetAudience:
           type: string
@@ -1733,6 +1741,18 @@ components:
           nullable: true
         image:
           $ref: '#/components/schemas/ImageDescriptor'
+        promptRewriteApplied:
+          type: boolean
+          description: Indicates whether the prompt was rewritten after a safety block.
+        promptRewriteFallback:
+          type: boolean
+          description: True when the sanitized fallback prompt was required after rewrite failure.
+        originalPrompt:
+          type: string
+          description: Original user prompt (only returned when rewrite metadata is included).
+        rewrittenPrompt:
+          type: string
+          description: Rewritten prompt used for the successful generation.
       required:
         - success
         - storyId
@@ -1764,6 +1784,20 @@ components:
               type: array
               items:
                 type: string
+            diagnostics:
+              type: array
+              items:
+                type: string
+            promptRewriteAttempted:
+              type: boolean
+            promptRewriteError:
+              type: string
+            fallbackAttempted:
+              type: boolean
+            fallbackError:
+              type: string
+            fallbackPromptUsed:
+              type: boolean
     TestTextResponse:
       type: object
       properties:
