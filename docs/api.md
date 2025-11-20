@@ -2,10 +2,10 @@
 
 Story Generation Workflow exposes a small, opinionated REST surface for Mythoria services. The spec in `docs/openapi.yaml` mirrors everything below.
 
-| Environment | Base URL |
-| --- | --- |
-| Production | `https://story-generation-workflow-803421888801.europe-west9.run.app` |
-| Local dev | `http://localhost:3000` |
+| Environment | Base URL                                                              |
+| ----------- | --------------------------------------------------------------------- |
+| Production  | `https://story-generation-workflow-803421888801.europe-west9.run.app` |
+| Local dev   | `http://localhost:3000`                                               |
 
 ## Authentication
 
@@ -17,16 +17,16 @@ Story Generation Workflow exposes a small, opinionated REST surface for Mythoria
 
 ### AI text + media (`src/routes/ai.ts`)
 
-| Endpoint | Description |
-| --- | --- |
-| `POST /ai/text/outline` | Generates outline, cover prompts, and character briefs from `storyId`/`runId`. Returns refined prompts for downstream image generation. |
-| `POST /ai/text/structure` | Turns user description plus optional media (`imageObjectPath`, `audioObjectPath`, base64) into structured story metadata and characters. |
-| `POST /ai/media/upload` | Accepts base64 + content type, stores in `storyId/inputs`, returns public URL. |
-| `POST /ai/media/story-image-upload` | Uploads user-supplied cover/back/chapter art, handling filename versioning (`*_v00n`). |
-| `POST /ai/text/chapter/{chapterNumber}` | Generates chapter prose given outline context, prior chapters, and chapter synopsis. |
-| `POST /ai/text/context/clear` | Clears the chat context for `<storyId>:<runId>` once workflows finish. |
-| `POST /ai/image` | Creates cover/back/chapter illustrations. Automatically retries via safety rewrite logic; `422` signals `blocked`. |
-| `GET /ai/test-text` | Smoke test for whichever provider `TEXT_PROVIDER` points to (Gemini/OpenAI). |
+| Endpoint                                | Description                                                                                                                              |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /ai/text/outline`                 | Generates outline, cover prompts, and character briefs from `storyId`/`runId`. Returns refined prompts for downstream image generation.  |
+| `POST /ai/text/structure`               | Turns user description plus optional media (`imageObjectPath`, `audioObjectPath`, base64) into structured story metadata and characters. |
+| `POST /ai/media/upload`                 | Accepts base64 + content type, stores in `storyId/inputs`, returns public URL.                                                           |
+| `POST /ai/media/story-image-upload`     | Uploads user-supplied cover/back/chapter art, handling filename versioning (`*_v00n`).                                                   |
+| `POST /ai/text/chapter/{chapterNumber}` | Generates chapter prose given outline context, prior chapters, and chapter synopsis.                                                     |
+| `POST /ai/text/context/clear`           | Clears the chat context for `<storyId>:<runId>` once workflows finish.                                                                   |
+| `POST /ai/image`                        | Creates cover/back/chapter illustrations. Automatically retries via safety rewrite logic; `422` signals `blocked`.                       |
+| `GET /ai/test-text`                     | Smoke test for whichever provider `TEXT_PROVIDER` points to (Gemini/OpenAI).                                                             |
 
 Sample image request:
 
@@ -57,11 +57,11 @@ If both rewrite and fallback fail, the error payload includes `promptRewriteAtte
 
 ### Audio (`src/routes/audio.ts`)
 
-| Endpoint | Notes |
-| --- | --- |
-| `POST /audio/create-audiobook` | Triggers the `audiobook-generation` Cloud Workflow for a story (`voice` defaults to `coral`). |
-| `POST /audio/internal/audiobook/chapter` | Workflow callback for per-chapter TTS generation. Requires chapter HTML plus metadata flags (e.g., `isFirstChapter`). |
-| `POST /audio/internal/audiobook/finalize` | Aggregates stored chapter audio in GCS, updates story record with URLs. |
+| Endpoint                                  | Notes                                                                                                                 |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `POST /audio/create-audiobook`            | Triggers the `audiobook-generation` Cloud Workflow for a story (`voice` defaults to `coral`).                         |
+| `POST /audio/internal/audiobook/chapter`  | Workflow callback for per-chapter TTS generation. Requires chapter HTML plus metadata flags (e.g., `isFirstChapter`). |
+| `POST /audio/internal/audiobook/finalize` | Aggregates stored chapter audio in GCS, updates story record with URLs.                                               |
 
 Even though two endpoints live under `/audio/internal/*`, they still require the external API key because they share the `/audio` mount.
 
@@ -72,12 +72,12 @@ Even though two endpoints live under `/audio/internal/*`, they still require the
 
 ### Async jobs (`src/routes/async-jobs.ts`)
 
-| Endpoint | Description |
-| --- | --- |
-| `POST /api/jobs/text-edit` | Enqueues a background job to edit one chapter (`scope: 'chapter'`) or an entire story (`scope: 'story'`). |
-| `POST /api/jobs/image-edit` | Creates an async image edit/replacement job. Supports `userImageUri` conversions and styled replacements (`convertToStyle`). |
-| `POST /api/jobs/translate-text` | Translates all chapters to `targetLocale`. Rejects if the locale matches the current story language. |
-| `GET /api/jobs/{jobId}` | Returns status, simulated progress, and optional result/error blob. |
+| Endpoint                        | Description                                                                                                                  |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `POST /api/jobs/text-edit`      | Enqueues a background job to edit one chapter (`scope: 'chapter'`) or an entire story (`scope: 'story'`).                    |
+| `POST /api/jobs/image-edit`     | Creates an async image edit/replacement job. Supports `userImageUri` conversions and styled replacements (`convertToStyle`). |
+| `POST /api/jobs/translate-text` | Translates all chapters to `targetLocale`. Rejects if the locale matches the current story language.                         |
+| `GET /api/jobs/{jobId}`         | Returns status, simulated progress, and optional result/error blob.                                                          |
 
 All job creation responses follow:
 
@@ -91,13 +91,13 @@ All job creation responses follow:
 
 ### Ping + diagnostics
 
-| Endpoint | Auth | Purpose |
-| --- | --- | --- |
-| `GET /ping` | API key | Lightweight liveness + version info. |
-| `POST /ping/pubsub-test` | API key | Simulates a Pub/Sub publish to validate connectivity. |
-| `POST /test/pubsub-ping` | API key | Echo endpoint used by the web app to test Pub/Sub round trips. |
-| `GET /health` | none | Aggregated database, storage, AI, and internet health checks. Returns 503 when any probe fails. |
-| `GET /` | none | Static banner (`message`, `version`, `environment`). |
+| Endpoint                 | Auth    | Purpose                                                                                         |
+| ------------------------ | ------- | ----------------------------------------------------------------------------------------------- |
+| `GET /ping`              | API key | Lightweight liveness + version info.                                                            |
+| `POST /ping/pubsub-test` | API key | Simulates a Pub/Sub publish to validate connectivity.                                           |
+| `POST /test/pubsub-ping` | API key | Echo endpoint used by the web app to test Pub/Sub round trips.                                  |
+| `GET /health`            | none    | Aggregated database, storage, AI, and internet health checks. Returns 503 when any probe fails. |
+| `GET /`                  | none    | Static banner (`message`, `version`, `environment`).                                            |
 
 Sample `/ping` output:
 
@@ -114,24 +114,64 @@ Sample `/ping` output:
 
 Mounted via `/internal` without the API key middleware. Restrict ingress at the network layer.
 
-| Endpoint | Method | Purpose |
-| --- | --- | --- |
-| `/internal/auth/status` | GET | Returns `apiKeyConfigured` metadata without leaking the secret. |
-| `/internal/runs/{runId}` | GET/PATCH | Fetch or update workflow run state (creates run on PATCH when `storyId` provided). |
-| `/internal/prompts/{runId}/{chapterNumber}` | GET | Retrieves stored chapter illustration prompt from outline step. |
-| `/internal/runs/{runId}/outline` | POST | Stores outline JSON and refreshes progress tracking. |
-| `/internal/runs/{runId}/chapter/{chapterNumber}` | POST | Persists generated chapter HTML and metadata. |
-| `/internal/prompts/{runId}/book-cover/{coverType}` | GET | Returns front/back cover prompt from outline. |
-| `/internal/runs/{runId}/image` | POST | Records generated image metadata and updates story/chapter URIs. |
-| `/internal/stories/{storyId}` | GET | Story metadata snapshot (title, language, feature flags). |
-| `/internal/stories/{storyId}/html` | GET | Raw chapter text (HTML stripped) for audiobook workflows. |
-| `/internal/audiobook/chapter` | POST | TTS generation without API key (used by Workflows). |
-| `/internal/audiobook/finalize` | POST | Marks audiobook completion and updates URIs. |
-| `/internal/stories/{storyId}/audiobook-status` | PATCH | Updates audiobook status (`generating`, `completed`, `failed`). |
+| Endpoint                                           | Method    | Purpose                                                                            |
+| -------------------------------------------------- | --------- | ---------------------------------------------------------------------------------- |
+| `/internal/auth/status`                            | GET       | Returns `apiKeyConfigured` metadata without leaking the secret.                    |
+| `/internal/runs/{runId}`                           | GET/PATCH | Fetch or update workflow run state (creates run on PATCH when `storyId` provided). |
+| `/internal/prompts/{runId}/{chapterNumber}`        | GET       | Retrieves stored chapter illustration prompt from outline step.                    |
+| `/internal/runs/{runId}/outline`                   | POST      | Stores outline JSON and refreshes progress tracking.                               |
+| `/internal/runs/{runId}/chapter/{chapterNumber}`   | POST      | Persists generated chapter HTML and metadata.                                      |
+| `/internal/prompts/{runId}/book-cover/{coverType}` | GET       | Returns front/back cover prompt from outline.                                      |
+| `/internal/runs/{runId}/image`                     | POST      | Records generated image metadata and updates story/chapter URIs.                   |
+| `/internal/stories/{storyId}`                      | GET       | Story metadata snapshot (title, language, feature flags).                          |
+| `/internal/stories/{storyId}/html`                 | GET       | Raw chapter text (HTML stripped) for audiobook workflows.                          |
+| `/internal/audiobook/chapter`                      | POST      | TTS generation without API key (used by Workflows).                                |
+| `/internal/audiobook/finalize`                     | POST      | Marks audiobook completion and updates URIs.                                       |
+| `/internal/stories/{storyId}/audiobook-status`     | PATCH     | Updates audiobook status (`generating`, `completed`, `failed`).                    |
 
 ### Print pipeline (`src/routes/print.ts`)
 
-`POST /internal/print/generate`
+| Endpoint                                   | Auth    | Purpose                                                                                                                                                                                        |
+| ------------------------------------------ | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /print/self-service`                 | API key | Public entry point the web app calls when a user requests a downloadable PDF bundle. Creates/updates the workflow run, dedupes recipients, and triggers the `print-generation` Cloud Workflow. |
+| `POST /internal/print/generate`            | none    | Workflow callback that renders RGB + optional CMYK PDFs and uploads them to GCS.                                                                                                               |
+| `POST /internal/print/self-service/notify` | none    | Workflow callback that emails download instructions (and signed PDF links) via the Notification Engine.                                                                                        |
+
+#### `/print/self-service`
+
+```json
+{
+  "storyId": "a3b7ac64-7715-4d9f-9c27-2b649c1a6f1d",
+  "workflowId": "f233c186-3c19-4ee0-bd1b-132a775adbee", // optional; server auto-generates when omitted
+  "recipientEmail": "reader@example.com", // optional shortcut for single recipient
+  "recipients": [
+    // optional array with name/locale metadata
+    { "email": "reader@example.com", "name": "Avid Reader", "locale": "en-US" }
+  ],
+  "includeAuthorEmail": true, // defaults to true when authorEmail stored on story
+  "ccEmails": ["librarian@example.com"],
+  "locale": "en-US", // falls back to authorPreferredLocale or storyLanguage
+  "generateCMYK": true,
+  "metadata": { "requestSource": "webapp" }
+}
+```
+
+- At least one deliverable recipient is required. The service adds the author automatically (unless `includeAuthorEmail: false`) and dedupes on lowercase email.
+- The handler persists `delivery` metadata on the workflow run (`RunsService`) so follow-up hooks know whom to notify.
+- Response shape:
+
+```json
+{
+  "success": true,
+  "message": "Self-print workflow started",
+  "storyId": "...",
+  "workflowId": "...",
+  "executionId": "print-generation-123",
+  "recipients": ["reader@example.com", "author@example.com"]
+}
+```
+
+#### `/internal/print/generate`
 
 ```json
 {
@@ -143,6 +183,30 @@ Mounted via `/internal` without the API key middleware. Restrict ingress at the 
 
 Returns storage URLs for RGB and CMYK PDFs (cover + interior). Ghostscript failures surface a `500` but partial uploads remain available in GCS.
 
+#### `/internal/print/self-service/notify`
+
+Workflow passes the run metadata alongside the uploaded assets so the Notification Engine can reach every requested recipient.
+
+```json
+{
+  "storyId": "a3b7ac64-7715-4d9f-9c27-2b649c1a6f1d",
+  "runId": "f233c186-3c19-4ee0-bd1b-132a775adbee",
+  "delivery": {
+    "recipients": [{ "email": "reader@example.com", "name": "Avid Reader" }],
+    "locale": "en-US",
+    "metadata": { "serviceCode": "selfPrinting" }
+  },
+  "printResult": {
+    "interiorPdfUrl": "https://storage.googleapis.com/.../interior.pdf",
+    "coverPdfUrl": "https://storage.googleapis.com/.../cover.pdf",
+    "interiorCmykPdfUrl": "https://storage.googleapis.com/.../interior-cmyk.pdf",
+    "coverCmykPdfUrl": null
+  }
+}
+```
+
+If no recipients remain (e.g., metadata stripped), the endpoint returns `200` with `reason: "no_recipients"` and logs a warning; otherwise it forwards the payload to `sendStoryPrintInstructionsEmail` and surfaces whether the notification service accepted the request.
+
 ## Debug endpoints (unauthenticated)
 
 - `GET /debug/image` — Returns provider diagnostics (`model`, `usedVertex`, `timingMs`). Append `?image=true` to embed the generated JPEG as base64.
@@ -152,15 +216,15 @@ Returns storage URLs for RGB and CMYK PDFs (cover + interior). Ghostscript failu
 
 All success payloads include `success: true`. Error payloads include `success: false`, `error`, and a `requestId` header for log correlation.
 
-| HTTP status | Typical cause |
-| --- | --- |
-| `400` | Validation failure (missing storyId, invalid locale, etc.). |
-| `401` | Missing or incorrect `x-api-key`. |
-| `404` | Story/job/run not found or not linked to the requester. |
-| `409` | Concurrent edits or conflicting workflow state. |
-| `422` | Safety systems blocked the prompt or request length exceeded limits. |
-| `429` | Upstream provider rate limits bubbled through the gateway. |
-| `500` | Unexpected exception; see Cloud Run logs filtered by `requestId`. |
+| HTTP status | Typical cause                                                        |
+| ----------- | -------------------------------------------------------------------- |
+| `400`       | Validation failure (missing storyId, invalid locale, etc.).          |
+| `401`       | Missing or incorrect `x-api-key`.                                    |
+| `404`       | Story/job/run not found or not linked to the requester.              |
+| `409`       | Concurrent edits or conflicting workflow state.                      |
+| `422`       | Safety systems blocked the prompt or request length exceeded limits. |
+| `429`       | Upstream provider rate limits bubbled through the gateway.           |
+| `500`       | Unexpected exception; see Cloud Run logs filtered by `requestId`.    |
 
 Safety-blocked image requests always include extra metadata:
 

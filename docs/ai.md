@@ -4,12 +4,12 @@ This guide consolidates how Story Generation Workflow talks to Google GenAI and 
 
 ## Provider strategy
 
-| Concern | Implementation |
-| --- | --- |
+| Concern           | Implementation                                                                                                                                                                                                 |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Runtime selection | `TEXT_PROVIDER` and `IMAGE_PROVIDER` environment variables toggle Google GenAI or OpenAI at runtime. The AI gateway (`src/ai/gateway.ts`) lazily instantiates providers and injects token tracking middleware. |
-| Models in use | Text defaults to Gemini 2.5 Flash or GPT‑4.1 depending on provider; images stream through Imagen 4.0 Ultra or DALL·E 3; TTS leverages OpenAI voices (e.g., `coral`). |
-| Context + state | Prompt sessions are keyed by `<storyId>:<runId>`; `/ai/text/context/clear` must be called when workflows finish to avoid stale context bleed. |
-| Token telemetry | Each AI call records an entry in `token_usage_tracking` with `action` (`outline`, `chapter`, `image`, `prompt_rewrite`, etc.) so we can budget costs or debug spikes. |
+| Models in use     | Text defaults to Gemini 2.5 Flash or GPT‑4.1 depending on provider; images stream through Imagen 4.0 Ultra or DALL·E 3; TTS leverages OpenAI voices (e.g., `coral`).                                           |
+| Context + state   | Prompt sessions are keyed by `<storyId>:<runId>`; `/ai/text/context/clear` must be called when workflows finish to avoid stale context bleed.                                                                  |
+| Token telemetry   | Each AI call records an entry in `token_usage_tracking` with `action` (`outline`, `chapter`, `image`, `prompt_rewrite`, etc.) so we can budget costs or debug spikes.                                          |
 
 ## Prompt templates
 
@@ -52,12 +52,12 @@ IMAGE_COVER_HEIGHT=1536
 
 ## Safety + retry strategy
 
-| Layer | Behavior |
-| --- | --- |
-| Workflow retries | `workflows/story-generation.yaml` retries each image up to **3** times with a **60s** delay for transient HTTP 500/503/429/timeouts. Non-retryable errors (400s, auth) bubble immediately. |
-| Prompt rewrite | `/ai/image` traps 422 or `moderation_blocked` responses, runs `src/prompts/en-US/image-prompt-safety-rewrite.json` through Google GenAI, and retries once with the safer prompt. Metadata (`promptRewriteAttempted`, `rewrittenPrompt`) is returned so workflows can mark runs as `blocked` instead of `failed`. |
-| Status codes | 422 indicates a definitive safety block after rewrite; workflows set `story_generation_runs.status = 'blocked'`. Exhausted retries return 500 and mark runs `failed`. |
-| Token tagging | Prompt rewrites log `action = 'prompt_rewrite'`, model used, and token counts so we can monitor rewrite frequency. |
+| Layer            | Behavior                                                                                                                                                                                                                                                                                                         |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Workflow retries | `workflows/story-generation.yaml` retries each image up to **3** times with a **60s** delay for transient HTTP 500/503/429/timeouts. Non-retryable errors (400s, auth) bubble immediately.                                                                                                                       |
+| Prompt rewrite   | `/ai/image` traps 422 or `moderation_blocked` responses, runs `src/prompts/en-US/image-prompt-safety-rewrite.json` through Google GenAI, and retries once with the safer prompt. Metadata (`promptRewriteAttempted`, `rewrittenPrompt`) is returned so workflows can mark runs as `blocked` instead of `failed`. |
+| Status codes     | 422 indicates a definitive safety block after rewrite; workflows set `story_generation_runs.status = 'blocked'`. Exhausted retries return 500 and mark runs `failed`.                                                                                                                                            |
+| Token tagging    | Prompt rewrites log `action = 'prompt_rewrite'`, model used, and token counts so we can monitor rewrite frequency.                                                                                                                                                                                               |
 
 ### Monitoring & debugging
 

@@ -4,13 +4,13 @@ Use this guide when promoting Story Generation Workflow to Google Cloud Run and 
 
 ## Prerequisites
 
-| Item | Notes |
-| --- | --- |
-| Google Cloud project | `oceanic-beach-460916-n5`, region `europe-west9` |
-| Service account | `wf-story-gen-sa@oceanic-beach-460916-n5.iam.gserviceaccount.com` with `roles/run.admin`, `roles/workflows.invoker`, `roles/aiplatform.user`, `roles/storage.objectAdmin`, `roles/secretmanager.secretAccessor` |
-| Artifact Registry | `europe-west9-docker.pkg.dev/oceanic-beach-460916-n5/mythoria/story-generation-workflow` |
-| Required APIs | `run`, `workflows`, `cloudbuild`, `aiplatform`, `secretmanager`, `pubsub`, `eventarc`, `storage` |
-| Deployment machine | Docker, gcloud CLI, and PowerShell installed |
+| Item                 | Notes                                                                                                                                                                                                           |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Google Cloud project | `oceanic-beach-460916-n5`, region `europe-west9`                                                                                                                                                                |
+| Service account      | `wf-story-gen-sa@oceanic-beach-460916-n5.iam.gserviceaccount.com` with `roles/run.admin`, `roles/workflows.invoker`, `roles/aiplatform.user`, `roles/storage.objectAdmin`, `roles/secretmanager.secretAccessor` |
+| Artifact Registry    | `europe-west9-docker.pkg.dev/oceanic-beach-460916-n5/mythoria/story-generation-workflow`                                                                                                                        |
+| Required APIs        | `run`, `workflows`, `cloudbuild`, `aiplatform`, `secretmanager`, `pubsub`, `eventarc`, `storage`                                                                                                                |
+| Deployment machine   | Docker, gcloud CLI, and PowerShell installed                                                                                                                                                                    |
 
 ## Release workflow
 
@@ -24,24 +24,24 @@ pwsh -NoProfile -Command "npm run deploy"   # container + workflow
 
 ## Cloud Run configuration
 
-| Setting | Value |
-| --- | --- |
-| Service | `story-generation-workflow` |
-| Region | `europe-west9` |
-| Min/Max instances | 0 / auto |
-| CPU/Memory | 2 vCPU / 2 GiB (increase to 4 GiB when running heavy CMYK conversions) |
-| Env vars | `NODE_ENV=production`, `PORT=8080`, `GOOGLE_CLOUD_PROJECT_ID`, `GOOGLE_CLOUD_REGION`, `TEXT_PROVIDER`, `IMAGE_PROVIDER`, `STORY_GENERATION_WORKFLOW_API_KEY`, etc. |
-| Secrets | Map DB creds, storage bucket, AI keys, Ghostscript path via Secret Manager; never bake secrets into the image. |
+| Setting           | Value                                                                                                                                                              |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Service           | `story-generation-workflow`                                                                                                                                        |
+| Region            | `europe-west9`                                                                                                                                                     |
+| Min/Max instances | 0 / auto                                                                                                                                                           |
+| CPU/Memory        | 2 vCPU / 2 GiB (increase to 4 GiB when running heavy CMYK conversions)                                                                                             |
+| Env vars          | `NODE_ENV=production`, `PORT=8080`, `GOOGLE_CLOUD_PROJECT_ID`, `GOOGLE_CLOUD_REGION`, `TEXT_PROVIDER`, `IMAGE_PROVIDER`, `STORY_GENERATION_WORKFLOW_API_KEY`, etc. |
+| Secrets           | Map DB creds, storage bucket, AI keys, Ghostscript path via Secret Manager; never bake secrets into the image.                                                     |
 
 Recommended secret bindings:
 
-| Secret | Purpose |
-| --- | --- |
-| `mythoria-db-host/user/password` | Primary PostgreSQL connection |
-| `mythoria-workflows-db-*` | Workflow DB connection |
-| `mythoria-storage-bucket` | `STORAGE_BUCKET_NAME` |
-| `mythoria-genai-api-key`, `mythoria-openai-api-key` | AI providers |
-| `story-generation-api-key` | `STORY_GENERATION_WORKFLOW_API_KEY` |
+| Secret                                              | Purpose                             |
+| --------------------------------------------------- | ----------------------------------- |
+| `mythoria-db-host/user/password`                    | Primary PostgreSQL connection       |
+| `mythoria-workflows-db-*`                           | Workflow DB connection              |
+| `mythoria-storage-bucket`                           | `STORAGE_BUCKET_NAME`               |
+| `mythoria-genai-api-key`, `mythoria-openai-api-key` | AI providers                        |
+| `story-generation-api-key`                          | `STORY_GENERATION_WORKFLOW_API_KEY` |
 
 ## Workflows + Pub/Sub
 
@@ -93,11 +93,11 @@ Keep the last known-good container tag (e.g., `:2025-11-15`) so you can redeploy
 
 ## Troubleshooting quick answers
 
-| Symptom | Likely cause | Triage |
-| --- | --- | --- |
-| Workflow stuck on `generate_images` | Safety block returning 422 | Check Cloud Run logs for `promptRewriteAttempted`; ensure `GOOGLE_GENAI_API_KEY` valid |
-| Print step fails | Ghostscript missing / temp dir unwritable | Confirm `GHOSTSCRIPT_BINARY` env var and `TEMP_DIR` permissions |
-| `/audio/create-audiobook` 500 | Workflow permissions revoked | Reapply `roles/workflows.invoker` to service account |
-| API returns 401 | `x-api-key` mismatch | Confirm secret `story-generation-api-key` mount and header casing |
+| Symptom                             | Likely cause                              | Triage                                                                                 |
+| ----------------------------------- | ----------------------------------------- | -------------------------------------------------------------------------------------- |
+| Workflow stuck on `generate_images` | Safety block returning 422                | Check Cloud Run logs for `promptRewriteAttempted`; ensure `GOOGLE_GENAI_API_KEY` valid |
+| Print step fails                    | Ghostscript missing / temp dir unwritable | Confirm `GHOSTSCRIPT_BINARY` env var and `TEMP_DIR` permissions                        |
+| `/audio/create-audiobook` 500       | Workflow permissions revoked              | Reapply `roles/workflows.invoker` to service account                                   |
+| API returns 401                     | `x-api-key` mismatch                      | Confirm secret `story-generation-api-key` mount and header casing                      |
 
 Need deeper context? Pair this guide with `docs/overview.md` (what runs where) and `docs/ai.md` (retry + safety expectations) before touching Cloud Run settings.

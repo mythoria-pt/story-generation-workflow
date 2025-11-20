@@ -67,10 +67,7 @@ function refineImagePrompt(
   return style ? `${p} – ${style}` : p;
 }
 
-function buildSafeFallbackPrompt(
-  original: string,
-  opts: { styleHint?: string } = {},
-): string {
+function buildSafeFallbackPrompt(original: string, opts: { styleHint?: string } = {}): string {
   let prompt = original || '';
 
   // Generalize age/gender terms to be more neutral
@@ -834,9 +831,7 @@ router.post('/text/chapter/:chapterNumber', async (req, res) => {
 
           const summarize = (html: string) => {
             const plain = toPlainText(html);
-            const sentences = plain
-              .split(/(?<=[.!?])\s+/)
-              .filter((segment) => segment.length > 0);
+            const sentences = plain.split(/(?<=[.!?])\s+/).filter((segment) => segment.length > 0);
             const firstSentences = sentences.slice(0, 3).join(' ');
             if (firstSentences.length >= 120 && firstSentences.length <= 500) {
               return firstSentences;
@@ -872,9 +867,7 @@ router.post('/text/chapter/:chapterNumber', async (req, res) => {
             const sections: string[] = [];
 
             if (outlineOverview) {
-              sections.push(
-                `  <outline_overview>${outlineOverview}</outline_overview>`,
-              );
+              sections.push(`  <outline_overview>${outlineOverview}</outline_overview>`);
             }
 
             if (summaryEntries.length > 0) {
@@ -885,9 +878,11 @@ router.post('/text/chapter/:chapterNumber', async (req, res) => {
                 )
                 .join('\n');
               sections.push(
-                ['  <previous_chapter_summaries>', summaries, '  </previous_chapter_summaries>'].join(
-                  '\n',
-                ),
+                [
+                  '  <previous_chapter_summaries>',
+                  summaries,
+                  '  </previous_chapter_summaries>',
+                ].join('\n'),
               );
             }
 
@@ -1374,7 +1369,8 @@ router.post('/image', async (req, res) => {
       resp.providerFinishReasons = errorDetails.providerFinishReasons;
     if (errorDetails.suggestions) resp.suggestions = errorDetails.suggestions;
     if (promptRewriteAttempted) resp.promptRewriteAttempted = true;
-    if ((error as any)?.promptRewriteError) resp.promptRewriteError = (error as any).promptRewriteError;
+    if ((error as any)?.promptRewriteError)
+      resp.promptRewriteError = (error as any).promptRewriteError;
     if ((error as any)?.fallbackAttempted) resp.fallbackAttempted = true;
     if ((error as any)?.fallbackError) resp.fallbackError = (error as any).fallbackError;
     if (fallbackPromptUsed) resp.fallbackPromptUsed = true;

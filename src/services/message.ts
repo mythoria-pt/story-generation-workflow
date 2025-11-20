@@ -50,9 +50,12 @@ export class MessageService {
 
       return messages;
     } catch (error) {
-      logger.warn(`Failed to load messages for locale ${locale}, falling back to ${DEFAULT_LOCALE}`, {
-        error,
-      });
+      logger.warn(
+        `Failed to load messages for locale ${locale}, falling back to ${DEFAULT_LOCALE}`,
+        {
+          error,
+        },
+      );
 
       // Fallback to en-US
       if (locale !== DEFAULT_LOCALE) {

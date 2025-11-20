@@ -2,7 +2,7 @@
   "paperTypes": {
     "coated_120gsm": {
       "name": "120 g/m² Coated",
-      "caliper": 0.10,
+      "caliper": 0.1,
       "description": "Standard coated paper for color printing"
     },
     "uncoated_90gsm": {

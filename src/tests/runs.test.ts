@@ -60,6 +60,9 @@ describe('RunsService', () => {
   });
 
   it('updates run status transitions', async () => {
+    const getRunSpy = jest
+      .spyOn(service, 'getRun')
+      .mockResolvedValue({ runId: 'r1', storyId: 's1', metadata: {} } as any);
     const returningMock = jest
       .fn()
       .mockResolvedValue([{ runId: 'r1', status: 'running', currentStep: null }]);
@@ -75,6 +78,7 @@ describe('RunsService', () => {
     returningMock.mockResolvedValue([{ runId: 'r1', status: 'completed', currentStep: null }]);
     await service.updateRun('r1', { status: 'completed' });
     expect(setMock.mock.calls[1][0].endedAt).toBeDefined();
+    getRunSpy.mockRestore();
   });
 
   it('retrieves run and steps', async () => {

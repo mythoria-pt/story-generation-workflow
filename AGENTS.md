@@ -22,14 +22,14 @@ When you spin up another agent (or Copilot Workspace) paste the following facts 
 ## 3. Prompting Patterns for Agents
 
 - **Positive instructions**
-	- Ask clarifying questions when requirements conflict or data is missing (e.g., “Should audit logs include token usage?”).
-	- Mirror the repo’s conventions: two-space indentation, single quotes, named exports, no console logging outside tests.
-	- Prefer modifying existing modules over adding new packages; challenge requests to add dependencies unless clearly justified.
+  - Ask clarifying questions when requirements conflict or data is missing (e.g., “Should audit logs include token usage?”).
+  - Mirror the repo’s conventions: two-space indentation, single quotes, named exports, no console logging outside tests.
+  - Prefer modifying existing modules over adding new packages; challenge requests to add dependencies unless clearly justified.
 - **Negative instructions**
-	- Do not assume JWT auth, OAuth, or GraphQL exist here—they do not. Everything is API-key + REST.
-	- Avoid editing generated SQL in `drizzle/` manually; use migrations or sync scripts.
-	- Do not remove retry / safety guardrails unless explicitly asked; they are compliance requirements.
-	- Never emit secrets or production URLs beyond what is already in the repo.
+  - Do not assume JWT auth, OAuth, or GraphQL exist here—they do not. Everything is API-key + REST.
+  - Avoid editing generated SQL in `drizzle/` manually; use migrations or sync scripts.
+  - Do not remove retry / safety guardrails unless explicitly asked; they are compliance requirements.
+  - Never emit secrets or production URLs beyond what is already in the repo.
 
 ## 4. Runbooks (pick-and-go recipes)
 
@@ -73,13 +73,13 @@ pwsh -NoProfile -Command "npm run dev"
 
 ## 5. Quick Reference Tables
 
-| Area | File(s) | Notes |
-| --- | --- | --- |
-| Auth | `src/middleware/apiKeyAuth.ts` | Rejects every request without `x-api-key`; no bypass even in dev.
-| Workflows | `workflows/story-generation.yaml`, `workflows/audiobook-generation.yaml`, `workflows/print-generation.yaml` | YAML is the source of truth for orchestration; keep comments minimal.
-| AI Providers | `src/ai/providers/google-genai/*`, `src/ai/providers/openai/*` | Text + image share token tracking via `src/ai/token-tracking-middleware.ts`.
-| Prompt Templates | `src/prompts/images/*.json`, `src/prompts/en-US/*.json` | Conditional handlebars syntax; see `PromptService` for rendering rules.
-| Storage | `src/services/storage-singleton.ts`, `src/services/storage.ts` | Wraps Google Cloud Storage client; prefer singleton to avoid socket churn.
+| Area             | File(s)                                                                                                     | Notes                                                                        |
+| ---------------- | ----------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Auth             | `src/middleware/apiKeyAuth.ts`                                                                              | Rejects every request without `x-api-key`; no bypass even in dev.            |
+| Workflows        | `workflows/story-generation.yaml`, `workflows/audiobook-generation.yaml`, `workflows/print-generation.yaml` | YAML is the source of truth for orchestration; keep comments minimal.        |
+| AI Providers     | `src/ai/providers/google-genai/*`, `src/ai/providers/openai/*`                                              | Text + image share token tracking via `src/ai/token-tracking-middleware.ts`. |
+| Prompt Templates | `src/prompts/images/*.json`, `src/prompts/en-US/*.json`                                                     | Conditional handlebars syntax; see `PromptService` for rendering rules.      |
+| Storage          | `src/services/storage-singleton.ts`, `src/services/storage.ts`                                              | Wraps Google Cloud Storage client; prefer singleton to avoid socket churn.   |
 
 ## 6. Expectations for Contributions
 

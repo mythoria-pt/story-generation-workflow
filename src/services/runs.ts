@@ -89,6 +89,11 @@ export class RunsService {
    * Update a story generation run
    */ async updateRun(runId: string, updates: RunUpdate) {
     try {
+      const existingRun = await this.getRun(runId);
+      if (!existingRun) {
+        throw new Error(`Run not found: ${runId}`);
+      }
+
       const updateData: Partial<typeof storyGenerationRuns.$inferInsert> = {
         updatedAt: new Date().toISOString(),
       };
@@ -114,7 +119,14 @@ export class RunsService {
       }
 
       if (updates.metadata) {
-        updateData.metadata = updates.metadata;
+        const currentMetadata =
+          existingRun.metadata && typeof existingRun.metadata === 'object'
+            ? (existingRun.metadata as Record<string, unknown>)
+            : {};
+        updateData.metadata = {
+          ...currentMetadata,
+          ...updates.metadata,
+        };
       }
 
       const [updatedRun] = await this.db

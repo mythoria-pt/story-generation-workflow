@@ -9,15 +9,21 @@ SGW produces two PDF sets per story—RGB (screen) and CMYK (print-ready)—and 
 3. **Workflow** (`workflows/print-generation.yaml`) drives the request by hitting `POST /internal/print/generate`, then returns public URLs for RGB + CMYK assets.
 4. **Storage layout**: `{storyId}/print/interior.pdf`, `{storyId}/print/cover.pdf`, and matching `*-cmyk.pdf` outputs plus HTML debug files.
 
+### Self-print workflow hooks
+
+- `POST /print/self-service` receives requests from the web app, dedupes recipients (author auto-added when possible), and launches `print-generation`. Every accepted request logs `Self-print workflow enqueued` with `storyId`, `workflowId`, `executionId`, and the number of recipients to simplify refunds.
+- The workflow payload contains `delivery` metadata (locale, requestedBy, etc.) so `print-generation.yaml` can call `/internal/print/self-service/notify` after PDFs upload. That route attaches Cloud Storage URLs and emits `Self-print notification dispatched` logs carrying `storyId`, `runId`, `executionId`, and `sent` status.
+- `RunsService` persists `gcpWorkflowExecution` (Cloud Workflows execution id) allowing Notification Engine to echo the identifier back inside `metadata.workflowExecutionId` for observability dashboards.
+
 ## Configuration checklist
 
-| Item | Notes |
-| --- | --- |
-| Ghostscript | Install locally or bake into Docker; point `GHOSTSCRIPT_BINARY` to `gs` (Linux) or `gswin64c.exe` (Windows). |
-| Temp directory | `TEMP_DIR` defaults to system temp. Override (e.g., `/tmp/mythoria-print`) if the container needs a dedicated mount. |
-| ICC profiles | `npm run setup-icc-profiles` downloads CoatedFOGRA39, ISOcoated_v2_eci, etc. Production Docker builds copy files under `icc-profiles/` and reference `src/config/icc-profiles.json`. |
-| Paper config | `paper-caliper.json` defines trim size (170×240mm), bleed, safe zones, and caliper used for spine width math. |
-| Pub/Sub | Print jobs can be triggered by webapp orders via topic `mythoria-print-requests`, which in turn calls the workflow. |
+| Item           | Notes                                                                                                                                                                                |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Ghostscript    | Install locally or bake into Docker; point `GHOSTSCRIPT_BINARY` to `gs` (Linux) or `gswin64c.exe` (Windows).                                                                         |
+| Temp directory | `TEMP_DIR` defaults to system temp. Override (e.g., `/tmp/mythoria-print`) if the container needs a dedicated mount.                                                                 |
+| ICC profiles   | `npm run setup-icc-profiles` downloads CoatedFOGRA39, ISOcoated_v2_eci, etc. Production Docker builds copy files under `icc-profiles/` and reference `src/config/icc-profiles.json`. |
+| Paper config   | `paper-caliper.json` defines trim size (170×240mm), bleed, safe zones, and caliper used for spine width math.                                                                        |
+| Pub/Sub        | Print jobs can be triggered by webapp orders via topic `mythoria-print-requests`, which in turn calls the workflow.                                                                  |
 
 ## CMYK conversion specifics
 
@@ -44,12 +50,12 @@ SGW produces two PDF sets per story—RGB (screen) and CMYK (print-ready)—and 
 
 ## Testing & validation
 
-| Intent | Command |
-| --- | --- |
-| Verify Ghostscript presence | `pwsh -NoProfile -Command "npm run test:ghostscript"` |
-| Render sample PDFs & convert | `pwsh -NoProfile -Command "npm run test:cmyk"` |
-| Check ICC + Ghostscript health | `pwsh -NoProfile -Command "npm run cmyk:status"` |
-| Exercise API | Call `POST /internal/print/generate` with `generateCMYK: true` while running `npm run dev`. |
+| Intent                         | Command                                                                                     |
+| ------------------------------ | ------------------------------------------------------------------------------------------- |
+| Verify Ghostscript presence    | `pwsh -NoProfile -Command "npm run test:ghostscript"`                                       |
+| Render sample PDFs & convert   | `pwsh -NoProfile -Command "npm run test:cmyk"`                                              |
+| Check ICC + Ghostscript health | `pwsh -NoProfile -Command "npm run cmyk:status"`                                            |
+| Exercise API                   | Call `POST /internal/print/generate` with `generateCMYK: true` while running `npm run dev`. |
 
 ### Deployment tips
 
@@ -59,12 +65,12 @@ SGW produces two PDF sets per story—RGB (screen) and CMYK (print-ready)—and 
 
 ## Troubleshooting
 
-| Symptom | Likely cause | Fix |
-| --- | --- | --- |
-| `Command failed: gswin64c.exe ...` | Ghostscript missing, wrong path, or placeholder ICC treated as real | Install Ghostscript, update `GHOSTSCRIPT_BINARY`, or rerun `npm run setup-icc-profiles`. Placeholder files are auto-detected but confirm file size >100 KB. |
-| `Using built-in CMYK conversion` log in prod | ICC not bundled into image | Ensure Docker build copies `icc-profiles/` and `src/config/icc-profiles.json` points to valid filenames. |
-| Temp-file permission errors | `TEMP_DIR` unwritable inside container | Set `TEMP_DIR=/tmp/mythoria-print` and ensure the Cloud Run service account can write there. |
-| Cover alignment issues | Paper caliper or trim settings mismatched to provider spec | Adjust `src/config/paper-caliper.json` and redeploy; confirm bleed = 3 mm and safe zone 10 mm per current assumptions. |
+| Symptom                                      | Likely cause                                                        | Fix                                                                                                                                                         |
+| -------------------------------------------- | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Command failed: gswin64c.exe ...`           | Ghostscript missing, wrong path, or placeholder ICC treated as real | Install Ghostscript, update `GHOSTSCRIPT_BINARY`, or rerun `npm run setup-icc-profiles`. Placeholder files are auto-detected but confirm file size >100 KB. |
+| `Using built-in CMYK conversion` log in prod | ICC not bundled into image                                          | Ensure Docker build copies `icc-profiles/` and `src/config/icc-profiles.json` points to valid filenames.                                                    |
+| Temp-file permission errors                  | `TEMP_DIR` unwritable inside container                              | Set `TEMP_DIR=/tmp/mythoria-print` and ensure the Cloud Run service account can write there.                                                                |
+| Cover alignment issues                       | Paper caliper or trim settings mismatched to provider spec          | Adjust `src/config/paper-caliper.json` and redeploy; confirm bleed = 3 mm and safe zone 10 mm per current assumptions.                                      |
 
 ## Reference outputs
 

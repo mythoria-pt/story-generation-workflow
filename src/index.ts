@@ -64,7 +64,7 @@ import { aiRouter } from './routes/ai.js';
 import { internalRouter } from './routes/internal.js';
 import { storyEditRouter } from './routes/story-edit.js';
 import { audioRouter } from './routes/audio.js';
-import { printRouter } from './routes/print.js';
+import { printRouter, internalPrintRouter } from './routes/print.js';
 import { pingRouter } from './routes/ping.js';
 import { asyncJobRouter } from './routes/async-jobs.js';
 import { getAIGateway } from '@/ai/gateway-singleton.js';
@@ -82,7 +82,8 @@ app.use('/debug', debugImageRouter);
 app.use('/ai', apiKeyAuth, aiRouter);
 app.use('/audio', apiKeyAuth, audioRouter);
 app.use('/internal', internalRouter); // keep internal open or handle separately
-app.use('/internal/print', printRouter);
+app.use('/print', apiKeyAuth, printRouter);
+app.use('/internal/print', internalPrintRouter);
 app.use('/api/story-edit', apiKeyAuth, storyEditRouter);
 app.use('/api/jobs', apiKeyAuth, asyncJobRouter);
 app.use('/', apiKeyAuth, pingRouter); // ping/test endpoints protected as well

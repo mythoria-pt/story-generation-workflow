@@ -573,7 +573,7 @@ export class GoogleGenAITextService implements ITextGenerationService {
           }
         }
       }
-      if (!textContent && typeof (raw?.response?.text) === 'string' && raw.response.text.length > 0) {
+      if (!textContent && typeof raw?.response?.text === 'string' && raw.response.text.length > 0) {
         textContent = raw.response.text;
       }
       if (!textContent) {
@@ -605,7 +605,8 @@ export class GoogleGenAITextService implements ITextGenerationService {
         if (usageMetadata && options?.usageObserver) {
           const inputTokens = usageMetadata.promptTokenCount;
           const totalTokens = usageMetadata.totalTokenCount;
-          const outputTokens = usageMetadata.candidatesTokenCount ??
+          const outputTokens =
+            usageMetadata.candidatesTokenCount ??
             (typeof totalTokens === 'number' && typeof inputTokens === 'number'
               ? Math.max(totalTokens - inputTokens, 0)
               : undefined);

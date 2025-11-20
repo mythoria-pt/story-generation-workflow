@@ -144,4 +144,3 @@ export function extractErrorMetadata(error: unknown): {
 
   return metadata;
 }
-

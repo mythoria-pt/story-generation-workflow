@@ -29,6 +29,10 @@ export interface ProgressCalculation {
 export class ProgressTrackerService {
   private runsService: RunsService;
   private storyService: StoryService;
+  private readonly notificationExclusionServiceCodes = new Set([
+    'selfPrinting',
+    'printGeneration',
+  ]);
 
   // Base workflow steps with estimated times
   private readonly baseWorkflowSteps: WorkflowStep[] = [
@@ -318,7 +322,7 @@ export class ProgressTrackerService {
 
           // If the run is completed, update story status to published
           if (run.status === 'completed') {
-            logger.info('Story run completed, updating status to published and dispatching email', {
+            logger.info('Story run completed, updating status to published and evaluating email guard', {
               runId,
               storyId: run.storyId,
               finalPercentage,
@@ -326,13 +330,21 @@ export class ProgressTrackerService {
 
             await this.storyService.updateStoryStatus(run.storyId, 'published');
 
-            // Fire-and-forget story-created email (non-blocking)
-            void this.dispatchStoryCreatedEmail(run.storyId).catch((err) => {
-              logger.error('Failed dispatching story-created email', {
-                storyId: run.storyId,
-                error: err instanceof Error ? err.message : String(err),
+            if (this.shouldDispatchStoryCreatedEmail(run.metadata)) {
+              // Fire-and-forget story-created email (non-blocking)
+              void this.dispatchStoryCreatedEmail(run.storyId).catch((err) => {
+                logger.error('Failed dispatching story-created email', {
+                  storyId: run.storyId,
+                  error: err instanceof Error ? err.message : String(err),
+                });
               });
-            });
+            } else {
+              logger.info('Skipping story-created email for non-story-generation run', {
+                runId,
+                storyId: run.storyId,
+                serviceCode: this.extractServiceCode(run.metadata),
+              });
+            }
           }
           logger.info('Story progress updated', {
             runId,
@@ -399,6 +411,7 @@ export class ProgressTrackerService {
     });
 
     const sent = await sendStoryCreatedEmail({
+      storyId,
       templateId: 'story-created',
       recipients: [{ email: story.authorEmail, name: story.author, language }],
       variables,
@@ -475,5 +488,41 @@ export class ProgressTrackerService {
       });
       return 0;
     }
+  }
+
+  private shouldDispatchStoryCreatedEmail(metadata: unknown): boolean {
+    const serviceCode = this.extractServiceCode(metadata);
+    if (!serviceCode) {
+      return true;
+    }
+
+    // Only send story-created emails for the core story generation workflow.
+    return !this.notificationExclusionServiceCodes.has(serviceCode);
+  }
+
+  private extractServiceCode(metadata: unknown): string | undefined {
+    if (!metadata || typeof metadata !== 'object') {
+      return undefined;
+    }
+
+    const root = metadata as Record<string, unknown>;
+    if (typeof root.serviceCode === 'string' && root.serviceCode.trim().length > 0) {
+      return root.serviceCode;
+    }
+
+    const delivery = root.delivery;
+    if (delivery && typeof delivery === 'object') {
+      const deliveryMetadata = (delivery as Record<string, unknown>).metadata;
+      if (
+        deliveryMetadata &&
+        typeof deliveryMetadata === 'object' &&
+        typeof (deliveryMetadata as Record<string, unknown>).serviceCode === 'string'
+      ) {
+        const code = (deliveryMetadata as Record<string, unknown>).serviceCode as string;
+        return code.trim().length > 0 ? code : undefined;
+      }
+    }
+
+    return undefined;
   }
 }

@@ -141,9 +141,9 @@ export class TextGenerationMiddleware implements ITextGenerationService {
    */
   private sanitizeOptions(options?: TextGenerationOptions): Record<string, unknown> {
     if (!options) return {};
-  const { mediaParts, ...rest } = options as any;
-  const sanitized: Record<string, unknown> = { ...rest };
-  delete sanitized.usageObserver;
+    const { mediaParts, ...rest } = options as any;
+    const sanitized: Record<string, unknown> = { ...rest };
+    delete sanitized.usageObserver;
     if (Array.isArray(mediaParts)) {
       sanitized.mediaParts = mediaParts.map((mp: any) => {
         const isString = typeof mp?.data === 'string';

@@ -21,6 +21,7 @@ main:
           - runId: ${payload.runId}
           - baseUrl: 'https://story-generation-workflow-803421888801.europe-west9.run.app'
           - now: ${time.format(sys.now())}
+          - initiatedBy: ${payload.initiatedBy ? payload.initiatedBy : 'selfService'}
 
     # ───────────────────────────────────────────────
     # 1-N. Print pipeline wrapped in one try/except
@@ -54,7 +55,22 @@ main:
                     generateCMYK: true
                 result: printResult
 
-            # 3. Mark run → completed
+            # 3. Notify self-print customers (best-effort)
+            - notifySelfPrintCustomers:
+                call: http.request
+                args:
+                  url: ${baseUrl + "/internal/print/self-service/notify"}
+                  method: POST
+                  auth: { type: OIDC }
+                  body:
+                    storyId: ${storyId}
+                    runId: ${runId}
+                    delivery: ${payload.delivery}
+                    initiatedBy: ${initiatedBy}
+                    printResult: ${printResult.body}
+                result: notificationResult
+
+            # 4. Mark run → completed
             - markRunCompleted:
                 call: http.request
                 args:

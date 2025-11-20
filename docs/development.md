@@ -1,4 +1,5 @@
 type WorkflowStep = 'outline' | 'chapters' | 'images';
+
 # Development Guide
 
 ## Prerequisites
@@ -21,14 +22,14 @@ Config loader order: `.env.local` → `.env` for dev, `.env.test` via `src/tests
 
 ## Everyday commands
 
-| Intent | Command |
-| --- | --- |
-| Type checking | `pwsh -NoProfile -Command "npm run typecheck"` |
-| Formatting | `pwsh -NoProfile -Command "npm run format"` (add `:fix` to apply) |
-| Linting | `pwsh -NoProfile -Command "npm run lint"` |
-| Unit tests | `pwsh -NoProfile -Command "npm test"` (watch: `npm run test:watch`) |
-| Dev server | `pwsh -NoProfile -Command "npm run dev"` |
-| Build | `pwsh -NoProfile -Command "npm run build"` |
+| Intent        | Command                                                             |
+| ------------- | ------------------------------------------------------------------- |
+| Type checking | `pwsh -NoProfile -Command "npm run typecheck"`                      |
+| Formatting    | `pwsh -NoProfile -Command "npm run format"` (add `:fix` to apply)   |
+| Linting       | `pwsh -NoProfile -Command "npm run lint"`                           |
+| Unit tests    | `pwsh -NoProfile -Command "npm test"` (watch: `npm run test:watch`) |
+| Dev server    | `pwsh -NoProfile -Command "npm run dev"`                            |
+| Build         | `pwsh -NoProfile -Command "npm run build"`                          |
 
 All commands run through `npm run` wrappers so they pick up the repo’s tsconfig + path aliasing.
 
@@ -83,4 +84,7 @@ All commands run through `npm run` wrappers so they pick up the repo’s tsconfi
 
 - Cross-check desired behavior in `docs/overview.md` + `docs/ai.md`.
 - If instructions contradict, ask for clarification before coding and capture the answer in the relevant doc or `AGENTS.md`.
+
 ```bash
+
+```

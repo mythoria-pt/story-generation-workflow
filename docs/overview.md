@@ -24,16 +24,16 @@ Key services:
 
 ## Tech Stack
 
-| Layer | Details |
-| --- | --- |
-| Runtime & Language | Node.js 22+, TypeScript (ESM, path aliases via `tsconfig.json`) |
-| Web framework | Express with API-key auth middleware, no session/JWT support |
-| Databases | PostgreSQL (story data via `drizzle/`), PostgreSQL workflows DB (`drizzle-workflows/`) |
-| Orchestration | Google Cloud Workflows triggered from Pub/Sub topics |
-| Storage | Google Cloud Storage buckets per story for HTML, images, PDFs, audio |
-| AI Providers | Google GenAI (Gemini, Imagen) and OpenAI (GPT-4.x, DALL·E, TTS) behind the AI gateway |
-| Print stack | Puppeteer HTML→PDF rendering, Ghostscript + ICC profiles for CMYK conversion |
-| Observability | Structured JSON logging (`src/config/logger.ts`), Cloud Logging, token usage telemetry |
+| Layer              | Details                                                                                |
+| ------------------ | -------------------------------------------------------------------------------------- |
+| Runtime & Language | Node.js 22+, TypeScript (ESM, path aliases via `tsconfig.json`)                        |
+| Web framework      | Express with API-key auth middleware, no session/JWT support                           |
+| Databases          | PostgreSQL (story data via `drizzle/`), PostgreSQL workflows DB (`drizzle-workflows/`) |
+| Orchestration      | Google Cloud Workflows triggered from Pub/Sub topics                                   |
+| Storage            | Google Cloud Storage buckets per story for HTML, images, PDFs, audio                   |
+| AI Providers       | Google GenAI (Gemini, Imagen) and OpenAI (GPT-4.x, DALL·E, TTS) behind the AI gateway  |
+| Print stack        | Puppeteer HTML→PDF rendering, Ghostscript + ICC profiles for CMYK conversion           |
+| Observability      | Structured JSON logging (`src/config/logger.ts`), Cloud Logging, token usage telemetry |
 
 ## Core Capabilities
 
@@ -55,14 +55,14 @@ Key services:
 
 ## Data & Integrations
 
-| Concern | Location | Notes |
-| --- | --- | --- |
-| Primary DB | `drizzle/` schema, accessed via `src/db/*` | Shared with `mythoria-webapp`; keep migrations in sync.
-| Workflow DB | `drizzle-workflows/` | Tracks workflow executions, token usage, retries.
-| Storage | `src/services/storage.ts` | Buckets contain text snapshots, prompts, HTML, RGB+CMYK PDFs, audio masters.
-| Secrets | Google Secret Manager + `.env` | See `docs/deployment.md` for binding each secret into Cloud Run.
-| Logging | `src/config/logger.ts` | JSON logs stream to Cloud Logging; `npm run logs[:tail]` wraps queries.
-| Notifications | `src/services/notifications.ts` (if enabled) | Outbound requests keyed by `NOTIFICATION_ENGINE_URL` / `API_KEY`.
+| Concern       | Location                                     | Notes                                                                        |
+| ------------- | -------------------------------------------- | ---------------------------------------------------------------------------- |
+| Primary DB    | `drizzle/` schema, accessed via `src/db/*`   | Shared with `mythoria-webapp`; keep migrations in sync.                      |
+| Workflow DB   | `drizzle-workflows/`                         | Tracks workflow executions, token usage, retries.                            |
+| Storage       | `src/services/storage.ts`                    | Buckets contain text snapshots, prompts, HTML, RGB+CMYK PDFs, audio masters. |
+| Secrets       | Google Secret Manager + `.env`               | See `docs/deployment.md` for binding each secret into Cloud Run.             |
+| Logging       | `src/config/logger.ts`                       | JSON logs stream to Cloud Logging; `npm run logs[:tail]` wraps queries.      |
+| Notifications | `src/services/notifications.ts` (if enabled) | Outbound requests keyed by `NOTIFICATION_ENGINE_URL` / `API_KEY`.            |
 
 ## Resiliency Highlights
 
