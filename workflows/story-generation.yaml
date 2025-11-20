@@ -168,7 +168,7 @@ main:
                             - checkFrontCoverAlreadySuccessful:
                                 switch:
                                   - condition: ${frontCoverSuccess}
-                                    next: continue
+                                    next: break
                             - tryFrontCoverGeneration:
                                 try:
                                   steps:
@@ -196,15 +196,6 @@ main:
                                     - saveFrontCoverError:
                                         assign:
                                           - frontCoverLastError: ${frontCoverAttemptError}
-                                    - checkFrontCoverErrorType:
-                                        switch:
-                                          # Safety block (422) - mark as blocked and exit
-                                          - condition: ${frontCoverAttemptError.code == 422}
-                                            raise: ${frontCoverAttemptError}
-                                          # Last attempt - fail
-                                          - condition: ${attempt >= frontCoverMaxAttempts}
-                                            raise: ${frontCoverAttemptError}
-                                          # Retryable error - log and continue to delay
                                     - logFrontCoverRetry:
                                         call: sys.log
                                         args:
@@ -215,51 +206,47 @@ main:
                                         args:
                                           seconds: ${frontCoverRetryDelay}
 
-                    # Check if we succeeded after the loop
-                    - checkFrontCoverSuccess:
-                        switch:
-                          - condition: ${not(frontCoverSuccess)}
-                            raise: ${frontCoverLastError}
                 except:
                   as: frontCoverError
                   steps:
-                    - decideFrontCoverBlocked:
-                        switch:
-                          - condition: ${frontCoverError.code == 422}
-                            next: markRunBlockedFrontCover
-                    - rethrowFrontCoverError:
-                        raise: ${frontCoverError}
-                    - markRunBlockedFrontCover:
-                        call: http.request
+                    - logFrontCoverFailure:
+                        call: sys.log
                         args:
-                          url: ${baseUrl + "/internal/runs/" + runId}
-                          method: PATCH
-                          auth: { type: OIDC }
-                          body:
-                            status: 'blocked'
-                            currentStep: 'blocked'
-                            errorMessage: ${frontCoverError.message}
-                            endedAt: ${time.format(sys.now())}
-                    - returnBlockedFrontCover:
-                        return:
-                          storyId: ${storyId}
-                          runId: ${runId}
-                          status: 'blocked'
-                          reason: 'safety_blocked_front_cover'
+                          severity: WARNING
+                          text: '${"Front cover generation failed after retries: " + frontCoverError.message}'
+                    - flagFrontCoverFailure:
+                        assign:
+                          - frontCoverFailureReason: ${frontCoverError.message}
+                          - frontCoverFailureCode: ${frontCoverError.code}
 
-            - storeFrontCoverResult:
-                call: http.request
-                args:
-                  url: ${baseUrl + "/internal/runs/" + runId + "/image"}
-                  method: POST
-                  auth: { type: OIDC }
-                  body:
-                    imageType: 'front_cover'
-                    imageUrl: ${frontCoverResp.body.image.url}
-                    filename: ${frontCoverResp.body.image.filename}
-                    metadata:
-                      format: ${frontCoverResp.body.image.format}
-                      size: ${frontCoverResp.body.image.size}
+            - handleFrontCoverOutcome:
+                switch:
+                  - condition: ${frontCoverSuccess}
+                    steps:
+                      - storeFrontCoverResult:
+                          call: http.request
+                          args:
+                            url: ${baseUrl + "/internal/runs/" + runId + "/image"}
+                            method: POST
+                            auth: { type: OIDC }
+                            body:
+                              imageType: 'front_cover'
+                              imageUrl: ${frontCoverResp.body.image.url}
+                              filename: ${frontCoverResp.body.image.filename}
+                              metadata:
+                                format: ${frontCoverResp.body.image.format}
+                                size: ${frontCoverResp.body.image.size}
+                  - condition: ${not(frontCoverSuccess)}
+                    steps:
+                      - captureFrontCoverFailure:
+                          assign:
+                            - frontCoverFailureReason: ${if(frontCoverLastError != null, frontCoverLastError.message, "unknown")}
+                            - frontCoverFailureCode: ${if(frontCoverLastError != null, frontCoverLastError.code, null)}
+                      - logFrontCoverSkip:
+                          call: sys.log
+                          args:
+                            severity: WARNING
+                            text: '${"Front cover image unavailable after retries; continuing pipeline. Last error: " + if(frontCoverLastError != null, frontCoverLastError.message, "unknown")}'
 
             # 5. Generate book back cover
             - setBackCoverStep:
@@ -300,7 +287,7 @@ main:
                             - checkBackCoverAlreadySuccessful:
                                 switch:
                                   - condition: ${backCoverSuccess}
-                                    next: continue
+                                    next: break
                             - tryBackCoverGeneration:
                                 try:
                                   steps:
@@ -328,15 +315,6 @@ main:
                                     - saveBackCoverError:
                                         assign:
                                           - backCoverLastError: ${backCoverAttemptError}
-                                    - checkBackCoverErrorType:
-                                        switch:
-                                          # Safety block (422) - mark as blocked and exit
-                                          - condition: ${backCoverAttemptError.code == 422}
-                                            raise: ${backCoverAttemptError}
-                                          # Last attempt - fail
-                                          - condition: ${attempt >= backCoverMaxAttempts}
-                                            raise: ${backCoverAttemptError}
-                                          # Retryable error - log and continue to delay
                                     - logBackCoverRetry:
                                         call: sys.log
                                         args:
@@ -346,52 +324,47 @@ main:
                                         call: sys.sleep
                                         args:
                                           seconds: ${backCoverRetryDelay}
-
-                    # Check if we succeeded after the loop
-                    - checkBackCoverSuccess:
-                        switch:
-                          - condition: ${not(backCoverSuccess)}
-                            raise: ${backCoverLastError}
                 except:
                   as: backCoverError
                   steps:
-                    - decideBackCoverBlocked:
-                        switch:
-                          - condition: ${backCoverError.code == 422}
-                            next: markRunBlockedBackCover
-                    - rethrowBackCoverError:
-                        raise: ${backCoverError}
-                    - markRunBlockedBackCover:
-                        call: http.request
+                    - logBackCoverFailure:
+                        call: sys.log
                         args:
-                          url: ${baseUrl + "/internal/runs/" + runId}
-                          method: PATCH
-                          auth: { type: OIDC }
-                          body:
-                            status: 'blocked'
-                            currentStep: 'blocked'
-                            errorMessage: ${backCoverError.message}
-                            endedAt: ${time.format(sys.now())}
-                    - returnBlockedBackCover:
-                        return:
-                          storyId: ${storyId}
-                          runId: ${runId}
-                          status: 'blocked'
-                          reason: 'safety_blocked_back_cover'
+                          severity: WARNING
+                          text: '${"Back cover generation failed after retries: " + backCoverError.message}'
+                    - flagBackCoverFailure:
+                        assign:
+                          - backCoverFailureReason: ${backCoverError.message}
+                          - backCoverFailureCode: ${backCoverError.code}
 
-            - storeBackCoverResult:
-                call: http.request
-                args:
-                  url: ${baseUrl + "/internal/runs/" + runId + "/image"}
-                  method: POST
-                  auth: { type: OIDC }
-                  body:
-                    imageType: 'back_cover'
-                    imageUrl: ${backCoverResp.body.image.url}
-                    filename: ${backCoverResp.body.image.filename}
-                    metadata:
-                      format: ${backCoverResp.body.image.format}
-                      size: ${backCoverResp.body.image.size}
+            - handleBackCoverOutcome:
+                switch:
+                  - condition: ${backCoverSuccess}
+                    steps:
+                      - storeBackCoverResult:
+                          call: http.request
+                          args:
+                            url: ${baseUrl + "/internal/runs/" + runId + "/image"}
+                            method: POST
+                            auth: { type: OIDC }
+                            body:
+                              imageType: 'back_cover'
+                              imageUrl: ${backCoverResp.body.image.url}
+                              filename: ${backCoverResp.body.image.filename}
+                              metadata:
+                                format: ${backCoverResp.body.image.format}
+                                size: ${backCoverResp.body.image.size}
+                  - condition: ${not(backCoverSuccess)}
+                    steps:
+                      - captureBackCoverFailure:
+                          assign:
+                            - backCoverFailureReason: ${if(backCoverLastError != null, backCoverLastError.message, "unknown")}
+                            - backCoverFailureCode: ${if(backCoverLastError != null, backCoverLastError.code, null)}
+                      - logBackCoverSkip:
+                          call: sys.log
+                          args:
+                            severity: WARNING
+                            text: '${"Back cover image unavailable after retries; continuing pipeline. Last error: " + if(backCoverLastError != null, backCoverLastError.message, "unknown")}'
 
             # 6. Generate chapter images sequentially
             - setImagesStep:
@@ -436,7 +409,7 @@ main:
                                     - checkChapterImageAlreadySuccessful:
                                         switch:
                                           - condition: ${chapterImageSuccess}
-                                            next: continue
+                                            next: break
                                     - tryChapterImageGeneration:
                                         try:
                                           steps:
@@ -465,15 +438,6 @@ main:
                                             - saveChapterImageError:
                                                 assign:
                                                   - chapterImageLastError: ${chapterImageAttemptError}
-                                            - checkChapterImageErrorType:
-                                                switch:
-                                                  # Safety block (422) - mark as blocked and exit
-                                                  - condition: ${chapterImageAttemptError.code == 422}
-                                                    raise: ${chapterImageAttemptError}
-                                                  # Last attempt - fail
-                                                  - condition: ${attempt >= chapterImageMaxAttempts}
-                                                    raise: ${chapterImageAttemptError}
-                                                  # Retryable error - log and continue to delay
                                             - logChapterImageRetry:
                                                 call: sys.log
                                                 args:
@@ -484,51 +448,47 @@ main:
                                                 args:
                                                   seconds: ${chapterImageRetryDelay}
 
-                            # Check if we succeeded after the loop
-                            - checkChapterImageSuccess:
-                                switch:
-                                  - condition: ${not(chapterImageSuccess)}
-                                    raise: ${chapterImageLastError}
                         except:
                           as: chapterImageError
                           steps:
-                            - decideChapterImageBlocked:
-                                switch:
-                                  - condition: ${chapterImageError.code == 422}
-                                    next: markRunBlockedChapterImage
-                            - rethrowChapterImageError:
-                                raise: ${chapterImageError}
-                            - markRunBlockedChapterImage:
-                                call: http.request
+                            - logChapterImageFailure:
+                                call: sys.log
                                 args:
-                                  url: ${baseUrl + "/internal/runs/" + runId}
-                                  method: PATCH
-                                  auth: { type: OIDC }
-                                  body:
-                                    status: 'blocked'
-                                    currentStep: 'blocked'
-                                    errorMessage: ${chapterImageError.message}
-                                    endedAt: ${time.format(sys.now())}
-                            - returnBlockedChapterImage:
-                                return:
-                                  storyId: ${storyId}
-                                  runId: ${runId}
-                                  status: 'blocked'
-                                  reason: 'safety_blocked_chapter_image'
-                    - storeImageResult:
-                        call: http.request
-                        args:
-                          url: ${baseUrl + "/internal/runs/" + runId + "/image"}
-                          method: POST
-                          auth: { type: OIDC }
-                          body:
-                            chapterNumber: ${chapterNum}
-                            imageType: 'chapter'
-                            imageUrl: ${imageResp.body.image.url}
-                            filename: ${imageResp.body.image.filename}
-                            metadata:
-                              format: ${imageResp.body.image.format}
-                              size: ${imageResp.body.image.size}
+                                  severity: WARNING
+                                  text: '${"Chapter " + string(chapterNum) + " image failed unexpectedly: " + chapterImageError.message}'
+                            - flagChapterImageFailure:
+                                assign:
+                                  - chapterImageFailureReason: ${chapterImageError.message}
+                                  - chapterImageFailureCode: ${chapterImageError.code}
+                    - handleChapterImageOutcome:
+                        switch:
+                          - condition: ${chapterImageSuccess}
+                            steps:
+                              - storeImageResult:
+                                  call: http.request
+                                  args:
+                                    url: ${baseUrl + "/internal/runs/" + runId + "/image"}
+                                    method: POST
+                                    auth: { type: OIDC }
+                                    body:
+                                      chapterNumber: ${chapterNum}
+                                      imageType: 'chapter'
+                                      imageUrl: ${imageResp.body.image.url}
+                                      filename: ${imageResp.body.image.filename}
+                                      metadata:
+                                        format: ${imageResp.body.image.format}
+                                        size: ${imageResp.body.image.size}
+                          - condition: ${not(chapterImageSuccess)}
+                            steps:
+                              - captureChapterImageFailure:
+                                  assign:
+                                    - chapterImageFailureReason: ${if(chapterImageLastError != null, chapterImageLastError.message, "unknown")}
+                                    - chapterImageFailureCode: ${if(chapterImageLastError != null, chapterImageLastError.code, null)}
+                              - logChapterImageSkip:
+                                  call: sys.log
+                                  args:
+                                    severity: WARNING
+                                    text: '${"Skipping image persistence for chapter " + string(chapterNum) + " due to repeated failures. Last error: " + if(chapterImageLastError != null, chapterImageLastError.message, "unknown")}'
 
             # 8. Mark run completed
             - clearContext:

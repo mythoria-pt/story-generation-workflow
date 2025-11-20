@@ -53,9 +53,9 @@ function refineImagePrompt(
     );
   const style = styleProvided ? '' : opts.styleHint || 'storybook illustration, soft lighting';
 
-  // Cap length (providers handle ~300 chars fine; keep ours tighter ~220)
-  if (p.length > 220) {
-    const cut = p.slice(0, 220);
+  // Cap length
+  if (p.length > 600) {
+    const cut = p.slice(0, 600);
     const lastPeriod = cut.lastIndexOf('.');
     p = lastPeriod > 60 ? cut.slice(0, lastPeriod + 1) : cut;
   }
@@ -73,20 +73,25 @@ function buildSafeFallbackPrompt(
 ): string {
   let prompt = original || '';
 
-  prompt = prompt.replace(/\b\d+\s*-?\s*month\s*-?\s*old\b/gi, 'very young');
-  prompt = prompt.replace(/\btoddler\b/gi, 'very young child');
+  // Generalize age/gender terms to be more neutral
+  prompt = prompt.replace(/\b\d+\s*-?\s*month\s*-?\s*old\b/gi, 'young');
+  prompt = prompt.replace(/\btoddler\b/gi, 'child');
   prompt = prompt.replace(/\bboy\b/gi, 'child');
+  prompt = prompt.replace(/\bgirl\b/gi, 'child');
 
-  if (!/bathing suit|swimsuit|swimwear|bathrobe|pyjamas|pajamas|robe/i.test(prompt)) {
-    prompt += ' The child wears a colorful bathing suit suitable for play.';
+  // Ensure the scene is described as safe and wholesome
+  if (!/safe|wholesome|cheerful/i.test(prompt)) {
+    prompt += ' The scene is wholesome, safe, and cheerful.';
   }
 
-  if (!/parent|guardian|adult/i.test(prompt)) {
-    prompt += ' A caring parent kneels nearby supervising and offering a bath toy.';
+  // Ensure characters are described as fully clothed
+  if (!/clothed|wearing|dressed|outfit|attire/i.test(prompt)) {
+    prompt += ' The character is fully clothed in appropriate daily attire.';
   }
 
-  if (!/warm/i.test(prompt)) {
-    prompt += ' Warm, gentle lighting keeps the scene wholesome and cheerful.';
+  // Add lighting context if missing
+  if (!/lighting|lit/i.test(prompt)) {
+    prompt += ' Warm, gentle lighting.';
   }
 
   return refineImagePrompt(prompt, {
