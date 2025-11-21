@@ -48,7 +48,7 @@ function normalizeStorageUri(uri: string): string {
       const bucket = parsed.hostname.replace('.storage.googleapis.com', '');
       return `gs://${bucket}/${path}`;
     }
-  } catch (_error) {
+  } catch {
     // fall through and return original URI
   }
 
@@ -57,6 +57,7 @@ function normalizeStorageUri(uri: string): string {
 
 function inferFilenameFromUri(uri: string): string | undefined {
   const sanitized = uri.split('?')[0];
+  if (!sanitized) return undefined;
   const fromGs = sanitized.replace(/^gs:\/\//, '');
   const parts = fromGs.split('/').filter(Boolean);
   return parts.pop();

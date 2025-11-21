@@ -53,7 +53,7 @@ export class GoogleCloudWorkflowsAdapter implements IWorkflowService {
     try {
       const config = googleCloudConfig.get();
       // Reconstruct the full execution name
-      const executionName = `projects/${config.projectId}/locations/${config.workflows.location}/workflows/story-generation/executions/${executionId}`;
+      const executionName = `projects/${config.projectId}/locations/${config.workflows.location}/workflows/mythoria-story-generation/executions/${executionId}`;
 
       logger.info('Getting Google Cloud Workflow execution status', {
         executionId,

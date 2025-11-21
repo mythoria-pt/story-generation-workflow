@@ -19,7 +19,7 @@ main:
           - payload: ${json.decode(base64.decode(event.data.message.data))}
           - storyId: ${payload.storyId}
           - runId: ${payload.runId}
-          - baseUrl: 'https://story-generation-workflow-x2qrlilyyq-od.a.run.app'
+          - baseUrl: 'https://story-generation-workflow-803421888801.europe-west9.run.app'
           - now: ${time.format(sys.now())}
 
     # Fetch API key secret (returns base64-encoded data)
@@ -168,7 +168,7 @@ main:
                             - checkFrontCoverAlreadySuccessful:
                                 switch:
                                   - condition: ${frontCoverSuccess}
-                                    next: break
+                                    next: continue
                             - tryFrontCoverGeneration:
                                 try:
                                   steps:
@@ -217,7 +217,7 @@ main:
                     - flagFrontCoverFailure:
                         assign:
                           - frontCoverFailureReason: ${frontCoverError.message}
-                          - frontCoverFailureCode: ${frontCoverError.code}
+                          - frontCoverFailureCode: ${default(map.get(frontCoverError, "code"), "unknown")}
 
             - handleFrontCoverOutcome:
                 switch:
@@ -287,7 +287,7 @@ main:
                             - checkBackCoverAlreadySuccessful:
                                 switch:
                                   - condition: ${backCoverSuccess}
-                                    next: break
+                                    next: continue
                             - tryBackCoverGeneration:
                                 try:
                                   steps:
@@ -335,7 +335,7 @@ main:
                     - flagBackCoverFailure:
                         assign:
                           - backCoverFailureReason: ${backCoverError.message}
-                          - backCoverFailureCode: ${backCoverError.code}
+                          - backCoverFailureCode: ${default(map.get(backCoverError, "code"), "unknown")}
 
             - handleBackCoverOutcome:
                 switch:
@@ -409,7 +409,7 @@ main:
                                     - checkChapterImageAlreadySuccessful:
                                         switch:
                                           - condition: ${chapterImageSuccess}
-                                            next: break
+                                            next: continue
                                     - tryChapterImageGeneration:
                                         try:
                                           steps:
@@ -459,7 +459,7 @@ main:
                             - flagChapterImageFailure:
                                 assign:
                                   - chapterImageFailureReason: ${chapterImageError.message}
-                                  - chapterImageFailureCode: ${chapterImageError.code}
+                                  - chapterImageFailureCode: ${default(map.get(chapterImageError, "code"), "unknown")}
                     - handleChapterImageOutcome:
                         switch:
                           - condition: ${chapterImageSuccess}

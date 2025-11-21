@@ -303,6 +303,11 @@ internalPrintRouter.post('/self-service/notify', async (req, res) => {
 
     const deliveryPayload = delivery as NonNullable<typeof delivery>;
     const [primaryRecipient, ...extraRecipients] = recipients;
+    if (!primaryRecipient) {
+      logger.error('No primary recipient found for self-print notification', { storyId, runId });
+      res.json({ success: false, reason: 'no_recipients' });
+      return;
+    }
     const normalizedRecipient: { email: string; name?: string; language?: string } = {
       email: primaryRecipient.email,
     };
@@ -348,9 +353,9 @@ internalPrintRouter.post('/self-service/notify', async (req, res) => {
       storyTitle: story.title,
       workflowId: runId,
       recipient: normalizedRecipient,
-      cc: ccRecipients.length ? ccRecipients : undefined,
+      cc: ccRecipients.length > 0 ? ccRecipients : [],
       storyLanguage: story.storyLanguage,
-      locale: deliveryPayload.locale ?? story.storyLanguage ?? primaryRecipient.locale ?? 'en-US',
+      locale: deliveryPayload.locale ?? story.storyLanguage ?? primaryRecipient?.locale ?? 'en-US',
       metadata: {
         ...(deliveryPayload.metadata || {}),
         runId,
@@ -377,7 +382,7 @@ internalPrintRouter.post('/self-service/notify', async (req, res) => {
       ccCount: ccRecipients.length,
     });
 
-    res.json({ success: sendResult, recipients: delivery.recipients.length });
+    res.json({ success: sendResult, recipients: recipients.length });
   } catch (error) {
     logger.error('Failed to send self-print notification', {
       storyId,

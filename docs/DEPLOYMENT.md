@@ -48,7 +48,7 @@ Recommended secret bindings:
 - `workflows/story-generation.yaml`, `workflows/audiobook-generation.yaml`, `workflows/print-generation.yaml` define orchestration. Deploy them with:
 
 ```powershell
-pwsh -NoProfile -Command "gcloud workflows deploy story-generation --source workflows/story-generation.yaml --location europe-west9 --service-account wf-story-gen-sa@oceanic-beach-460916-n5.iam.gserviceaccount.com"
+pwsh -NoProfile -Command "gcloud workflows deploy mythoria-story-generation --source workflows/story-generation.yaml --location europe-west9 --service-account wf-story-gen-sa@oceanic-beach-460916-n5.iam.gserviceaccount.com"
 ```
 
 - Pub/Sub topic: `mythoria-story-requests`. Eventarc trigger connects the topic to the `story-generation` workflow. Ensure Eventarc uses the same service account so workflow invocations succeed.
@@ -74,7 +74,7 @@ pwsh -NoProfile -Command "gcloud workflows deploy story-generation --source work
 pwsh -NoProfile -Command "gcloud run services update-traffic story-generation-workflow --to-revisions <REVISION>=100 --region europe-west9"
 
 # Re-deploy previous workflow file if YAML was the culprit
-pwsh -NoProfile -Command "gcloud workflows deploy story-generation --source workflows/story-generation.yaml.backup --location europe-west9"
+pwsh -NoProfile -Command "gcloud workflows deploy mythoria-story-generation --source workflows/story-generation.yaml.backup --location europe-west9"
 ```
 
 Keep the last known-good container tag (e.g., `:2025-11-15`) so you can redeploy without rebuilding.
@@ -82,7 +82,7 @@ Keep the last known-good container tag (e.g., `:2025-11-15`) so you can redeploy
 ## Monitoring & alerts
 
 - **Logs**: `pwsh -NoProfile -Command "npm run logs:tail"` streams Cloud Run logs. Look for `status=blocked` to monitor safety issues.
-- **Metrics**: Create alerting policies on `run.googleapis.com/request_count`, `error_count`, and `container/memory/utilization`. For workflows, use `gcloud workflows executions list --locations europe-west9 --workflow story-generation` to monitor failures.
+- **Metrics**: Create alerting policies on `run.googleapis.com/request_count`, `error_count`, and `container/memory/utilization`. For workflows, use `gcloud workflows executions list --locations europe-west9 --workflow mythoria-story-generation` to monitor failures.
 - **DB hygiene**: Follow the cleanup plan in `docs/development.md#operational-hygiene` to purge stale workflow rows until a scheduled job is deployed.
 
 ## Disaster recovery
