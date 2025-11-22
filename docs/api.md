@@ -24,8 +24,54 @@ Story Generation Workflow exposes a small, opinionated REST surface for Mythoria
 | `POST /ai/media/upload`                 | Accepts base64 + content type, stores in `storyId/inputs`, returns public URL.                                                           |
 | `POST /ai/media/story-image-upload`     | Uploads user-supplied cover/back/chapter art, handling filename versioning (`*_v00n`).                                                   |
 | `POST /ai/text/chapter/{chapterNumber}` | Generates chapter prose given outline context, prior chapters, and chapter synopsis.                                                     |
+| `POST /ai/text/translate`               | Translates slugs, titles, summaries, and Markdown/HTML content from `en-US` into one or more locales (`pt-PT`, `es-ES`, `fr-FR`, `de-DE`). |
 | `POST /ai/text/context/clear`           | Clears the chat context for `<storyId>:<runId>` once workflows finish.                                                                   |
 | `POST /ai/image`                        | Creates cover/back/chapter illustrations. Automatically retries via safety rewrite logic; `422` signals `blocked`.                       |
+Sample translation request:
+
+```json
+{
+  "resourceId": "blog-42",
+  "storyTitle": "Autumn Tales",
+  "sourceLocale": "en-US",
+  "targetLocales": ["pt-PT", "es-ES"],
+  "segments": {
+    "slug": "autumn-tales-overview",
+    "title": "Autumn Tales",
+    "summary": "A quick look at seasonal storytelling cues.",
+    "content": "# Autumn Tales\nNew York leaves meet Lisbon alleys...",
+    "contentFormat": "mdx"
+  },
+  "metadata": {
+    "requestedBy": "admin-portal",
+    "references": ["New York Public Library", "Lisbon tram 28"],
+    "tone": "Warm and direct"
+  }
+}
+```
+
+Response payload:
+
+```json
+{
+  "success": true,
+  "requestId": "f2d7...",
+  "sourceLocale": "en-US",
+  "translations": {
+    "pt-PT": {
+      "slug": "contos-de-outono",
+      "title": "Contos de Outono",
+      "summary": "Uma vista rápida sobre histórias sazonais.",
+      "content": "# Contos de Outono\nAs folhas de Nova Iorque encontram as ruelas de Lisboa...",
+      "contentFormat": "mdx"
+    }
+  },
+  "notices": {
+    "pt-PT": ["Slug was normalized to meet URL constraints."]
+  }
+}
+```
+
 | `GET /ai/test-text`                     | Smoke test for whichever provider `TEXT_PROVIDER` points to (Gemini/OpenAI).                                                             |
 
 Sample image request:

@@ -1,13 +1,18 @@
 {
-  "systemPrompt": "Sie sind ein professioneller literarischer Übersetzer. Übersetzen Sie den bereitgestellten Inhalt ins Deutsch (de-DE). Ändern Sie nicht die Bedeutung, den Ton oder das Format der Geschichte. Bewahren Sie die ursprüngliche HTML-Struktur exakt, wenn HTML vorhanden ist. Passen Sie Redewendungen und Ausdrücke an das Deutsch in Deutschland an, wenn nötig.",
-  "userPrompt": "<task>\nÜbersetzen Sie den folgenden Inhalt ins Deutsch (de-DE).\n</task>\n\n<locale>```{{targetLocale}}```</locale>\n<story_title>```{{storyTitle}}```</story_title>\n\n{{#isTitle}}<instructions>Geben Sie nur den übersetzten Titel als Klartext zurück. Keine Anführungszeichen oder zusätzlichen Texte.</instructions>{{/isTitle}}\n{{#isText}}<instructions>Geben Sie nur den übersetzten Text als Klartext zurück. Keine Anführungszeichen oder zusätzlichen Texte.</instructions>{{/isText}}\n{{#isHtml}}<instructions>Geben Sie nur den übersetzten Inhalt zurück und bewahren Sie alle vorhandenen HTML-Tags und die Struktur. Fügen Sie keine HTML-Tags hinzu oder entfernen Sie diese nicht.</instructions>{{/isHtml}}\n\n<original>\n```\n{{originalText}}\n```\n</original>",
+  "systemPrompt": "Sie sind ein professioneller literarischer Übersetzer. Übersetzen Sie den Inhalt ins Deutsch für Deutschland (de-DE) und bewahren Sie Sinn, Ton und Struktur. Passen Sie Redewendungen, kulturelle Referenzen und Buchtitel so an, dass sie für Leser in Berlin natürlich wirken, es sei denn, der ursprüngliche Name ist weltweit bekannt.",
+  "userPrompt": "<task>\nÜbersetzen Sie den folgenden Inhalt ins Deutsch (de-DE).\n</task>\n\n<source_locale>```{{sourceLocale}}```</source_locale>\n<target_locale>```{{targetLocale}}```</target_locale>\n<story_title>```{{storyTitle}}```</story_title>\n{{#extraContext}}<zusatzkontext>{{extraContext}}</zusatzkontext>{{/extraContext}}\n<formats>{{formatDescriptor}}</formats>\n\n{{#isTitle}}<instructions>Geben Sie nur den übersetzten Titel als Klartext zurück, ohne Anmerkungen.</instructions>{{/isTitle}}\n{{#isText}}<instructions>Geben Sie nur den übersetzten Text als Klartext zurück.</instructions>{{/isText}}\n{{#isHtml}}<instructions>Geben Sie nur den übersetzten HTML-Inhalt zurück und behalten Sie alle vorhandenen Tags, Attribute und Strukturen bei.</instructions>{{/isHtml}}\n{{#isMarkdown}}<instructions>Geben Sie nur das übersetzte Markdown/MDX zurück. Übersetzen Sie nur lesbaren Text und lassen Sie Überschriften, MDX/JSX-Komponenten, Code-Blöcke und Metadaten unverändert.</instructions>{{/isMarkdown}}\n{{#isSlug}}<instructions>Geben Sie nur einen Slug in Kleinbuchstaben (ASCII) mit Bindestrichen zwischen den Wörtern zurück, ohne zusätzliche Zeichen.</instructions>{{/isSlug}}\n\n<original>\n```\n{{originalText}}\n```\n</original>",
   "outputFormat": "text",
   "templateVariables": {
-    "targetLocale": "IETF locale",
-    "storyTitle": "Story title context",
-    "originalText": "Content to translate",
-    "isHtml": "Flag for HTML mode",
-    "isTitle": "Flag for title mode",
-    "isText": "Flag for text mode"
+    "targetLocale": "Zielsprache",
+    "sourceLocale": "Ausgangssprache",
+    "storyTitle": "Titel als Kontext",
+    "originalText": "Zu übersetzender Inhalt",
+    "isHtml": "HTML-Modus",
+    "isTitle": "Titel-Modus",
+    "isText": "Text-Modus",
+    "isMarkdown": "Markdown/MDX-Modus",
+    "isSlug": "Slug-Modus",
+    "formatDescriptor": "Beschreibung des Formats",
+    "extraContext": "Zusatzkontext"
   }
 }

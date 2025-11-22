@@ -22,5 +22,6 @@ export const aiActionType = pgEnum('ai_action_type', [
   'content_validation',
   'image_edit',
   'prompt_rewrite',
+  'blog_translation',
   'test',
 ]);

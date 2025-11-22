@@ -3,6 +3,7 @@
  * Provider-agnostic endpoints for text and image generation
  */
 
+import { randomUUID } from 'crypto';
 import { Router } from 'express';
 import { z } from 'zod';
 import { validateImageRequest, generateImageFilename, formatImageError } from './ai-image-utils.js';
@@ -18,6 +19,12 @@ import { logger } from '@/config/logger.js';
 import { formatTargetAudience, getLanguageName, parseAIResponse } from '@/shared/utils.js';
 import { CharacterService } from '@/services/characters.js';
 import { eq } from 'drizzle-orm';
+import {
+  SUPPORTED_TRANSLATION_LOCALES,
+  buildTranslatePrompt,
+  cleanAITextOutput,
+  normalizeSlug,
+} from '@/services/translation.js';
 
 // Initialize services
 const router = Router();
@@ -127,6 +134,81 @@ const ChapterRequestSchema = z.object({
     .optional(),
   previousChapters: z.array(z.string()).optional(),
 });
+
+const SupportedTranslationLocaleEnum = z.enum(SUPPORTED_TRANSLATION_LOCALES);
+const TranslationContentFormatEnum = z.enum(['markdown', 'mdx', 'html', 'text']);
+
+const TranslationSegmentsSchema = z
+  .object({
+    slug: z.string().min(1).max(200).optional(),
+    title: z.string().min(1).max(512).optional(),
+    summary: z.string().min(1).max(2000).optional(),
+    content: z.string().min(1).max(60000).optional(),
+    contentFormat: TranslationContentFormatEnum.default('markdown'),
+  })
+  .refine((segments) => segments.slug || segments.title || segments.summary || segments.content, {
+    message: 'Provide at least one segment to translate.',
+    path: ['segments'],
+  });
+
+const TranslationMetadataSchema = z
+  .object({
+    requestedBy: z.string().min(2).max(128).optional(),
+    references: z.array(z.string().min(1).max(200)).max(25).optional(),
+    tone: z.string().max(200).optional(),
+    notes: z.string().max(500).optional(),
+  })
+  .optional();
+
+const TranslateRequestSchema = z.object({
+  requestId: z.string().optional(),
+  resourceId: z.string().optional(),
+  storyTitle: z.string().optional(),
+  sourceLocale: z.literal('en-US').default('en-US'),
+  targetLocales: z
+    .array(SupportedTranslationLocaleEnum)
+    .min(1)
+    .refine((locales) => new Set(locales).size === locales.length, {
+      message: 'targetLocales must be unique.',
+      path: ['targetLocales'],
+    }),
+  segments: TranslationSegmentsSchema,
+  metadata: TranslationMetadataSchema,
+});
+
+type TranslationContentFormat = z.infer<typeof TranslationContentFormatEnum>;
+
+function describeExtraContext(metadata?: z.infer<typeof TranslationMetadataSchema>): string {
+  if (!metadata) return '';
+  const parts: string[] = [];
+  if (metadata.references?.length) {
+    parts.push(`Key references to preserve or adapt: ${metadata.references.join(', ')}`);
+  }
+  if (metadata.tone) {
+    parts.push(`Desired tone: ${metadata.tone}`);
+  }
+  if (metadata.notes) {
+    parts.push(metadata.notes);
+  }
+  return parts.join(' | ');
+}
+
+function resolveContentType(format: TranslationContentFormat):
+  | 'html'
+  | 'text'
+  | 'markdown'
+  | 'mdx' {
+  switch (format) {
+    case 'html':
+      return 'html';
+    case 'text':
+      return 'text';
+    case 'mdx':
+      return 'mdx';
+    default:
+      return 'markdown';
+  }
+}
 
 // Type definitions
 const OutlineSchema = z.object({
@@ -994,6 +1076,152 @@ router.post('/text/chapter/:chapterNumber', async (req, res) => {
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+router.post('/text/translate', async (req, res) => {
+  try {
+    const payload = TranslateRequestSchema.parse(req.body);
+    const requestId = payload.requestId || randomUUID();
+
+    const targetLocales = payload.targetLocales.filter((locale) => locale !== payload.sourceLocale);
+    if (targetLocales.length === 0) {
+      res.status(400).json({ success: false, error: 'At least one target locale must differ from the source locale.', requestId });
+      return;
+    }
+
+    const translations: Record<string, { slug?: string; title?: string; summary?: string; content?: string; contentFormat?: TranslationContentFormat }> = {};
+    const notices: Record<string, string[]> = {};
+    const extraContext = describeExtraContext(payload.metadata);
+    const baseAuthorId = payload.metadata?.requestedBy?.trim() || 'admin-portal';
+    const baseStoryId = payload.resourceId?.trim() || 'blog';
+    const contentFormat = payload.segments.contentFormat;
+    const contentType = resolveContentType(contentFormat);
+    const segmentSources = {
+      slug: payload.segments.slug?.trim(),
+      title: payload.segments.title?.trim(),
+      summary: payload.segments.summary?.trim(),
+      content: payload.segments.content?.trim(),
+    } as const;
+
+    for (const locale of targetLocales) {
+      const localeNotices: string[] = [];
+      try {
+        const aiContext = {
+          authorId: baseAuthorId,
+          storyId: `${baseStoryId}:${locale}`,
+          action: 'blog_translation' as const,
+        };
+        const textService = aiGateway.getTextService(aiContext);
+        const localeResult: { slug?: string; title?: string; summary?: string; content?: string; contentFormat?: TranslationContentFormat } = {};
+
+        if (segmentSources.slug) {
+          const slugPrompt = await buildTranslatePrompt(locale, {
+            contentType: 'slug',
+            originalText: segmentSources.slug,
+            ...(payload.storyTitle && { storyTitle: payload.storyTitle }),
+            sourceLocale: payload.sourceLocale,
+            extraContext,
+          });
+          const translatedSlugRaw = await textService.complete(slugPrompt, { temperature: 0.1 });
+          const translatedSlug = cleanAITextOutput(translatedSlugRaw);
+          let normalized = normalizeSlug(translatedSlug);
+          if (!normalized) {
+            normalized = normalizeSlug(segmentSources.slug);
+            localeNotices.push('Slug translation was empty; reused normalized source slug.');
+          } else if (normalized !== translatedSlug) {
+            localeNotices.push('Slug was normalized to meet URL constraints.');
+          }
+          if (!normalized) {
+            throw new Error('Unable to produce a valid slug.');
+          }
+          localeResult.slug = normalized;
+        }
+
+        if (segmentSources.title) {
+          const titlePrompt = await buildTranslatePrompt(locale, {
+            contentType: 'title',
+            originalText: segmentSources.title,
+            ...(payload.storyTitle && { storyTitle: payload.storyTitle }),
+            sourceLocale: payload.sourceLocale,
+            extraContext,
+          });
+          const translatedTitle = cleanAITextOutput(
+            await textService.complete(titlePrompt, { temperature: 0.2 }),
+          );
+          localeResult.title = translatedTitle;
+        }
+
+        if (segmentSources.summary) {
+          const summaryPrompt = await buildTranslatePrompt(locale, {
+            contentType: 'text',
+            originalText: segmentSources.summary,
+            ...(payload.storyTitle && { storyTitle: payload.storyTitle }),
+            sourceLocale: payload.sourceLocale,
+            extraContext,
+          });
+          const translatedSummary = cleanAITextOutput(
+            await textService.complete(summaryPrompt, { temperature: 0.2 }),
+          );
+          localeResult.summary = translatedSummary;
+        }
+
+        if (segmentSources.content) {
+          const contentPrompt = await buildTranslatePrompt(locale, {
+            contentType,
+            originalText: segmentSources.content,
+            ...(payload.storyTitle && { storyTitle: payload.storyTitle }),
+            sourceLocale: payload.sourceLocale,
+            extraContext,
+          });
+          const translatedContent = cleanAITextOutput(
+            await textService.complete(contentPrompt, { temperature: 0.2 }),
+          );
+          localeResult.content = translatedContent;
+          localeResult.contentFormat = contentFormat;
+        }
+
+        translations[locale] = localeResult;
+        if (localeNotices.length > 0) {
+          notices[locale] = localeNotices;
+        }
+      } catch (localeError) {
+        const message = localeError instanceof Error ? localeError.message : String(localeError);
+        logger.error('Translation failed for locale', {
+          locale,
+          sourceLocale: payload.sourceLocale,
+          requestId,
+          error: message,
+        });
+        res.status(500).json({
+          success: false,
+          requestId,
+          error: `Translation failed for ${locale}: ${message}`,
+        });
+        return;
+      }
+    }
+
+    res.json({
+      success: true,
+      requestId,
+      sourceLocale: payload.sourceLocale,
+      translations,
+      notices,
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({
+        success: false,
+        error: 'Invalid translation request',
+        issues: error.errors,
+      });
+      return;
+    }
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Translation failed',
     });
   }
 });

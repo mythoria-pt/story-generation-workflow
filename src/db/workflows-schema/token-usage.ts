@@ -18,8 +18,8 @@ export const tokenUsageTracking = pgTable(
   'token_usage_tracking',
   {
     tokenUsageId: uuid('token_usage_id').defaultRandom().primaryKey().notNull(),
-    authorId: uuid('author_id').notNull(), // Not a foreign key - cross-database reference
-    storyId: uuid('story_id').notNull(), // Not a foreign key - cross-database reference
+    authorId: varchar('author_id', { length: 320 }).notNull(), // Not a foreign key - cross-database reference
+    storyId: varchar('story_id', { length: 255 }).notNull(), // Not a foreign key - cross-database reference
     action: aiActionType().notNull(),
     aiModel: varchar('ai_model', { length: 100 }).notNull(),
     inputTokens: integer('input_tokens').notNull(),

@@ -8,8 +8,11 @@ import { logger } from '@/config/logger.js';
 import { jobManager } from '@/services/job-manager.js';
 import { StoryService } from '@/services/story.js';
 import { ChaptersService } from '@/services/chapters.js';
-import { PromptService } from '@/services/prompt.js';
 import { getAIGatewayWithTokenTracking } from '@/ai/gateway-with-tracking.js';
+import {
+  buildTranslatePrompt,
+  cleanAITextOutput,
+} from '@/services/translation.js';
 
 const storyService = new StoryService();
 const chaptersService = new ChaptersService();
@@ -232,36 +235,3 @@ export async function processTranslationJob(
   }
 }
 
-async function buildTranslatePrompt(
-  targetLocale: string,
-  opts: { contentType: 'html' | 'text' | 'title'; originalText: string; storyTitle?: string },
-): Promise<string> {
-  const { contentType, originalText, storyTitle } = opts;
-  const promptTemplate = await PromptService.loadPrompt(targetLocale, 'translate');
-
-  const variables = {
-    // content type flags for conditional blocks in template
-    isHtml: contentType === 'html' ? 'true' : '',
-    isTitle: contentType === 'title' ? 'true' : '',
-    isText: contentType === 'text' ? 'true' : '',
-    originalText,
-    targetLocale,
-    storyTitle: storyTitle ?? '',
-  } as const;
-
-  return PromptService.buildPrompt(promptTemplate, variables as unknown as Record<string, unknown>);
-}
-
-function cleanAITextOutput(output: string): string {
-  let text = output?.trim() ?? '';
-  // strip markdown code fences if present
-  if (text.startsWith('```')) {
-    const match = text.match(/^```[a-zA-Z]*\n([\s\S]*?)\n```$/);
-    if (match && match[1]) {
-      text = match[1].trim();
-    } else {
-      text = text.replace(/^```[\s\S]*?```$/g, '').trim();
-    }
-  }
-  return text;
-}

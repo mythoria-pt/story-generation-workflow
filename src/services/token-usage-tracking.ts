@@ -23,10 +23,14 @@ export interface TokenUsageRequest {
     | 'content_validation'
     | 'image_edit'
     | 'prompt_rewrite'
+    | 'blog_translation'
     | 'test';
   aiModel: string;
   inputTokens: number;
   outputTokens: number;
+  cachedInputTokens?: number;
+  imageQuality?: 'standard' | 'hd';
+  imageSize?: string;
   inputPromptJson: Record<string, unknown>;
 }
 
@@ -35,6 +39,9 @@ export interface CostEstimation {
   model: string;
   inputTokens: number;
   outputTokens: number;
+  cachedInputTokens?: number;
+  imageQuality?: 'standard' | 'hd';
+  imageSize?: string;
   estimatedCostInEuros: number;
 }
 
@@ -46,13 +53,33 @@ export class TokenUsageTrackingService {
    */
   async recordUsage(request: TokenUsageRequest): Promise<void> {
     try {
-      const estimatedCost = this.calculateCost({
+      const costEstimationParams: CostEstimation = {
         provider: this.getProviderFromModel(request.aiModel),
         model: request.aiModel,
         inputTokens: request.inputTokens,
         outputTokens: request.outputTokens,
         estimatedCostInEuros: 0, // Will be calculated
-      });
+      };
+
+      if (request.cachedInputTokens !== undefined) {
+        costEstimationParams.cachedInputTokens = request.cachedInputTokens;
+      }
+      if (request.imageQuality !== undefined) {
+        costEstimationParams.imageQuality = request.imageQuality;
+      }
+      if (request.imageSize !== undefined) {
+        costEstimationParams.imageSize = request.imageSize;
+      }
+
+      const estimatedCost = this.calculateCost(costEstimationParams);
+
+      // Enrich inputPromptJson with usage details if they exist
+      const enrichedInputPromptJson = {
+        ...request.inputPromptJson,
+        ...(request.cachedInputTokens ? { cachedInputTokens: request.cachedInputTokens } : {}),
+        ...(request.imageQuality ? { imageQuality: request.imageQuality } : {}),
+        ...(request.imageSize ? { imageSize: request.imageSize } : {}),
+      };
 
       const usageRecord: InsertTokenUsage = {
         authorId: request.authorId,
@@ -62,7 +89,7 @@ export class TokenUsageTrackingService {
         inputTokens: request.inputTokens,
         outputTokens: request.outputTokens,
         estimatedCostInEuros: estimatedCost.estimatedCostInEuros.toString(),
-        inputPromptJson: request.inputPromptJson,
+        inputPromptJson: enrichedInputPromptJson,
       };
 
       await this.db.insert(tokenUsageTracking).values(usageRecord);
@@ -74,6 +101,7 @@ export class TokenUsageTrackingService {
         model: request.aiModel,
         inputTokens: request.inputTokens,
         outputTokens: request.outputTokens,
+        cachedInputTokens: request.cachedInputTokens,
         estimatedCostEuros: estimatedCost.estimatedCostInEuros,
         totalTokens: request.inputTokens + request.outputTokens,
       });
@@ -95,66 +123,108 @@ export class TokenUsageTrackingService {
   private calculateCost(estimation: CostEstimation): CostEstimation {
     let inputCostPer1KTokens = 0;
     let outputCostPer1KTokens = 0;
+    let cachedInputCostPer1KTokens = 0;
 
     // Cost calculations in USD (will convert to EUR)
-    // Pricing as of October 2025
+    // Pricing as of November 2025
+
+    // OpenAI Models
     if (estimation.provider === 'openai') {
-      if (estimation.model.includes('gpt-5')) {
-        // GPT-5 pricing (October 2025)
-        inputCostPer1KTokens = 0.00125; // $1.25 per 1M tokens = $0.00125 per 1K tokens
-        outputCostPer1KTokens = 0.01; // $10.00 per 1M tokens = $0.01 per 1K tokens
+      if (estimation.model.includes('gpt-5.1')) {
+        // GPT-5.1
+        inputCostPer1KTokens = 0.00125; // $1.25 per 1M
+        outputCostPer1KTokens = 0.01;   // $10.00 per 1M
+        cachedInputCostPer1KTokens = 0.000125; // $0.125 per 1M
+      } else if (estimation.model.includes('gpt-5-mini')) {
+        // GPT-5 mini
+        inputCostPer1KTokens = 0.00025; // $0.25 per 1M
+        outputCostPer1KTokens = 0.002;  // $2.00 per 1M
+        cachedInputCostPer1KTokens = 0.000025; // Assumed 10% of input
+      } else if (estimation.model.includes('gpt-5')) {
+        // GPT-5 (Legacy/Base)
+        inputCostPer1KTokens = 0.00125;
+        outputCostPer1KTokens = 0.01;
+        cachedInputCostPer1KTokens = 0.000125;
       } else if (estimation.model.includes('gpt-image-1-mini')) {
-        // GPT-image-1-mini pricing is per image, not per token
-        // Using medium quality as default: $0.011 per image
+        // GPT-image-1-mini pricing is per image
         const imagesGenerated = Math.max(1, Math.floor(estimation.outputTokens / 100));
-        const costPerImage = 0.011; // $0.011 per image for medium quality
-        estimation.estimatedCostInEuros = imagesGenerated * costPerImage * 0.92; // Convert USD to EUR (approximate)
+        let costPerImage = 0.011; // Standard
+        if (estimation.imageQuality === 'hd') {
+          costPerImage = 0.022; // HD assumption
+        }
+        estimation.estimatedCostInEuros = imagesGenerated * costPerImage * 0.92;
         return estimation;
       } else if (estimation.model.includes('gpt-image-1')) {
-        // GPT-image-1 pricing is per image, not per token
-        // Using medium quality as default: $0.04 per image
+        // GPT-image-1 pricing is per image
         const imagesGenerated = Math.max(1, Math.floor(estimation.outputTokens / 100));
-        const costPerImage = 0.04; // $0.04 per image for medium quality
-        estimation.estimatedCostInEuros = imagesGenerated * costPerImage * 0.92; // Convert USD to EUR (approximate)
+        let costPerImage = 0.04; // Standard
+        if (estimation.imageQuality === 'hd') {
+          costPerImage = 0.08; // HD
+        }
+        estimation.estimatedCostInEuros = imagesGenerated * costPerImage * 0.92;
         return estimation;
       } else if (estimation.model.includes('tts-')) {
-        // TTS pricing is per character, not per token
-        // For TTS, inputTokens represents the number of characters in the input text
-        // outputTokens can be used to represent audio duration or set to 0
-        const charactersProcessed = estimation.inputTokens; // Characters in the input text
-        const costPer1KCharacters = 0.015; // $0.015 per 1K characters ($15.00 per million characters)
+        // TTS pricing is per character
+        const charactersProcessed = estimation.inputTokens;
+        const costPer1KCharacters = 0.015;
         const totalCostUSD = (charactersProcessed / 1000) * costPer1KCharacters;
-        estimation.estimatedCostInEuros = totalCostUSD * 0.92; // Convert USD to EUR (approximate)
+        estimation.estimatedCostInEuros = totalCostUSD * 0.92;
         return estimation;
       }
-    } else if (estimation.provider === 'google-genai') {
+    } 
+    // Google Models
+    else if (estimation.provider === 'google-genai') {
       if (estimation.model.includes('gemini')) {
-        if (estimation.model.includes('gemini-2.5-pro')) {
-          // Gemini 2.5 Pro pricing (October 2025)
-          inputCostPer1KTokens = 0.00125; // $1.25 per 1M tokens = $0.00125 per 1K tokens
-          outputCostPer1KTokens = 0.01; // $10.00 per 1M tokens = $0.01 per 1K tokens
+        if (estimation.model.includes('gemini-3-pro-preview')) {
+          // Gemini 3 Pro (Preview)
+          inputCostPer1KTokens = 0.002;   // $2.00 per 1M
+          outputCostPer1KTokens = 0.012;  // $12.00 per 1M
+        } else if (estimation.model.includes('gemini-2.5-pro')) {
+          // Gemini 2.5 Pro
+          inputCostPer1KTokens = 0.00125; // $1.25 per 1M
+          outputCostPer1KTokens = 0.01;   // $10.00 per 1M
         } else if (estimation.model.includes('gemini-2.5-flash')) {
-          // Gemini 2.5 Flash pricing (October 2025)
-          inputCostPer1KTokens = 0.0003; // $0.30 per 1M tokens = $0.0003 per 1K tokens
-          outputCostPer1KTokens = 0.0025; // $2.50 per 1M tokens = $0.0025 per 1K tokens
+          // Gemini 2.5 Flash
+          inputCostPer1KTokens = 0.0003;  // $0.30 per 1M
+          outputCostPer1KTokens = 0.0025; // $2.50 per 1M
+        } else if (estimation.model.includes('gemini-2.0-flash')) {
+          // Gemini 2.0 Flash
+          inputCostPer1KTokens = 0.0001;  // $0.10 per 1M
+          outputCostPer1KTokens = 0.0004; // $0.40 per 1M
+        } else if (estimation.model.includes('gemini-1.5-pro')) {
+          // Gemini 1.5 Pro
+          inputCostPer1KTokens = 0.00125; // ~$1.25 per 1M
+          outputCostPer1KTokens = 0.005;  // ~$5.00 per 1M
+        } else if (estimation.model.includes('gemini-1.5-flash')) {
+          // Gemini 1.5 Flash
+          inputCostPer1KTokens = 0.000075; // ~$0.075 per 1M
+          outputCostPer1KTokens = 0.0003;  // ~$0.30 per 1M
         } else {
-          // Default Gemini pricing (fallback for unspecified versions)
-          inputCostPer1KTokens = 0.0003; // $0.30 per 1M tokens
-          outputCostPer1KTokens = 0.0025; // $2.50 per 1M tokens
+          // Default Gemini pricing (fallback)
+          inputCostPer1KTokens = 0.0003;
+          outputCostPer1KTokens = 0.0025;
         }
+        // Google Cached Input is typically 25% of standard input
+        cachedInputCostPer1KTokens = inputCostPer1KTokens * 0.25;
+
       } else if (estimation.model.includes('imagen')) {
         // Imagen pricing is per image
         const imagesGenerated = Math.max(1, Math.floor(estimation.outputTokens / 100));
-        const costPerImage = 0.006; // $0.006 per image
-        estimation.estimatedCostInEuros = imagesGenerated * costPerImage * 0.92; // Convert USD to EUR (approximate)
+        const costPerImage = 0.006;
+        estimation.estimatedCostInEuros = imagesGenerated * costPerImage * 0.92;
         return estimation;
       }
     }
 
     // Calculate total cost in USD
-    const inputCostUSD = (estimation.inputTokens / 1000) * inputCostPer1KTokens;
+    const cachedTokens = estimation.cachedInputTokens || 0;
+    const regularInputTokens = Math.max(0, estimation.inputTokens - cachedTokens);
+    
+    const inputCostUSD = (regularInputTokens / 1000) * inputCostPer1KTokens;
+    const cachedInputCostUSD = (cachedTokens / 1000) * cachedInputCostPer1KTokens;
     const outputCostUSD = (estimation.outputTokens / 1000) * outputCostPer1KTokens;
-    const totalCostUSD = inputCostUSD + outputCostUSD;
+    
+    const totalCostUSD = inputCostUSD + cachedInputCostUSD + outputCostUSD;
 
     // Convert to EUR (approximate conversion rate: 1 USD = 0.92 EUR)
     estimation.estimatedCostInEuros = totalCostUSD * 0.92;

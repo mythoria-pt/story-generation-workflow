@@ -28,6 +28,7 @@ export interface AICallContext {
     | 'content_validation'
     | 'image_edit'
     | 'prompt_rewrite'
+    | 'blog_translation'
     | 'test';
 }
 
