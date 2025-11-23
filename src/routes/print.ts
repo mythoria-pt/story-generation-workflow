@@ -36,7 +36,7 @@ const SelfPrintRequestSchema = z.object({
   ccEmails: z.array(z.string().email()).optional(),
   locale: z.string().optional(),
   generateCMYK: z.boolean().optional(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 function dedupeRecipients(recipients: SelfPrintRecipient[]): SelfPrintRecipient[] {
@@ -234,7 +234,7 @@ const NotifyRequestSchema = z.object({
     .object({
       recipients: z.array(RecipientSchema).optional(),
       locale: z.string().optional(),
-      metadata: z.record(z.unknown()).optional(),
+      metadata: z.record(z.string(), z.unknown()).optional(),
       ccEmails: z.array(z.string().email()).optional(),
     })
     .optional(),
@@ -257,7 +257,7 @@ internalPrintRouter.post('/self-service/notify', async (req, res) => {
 
   const resolvedInitiatedBy = initiatedBy
     ? initiatedBy
-    : (delivery?.metadata?.initiatedBy as string | undefined) ?? 'selfService';
+    : ((delivery?.metadata?.initiatedBy as string | undefined) ?? 'selfService');
 
   const resolvedServiceCode =
     (delivery?.metadata?.serviceCode as string | undefined) ??

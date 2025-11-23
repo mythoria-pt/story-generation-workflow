@@ -29,10 +29,7 @@ export interface ProgressCalculation {
 export class ProgressTrackerService {
   private runsService: RunsService;
   private storyService: StoryService;
-  private readonly notificationExclusionServiceCodes = new Set([
-    'selfPrinting',
-    'printGeneration',
-  ]);
+  private readonly notificationExclusionServiceCodes = new Set(['selfPrinting', 'printGeneration']);
 
   // Base workflow steps with estimated times
   private readonly baseWorkflowSteps: WorkflowStep[] = [
@@ -322,11 +319,14 @@ export class ProgressTrackerService {
 
           // If the run is completed, update story status to published
           if (run.status === 'completed') {
-            logger.info('Story run completed, updating status to published and evaluating email guard', {
-              runId,
-              storyId: run.storyId,
-              finalPercentage,
-            });
+            logger.info(
+              'Story run completed, updating status to published and evaluating email guard',
+              {
+                runId,
+                storyId: run.storyId,
+                finalPercentage,
+              },
+            );
 
             await this.storyService.updateStoryStatus(run.storyId, 'published');
 

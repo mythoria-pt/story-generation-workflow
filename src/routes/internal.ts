@@ -40,13 +40,13 @@ const UpdateRunRequestSchema = z.object({
   status: z.enum(['queued', 'running', 'completed', 'failed', 'cancelled', 'blocked']).optional(),
   currentStep: z.string().optional(),
   errorMessage: z.string().optional(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
   storyId: z.string().uuid().optional(), // Added to support creating missing runs
   startedAt: z.string().optional(),
 });
 
 const StoreOutlineRequestSchema = z.object({
-  outline: z.record(z.unknown()),
+  outline: z.record(z.string(), z.unknown()),
 });
 
 const StoreChapterRequestSchema = z.object({
@@ -61,7 +61,7 @@ const StoreImageRequestSchema = z.object({
   imageType: z.enum(['front_cover', 'back_cover', 'chapter']),
   imageUrl: z.string().url(),
   filename: z.string(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 /**

@@ -193,11 +193,9 @@ function describeExtraContext(metadata?: z.infer<typeof TranslationMetadataSchem
   return parts.join(' | ');
 }
 
-function resolveContentType(format: TranslationContentFormat):
-  | 'html'
-  | 'text'
-  | 'markdown'
-  | 'mdx' {
+function resolveContentType(
+  format: TranslationContentFormat,
+): 'html' | 'text' | 'markdown' | 'mdx' {
   switch (format) {
     case 'html':
       return 'html';
@@ -1087,11 +1085,24 @@ router.post('/text/translate', async (req, res) => {
 
     const targetLocales = payload.targetLocales.filter((locale) => locale !== payload.sourceLocale);
     if (targetLocales.length === 0) {
-      res.status(400).json({ success: false, error: 'At least one target locale must differ from the source locale.', requestId });
+      res.status(400).json({
+        success: false,
+        error: 'At least one target locale must differ from the source locale.',
+        requestId,
+      });
       return;
     }
 
-    const translations: Record<string, { slug?: string; title?: string; summary?: string; content?: string; contentFormat?: TranslationContentFormat }> = {};
+    const translations: Record<
+      string,
+      {
+        slug?: string;
+        title?: string;
+        summary?: string;
+        content?: string;
+        contentFormat?: TranslationContentFormat;
+      }
+    > = {};
     const notices: Record<string, string[]> = {};
     const extraContext = describeExtraContext(payload.metadata);
     const baseAuthorId = payload.metadata?.requestedBy?.trim() || 'admin-portal';
@@ -1114,7 +1125,13 @@ router.post('/text/translate', async (req, res) => {
           action: 'blog_translation' as const,
         };
         const textService = aiGateway.getTextService(aiContext);
-        const localeResult: { slug?: string; title?: string; summary?: string; content?: string; contentFormat?: TranslationContentFormat } = {};
+        const localeResult: {
+          slug?: string;
+          title?: string;
+          summary?: string;
+          content?: string;
+          contentFormat?: TranslationContentFormat;
+        } = {};
 
         if (segmentSources.slug) {
           const slugPrompt = await buildTranslatePrompt(locale, {
@@ -1215,7 +1232,7 @@ router.post('/text/translate', async (req, res) => {
       res.status(400).json({
         success: false,
         error: 'Invalid translation request',
-        issues: error.errors,
+        issues: error.issues,
       });
       return;
     }

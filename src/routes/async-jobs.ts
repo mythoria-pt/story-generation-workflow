@@ -172,7 +172,7 @@ router.post('/text-edit', async (req, res) => {
   } catch (error) {
     if (error instanceof z.ZodError) {
       sendErrorResponse(res, 400, 'Invalid request parameters', {
-        validationErrors: error.errors,
+        validationErrors: error.issues,
       });
     } else {
       sendErrorResponse(res, 500, 'Failed to create text edit job', {
@@ -262,7 +262,7 @@ router.post('/image-edit', async (req, res) => {
   } catch (error) {
     if (error instanceof z.ZodError) {
       sendErrorResponse(res, 400, 'Invalid request parameters', {
-        validationErrors: error.errors,
+        validationErrors: error.issues,
       });
     } else {
       sendErrorResponse(res, 500, 'Failed to create image edit job', {
@@ -338,7 +338,7 @@ router.post('/translate-text', async (req, res) => {
     });
   } catch (error) {
     if (error instanceof z.ZodError) {
-      sendErrorResponse(res, 400, 'Invalid request parameters', { validationErrors: error.errors });
+      sendErrorResponse(res, 400, 'Invalid request parameters', { validationErrors: error.issues });
     } else {
       sendErrorResponse(res, 500, 'Failed to create translation job', {
         error: error instanceof Error ? error.message : String(error),

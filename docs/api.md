@@ -17,16 +17,17 @@ Story Generation Workflow exposes a small, opinionated REST surface for Mythoria
 
 ### AI text + media (`src/routes/ai.ts`)
 
-| Endpoint                                | Description                                                                                                                              |
-| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /ai/text/outline`                 | Generates outline, cover prompts, and character briefs from `storyId`/`runId`. Returns refined prompts for downstream image generation.  |
-| `POST /ai/text/structure`               | Turns user description plus optional media (`imageObjectPath`, `audioObjectPath`, base64) into structured story metadata and characters. |
-| `POST /ai/media/upload`                 | Accepts base64 + content type, stores in `storyId/inputs`, returns public URL.                                                           |
-| `POST /ai/media/story-image-upload`     | Uploads user-supplied cover/back/chapter art, handling filename versioning (`*_v00n`).                                                   |
-| `POST /ai/text/chapter/{chapterNumber}` | Generates chapter prose given outline context, prior chapters, and chapter synopsis.                                                     |
+| Endpoint                                | Description                                                                                                                                |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `POST /ai/text/outline`                 | Generates outline, cover prompts, and character briefs from `storyId`/`runId`. Returns refined prompts for downstream image generation.    |
+| `POST /ai/text/structure`               | Turns user description plus optional media (`imageObjectPath`, `audioObjectPath`, base64) into structured story metadata and characters.   |
+| `POST /ai/media/upload`                 | Accepts base64 + content type, stores in `storyId/inputs`, returns public URL.                                                             |
+| `POST /ai/media/story-image-upload`     | Uploads user-supplied cover/back/chapter art, handling filename versioning (`*_v00n`).                                                     |
+| `POST /ai/text/chapter/{chapterNumber}` | Generates chapter prose given outline context, prior chapters, and chapter synopsis.                                                       |
 | `POST /ai/text/translate`               | Translates slugs, titles, summaries, and Markdown/HTML content from `en-US` into one or more locales (`pt-PT`, `es-ES`, `fr-FR`, `de-DE`). |
-| `POST /ai/text/context/clear`           | Clears the chat context for `<storyId>:<runId>` once workflows finish.                                                                   |
-| `POST /ai/image`                        | Creates cover/back/chapter illustrations. Automatically retries via safety rewrite logic; `422` signals `blocked`.                       |
+| `POST /ai/text/context/clear`           | Clears the chat context for `<storyId>:<runId>` once workflows finish.                                                                     |
+| `POST /ai/image`                        | Creates cover/back/chapter illustrations. Automatically retries via safety rewrite logic; `422` signals `blocked`.                         |
+
 Sample translation request:
 
 ```json
@@ -72,7 +73,7 @@ Response payload:
 }
 ```
 
-| `GET /ai/test-text`                     | Smoke test for whichever provider `TEXT_PROVIDER` points to (Gemini/OpenAI).                                                             |
+| `GET /ai/test-text` | Smoke test for whichever provider `TEXT_PROVIDER` points to (Gemini/OpenAI). |
 
 Sample image request:
 

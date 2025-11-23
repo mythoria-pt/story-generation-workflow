@@ -20,7 +20,7 @@ RUN npm run build
 RUN npm prune --omit=dev
 
 # Production stage with Debian-based image for Ghostscript support
-FROM node:20-slim
+FROM node:22.12.0-slim
 
 # Install system dependencies for PDF processing
 RUN apt-get update && apt-get install -y \

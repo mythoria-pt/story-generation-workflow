@@ -21,7 +21,7 @@ main:
           - runId: ${payload.runId}
           - baseUrl: 'https://story-generation-workflow-803421888801.europe-west9.run.app'
           - now: ${time.format(sys.now())}
-          - initiatedBy: ${payload.initiatedBy ? payload.initiatedBy : 'selfService'}
+          - initiatedBy: ${default(map.get(payload, "initiatedBy"), "selfService")}
 
     # ───────────────────────────────────────────────
     # 1-N. Print pipeline wrapped in one try/except

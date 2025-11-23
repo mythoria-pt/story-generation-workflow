@@ -37,10 +37,7 @@ function normalizeStorageUri(uri: string): string {
   try {
     const parsed = new URL(uri);
     const path = parsed.pathname.replace(/^\//, '');
-    if (
-      parsed.hostname === 'storage.googleapis.com' &&
-      path.includes('/')
-    ) {
+    if (parsed.hostname === 'storage.googleapis.com' && path.includes('/')) {
       const [bucket, ...rest] = path.split('/');
       return `gs://${bucket}/${rest.join('/')}`;
     }
@@ -104,9 +101,14 @@ function deriveRequestedBy(metadata?: Record<string, unknown>): string | undefin
     return undefined;
   }
 
-  const requestedByName = typeof metadata['requestedByName'] === 'string' ? metadata['requestedByName'] : undefined;
-  const requestedByEmail = typeof metadata['requestedByEmail'] === 'string' ? metadata['requestedByEmail'] : undefined;
-  const requestedByAuthorId = typeof metadata['requestedByAuthorId'] === 'string' ? metadata['requestedByAuthorId'] : undefined;
+  const requestedByName =
+    typeof metadata['requestedByName'] === 'string' ? metadata['requestedByName'] : undefined;
+  const requestedByEmail =
+    typeof metadata['requestedByEmail'] === 'string' ? metadata['requestedByEmail'] : undefined;
+  const requestedByAuthorId =
+    typeof metadata['requestedByAuthorId'] === 'string'
+      ? metadata['requestedByAuthorId']
+      : undefined;
 
   if (requestedByName && requestedByEmail) {
     return `${requestedByName} <${requestedByEmail}>`;
@@ -199,17 +201,9 @@ export async function sendStoryPrintInstructionsEmail(
   const baseUrl = env.NOTIFICATION_ENGINE_URL.replace(/\/$/, '');
   const url = `${baseUrl}/email/story-print-instructions`;
   const headers = buildHeaders(env);
-  const locale =
-    payload.locale ||
-    payload.recipient.language ||
-    payload.storyLanguage ||
-    'en-US';
+  const locale = payload.locale || payload.recipient.language || payload.storyLanguage || 'en-US';
 
-  const coverPdf = buildPdfReference(
-    payload.pdfs.coverPdfUrl,
-    'Cover spread (PDF)',
-    'cover.pdf',
-  );
+  const coverPdf = buildPdfReference(payload.pdfs.coverPdfUrl, 'Cover spread (PDF)', 'cover.pdf');
   const interiorPdf = buildPdfReference(
     payload.pdfs.interiorPdfUrl,
     'Interior pages (PDF)',
@@ -217,11 +211,7 @@ export async function sendStoryPrintInstructionsEmail(
   );
   const additionalPdfs = [
     buildPdfReference(payload.pdfs.coverCmykPdfUrl, 'Cover (CMYK PDF)', 'cover-cmyk.pdf'),
-    buildPdfReference(
-      payload.pdfs.interiorCmykPdfUrl,
-      'Interior (CMYK PDF)',
-      'interior-cmyk.pdf',
-    ),
+    buildPdfReference(payload.pdfs.interiorCmykPdfUrl, 'Interior (CMYK PDF)', 'interior-cmyk.pdf'),
   ].filter(Boolean) as Array<{ uri: string; label: string; filename?: string; mimeType: string }>;
 
   if (!coverPdf && !interiorPdf && additionalPdfs.length === 0) {
@@ -251,7 +241,8 @@ export async function sendStoryPrintInstructionsEmail(
       title: payload.storyTitle,
       locale,
     },
-    workflowExecutionId: (payload.metadata?.workflowExecutionId as string | undefined) ?? payload.workflowId,
+    workflowExecutionId:
+      (payload.metadata?.workflowExecutionId as string | undefined) ?? payload.workflowId,
   };
 
   if (coverPdf) {

@@ -9,10 +9,7 @@ import { jobManager } from '@/services/job-manager.js';
 import { StoryService } from '@/services/story.js';
 import { ChaptersService } from '@/services/chapters.js';
 import { getAIGatewayWithTokenTracking } from '@/ai/gateway-with-tracking.js';
-import {
-  buildTranslatePrompt,
-  cleanAITextOutput,
-} from '@/services/translation.js';
+import { buildTranslatePrompt, cleanAITextOutput } from '@/services/translation.js';
 
 const storyService = new StoryService();
 const chaptersService = new ChaptersService();
@@ -234,4 +231,3 @@ export async function processTranslationJob(
     );
   }
 }
-

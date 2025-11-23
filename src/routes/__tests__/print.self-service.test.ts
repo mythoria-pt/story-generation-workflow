@@ -66,7 +66,7 @@ describe('print routers', () => {
 
   it('queues self-print workflow with resolved recipients', async () => {
     resolveMock(storyGetStoryMock, {
-      storyId: '00000000-0000-0000-0000-000000000123',
+      storyId: '00000000-0000-4000-8000-000000000123',
       authorId: 'author-123',
       title: 'Test Story',
       authorEmail: 'owner@example.com',
@@ -77,8 +77,8 @@ describe('print routers', () => {
     resolveMock(workflowsExecuteMock, 'exec-123');
 
     const response = await request(app).post('/print/self-service').send({
-      storyId: '00000000-0000-0000-0000-000000000123',
-      workflowId: '00000000-0000-0000-0000-000000000999',
+      storyId: '00000000-0000-4000-8000-000000000123',
+      workflowId: '00000000-0000-4000-8000-000000000999',
       recipientEmail: 'reader@example.com',
     });
 
@@ -91,20 +91,20 @@ describe('print routers', () => {
     const payload = JSON.parse(
       Buffer.from(eventArgs.data.message.data, 'base64').toString('utf-8'),
     );
-    expect(payload.storyId).toBe('00000000-0000-0000-0000-000000000123');
-    expect(payload.runId).toBe('00000000-0000-0000-0000-000000000999');
+    expect(payload.storyId).toBe('00000000-0000-4000-8000-000000000123');
+    expect(payload.runId).toBe('00000000-0000-4000-8000-000000000999');
     expect(payload.delivery.recipients).toHaveLength(2);
     expect(payload.delivery.recipients[0].email).toBe('owner@example.com');
     expect(payload.delivery.recipients[1].email).toBe('reader@example.com');
     expect(runsUpdateRunMock).toHaveBeenCalledWith(
-      '00000000-0000-0000-0000-000000000999',
+      '00000000-0000-4000-8000-000000000999',
       expect.any(Object),
     );
   });
 
   it('rejects requests without resolvable recipients', async () => {
     resolveMock(storyGetStoryMock, {
-      storyId: '00000000-0000-0000-0000-000000000456',
+      storyId: '00000000-0000-4000-8000-000000000456',
       authorId: 'author-456',
       title: 'Untitled',
       authorEmail: null,
@@ -113,8 +113,8 @@ describe('print routers', () => {
     });
 
     const response = await request(app).post('/print/self-service').send({
-      storyId: '00000000-0000-0000-0000-000000000456',
-      workflowId: '00000000-0000-0000-0000-000000000654',
+      storyId: '00000000-0000-4000-8000-000000000456',
+      workflowId: '00000000-0000-4000-8000-000000000654',
     });
 
     expect(response.status).toBe(400);
@@ -124,7 +124,7 @@ describe('print routers', () => {
 
   it('invokes notification client for self-service notify endpoint', async () => {
     resolveMock(storyGetStoryMock, {
-      storyId: '00000000-0000-0000-0000-000000000789',
+      storyId: '00000000-0000-4000-8000-000000000789',
       authorId: 'author-789',
       title: 'My Story',
       authorEmail: 'owner@example.com',
@@ -137,8 +137,8 @@ describe('print routers', () => {
     const response = await request(app)
       .post('/internal/print/self-service/notify')
       .send({
-        storyId: '00000000-0000-0000-0000-000000000789',
-        runId: '00000000-0000-0000-0000-000000000987',
+        storyId: '00000000-0000-4000-8000-000000000789',
+        runId: '00000000-0000-4000-8000-000000000987',
         delivery: {
           recipients: [{ email: 'reader@example.com', name: 'Reader' }],
           locale: 'pt-PT',
@@ -155,7 +155,7 @@ describe('print routers', () => {
     expect(response.status).toBe(200);
     expect(response.body.success).toBe(true);
     expect(runsUpdateRunMock).toHaveBeenCalledWith(
-      '00000000-0000-0000-0000-000000000987',
+      '00000000-0000-4000-8000-000000000987',
       expect.objectContaining({
         metadata: expect.objectContaining({
           serviceCode: 'selfPrinting',
@@ -165,8 +165,8 @@ describe('print routers', () => {
     );
     expect(sendStoryPrintInstructionsEmailMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        storyId: '00000000-0000-0000-0000-000000000789',
-        workflowId: '00000000-0000-0000-0000-000000000987',
+        storyId: '00000000-0000-4000-8000-000000000789',
+        workflowId: '00000000-0000-4000-8000-000000000987',
         recipient: expect.objectContaining({ email: 'reader@example.com' }),
         pdfs: expect.objectContaining({ coverPdfUrl: expect.any(String) }),
         metadata: expect.objectContaining({ workflowExecutionId: 'exec-321' }),
@@ -176,7 +176,7 @@ describe('print routers', () => {
 
   it('sends extra recipients as cc entries', async () => {
     resolveMock(storyGetStoryMock, {
-      storyId: '00000000-0000-0000-0000-000000000321',
+      storyId: '00000000-0000-4000-8000-000000000321',
       authorId: 'author-321',
       title: 'Cc Story',
       authorEmail: 'owner@example.com',
@@ -189,8 +189,8 @@ describe('print routers', () => {
     const response = await request(app)
       .post('/internal/print/self-service/notify')
       .send({
-        storyId: '00000000-0000-0000-0000-000000000321',
-        runId: '00000000-0000-0000-0000-000000000654',
+        storyId: '00000000-0000-4000-8000-000000000321',
+        runId: '00000000-0000-4000-8000-000000000654',
         delivery: {
           recipients: [
             { email: 'primary@example.com', name: 'Primary' },
@@ -221,7 +221,7 @@ describe('print routers', () => {
 
   it('suppresses instructions email for admin-triggered notifications', async () => {
     resolveMock(storyGetStoryMock, {
-      storyId: '00000000-0000-0000-0000-000000000555',
+      storyId: '00000000-0000-4000-8000-000000000555',
       authorId: 'author-555',
       title: 'Admin Story',
       authorEmail: 'owner@example.com',
@@ -233,8 +233,8 @@ describe('print routers', () => {
     const response = await request(app)
       .post('/internal/print/self-service/notify')
       .send({
-        storyId: '00000000-0000-0000-0000-000000000555',
-        runId: '00000000-0000-0000-0000-000000000999',
+        storyId: '00000000-0000-4000-8000-000000000555',
+        runId: '00000000-0000-4000-8000-000000000999',
         initiatedBy: 'adminPortal',
         delivery: {
           recipients: [{ email: 'reader@example.com', name: 'Reader' }],
@@ -252,7 +252,7 @@ describe('print routers', () => {
     expect(response.body.reason).toBe('suppressed_for_admin');
     expect(sendStoryPrintInstructionsEmailMock).not.toHaveBeenCalled();
     expect(runsUpdateRunMock).toHaveBeenCalledWith(
-      '00000000-0000-0000-0000-000000000999',
+      '00000000-0000-4000-8000-000000000999',
       expect.objectContaining({
         metadata: expect.objectContaining({
           serviceCode: 'printGeneration',

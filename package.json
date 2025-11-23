@@ -1,6 +1,6 @@
 {
   "name": "story-generation-workflow",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "scripts": {
     "dev": "tsx watch src/index.ts",
@@ -45,23 +45,23 @@
   },
   "dependencies": {
     "@google-cloud/storage": "^7.14.0",
-    "@google-cloud/workflows": "^4.2.0",
+    "@google-cloud/workflows": "^5.0.0",
     "@google/genai": "^1.17.0",
     "@types/pg": "^8.15.2",
     "dotenv": "^17.2.2",
-    "drizzle-kit": "^0.18.1",
+    "drizzle-kit": "^0.31.7",
     "drizzle-orm": "^0.44.5",
     "express": "^5.1.0",
     "helmet": "^8.0.0",
     "node-html-parser": "^7.0.1",
-    "openai": "^5.19.1",
+    "openai": "^6.9.1",
     "pdf-lib": "^1.17.1",
     "pdf-parse": "^1.1.1",
     "pg": "^8.16.0",
     "puppeteer": "^24.19.0",
     "tmp": "^0.2.3",
     "winston": "^3.11.0",
-    "zod": "^3.25.76"
+    "zod": "^4.1.12"
   },
   "devDependencies": {
     "@eslint/js": "^9.35.0",
@@ -76,7 +76,7 @@
     "bignumber.js": "^9.3.1",
     "copyfiles": "^2.4.1",
     "eslint": "^9.35.0",
-    "jest": "^29.7.0",
+    "jest": "^30.2.0",
     "prettier": "^3.6.2",
     "rimraf": "^6.0.1",
     "supertest": "^7.1.1",

@@ -133,12 +133,12 @@ export class TokenUsageTrackingService {
       if (estimation.model.includes('gpt-5.1')) {
         // GPT-5.1
         inputCostPer1KTokens = 0.00125; // $1.25 per 1M
-        outputCostPer1KTokens = 0.01;   // $10.00 per 1M
+        outputCostPer1KTokens = 0.01; // $10.00 per 1M
         cachedInputCostPer1KTokens = 0.000125; // $0.125 per 1M
       } else if (estimation.model.includes('gpt-5-mini')) {
         // GPT-5 mini
         inputCostPer1KTokens = 0.00025; // $0.25 per 1M
-        outputCostPer1KTokens = 0.002;  // $2.00 per 1M
+        outputCostPer1KTokens = 0.002; // $2.00 per 1M
         cachedInputCostPer1KTokens = 0.000025; // Assumed 10% of input
       } else if (estimation.model.includes('gpt-5')) {
         // GPT-5 (Legacy/Base)
@@ -171,34 +171,34 @@ export class TokenUsageTrackingService {
         estimation.estimatedCostInEuros = totalCostUSD * 0.92;
         return estimation;
       }
-    } 
+    }
     // Google Models
     else if (estimation.provider === 'google-genai') {
       if (estimation.model.includes('gemini')) {
         if (estimation.model.includes('gemini-3-pro-preview')) {
           // Gemini 3 Pro (Preview)
-          inputCostPer1KTokens = 0.002;   // $2.00 per 1M
-          outputCostPer1KTokens = 0.012;  // $12.00 per 1M
+          inputCostPer1KTokens = 0.002; // $2.00 per 1M
+          outputCostPer1KTokens = 0.012; // $12.00 per 1M
         } else if (estimation.model.includes('gemini-2.5-pro')) {
           // Gemini 2.5 Pro
           inputCostPer1KTokens = 0.00125; // $1.25 per 1M
-          outputCostPer1KTokens = 0.01;   // $10.00 per 1M
+          outputCostPer1KTokens = 0.01; // $10.00 per 1M
         } else if (estimation.model.includes('gemini-2.5-flash')) {
           // Gemini 2.5 Flash
-          inputCostPer1KTokens = 0.0003;  // $0.30 per 1M
+          inputCostPer1KTokens = 0.0003; // $0.30 per 1M
           outputCostPer1KTokens = 0.0025; // $2.50 per 1M
         } else if (estimation.model.includes('gemini-2.0-flash')) {
           // Gemini 2.0 Flash
-          inputCostPer1KTokens = 0.0001;  // $0.10 per 1M
+          inputCostPer1KTokens = 0.0001; // $0.10 per 1M
           outputCostPer1KTokens = 0.0004; // $0.40 per 1M
         } else if (estimation.model.includes('gemini-1.5-pro')) {
           // Gemini 1.5 Pro
           inputCostPer1KTokens = 0.00125; // ~$1.25 per 1M
-          outputCostPer1KTokens = 0.005;  // ~$5.00 per 1M
+          outputCostPer1KTokens = 0.005; // ~$5.00 per 1M
         } else if (estimation.model.includes('gemini-1.5-flash')) {
           // Gemini 1.5 Flash
           inputCostPer1KTokens = 0.000075; // ~$0.075 per 1M
-          outputCostPer1KTokens = 0.0003;  // ~$0.30 per 1M
+          outputCostPer1KTokens = 0.0003; // ~$0.30 per 1M
         } else {
           // Default Gemini pricing (fallback)
           inputCostPer1KTokens = 0.0003;
@@ -206,7 +206,6 @@ export class TokenUsageTrackingService {
         }
         // Google Cached Input is typically 25% of standard input
         cachedInputCostPer1KTokens = inputCostPer1KTokens * 0.25;
-
       } else if (estimation.model.includes('imagen')) {
         // Imagen pricing is per image
         const imagesGenerated = Math.max(1, Math.floor(estimation.outputTokens / 100));
@@ -219,11 +218,11 @@ export class TokenUsageTrackingService {
     // Calculate total cost in USD
     const cachedTokens = estimation.cachedInputTokens || 0;
     const regularInputTokens = Math.max(0, estimation.inputTokens - cachedTokens);
-    
+
     const inputCostUSD = (regularInputTokens / 1000) * inputCostPer1KTokens;
     const cachedInputCostUSD = (cachedTokens / 1000) * cachedInputCostPer1KTokens;
     const outputCostUSD = (estimation.outputTokens / 1000) * outputCostPer1KTokens;
-    
+
     const totalCostUSD = inputCostUSD + cachedInputCostUSD + outputCostUSD;
 
     // Convert to EUR (approximate conversion rate: 1 USD = 0.92 EUR)
