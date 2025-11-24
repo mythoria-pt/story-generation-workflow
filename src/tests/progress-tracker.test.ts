@@ -40,8 +40,17 @@ jest.mock('../services/event', () => ({
   },
 }));
 
+jest.mock('../services/notification-client', () => ({
+  sendStoryCreatedEmail: jest.fn().mockResolvedValue(true),
+}));
+
 import { ProgressTrackerService } from '../services/progress-tracker';
 import { logger } from '@/config/logger';
+import { sendStoryCreatedEmail } from '../services/notification-client';
+
+const mockedSendStoryCreatedEmail = sendStoryCreatedEmail as jest.MockedFunction<
+  typeof sendStoryCreatedEmail
+>;
 
 describe('ProgressTrackerService', () => {
   let service: ProgressTrackerService;
@@ -117,5 +126,62 @@ describe('ProgressTrackerService', () => {
     mockRunsService.getRun.mockResolvedValue(null);
     await expect(service.calculateProgress('bad')).rejects.toThrow('Run not found');
     expect(logger.error).toHaveBeenCalled();
+  });
+
+  it('dispatches story-created email when a story-generation run completes', async () => {
+    const runId = 'r-email';
+    const storyId = 's-email';
+
+    mockRunsService.getRun.mockResolvedValue({
+      runId,
+      storyId,
+      status: 'completed',
+      currentStep: 'done',
+      metadata: { serviceCode: 'storyGeneration' },
+    });
+
+    jest.spyOn(service, 'calculateProgress').mockResolvedValue({
+      completedPercentage: 100,
+      totalEstimatedTime: 0,
+      elapsedTime: 0,
+      remainingTime: 0,
+      currentStep: 'done',
+      completedSteps: [],
+      totalSteps: 0,
+    });
+
+    mockStoryService.getStory.mockResolvedValue({
+      storyId,
+      title: 'Journey to Mythoria',
+      synopsis: 'A heroic quest.',
+      coverUri: 'https://example.com/cover.png',
+      author: 'A. Author',
+      authorEmail: 'author@example.com',
+      authorPreferredLocale: 'pt-PT',
+      authorId: 'author-123',
+    });
+
+    await service.updateStoryProgress(runId);
+    await Promise.resolve();
+
+    expect(mockedSendStoryCreatedEmail).toHaveBeenCalledTimes(1);
+    expect(mockedSendStoryCreatedEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        storyId,
+        templateId: 'story-created',
+        recipients: [
+          {
+            email: 'author@example.com',
+            name: 'A. Author',
+            language: 'pt-PT',
+          },
+        ],
+        variables: expect.objectContaining({
+          readStoryURL: expect.stringContaining(`/stories/read/${storyId}`),
+          orderPrintURL: expect.stringContaining(`/stories/print/${storyId}`),
+          shareStoryURL: expect.stringContaining(`/stories/read/${storyId}`),
+        }),
+      }),
+    );
   });
 });
