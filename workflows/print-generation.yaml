@@ -2,7 +2,8 @@
 # Trigger: Pub/Sub topic mythoria-print-requests
 #
 # Pub/Sub message (base-64 JSON):
-#   { "storyId": "<uuid>", "runId": "<uuid>" }
+#   For self-print (PDF download): { "storyId": "<uuid>", "runId": "<uuid>", "initiatedBy": "selfService", "delivery": {...} }
+#   For print order (physical book): { "storyId": "<uuid>", "runId": "<uuid>" }
 #
 # Cloud Run base URL (internal API):
 #   https://story-generation-workflow-803421888801.europe-west9.run.app
@@ -21,7 +22,8 @@ main:
           - runId: ${payload.runId}
           - baseUrl: 'https://story-generation-workflow-803421888801.europe-west9.run.app'
           - now: ${time.format(sys.now())}
-          - initiatedBy: ${default(map.get(payload, "initiatedBy"), "selfService")}
+          - initiatedBy: ${default(map.get(payload, "initiatedBy"), "printOrder")}
+          - delivery: ${default(map.get(payload, "delivery"), null)}
 
     # ───────────────────────────────────────────────
     # 1-N. Print pipeline wrapped in one try/except
@@ -55,7 +57,13 @@ main:
                     generateCMYK: true
                 result: printResult
 
-            # 3. Notify self-print customers (best-effort)
+            # 3. Notify self-print customers (only for selfService with delivery info)
+            - checkShouldNotify:
+                switch:
+                  - condition: ${initiatedBy == "selfService" and delivery != null}
+                    next: notifySelfPrintCustomers
+                next: markRunCompleted
+
             - notifySelfPrintCustomers:
                 call: http.request
                 args:
@@ -65,7 +73,7 @@ main:
                   body:
                     storyId: ${storyId}
                     runId: ${runId}
-                    delivery: ${payload.delivery}
+                    delivery: ${delivery}
                     initiatedBy: ${initiatedBy}
                     printResult: ${printResult.body}
                 result: notificationResult
