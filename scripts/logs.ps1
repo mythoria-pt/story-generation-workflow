@@ -9,14 +9,15 @@ Param(
 
 $ErrorActionPreference = "Stop"
 
-# Resolve repo root and logs directory
 $repoRoot = Split-Path -Path $PSScriptRoot -Parent
 $logsDir = Join-Path $repoRoot "logs"
-if (-not (Test-Path -Path $logsDir)) { New-Item -ItemType Directory -Path $logsDir | Out-Null }
+$logFilter = "resource.type=`"cloud_run_revision`" AND resource.labels.service_name=`"$ServiceName`" AND resource.labels.location=`"$Region`""
+if (-not (Test-Path -Path $logsDir)) {
+    New-Item -ItemType Directory -Path $logsDir | Out-Null
+}
 
-# Default output file if not provided and not following
 if (-not $Follow) {
-    if (-not $OutFile -or $OutFile.Trim() -eq "") {
+    if ([string]::IsNullOrWhiteSpace($OutFile)) {
         $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
         $OutFile = Join-Path $logsDir ("cloudrun-" + $ServiceName + "-" + $timestamp + ".json")
     }
@@ -24,25 +25,75 @@ if (-not $Follow) {
 
 Write-Host "Reading logs for Cloud Run service '$ServiceName' in region '$Region' (project '$ProjectId')."
 
+$logCommand = "read"
+if ($Follow) {
+    $logCommand = "tail"
+}
+
+$baseArgs = @(
+    "run", "services", "logs",
+    $logCommand,
+    $ServiceName,
+    "--region", $Region,
+    "--project", $ProjectId
+)
+
+$commandSucceeded = $true
+$primaryErrorMessage = $null
+
 try {
     if ($Follow) {
-        # Tail logs in real-time
-        gcloud logs tail "projects/$ProjectId/logs/run.googleapis.com%2Fstdout" --filter="resource.labels.service_name=$ServiceName AND resource.labels.location=$Region"
-    }
-    else {
-        # Read latest logs in JSON and write to file
-        $gcloudArgs = @(
-            "run", "services", "logs", "read", $ServiceName,
-            "--region", $Region,
-            "--project", $ProjectId,
-            "--limit", $Limit,
-            "--format", "json"
-        )
-        gcloud @gcloudArgs 2>&1 | Tee-Object -FilePath $OutFile | Out-Null
-        Write-Host "Saved logs to: $OutFile"
+        Write-Host "Streaming logs (press Ctrl+C to stop)..."
+        gcloud @baseArgs
+        if ($LASTEXITCODE -ne 0) {
+            $commandSucceeded = $false
+        }
+    } else {
+        $readArgs = $baseArgs + @("--limit", $Limit, "--format", "json")
+        gcloud @readArgs 2>&1 | Tee-Object -FilePath $OutFile | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            $commandSucceeded = $false
+        } else {
+            Write-Host "Saved logs to: $OutFile"
+        }
     }
 }
 catch {
-    Write-Error "Failed to read logs. Ensure gcloud is installed, authenticated, and you have access. Error: $($_.Exception.Message)"
-    exit 1
+    $commandSucceeded = $false
+    $primaryErrorMessage = $_.Exception.Message
+}
+
+if (-not $commandSucceeded) {
+    if ($primaryErrorMessage) {
+        Write-Warning "Cloud Run logs command failed: $primaryErrorMessage"
+    } else {
+        Write-Warning "Cloud Run logs command failed with exit code $LASTEXITCODE"
+    }
+
+    try {
+        if ($Follow) {
+            $fallbackArgs = @(
+                "logging", "tail", $logFilter,
+                "--project", $ProjectId,
+                "--format", "json"
+            )
+            gcloud @fallbackArgs
+        } else {
+            $fallbackArgs = @(
+                "logging", "read", $logFilter,
+                "--project", $ProjectId,
+                "--limit", $Limit,
+                "--format", "json"
+            )
+            gcloud @fallbackArgs 2>&1 | Tee-Object -FilePath $OutFile | Out-Null
+            Write-Host "Saved logs to: $OutFile (Cloud Logging fallback)"
+        }
+        if ($LASTEXITCODE -ne 0) {
+            throw "Cloud Logging fallback command failed."
+        }
+    }
+    catch {
+        Write-Error "Failed to retrieve Cloud Run logs. Ensure gcloud is installed, authenticated, and you have access. Error: $($_.Exception.Message)"
+        exit 1
+    }
 }
