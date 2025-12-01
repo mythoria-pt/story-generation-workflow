@@ -101,6 +101,7 @@ router.post(
         voice,
         storyLanguage,
         isFirstChapter,
+        includeBackgroundMusic,
       } = req.body;
 
       logger.info('Internal API: Generating chapter audio', {
@@ -109,6 +110,7 @@ router.post(
         voice,
         storyLanguage,
         isFirstChapter,
+        includeBackgroundMusic,
         contentLength: chapterContent?.length || 0,
         hasTitle: !!chapterTitle,
         hasAuthor: !!storyAuthor,
@@ -140,6 +142,8 @@ router.post(
           dedicatoryMessage,
           storyLanguage,
           isFirstChapter: isFirstChapter === true || isFirstChapter === 'true',
+          includeBackgroundMusic:
+            includeBackgroundMusic !== false && includeBackgroundMusic !== 'false',
         },
       );
 
