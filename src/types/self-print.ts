@@ -22,4 +22,5 @@ export interface SelfPrintWorkflowPayload {
   generateCMYK?: boolean;
   delivery?: SelfPrintDelivery;
   initiatedBy?: 'selfService' | 'adminPortal' | string;
+  origin?: 'self-service' | 'admin' | string;
 }

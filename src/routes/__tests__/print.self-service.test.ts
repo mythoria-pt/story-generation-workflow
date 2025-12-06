@@ -93,6 +93,7 @@ describe('print routers', () => {
     );
     expect(payload.storyId).toBe('00000000-0000-4000-8000-000000000123');
     expect(payload.runId).toBe('00000000-0000-4000-8000-000000000999');
+    expect(payload.origin).toBe('self-service');
     expect(payload.delivery.recipients).toHaveLength(2);
     expect(payload.delivery.recipients[0].email).toBe('owner@example.com');
     expect(payload.delivery.recipients[1].email).toBe('reader@example.com');

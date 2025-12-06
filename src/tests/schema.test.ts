@@ -6,6 +6,12 @@
 import { describe, test, expect } from '@jest/globals';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
+import {
+  CHARACTER_TYPES,
+  CHARACTER_ROLES,
+  CHARACTER_AGES,
+  CHARACTER_TRAITS,
+} from '@/shared/character-constants.js';
 
 describe('Story Outline Schema', () => {
   test('should load story outline schema file', async () => {
@@ -61,5 +67,32 @@ describe('Story Outline Schema', () => {
     expect(validOutline.chapters[0].chapterNumber).toBe(1);
     expect(typeof validOutline.chapters[0].chapterTitle).toBe('string');
     expect(validOutline.chapters[0].chapterTitle.length).toBeGreaterThan(0);
+  });
+
+  const schemasRoot = join(process.cwd(), 'src', 'prompts', 'schemas');
+
+  const expectCharacterEnumsToMatch = (schema: any) => {
+    const characterProps = schema?.properties?.characters?.items?.properties;
+    expect(characterProps).toBeDefined();
+    expect(characterProps.type.enum).toEqual([...CHARACTER_TYPES]);
+    expect(characterProps.role.enum).toEqual([...CHARACTER_ROLES]);
+    expect(characterProps.age.enum).toEqual([...CHARACTER_AGES]);
+    expect(characterProps.traits.items.enum).toEqual([...CHARACTER_TRAITS]);
+  };
+
+  test('story-outline schema uses canonical character enums', async () => {
+    const schemaPath = join(schemasRoot, 'story-outline.json');
+    const schemaContent = await readFile(schemaPath, 'utf-8');
+    const schema = JSON.parse(schemaContent);
+
+    expectCharacterEnumsToMatch(schema);
+  });
+
+  test('story-structure schema uses canonical character enums', async () => {
+    const schemaPath = join(schemasRoot, 'story-structure.json');
+    const schemaContent = await readFile(schemaPath, 'utf-8');
+    const schema = JSON.parse(schemaContent);
+
+    expectCharacterEnumsToMatch(schema);
   });
 });

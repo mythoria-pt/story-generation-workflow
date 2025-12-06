@@ -21,12 +21,12 @@
     "bookCoverPrompt": {
       "type": "string",
       "description": "Detailed prompt for generating the book cover illustration. Include characters physical descriptions, actions, and settings.",
-      "maxLength": 600
+      "maxLength": 1200
     },
     "bookBackCoverPrompt": {
       "type": "string",
       "description": "Detailed prompt for generating the book back cover illustration. Include characters physical descriptions, actions, and settings.",
-      "maxLength": 600
+      "maxLength": 1200
     },
     "synopses": {
       "type": "string",
@@ -57,11 +57,125 @@
         "additionalProperties": false
       },
       "maxItems": 20
+    },
+    "characters": {
+      "type": "array",
+      "description": "Roster of characters that appear throughout the outline. Keep roles/types aligned with the app schema.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "characterId": { "type": ["string", "null"] },
+          "name": { "type": "string" },
+          "type": {
+            "type": "string",
+            "enum": [
+              "boy",
+              "girl",
+              "man",
+              "woman",
+              "person",
+              "dog",
+              "cat",
+              "bird",
+              "other_animal",
+              "dragon",
+              "elf_fairy_mythical",
+              "robot_cyborg",
+              "alien_extraterrestrial",
+              "other_creature",
+              "other"
+            ]
+          },
+          "age": {
+            "type": "string",
+            "enum": [
+              "infant",
+              "toddler",
+              "preschool",
+              "school_age",
+              "teenage",
+              "emerging_adult",
+              "seasoned_adult",
+              "midlife_mentor",
+              "elder",
+              "youngling",
+              "adult",
+              "senior"
+            ]
+          },
+          "traits": {
+            "type": "array",
+            "maxItems": 5,
+            "items": {
+              "type": "string",
+              "enum": [
+                "adaptable",
+                "brave",
+                "compassionate",
+                "courageous",
+                "curious",
+                "decisive",
+                "empathetic",
+                "generous",
+                "honest",
+                "imaginative",
+                "loyal",
+                "optimistic",
+                "patient",
+                "practical",
+                "pragmatic",
+                "resourceful",
+                "self-disciplined",
+                "sincere",
+                "witty",
+                "kind",
+                "conscientious",
+                "energetic",
+                "arrogant",
+                "callous",
+                "cowardly",
+                "cynical",
+                "deceitful",
+                "impulsive",
+                "jealous",
+                "lazy",
+                "manipulative",
+                "moody",
+                "reckless",
+                "selfish",
+                "vengeful",
+                "aloof",
+                "blunt",
+                "cautious",
+                "methodical"
+              ]
+            }
+          },
+          "characteristics": { "type": "string" },
+          "physicalDescription": { "type": "string" },
+          "role": {
+            "type": "string",
+            "enum": [
+              "protagonist",
+              "antagonist",
+              "supporting",
+              "mentor",
+              "comic_relief",
+              "love_interest",
+              "sidekick",
+              "narrator",
+              "other"
+            ]
+          }
+        },
+        "required": ["name"]
+      }
     }
   },
   "required": [
     "bookTitle",
     "target-audience",
+    "characters",
     "chapters",
     "synopses",
     "bookBackCoverPrompt",

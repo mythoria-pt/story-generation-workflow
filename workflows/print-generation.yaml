@@ -25,6 +25,28 @@ main:
           - initiatedBy: ${default(map.get(payload, "initiatedBy"), "printOrder")}
           - delivery: ${default(map.get(payload, "delivery"), null)}
 
+    # Resolve origin in a separate step to avoid YAML/ternary parsing issues
+    - setOriginFromInitiatedBy:
+        switch:
+          - condition: ${initiatedBy == "selfService"}
+            next: setOriginSelfService
+          - condition: ${initiatedBy == "adminPortal"}
+            next: setOriginAdmin
+        next: setOriginDefault
+
+    - setOriginSelfService:
+        assign:
+          - originGuess: 'self-service'
+
+    - setOriginAdmin:
+        assign:
+          - originGuess: 'admin'
+
+    - setOriginDefault:
+        assign:
+          - originGuess: ${default(originGuess, "admin")}
+          - origin: ${default(map.get(payload, "origin"), originGuess)}
+
     # ───────────────────────────────────────────────
     # 1-N. Print pipeline wrapped in one try/except
     # ───────────────────────────────────────────────
@@ -60,7 +82,7 @@ main:
             # 3. Notify self-print customers (only for selfService with delivery info)
             - checkShouldNotify:
                 switch:
-                  - condition: ${initiatedBy == "selfService" and delivery != null}
+                  - condition: ${origin == "self-service" and delivery != null}
                     next: notifySelfPrintCustomers
                 next: markRunCompleted
 
@@ -75,6 +97,7 @@ main:
                     runId: ${runId}
                     delivery: ${delivery}
                     initiatedBy: ${initiatedBy}
+                    origin: ${origin}
                     printResult: ${printResult.body}
                 result: notificationResult
 

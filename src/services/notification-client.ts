@@ -25,6 +25,7 @@ export interface StoryPrintInstructionsEmailPayload {
   locale?: string;
   storyLanguage?: string | null;
   metadata?: Record<string, unknown>;
+  origin?: 'self-service' | 'admin' | string;
 }
 
 const PDF_MIME_TYPE = 'application/pdf';
@@ -203,18 +204,12 @@ export async function sendStoryPrintInstructionsEmail(
   const headers = buildHeaders(env);
   const locale = payload.locale || payload.recipient.language || payload.storyLanguage || 'en-US';
 
-  const coverPdf = buildPdfReference(payload.pdfs.coverPdfUrl, 'Cover spread (PDF)', 'cover.pdf');
-  const interiorPdf = buildPdfReference(
-    payload.pdfs.interiorPdfUrl,
-    'Interior pages (PDF)',
-    'interior.pdf',
-  );
   const additionalPdfs = [
     buildPdfReference(payload.pdfs.coverCmykPdfUrl, 'Cover (CMYK PDF)', 'cover-cmyk.pdf'),
     buildPdfReference(payload.pdfs.interiorCmykPdfUrl, 'Interior (CMYK PDF)', 'interior-cmyk.pdf'),
   ].filter(Boolean) as Array<{ uri: string; label: string; filename?: string; mimeType: string }>;
 
-  if (!coverPdf && !interiorPdf && additionalPdfs.length === 0) {
+  if (additionalPdfs.length === 0) {
     logger.error('No printable assets available for story-print email', {
       storyId: payload.storyId,
       workflowId: payload.workflowId,
@@ -245,12 +240,11 @@ export async function sendStoryPrintInstructionsEmail(
       (payload.metadata?.workflowExecutionId as string | undefined) ?? payload.workflowId,
   };
 
-  if (coverPdf) {
-    requestBody.coverPdf = coverPdf;
+  const origin = payload.origin ?? (payload.metadata?.origin as string | undefined);
+  if (origin) {
+    requestBody.origin = origin;
   }
-  if (interiorPdf) {
-    requestBody.interiorPdf = interiorPdf;
-  }
+
   if (additionalPdfs.length) {
     requestBody.additionalPdfs = additionalPdfs;
   }

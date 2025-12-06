@@ -80,64 +80,71 @@ export class OpenAIImageService implements IImageGenerationService {
         // Dynamically import the PromptService to avoid circular dependencies
         const { PromptService } = await import('../../../services/prompt.js');
 
-        // Determine which prompt template to load based on image type
-        const imageType = options?.imageType || 'chapter';
+        if (options?.systemPrompt) {
+          systemMessage = options.systemPrompt;
+        } else {
+          // Determine which prompt template to load based on image type
+          const imageType = options?.imageType || 'chapter';
 
-        try {
-          // Load the appropriate prompt template
-          const promptTemplate = await PromptService.loadImagePrompt(imageType);
-
-          // Process the template variables
-          const variables = {
-            bookTitle,
-            promptText: prompt,
-          };
-
-          // Use the prompt template for system message
-          systemMessage = PromptService.processPrompt(promptTemplate.systemPrompt || '', variables);
-        } catch (promptError) {
-          logger.warn('Failed to load image prompt template, using default', {
-            error: promptError instanceof Error ? promptError.message : String(promptError),
-            imageType: options?.imageType,
-          });
-
-          // Fallback to hardcoded system message
-          switch (options?.imageType) {
-            case 'front_cover':
-              systemMessage = `This image is the front cover of a book, title "${bookTitle}".`;
-              break;
-            case 'back_cover':
-              systemMessage = `This image is the back cover of a book, title "${bookTitle}".`;
-              break;
-            case 'chapter':
-              systemMessage = `This image is an illustration for a chapter in the book "${bookTitle}". Create a scene that captures the essence of the chapter content.`;
-              break;
-            default:
-              systemMessage = `This image is an illustration for the book "${bookTitle}".`;
-              break;
-          }
-        }
-
-        // If graphicalStyle is provided, append style guidelines
-        if (options && 'graphicalStyle' in options && options.graphicalStyle) {
           try {
-            const styleConfig = await PromptService.getImageStylePrompt(
-              options.graphicalStyle as string,
+            // Load the appropriate prompt template
+            const promptTemplate = await PromptService.loadImagePrompt(imageType);
+
+            // Process the template variables
+            const variables = {
+              bookTitle,
+              promptText: prompt,
+            };
+
+            // Use the prompt template for system message
+            systemMessage = PromptService.processPrompt(
+              promptTemplate.systemPrompt || '',
+              variables,
             );
-            systemMessage += `\n${styleConfig.systemPrompt}`;
-          } catch (styleError) {
-            logger.warn('Failed to load style configuration for image generation', {
-              error: styleError instanceof Error ? styleError.message : String(styleError),
-              graphicalStyle: options.graphicalStyle,
+          } catch (promptError) {
+            logger.warn('Failed to load image prompt template, using default', {
+              error: promptError instanceof Error ? promptError.message : String(promptError),
+              imageType: options?.imageType,
             });
-            // Fallback to a generic style instruction
+
+            // Fallback to hardcoded system message
+            switch (options?.imageType) {
+              case 'front_cover':
+                systemMessage = `This image is the front cover of a book, title "${bookTitle}".`;
+                break;
+              case 'back_cover':
+                systemMessage = `This image is the back cover of a book, title "${bookTitle}".`;
+                break;
+              case 'chapter':
+                systemMessage = `This image is an illustration for a chapter in the book "${bookTitle}". Create a scene that captures the essence of the chapter content.`;
+                break;
+              default:
+                systemMessage = `This image is an illustration for the book "${bookTitle}".`;
+                break;
+            }
+          }
+
+          // If graphicalStyle is provided, append style guidelines
+          if (options && 'graphicalStyle' in options && options.graphicalStyle) {
+            try {
+              const styleConfig = await PromptService.getImageStylePrompt(
+                options.graphicalStyle as string,
+              );
+              systemMessage += `\n${styleConfig.systemPrompt}`;
+            } catch (styleError) {
+              logger.warn('Failed to load style configuration for image generation', {
+                error: styleError instanceof Error ? styleError.message : String(styleError),
+                graphicalStyle: options.graphicalStyle,
+              });
+              // Fallback to a generic style instruction
+              systemMessage +=
+                '\nCreate a high-quality, detailed image with good composition and visual appeal.';
+            }
+          } else {
+            // Default style instruction when no specific style is provided
             systemMessage +=
               '\nCreate a high-quality, detailed image with good composition and visual appeal.';
           }
-        } else {
-          // Default style instruction when no specific style is provided
-          systemMessage +=
-            '\nCreate a high-quality, detailed image with good composition and visual appeal.';
         }
       } catch (error) {
         logger.error('Error preparing image generation prompt', {

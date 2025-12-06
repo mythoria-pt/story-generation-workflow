@@ -185,13 +185,19 @@ export class TokenUsageTrackingService {
         inputCostPer1KTokens = 0.002; // $2.00 per 1M (prompts <= 200k)
         outputCostPer1KTokens = 0.012; // $12.00 per 1M (prompts <= 200k)
         cachedInputCostPer1KTokens = 0.0002; // $0.20 per 1M
-      } else if (estimation.model.includes('gemini-2.5-pro-preview-tts') || estimation.model.includes('gemini-2.5-pro-tts')) {
+      } else if (
+        estimation.model.includes('gemini-2.5-pro-preview-tts') ||
+        estimation.model.includes('gemini-2.5-pro-tts')
+      ) {
         // Gemini 2.5 Pro Preview TTS - Powerful speech generation
         // Input (text): $1.00 per 1M, Output (audio): $20.00 per 1M
         inputCostPer1KTokens = 0.001; // $1.00 per 1M (text)
         outputCostPer1KTokens = 0.02; // $20.00 per 1M (audio)
         cachedInputCostPer1KTokens = 0.0001; // 10% of input
-      } else if (estimation.model.includes('gemini-2.5-flash-preview-tts') || estimation.model.includes('gemini-2.5-flash-tts')) {
+      } else if (
+        estimation.model.includes('gemini-2.5-flash-preview-tts') ||
+        estimation.model.includes('gemini-2.5-flash-tts')
+      ) {
         // Gemini 2.5 Flash Preview TTS - Cost-effective speech generation
         // Input (text): $0.50 per 1M, Output (audio): $10.00 per 1M
         inputCostPer1KTokens = 0.0005; // $0.50 per 1M (text)

@@ -274,18 +274,40 @@ export class ImageGenerationHandler
 
       // Load the image prompt template via PromptService
       const promptTemplate = await PromptService.loadImagePrompt(imageType);
-      const finalPrompt = PromptService.buildPrompt(promptTemplate, {
+
+      // Load art style configuration
+      // @ts-expect-error - style property exists on story object
+      const artStyle = storyContext.story.style || 'realistic';
+      const styleConfig = await PromptService.getImageStylePrompt(artStyle);
+
+      const variables = {
         bookTitle: storyContext.story.title,
         promptText: params.description,
         customInstructions: customInstructions || '',
-      });
+      };
+
+      // Construct System Prompt: Template System Prompt + Style System Prompt
+      let systemPrompt = '';
+      if (promptTemplate.systemPrompt) {
+        systemPrompt += PromptService.processPrompt(promptTemplate.systemPrompt, variables);
+      }
+      if (styleConfig.systemPrompt) {
+        systemPrompt += `\n\n${styleConfig.systemPrompt}`;
+      }
+
+      // Construct User Prompt
+      const userPrompt = PromptService.processPrompt(promptTemplate.userPrompt, variables);
 
       // Generate image using AI
       const imageService = aiGateway.getImageService();
-      const imageBuffer = await imageService.generate(finalPrompt, {
+      const imageBuffer = await imageService.generate(userPrompt, {
         width: 1024,
-        height: 1024,
+        height: 1536, // 2:3 aspect ratio
+        aspectRatio: '2:3',
         imageType: imageType,
+        systemPrompt: systemPrompt,
+        graphicalStyle: artStyle,
+        bookTitle: storyContext.story.title,
       });
 
       // Upload to storage

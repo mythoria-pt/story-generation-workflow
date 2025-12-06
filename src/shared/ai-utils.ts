@@ -111,7 +111,9 @@ export function validateOutlineStructure(outlineData: unknown): boolean {
     typeof outlineData === 'object' &&
     'bookTitle' in outlineData &&
     'chapters' in outlineData &&
-    Array.isArray((outlineData as { chapters: unknown }).chapters)
+    Array.isArray((outlineData as { chapters: unknown }).chapters) &&
+    'characters' in outlineData &&
+    Array.isArray((outlineData as { characters: unknown }).characters)
   );
 }
 

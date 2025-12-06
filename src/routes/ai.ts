@@ -25,6 +25,12 @@ import {
   cleanAITextOutput,
   normalizeSlug,
 } from '@/services/translation.js';
+import {
+  CHARACTER_TYPES,
+  CHARACTER_ROLES,
+  CHARACTER_AGES,
+  CHARACTER_TRAITS,
+} from '@/shared/character-constants.js';
 
 // Initialize services
 const router = Router();
@@ -103,6 +109,71 @@ function buildSafeFallbackPrompt(original: string, opts: { styleHint?: string } 
   });
 }
 
+// Shared outline + character schema definitions
+const CharacterTypeEnum = z.enum(CHARACTER_TYPES);
+const CharacterRoleEnum = z.enum(CHARACTER_ROLES);
+const CharacterAgeEnum = z.enum(CHARACTER_AGES);
+const CharacterTraitEnum = z.enum(CHARACTER_TRAITS);
+const TargetAudienceEnum = z.enum([
+  'children_0-2',
+  'children_3-6',
+  'children_7-10',
+  'children_11-14',
+  'young_adult_15-17',
+  'adult_18+',
+  'all_ages',
+]);
+
+const CharacterSchema = z.object({
+  // AI may return empty string, null, or no characterId at all - we don't validate UUID format here
+  characterId: z.string().nullable().optional(),
+  name: z.string().min(1),
+  type: CharacterTypeEnum.optional(),
+  age: CharacterAgeEnum.optional(),
+  traits: z.array(CharacterTraitEnum).max(5).optional(),
+  characteristics: z.string().optional(),
+  physicalDescription: z.string().optional(),
+  role: CharacterRoleEnum.optional(),
+});
+
+const OutlineSchema = z.object({
+  bookTitle: z.string(),
+  'target-audience': TargetAudienceEnum,
+  bookCoverPrompt: z.string(),
+  bookBackCoverPrompt: z.string(),
+  synopses: z.string(),
+  characters: z.array(CharacterSchema),
+  chapters: z.array(
+    z.object({
+      chapterNumber: z.number().int().positive(),
+      chapterTitle: z.string(),
+      chapterSynopses: z.string(),
+      chapterPhotoPrompt: z.string(),
+    }),
+  ),
+});
+
+type OutlineData = z.infer<typeof OutlineSchema>;
+
+// Helper function to check if data matches outline structure
+function isOutlineData(data: unknown): data is OutlineData {
+  try {
+    OutlineSchema.parse(data);
+    return true;
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      logger.error('Outline validation failed', {
+        issues: err.issues.map((i) => ({
+          path: i.path.join('.'),
+          message: i.message,
+          code: i.code,
+        })),
+      });
+    }
+    return false;
+  }
+}
+
 // Request schemas
 const OutlineRequestSchema = z.object({
   storyId: z.string().uuid(),
@@ -116,22 +187,7 @@ const ChapterRequestSchema = z.object({
   chapterTitle: z.string(),
   chapterSynopses: z.string(),
   chapterCount: z.number().int().positive().optional(),
-  outline: z
-    .object({
-      bookTitle: z.string(),
-      bookCoverPrompt: z.string(),
-      bookBackCoverPrompt: z.string(),
-      synopses: z.string(),
-      chapters: z.array(
-        z.object({
-          chapterNumber: z.number().int().positive(),
-          chapterTitle: z.string(),
-          chapterSynopses: z.string(),
-          chapterPhotoPrompt: z.string(),
-        }),
-      ),
-    })
-    .optional(),
+  outline: OutlineSchema.optional(),
   previousChapters: z.array(z.string()).optional(),
 });
 
@@ -205,34 +261,6 @@ function resolveContentType(
       return 'mdx';
     default:
       return 'markdown';
-  }
-}
-
-// Type definitions
-const OutlineSchema = z.object({
-  bookTitle: z.string(),
-  bookCoverPrompt: z.string(),
-  bookBackCoverPrompt: z.string(),
-  synopses: z.string(),
-  chapters: z.array(
-    z.object({
-      chapterNumber: z.number().int().positive(),
-      chapterTitle: z.string(),
-      chapterSynopses: z.string(),
-      chapterPhotoPrompt: z.string(),
-    }),
-  ),
-});
-
-type OutlineData = z.infer<typeof OutlineSchema>;
-
-// Helper function to check if data matches outline structure
-function isOutlineData(data: unknown): data is OutlineData {
-  try {
-    OutlineSchema.parse(data);
-    return true;
-  } catch {
-    return false;
   }
 }
 
@@ -911,12 +939,22 @@ router.post('/text/chapter/:chapterNumber', async (req, res) => {
 
           const summarize = (html: string) => {
             const plain = toPlainText(html);
-            const sentences = plain.split(/(?<=[.!?])\s+/).filter((segment) => segment.length > 0);
-            const firstSentences = sentences.slice(0, 3).join(' ');
-            if (firstSentences.length >= 120 && firstSentences.length <= 500) {
-              return firstSentences;
+            // Prefer the last part of the chapter to maintain continuity
+            // If the text is short enough, return it all
+            if (plain.length <= 1500) {
+              return plain;
             }
-            return plain.slice(0, 450);
+
+            // Otherwise, try to get the last few sentences
+            const sentences = plain.split(/(?<=[.!?])\s+/).filter((segment) => segment.length > 0);
+            const lastSentences = sentences.slice(-10).join(' ');
+
+            if (lastSentences.length >= 300 && lastSentences.length <= 2000) {
+              return '...' + lastSentences;
+            }
+
+            // Fallback to simple slicing from the end
+            return '...' + plain.slice(-1500);
           };
 
           const earlier = prior.slice(0, Math.max(0, prior.length - 2));

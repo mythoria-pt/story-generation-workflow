@@ -71,6 +71,7 @@ export interface TextGenerationOptions {
 export interface ImageGenerationOptions {
   width?: number;
   height?: number;
+  aspectRatio?: string;
   model?: string;
   quality?: 'standard' | 'hd';
   style?: 'vivid' | 'natural';
@@ -78,6 +79,7 @@ export interface ImageGenerationOptions {
   bookTitle?: string;
   graphicalStyle?: string;
   imageType?: 'front_cover' | 'back_cover' | 'chapter';
+  systemPrompt?: string;
   /**
    * Up to two reference images (JPEG) to guide style/character consistency.
    * Ordered oldest -> newest for narrative continuity.
