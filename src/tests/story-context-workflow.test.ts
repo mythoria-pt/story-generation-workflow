@@ -33,6 +33,23 @@ jest.mock('../services/story', () => ({
   StoryService: StoryServiceMock,
 }));
 
+// Mock PromptService for async prompt loading
+const mockLoadPrompt = jest.fn();
+const mockBuildPrompt = jest.fn();
+const mockProcessPrompt = jest.fn();
+
+jest.mock('../services/prompt', () => ({
+  PromptService: {
+    loadPrompt: mockLoadPrompt,
+    buildPrompt: mockBuildPrompt,
+    processPrompt: mockProcessPrompt,
+  },
+}));
+
+jest.mock('@/shared/utils.js', () => ({
+  formatTargetAudience: jest.fn((audience) => audience || 'children ages 7-10'),
+}));
+
 jest.mock('@/ai/gateway-singleton.js', () => ({
   getAIGateway: jest.fn(),
 }));
@@ -87,12 +104,68 @@ const createGateway = (textService: ReturnType<typeof createTextService>) => ({
 
 const getAIGatewayMock = getAIGateway as jest.Mock;
 
+// Default prompt templates for mocks
+const systemPromptTemplate = {
+  systemPrompt:
+    'You are a creative storyteller.\n\n<story_information>\n- Title: {{title}}\n- Target Audience: {{targetAudience}}\n</story_information>\n\n<characters>\n{{characters}}\n</characters>\n\n<audience_guidance>{{audienceGuidance}}</audience_guidance>\n<voice_guidance>{{voiceGuidance}}</voice_guidance>\n<pacing_guidance>{{pacingGuidance}}</pacing_guidance>',
+};
+const outlinePromptTemplate = {
+  userPrompt:
+    'Generate a clear, structured outline using the provided context. Keep instructions concise and outcome-focused.\n\n<audience_guidance>{{audienceGuidance}}</audience_guidance>\n<voice_guidance>{{voiceGuidance}}</voice_guidance>\n<pacing_guidance>{{pacingGuidance}}</pacing_guidance>\n\n<characters>\nUse every character as listed (names, roles, types, ages, traits, characteristics, physical descriptions). Do not invent new attributes.\n{{characters}}\n</characters>\n\n<requirements>\n- Opening that introduces characters and setting\n- Main conflict or adventure progression\n- 3-5 major plot points or chapters\n- Character growth using their unique abilities\n- Satisfying resolution\n</requirements>\n\n<visual_scene_guidelines>\nFor each major plot point, include settings, lighting, atmosphere, key visual elements, character positioning, and emotional expressions.\n</visual_scene_guidelines>\n\n<character_appearance_guidelines>\nAlways include physical descriptions for visible characters (hair, eyes, build, clothing, accessories, distinctive features) to support illustration prompts.\n</character_appearance_guidelines>\n\n<output_schema>\nReturn the outline using this shape for each chapter:\nChapter 1: Title\n- Summary: 1-2 sentences\n- Beats:\n  - Beat 1: setup or discovery\n  - Beat 2: escalation or complication\n  - Beat 3: consequence or transition\nEnsure chapter titles are explicit and numbered so they can be parsed reliably.\n</output_schema>\n{{#additionalPrompt}}\n<additional_requirements>{{additionalPrompt}}</additional_requirements>\n{{/additionalPrompt}}',
+};
+const chapterPromptTemplate = {
+  userPrompt:
+    'Write Chapter {{chapterNumber}}: "{{chapterTitle}}".\n{{#outline}}<story_outline>{{outline}}</story_outline>{{/outline}}\n\n<audience_guidance>{{audienceGuidance}}</audience_guidance>\n<voice_guidance>{{voiceGuidance}}</voice_guidance>\n<pacing_guidance>{{pacingGuidance}}</pacing_guidance>\n<length_guidance>{{lengthGuidance}}</length_guidance>\n\n<characters>\nUse every character as listed (names, roles, types, ages, traits, characteristics, physical descriptions). Keep continuity; do not invent new attributes.\n{{characters}}\n</characters>\n\n<chapter_requirements>\n- Maintain consistency with previous chapters and the overall story\n- Use vivid descriptions and engaging dialogue\n- Show character development and interactions\n- Include action and emotional moments appropriate for the target audience\n- End with a natural transition to the next chapter\n</chapter_requirements>\n\n<chapter_output_schema>\nProvide both a short summary and the full prose:\nSummary: 2-4 sentences covering key beats and emotions.\nBody:\n[Write the full chapter prose here]\n</chapter_output_schema>',
+};
+
 beforeEach(() => {
   mockGetStoryContext.mockReset();
   mockGetStory.mockReset();
   StoryServiceMock.mockClear();
   Object.values(contextManagerMock).forEach((fn) => fn.mockReset());
   getAIGatewayMock.mockReset();
+
+  // Setup default prompt mock responses
+  mockLoadPrompt.mockReset();
+  mockBuildPrompt.mockReset();
+  mockProcessPrompt.mockReset();
+
+  mockLoadPrompt.mockImplementation((locale: string, promptName: string) => {
+    if (promptName === 'story-system') return Promise.resolve(systemPromptTemplate);
+    if (promptName === 'story-outline-session') return Promise.resolve(outlinePromptTemplate);
+    if (promptName === 'story-chapter-session') return Promise.resolve(chapterPromptTemplate);
+    return Promise.reject(new Error(`Unknown prompt: ${promptName}`));
+  });
+
+  mockProcessPrompt.mockImplementation((template: string, vars: Record<string, unknown>) => {
+    let result = template;
+    for (const [key, value] of Object.entries(vars)) {
+      result = result.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), String(value || ''));
+      // Handle conditionals
+      const conditionalPattern = new RegExp(`\\{\\{#${key}\\}\\}(.*?)\\{\\{\\/${key}\\}\\}`, 'gs');
+      if (value && String(value).trim() !== '') {
+        result = result.replace(conditionalPattern, '$1');
+      } else {
+        result = result.replace(conditionalPattern, '');
+      }
+    }
+    return result;
+  });
+
+  mockBuildPrompt.mockImplementation((template: { userPrompt?: string; systemPrompt?: string }, vars: Record<string, unknown>) => {
+    const userPrompt = template.userPrompt || '';
+    let result = userPrompt;
+    for (const [key, value] of Object.entries(vars)) {
+      result = result.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), String(value || ''));
+      const conditionalPattern = new RegExp(`\\{\\{#${key}\\}\\}(.*?)\\{\\{\\/${key}\\}\\}`, 'gs');
+      if (value && String(value).trim() !== '') {
+        result = result.replace(conditionalPattern, '$1');
+      } else {
+        result = result.replace(conditionalPattern, '');
+      }
+    }
+    return result;
+  });
 });
 
 afterEach(() => {
@@ -109,14 +182,15 @@ describe('StoryContextService', () => {
     const session = await service.initializeStorySession('story-1', 'run-42', gateway as any);
 
     expect(mockGetStoryContext).toHaveBeenCalledWith('story-1');
+    expect(mockLoadPrompt).toHaveBeenCalledWith('en-US', 'story-system');
     expect(contextManager.initializeContext).toHaveBeenCalledWith(
       'story-1-run-42',
       'story-1',
-      expect.stringContaining('Title: The Enchanted Forest'),
+      expect.stringContaining('Title:'),
     );
     expect(textService.initializeContext).toHaveBeenCalledWith(
       'story-1-run-42',
-      expect.stringContaining('**Characters:**'),
+      expect.any(String),
     );
     expect(session).toEqual(
       expect.objectContaining({
@@ -156,13 +230,13 @@ describe('StoryContextService', () => {
 
     const outline = await service.generateOutline(session, 'Make it spooky');
 
+    expect(mockLoadPrompt).toHaveBeenCalledWith('en-US', 'story-outline-session');
     expect(textService.complete).toHaveBeenCalledWith(
-      expect.stringContaining('Please create a detailed story outline'),
-      expect.objectContaining({ contextId: 'ctx-1', temperature: 0.8 }),
+      expect.stringContaining('Generate a clear, structured outline'),
+      expect.objectContaining({ contextId: 'ctx-1', temperature: 1 }),
     );
-    expect(textService.complete.mock.calls[0][0]).toContain(
-      'Additional requirements: Make it spooky',
-    );
+    expect(textService.complete.mock.calls[0][0]).toContain('Luna');
+    expect(textService.complete.mock.calls[0][0]).toContain('Make it spooky');
     expect(outline).toBe('Outline result');
     expect(session.currentStep).toBe('outline-generated');
   });
@@ -187,13 +261,13 @@ describe('StoryContextService', () => {
       'Outline snippet',
     );
 
+    expect(mockLoadPrompt).toHaveBeenCalledWith('en-US', 'story-chapter-session');
     expect(textService.complete).toHaveBeenCalledWith(
-      expect.stringContaining('Please write Chapter 2: "The Long Journey" of the story.'),
-      expect.objectContaining({ contextId: 'ctx-9', temperature: 0.7 }),
+      expect.stringContaining('Write Chapter 2: "The Long Journey"'),
+      expect.objectContaining({ contextId: 'ctx-9', temperature: 0.9 }),
     );
-    expect(textService.complete.mock.calls[0][0]).toContain(
-      'Based on the story outline:\nOutline snippet',
-    );
+    expect(textService.complete.mock.calls[0][0]).toContain('Orion');
+    expect(textService.complete.mock.calls[0][0]).toContain('Outline snippet');
     expect(chapter).toBe('Chapter body content');
     expect(session.currentStep).toBe('chapter-2-generated');
   });
