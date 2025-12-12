@@ -3,7 +3,8 @@
   "properties": {
     "bookTitle": {
       "type": "string",
-      "maxLength": 150
+      "maxLength": 150,
+      "minLength": 1
     },
     "target-audience": {
       "type": "string",
@@ -20,17 +21,32 @@
     },
     "bookCoverPrompt": {
       "type": "string",
-      "description": "Detailed prompt for generating the book cover illustration. Include characters physical descriptions, actions, and settings.",
-      "maxLength": 600
+      "description": "Detailed prompt for generating the book cover illustration. Include characters physical descriptions, actions, and settings, and explicitly include the exact book title text on the cover.",
+      "maxLength": 1200,
+      "minLength": 10
+    },
+    "bookCoverCharacters": {
+      "type": "array",
+      "description": "Character names visible on the book cover illustration.",
+      "items": { "type": "string", "minLength": 1 },
+      "default": []
     },
     "bookBackCoverPrompt": {
       "type": "string",
       "description": "Detailed prompt for generating the book back cover illustration. Include characters physical descriptions, actions, and settings.",
-      "maxLength": 600
+      "maxLength": 1200,
+      "minLength": 10
+    },
+    "bookBackCoverCharacters": {
+      "type": "array",
+      "description": "Character names visible on the book back cover illustration.",
+      "items": { "type": "string", "minLength": 1 },
+      "default": []
     },
     "synopses": {
       "type": "string",
-      "description": "Detailed synopsis of the entire book"
+      "description": "Detailed synopsis of the entire book",
+      "minLength": 1
     },
     "chapters": {
       "type": "array",
@@ -42,26 +58,149 @@
             "description": "Chapter number (1-based)"
           },
           "chapterTitle": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1
           },
           "chapterSynopses": {
             "type": "string",
-            "description": "Detailed and full synopsis of what happens in this chapter. Include characters names, descriptions and actions"
+            "description": "Detailed and full synopsis of what happens in this chapter. Include characters names, descriptions and actions",
+            "minLength": 1
           },
           "chapterPhotoPrompt": {
             "type": "string",
-            "description": "Detailed prompt for generating an illustration for this chapter. Include characters physical descriptions, actions, and settings."
+            "description": "Detailed prompt for generating an illustration for this chapter. Include characters physical descriptions, actions, and settings.",
+            "minLength": 10
+          },
+          "charactersInScene": {
+            "type": "array",
+            "description": "Character names that appear in this chapter's illustration prompt.",
+            "items": { "type": "string", "minLength": 1 },
+            "default": []
           }
         },
         "required": ["chapterPhotoPrompt", "chapterNumber", "chapterSynopses", "chapterTitle"],
         "additionalProperties": false
       },
       "maxItems": 20
+    },
+    "characters": {
+      "type": "array",
+      "description": "Roster of characters that appear throughout the outline. Keep roles/types aligned with the app schema.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "characterId": { "type": ["string", "null"] },
+          "name": { "type": "string" },
+          "type": {
+            "type": "string",
+            "enum": [
+              "boy",
+              "girl",
+              "man",
+              "woman",
+              "person",
+              "dog",
+              "cat",
+              "bird",
+              "other_animal",
+              "dragon",
+              "elf_fairy_mythical",
+              "robot_cyborg",
+              "alien_extraterrestrial",
+              "other_creature",
+              "other"
+            ]
+          },
+          "age": {
+            "type": "string",
+            "enum": [
+              "infant",
+              "toddler",
+              "preschool",
+              "school_age",
+              "teenage",
+              "emerging_adult",
+              "seasoned_adult",
+              "midlife_mentor",
+              "elder",
+              "youngling",
+              "adult",
+              "senior"
+            ]
+          },
+          "traits": {
+            "type": "array",
+            "maxItems": 5,
+            "items": {
+              "type": "string",
+              "enum": [
+                "adaptable",
+                "brave",
+                "compassionate",
+                "courageous",
+                "curious",
+                "decisive",
+                "empathetic",
+                "generous",
+                "honest",
+                "imaginative",
+                "loyal",
+                "optimistic",
+                "patient",
+                "practical",
+                "pragmatic",
+                "resourceful",
+                "self-disciplined",
+                "sincere",
+                "witty",
+                "kind",
+                "conscientious",
+                "energetic",
+                "arrogant",
+                "callous",
+                "cowardly",
+                "cynical",
+                "deceitful",
+                "impulsive",
+                "jealous",
+                "lazy",
+                "manipulative",
+                "moody",
+                "reckless",
+                "selfish",
+                "vengeful",
+                "aloof",
+                "blunt",
+                "cautious",
+                "methodical"
+              ]
+            }
+          },
+          "characteristics": { "type": "string" },
+          "physicalDescription": { "type": "string" },
+          "role": {
+            "type": "string",
+            "enum": [
+              "protagonist",
+              "antagonist",
+              "supporting",
+              "mentor",
+              "comic_relief",
+              "love_interest",
+              "sidekick",
+              "narrator",
+              "other"
+            ]
+          }
+        },
+        "required": ["name"]
+      }
     }
   },
   "required": [
     "bookTitle",
     "target-audience",
+    "characters",
     "chapters",
     "synopses",
     "bookBackCoverPrompt",

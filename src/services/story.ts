@@ -133,12 +133,12 @@ export class StoryService {
         characters: storyCharactersData.map((char) => ({
           characterId: char.characterId,
           name: char.name,
-          type: char.type || undefined,
-          role: char.role || undefined,
-          age: char.age || undefined,
-          traits: char.traits || undefined,
-          characteristics: char.characteristics || undefined,
-          physicalDescription: char.physicalDescription || undefined,
+          ...(char.type ? { type: char.type } : {}),
+          ...(char.role ? { role: char.role } : {}),
+          ...(char.age ? { age: char.age } : {}),
+          ...(Array.isArray(char.traits) && char.traits.length ? { traits: char.traits } : {}),
+          ...(char.characteristics ? { characteristics: char.characteristics } : {}),
+          ...(char.physicalDescription ? { physicalDescription: char.physicalDescription } : {}),
         })),
       };
     } catch (error) {

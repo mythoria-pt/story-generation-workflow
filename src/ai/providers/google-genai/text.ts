@@ -400,11 +400,28 @@ export class GoogleGenAITextService implements ITextGenerationService {
       if (!response) {
         const generationConfig: any = {
           maxOutputTokens: options?.maxTokens || getMaxOutputTokens(options?.model || this.model),
-          temperature: options?.temperature || 0.7,
+          temperature: options?.temperature ?? 0.7,
           topP: options?.topP || 0.9,
           topK: options?.topK || 40,
           ...(options?.stopSequences && { stopSequences: options.stopSequences }),
         };
+
+        // Gemini 3 thinking config - controls reasoning depth
+        if (options?.thinkingLevel) {
+          generationConfig.thinkingConfig = {
+            thinkingLevel: options.thinkingLevel.toUpperCase(), // 'LOW' or 'HIGH'
+          };
+        }
+
+        // Gemini 3 media resolution - controls token allocation for images/video
+        if (options?.mediaResolution) {
+          const resolutionMap: Record<string, string> = {
+            low: 'MEDIA_RESOLUTION_LOW',
+            medium: 'MEDIA_RESOLUTION_MEDIUM',
+            high: 'MEDIA_RESOLUTION_HIGH',
+          };
+          generationConfig.mediaResolution = resolutionMap[options.mediaResolution];
+        }
 
         // Handle JSON schema for structured output
         if (options?.jsonSchema) {

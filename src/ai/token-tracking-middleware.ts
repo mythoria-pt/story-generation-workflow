@@ -29,6 +29,7 @@ export interface AICallContext {
     | 'image_edit'
     | 'prompt_rewrite'
     | 'blog_translation'
+    | 'character_photo_analysis'
     | 'test';
 }
 

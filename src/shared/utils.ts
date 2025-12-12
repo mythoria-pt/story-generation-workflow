@@ -77,14 +77,14 @@ export async function retry<T>(
 // ----------------------------------------------------------------------------->
 
 export interface StoryCharacter {
-  characterId?: string;
+  characterId?: string | undefined;
   name: string;
-  type?: string;
-  role?: string;
-  age?: string;
-  traits?: string[];
-  characteristics?: string;
-  physicalDescription?: string;
+  type?: string | undefined;
+  role?: string | undefined;
+  age?: string | undefined;
+  traits?: string[] | undefined;
+  characteristics?: string | undefined;
+  physicalDescription?: string | undefined;
 }
 
 export interface StoryContext {
@@ -137,6 +137,7 @@ export function getLanguageName(languageCode: string): string {
  */
 export function prepareCharactersForPrompt(characters: StoryCharacter[]): string {
   const charactersWithoutIds = characters.map((char) => ({
+    characterId: char.characterId,
     name: char.name,
     type: char.type,
     role: char.role,

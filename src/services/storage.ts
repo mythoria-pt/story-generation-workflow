@@ -95,20 +95,23 @@ export class StorageService {
   /**
    * Upload a file to Google Cloud Storage
    */
-  async uploadFile(filename: string, buffer: Buffer, contentType: string): Promise<string> {
+  async uploadFile(
+    filename: string,
+    buffer: Buffer,
+    contentType: string,
+    options?: { cacheControl?: string },
+  ): Promise<string> {
     try {
       const bucket = this.storage.bucket(this.bucketName);
       const file = bucket.file(filename);
 
-      logger.debug('Uploading file to GCS', {
-        filename,
-        size: buffer.length,
-        contentType,
-      });
+      const metadata: { contentType: string; cacheControl?: string } = { contentType };
+      if (options?.cacheControl) {
+        metadata.cacheControl = options.cacheControl;
+      }
+
       await file.save(buffer, {
-        metadata: {
-          contentType,
-        },
+        metadata,
         // Removed 'public: true' to avoid ACL conflicts with uniform bucket-level access
         // Public access should be configured at the bucket level via IAM policies
       });

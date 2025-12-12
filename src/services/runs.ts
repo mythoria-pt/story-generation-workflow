@@ -283,4 +283,24 @@ export class RunsService {
       throw error;
     }
   }
+
+  /**
+   * Delete a specific step result (used to clear stale data before retries)
+   */
+  async deleteStepResult(runId: string, stepName: string) {
+    try {
+      await this.db
+        .delete(storyGenerationSteps)
+        .where(
+          and(eq(storyGenerationSteps.runId, runId), eq(storyGenerationSteps.stepName, stepName)),
+        );
+    } catch (error) {
+      logger.error('Failed to delete step result', {
+        error: error instanceof Error ? error.message : String(error),
+        runId,
+        stepName,
+      });
+      throw error;
+    }
+  }
 }

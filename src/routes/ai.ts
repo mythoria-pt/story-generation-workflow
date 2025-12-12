@@ -16,7 +16,12 @@ import { getImageDimensions } from '@/utils/imageUtils.js';
 import { getAIGatewayWithTokenTracking } from '@/ai/gateway-with-tracking.js';
 import { getStorageService } from '@/services/storage-singleton.js';
 import { logger } from '@/config/logger.js';
-import { formatTargetAudience, getLanguageName, parseAIResponse } from '@/shared/utils.js';
+import {
+  formatTargetAudience,
+  getLanguageName,
+  parseAIResponse,
+  prepareCharactersForPrompt,
+} from '@/shared/utils.js';
 import { CharacterService } from '@/services/characters.js';
 import { eq } from 'drizzle-orm';
 import {
@@ -25,6 +30,13 @@ import {
   cleanAITextOutput,
   normalizeSlug,
 } from '@/services/translation.js';
+import {
+  CHARACTER_TYPES,
+  CHARACTER_ROLES,
+  CHARACTER_AGES,
+  CHARACTER_TRAITS,
+} from '@/shared/character-constants.js';
+import { RunsService } from '@/services/runs.js';
 
 // Initialize services
 const router = Router();
@@ -32,6 +44,7 @@ const aiGateway = getAIGatewayWithTokenTracking();
 const storyService = new StoryService();
 const storageService = getStorageService();
 const characterService = new CharacterService();
+const runsService = new RunsService();
 
 // Image prompt refinement helper (applies consistent best-practice formatting across providers)
 function refineImagePrompt(
@@ -103,6 +116,80 @@ function buildSafeFallbackPrompt(original: string, opts: { styleHint?: string } 
   });
 }
 
+// Shared outline + character schema definitions
+const CharacterTypeEnum = z.enum(CHARACTER_TYPES);
+const CharacterRoleEnum = z.enum(CHARACTER_ROLES);
+const CharacterAgeEnum = z.enum(CHARACTER_AGES);
+const CharacterTraitEnum = z.enum(CHARACTER_TRAITS);
+const TargetAudienceEnum = z.enum([
+  'children_0-2',
+  'children_3-6',
+  'children_7-10',
+  'children_11-14',
+  'young_adult_15-17',
+  'adult_18+',
+  'all_ages',
+]);
+
+const CharacterSchema = z.object({
+  // AI may return empty string, null, or no characterId at all - we don't validate UUID format here
+  characterId: z.string().nullable().optional(),
+  name: z.string().min(1),
+  type: CharacterTypeEnum.optional(),
+  age: CharacterAgeEnum.optional(),
+  traits: z.array(CharacterTraitEnum).max(5).optional(),
+  characteristics: z.string().optional(),
+  physicalDescription: z.string().optional(),
+  role: CharacterRoleEnum.optional(),
+});
+
+export const OutlineSchema = z.object({
+  bookTitle: z.string().min(1).trim(),
+  'target-audience': TargetAudienceEnum,
+  bookCoverPrompt: z.string().min(10).trim(),
+  bookBackCoverPrompt: z.string().min(10).trim(),
+  bookCoverCharacters: z.array(z.string().min(1)).default([]),
+  bookBackCoverCharacters: z.array(z.string().min(1)).default([]),
+  synopses: z.string().min(1).trim(),
+  characters: z.array(CharacterSchema),
+  chapters: z.array(
+    z.object({
+      chapterNumber: z.number().int().positive(),
+      chapterTitle: z.string().min(1).trim(),
+      chapterSynopses: z.string().min(1).trim(),
+      chapterPhotoPrompt: z.string().min(10).trim(),
+      charactersInScene: z.array(z.string().min(1)).default([]),
+    }),
+  ),
+});
+
+export type OutlineData = z.infer<typeof OutlineSchema>;
+
+// Helper function to check if data matches outline structure
+function isOutlineData(data: unknown): data is OutlineData {
+  try {
+    OutlineSchema.parse(data);
+    return true;
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      logger.error('Outline validation failed', {
+        issues: err.issues.map((i) => ({
+          path: i.path.join('.'),
+          message: i.message,
+          code: i.code,
+        })),
+      });
+    }
+    return false;
+  }
+}
+
+function hasNonEmptyCoverPrompts(data: OutlineData): boolean {
+  const front = data.bookCoverPrompt?.trim();
+  const back = data.bookBackCoverPrompt?.trim();
+  return Boolean(front && back && front.length > 0 && back.length > 0);
+}
+
 // Request schemas
 const OutlineRequestSchema = z.object({
   storyId: z.string().uuid(),
@@ -116,22 +203,7 @@ const ChapterRequestSchema = z.object({
   chapterTitle: z.string(),
   chapterSynopses: z.string(),
   chapterCount: z.number().int().positive().optional(),
-  outline: z
-    .object({
-      bookTitle: z.string(),
-      bookCoverPrompt: z.string(),
-      bookBackCoverPrompt: z.string(),
-      synopses: z.string(),
-      chapters: z.array(
-        z.object({
-          chapterNumber: z.number().int().positive(),
-          chapterTitle: z.string(),
-          chapterSynopses: z.string(),
-          chapterPhotoPrompt: z.string(),
-        }),
-      ),
-    })
-    .optional(),
+  outline: OutlineSchema.optional(),
   previousChapters: z.array(z.string()).optional(),
 });
 
@@ -208,34 +280,6 @@ function resolveContentType(
   }
 }
 
-// Type definitions
-const OutlineSchema = z.object({
-  bookTitle: z.string(),
-  bookCoverPrompt: z.string(),
-  bookBackCoverPrompt: z.string(),
-  synopses: z.string(),
-  chapters: z.array(
-    z.object({
-      chapterNumber: z.number().int().positive(),
-      chapterTitle: z.string(),
-      chapterSynopses: z.string(),
-      chapterPhotoPrompt: z.string(),
-    }),
-  ),
-});
-
-type OutlineData = z.infer<typeof OutlineSchema>;
-
-// Helper function to check if data matches outline structure
-function isOutlineData(data: unknown): data is OutlineData {
-  try {
-    OutlineSchema.parse(data);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 /**
  * POST /ai/text/outline
  * Generate story outline using AI text generation with story context from database
@@ -265,19 +309,7 @@ router.post('/text/outline', async (req, res) => {
       place: storyContext.story.place || 'a magical land',
       language: getLanguageName(storyContext.story.storyLanguage),
       chapterCount,
-      characters: JSON.stringify(
-        storyContext.characters.map((char) => ({
-          name: char.name,
-          type: char.type || '',
-          role: char.role || '',
-          age: char.age || '',
-          traits: char.traits || [],
-          characteristics: char.characteristics || '',
-          physicalDescription: char.physicalDescription || '',
-        })),
-        null,
-        2,
-      ),
+      characters: prepareCharactersForPrompt(storyContext.characters),
       bookTitle: storyContext.story.title,
       storyDescription:
         storyContext.story.plotDescription ||
@@ -324,55 +356,105 @@ router.post('/text/outline', async (req, res) => {
     // Use a deterministic contextId across the workflow (storyId + runId)
     const contextId = `${storyId}:${runId}`;
 
-    const outline = await aiGateway.getTextService(aiContext).complete(finalPrompt, {
-      ...requestOptions,
-      contextId, // ensure the outline response (as first turn) is bound to a context
-    });
-
-    // Parse and validate the AI response
-    const parsedData = parseAIResponse(outline);
-
-    // Validate that the response matches our expected structure
-    if (!isOutlineData(parsedData)) {
-      // Type guard failed, so we know parsedData doesn't match OutlineData
-      // But we can still safely check basic properties for debugging
-      const dataAsRecord =
-        parsedData && typeof parsedData === 'object' ? (parsedData as Record<string, unknown>) : {};
-      logger.error('Invalid outline structure', {
-        hasBookTitle: !!dataAsRecord?.bookTitle,
-        hasChapters: !!dataAsRecord?.chapters,
-        isChaptersArray: Array.isArray(dataAsRecord?.chapters),
-        actualKeys: Object.keys(dataAsRecord),
+    const runSingleOutlineAttempt = async (): Promise<OutlineData> => {
+      const outline = await aiGateway.getTextService(aiContext).complete(finalPrompt, {
+        ...requestOptions,
+        contextId, // ensure the outline response (as first turn) is bound to a context
       });
-      throw new Error('Invalid outline structure received');
+
+      const parsedData = parseAIResponse(outline);
+
+      if (!isOutlineData(parsedData)) {
+        const dataAsRecord =
+          parsedData && typeof parsedData === 'object'
+            ? (parsedData as Record<string, unknown>)
+            : {};
+        logger.error('Invalid outline structure', {
+          hasBookTitle: !!dataAsRecord?.bookTitle,
+          hasChapters: !!dataAsRecord?.chapters,
+          isChaptersArray: Array.isArray(dataAsRecord?.chapters),
+          actualKeys: Object.keys(dataAsRecord),
+        });
+        throw new Error('Invalid outline structure received');
+      }
+
+      const outlineData = parsedData;
+
+      // Refine cover + chapter image prompts for cross-provider clarity
+      try {
+        if (outlineData.bookCoverPrompt) {
+          outlineData.bookCoverPrompt = refineImagePrompt(outlineData.bookCoverPrompt, {
+            styleHint: 'vibrant cover illustration, detailed, soft lighting',
+          });
+          const title = storyContext.story.title?.trim();
+          if (title) {
+            outlineData.bookCoverPrompt = `${outlineData.bookCoverPrompt} Include the exact book title text "${title}" prominently on the cover.`;
+          }
+        }
+        if (outlineData.bookBackCoverPrompt) {
+          outlineData.bookBackCoverPrompt = refineImagePrompt(outlineData.bookBackCoverPrompt, {
+            styleHint: 'cohesive back cover illustration, soft lighting',
+          });
+        }
+        if (Array.isArray(outlineData.chapters)) {
+          outlineData.chapters = outlineData.chapters.map((ch) => ({
+            ...ch,
+            chapterPhotoPrompt: refineImagePrompt(ch.chapterPhotoPrompt, {
+              styleHint: 'cohesive interior illustration, soft lighting',
+            }),
+          }));
+        }
+      } catch (refErr) {
+        logger.warn('Prompt refinement failed (non-fatal)', {
+          error: refErr instanceof Error ? refErr.message : String(refErr),
+        });
+      }
+
+      return outlineData;
+    };
+
+    let outlineData: OutlineData | null = null;
+    let lastError: unknown;
+
+    for (const attempt of [1, 2]) {
+      try {
+        const attemptResult = await runSingleOutlineAttempt();
+
+        if (!hasNonEmptyCoverPrompts(attemptResult)) {
+          throw new Error('Outline missing cover prompts');
+        }
+
+        outlineData = attemptResult;
+        break;
+      } catch (err) {
+        lastError = err;
+
+        if (attempt === 1) {
+          logger.warn('Outline attempt failed, clearing stale outline step and retrying once', {
+            storyId,
+            runId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+
+          try {
+            await runsService.deleteStepResult(runId, 'generate_outline');
+          } catch (deleteErr) {
+            logger.warn('Failed to clear outline step before retry', {
+              storyId,
+              runId,
+              error: deleteErr instanceof Error ? deleteErr.message : String(deleteErr),
+            });
+          }
+
+          continue;
+        }
+      }
     }
 
-    const outlineData = parsedData;
-
-    // Refine cover + chapter image prompts for cross-provider clarity
-    try {
-      if (outlineData.bookCoverPrompt) {
-        outlineData.bookCoverPrompt = refineImagePrompt(outlineData.bookCoverPrompt, {
-          styleHint: 'vibrant cover illustration, detailed, soft lighting',
-        });
-      }
-      if (outlineData.bookBackCoverPrompt) {
-        outlineData.bookBackCoverPrompt = refineImagePrompt(outlineData.bookBackCoverPrompt, {
-          styleHint: 'cohesive back cover illustration, soft lighting',
-        });
-      }
-      if (Array.isArray(outlineData.chapters)) {
-        outlineData.chapters = outlineData.chapters.map((ch) => ({
-          ...ch,
-          chapterPhotoPrompt: refineImagePrompt(ch.chapterPhotoPrompt, {
-            styleHint: 'cohesive interior illustration, soft lighting',
-          }),
-        }));
-      }
-    } catch (refErr) {
-      logger.warn('Prompt refinement failed (non-fatal)', {
-        error: refErr instanceof Error ? refErr.message : String(refErr),
-      });
+    if (!outlineData) {
+      throw lastError instanceof Error
+        ? lastError
+        : new Error('Failed to generate outline after retry');
     }
 
     // Initialize chat context after successful outline (system prompt = condensed outline summary)
@@ -711,6 +793,188 @@ router.post('/text/structure', async (req, res) => {
  * Body: { storyId: uuid, filename?: string, contentType: string, kind: 'image'|'audio' }
  * Stores under mythoria-generated-stories/{storyId}/inputs/<filename>
  */
+router.post('/media/character-photo', async (req, res) => {
+  try {
+    const Schema = z.object({
+      authorId: z.string().uuid(),
+      characterId: z.string().uuid(),
+      dataUrl: z.string().min(10),
+    });
+    const { authorId, characterId, dataUrl } = Schema.parse(req.body);
+
+    const match = /^data:image\/jpeg;base64,(.+)$/i.exec(dataUrl.trim());
+    if (!match || !match[1]) {
+      res.status(400).json({
+        success: false,
+        error: 'Invalid dataUrl format; expected data:image/jpeg;base64,...',
+      });
+      return;
+    }
+
+    const base64Payload = match[1];
+    const buffer = Buffer.from(base64Payload, 'base64');
+    const objectPath = `characters/${authorId}/${characterId}.jpg`;
+
+    const publicUrl = await storageService.uploadFile(objectPath, buffer, 'image/jpeg', {
+      cacheControl: 'public, max-age=31536000',
+    });
+
+    res.json({ success: true, publicUrl, gcsPath: objectPath });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ success: false, error: error.message });
+      return;
+    }
+
+    logger.error('Failed to upload character photo', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+
+    res.status(500).json({ success: false, error: 'Failed to upload character photo' });
+  }
+});
+
+router.delete('/media/character-photo', async (req, res) => {
+  try {
+    const Schema = z.object({
+      gcsPath: z.string().min(1),
+    });
+    const { gcsPath } = Schema.parse(req.body);
+
+    const normalizedPath = gcsPath.trim();
+    const isCharactersPath = normalizedPath.startsWith('characters/');
+    const hasTraversal = normalizedPath.includes('..');
+    if (!isCharactersPath || hasTraversal) {
+      res.status(400).json({
+        success: false,
+        error: 'Invalid gcsPath; must start with characters/ and not contain ..',
+      });
+      return;
+    }
+
+    const exists = await storageService.fileExists(normalizedPath);
+    if (exists) {
+      await storageService.deleteFile(normalizedPath);
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ success: false, error: error.message });
+      return;
+    }
+
+    logger.error('Failed to delete character photo', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+
+    res.status(500).json({ success: false, error: 'Failed to delete character photo' });
+  }
+});
+
+/**
+ * POST /ai/media/analyze-character-photo
+ * Analyzes a character photo using GenAI and returns a 2-sentence physical description.
+ * Body: { dataUrl: string (base64 JPEG), locale: string (e.g. 'en-US', 'pt-PT') }
+ * Returns: { success: true, description: string } or { success: false, error: string }
+ */
+router.post('/media/analyze-character-photo', async (req, res) => {
+  const REQUEST_TIMEOUT_MS = 50000; // 50 seconds timeout
+
+  try {
+    const Schema = z.object({
+      dataUrl: z.string().min(10),
+      locale: z.string().min(2).max(10),
+    });
+    const { dataUrl, locale } = Schema.parse(req.body);
+
+    // Validate dataUrl format
+    const match = /^data:image\/jpeg;base64,(.+)$/i.exec(dataUrl.trim());
+    if (!match || !match[1]) {
+      res.status(400).json({
+        success: false,
+        error: 'Invalid dataUrl format; expected data:image/jpeg;base64,...',
+      });
+      return;
+    }
+
+    const base64Payload = match[1];
+    const buffer = Buffer.from(base64Payload, 'base64');
+
+    // Get the language name for the prompt
+    const languageName = getLanguageName(locale);
+
+    // Load prompt template from file
+    const promptTemplate = await PromptService.loadSharedPrompt('character-photo-analysis');
+    const variables = { languageName, locale };
+    const systemPrompt = promptTemplate.systemPrompt
+      ? PromptService.processPrompt(promptTemplate.systemPrompt, variables)
+      : '';
+    const userPrompt = PromptService.processPrompt(promptTemplate.userPrompt, variables);
+
+    logger.info('Analyzing character photo', { locale, languageName });
+
+    // Create a timeout promise
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('Analysis request timed out')), REQUEST_TIMEOUT_MS);
+    });
+
+    // Get the text service and make the multimodal request
+    const textService = aiGateway.getTextService({
+      authorId: 'system',
+      storyId: 'character-photo-analysis',
+      action: 'character_photo_analysis',
+    });
+
+    // Gemini 3 specific configuration:
+    // - temperature: 1.0 is strongly recommended for Gemini 3 (lower values can cause looping/degraded performance)
+    // - thinkingLevel: 'low' to minimize latency for this simple descriptive task
+    // - mediaResolution: 'medium' is sufficient for character description (saves tokens vs 'high' default)
+    // - maxTokens: 2048 to accommodate any thinking overhead plus output
+    const fullPrompt = systemPrompt ? `${systemPrompt}\n\n${userPrompt}` : userPrompt;
+    const analysisPromise = textService.complete(fullPrompt, {
+      mediaParts: [{ mimeType: 'image/jpeg', data: buffer }],
+      temperature: 1.0, // Gemini 3 recommended default (lower values can cause issues)
+      maxTokens: 2048, // Accommodate thinking overhead + output
+      thinkingLevel: 'low', // Minimize latency for simple descriptive task
+      mediaResolution: 'medium', // Sufficient for character description, saves tokens
+    });
+
+    // Race the analysis against the timeout
+    const description = await Promise.race([analysisPromise, timeoutPromise]);
+
+    // Clean up the response (remove any markdown, extra whitespace, etc.)
+    const cleanedDescription = description
+      .replace(/^["']|["']$/g, '') // Remove surrounding quotes if any
+      .replace(/^\*+|\*+$/g, '') // Remove markdown bold markers
+      .replace(/\n+/g, ' ') // Replace newlines with spaces
+      .trim();
+
+    logger.info('Character photo analysis completed', {
+      locale,
+      descriptionLength: cleanedDescription.length,
+    });
+
+    res.json({ success: true, description: cleanedDescription });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ success: false, error: error.message });
+      return;
+    }
+
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.error('Failed to analyze character photo', { error: errorMessage });
+
+    // Check if it's a timeout error
+    if (errorMessage.includes('timed out')) {
+      res.status(504).json({ success: false, error: 'Analysis request timed out. Please try again.' });
+      return;
+    }
+
+    res.status(500).json({ success: false, error: 'Failed to analyze character photo' });
+  }
+});
+
 /**
  * POST /ai/media/upload
  * Server-side upload: accepts base64 data and stores in GCS. No signed URLs.
@@ -911,12 +1175,22 @@ router.post('/text/chapter/:chapterNumber', async (req, res) => {
 
           const summarize = (html: string) => {
             const plain = toPlainText(html);
-            const sentences = plain.split(/(?<=[.!?])\s+/).filter((segment) => segment.length > 0);
-            const firstSentences = sentences.slice(0, 3).join(' ');
-            if (firstSentences.length >= 120 && firstSentences.length <= 500) {
-              return firstSentences;
+            // Prefer the last part of the chapter to maintain continuity
+            // If the text is short enough, return it all
+            if (plain.length <= 1500) {
+              return plain;
             }
-            return plain.slice(0, 450);
+
+            // Otherwise, try to get the last few sentences
+            const sentences = plain.split(/(?<=[.!?])\s+/).filter((segment) => segment.length > 0);
+            const lastSentences = sentences.slice(-10).join(' ');
+
+            if (lastSentences.length >= 300 && lastSentences.length <= 2000) {
+              return '...' + lastSentences;
+            }
+
+            // Fallback to simple slicing from the end
+            return '...' + plain.slice(-1500);
           };
 
           const earlier = prior.slice(0, Math.max(0, prior.length - 2));
@@ -1322,41 +1596,118 @@ router.post('/image', async (req, res) => {
       imageHeight = dimensions.height;
     }
 
-    // Assemble up to two reference images (JPEG only) according to policy:
-    // back_cover: front cover only (if exists)
-    // chapter n: (1) front cover if exists (2) previous chapter image (n-1) if exists
-    // front_cover: none
+    // Assemble up to four reference images (JPEG only), prioritizing character photo references,
+    // then falling back to existing cover/previous-chapter references when capacity remains.
     currentStep = 'collecting_references';
     const referenceImages: Array<{ buffer: Buffer; mimeType: string; source: string }> = [];
+    const seenReferenceFiles = new Set<string>();
+    const MAX_REFERENCE_IMAGES = 4;
     try {
-      // Lazy import utilities only if needed
-      const { extractFilenameFromUri } = await import('@/utils/imageUtils.js');
       const storyRecord = await storyService.getStory(storyId); // includes cover/backcover URIs
-      if (storyRecord) {
-        const storage = getStorageService();
-        const addRef = async (uri: string | null | undefined, source: string) => {
-          if (!uri) return;
-          if (referenceImages.length >= 2) return;
-          try {
-            const filename = extractFilenameFromUri(uri);
-            if (
-              !filename.toLowerCase().endsWith('.jpg') &&
-              !filename.toLowerCase().endsWith('.jpeg')
-            ) {
-              logger.debug('Skipping non-jpeg reference image', { filename, source });
-              return;
-            }
-            const buf = await storage.downloadFileAsBuffer(filename);
-            referenceImages.push({ buffer: buf, mimeType: 'image/jpeg', source });
-            logger.info('Reference image added', { source, size: buf.length, filename });
-          } catch (refErr) {
-            logger.warn('Failed to load reference image', {
-              source,
-              error: refErr instanceof Error ? refErr.message : String(refErr),
-            });
-          }
-        };
+      const storage = getStorageService();
+      const bucketName = process.env.STORAGE_BUCKET_NAME;
 
+      const isSupportedGcsUrl = (url: string): boolean => {
+        if (!bucketName) return false;
+        if (url.startsWith(`gs://${bucketName}/`)) return true;
+        try {
+          const parsed = new URL(url);
+          return (
+            parsed.hostname === 'storage.googleapis.com' &&
+            parsed.pathname.startsWith(`/${bucketName}/`)
+          );
+        } catch {
+          return false;
+        }
+      };
+
+      const addRef = async (uri: string | null | undefined, source: string) => {
+        if (!uri) return;
+        if (referenceImages.length >= MAX_REFERENCE_IMAGES) return;
+        if (!isSupportedGcsUrl(uri)) {
+          logger.debug('Skipping non-bucket reference image', { uri, source });
+          return;
+        }
+        const filename = extractFilenameFromUri(uri);
+        if (!filename || seenReferenceFiles.has(filename)) return;
+        const lower = filename.toLowerCase();
+        if (!lower.endsWith('.jpg') && !lower.endsWith('.jpeg')) {
+          logger.debug('Skipping non-jpeg reference image', { filename, source });
+          return;
+        }
+        try {
+          const buf = await storage.downloadFileAsBuffer(filename);
+          referenceImages.push({ buffer: buf, mimeType: 'image/jpeg', source });
+          seenReferenceFiles.add(filename);
+          logger.info('Reference image added', { source, size: buf.length, filename });
+        } catch (refErr) {
+          logger.warn('Failed to load reference image', {
+            source,
+            error: refErr instanceof Error ? refErr.message : String(refErr),
+          });
+        }
+      };
+
+      // First preference: character photo references tied to the scene
+      try {
+        const outlineStep = await runsService.getStepResult(runId, 'generate_outline');
+        const parsedOutline = outlineStep?.detailJson
+          ? OutlineSchema.safeParse(outlineStep.detailJson)
+          : null;
+
+        if (parsedOutline?.success && imageType) {
+          const outline = parsedOutline.data;
+          const sceneNames: string[] = (() => {
+            if (imageType === 'front_cover') return outline.bookCoverCharacters || [];
+            if (imageType === 'back_cover') return outline.bookBackCoverCharacters || [];
+            if (imageType === 'chapter' && typeof chapterNumber === 'number') {
+              const match = outline.chapters.find((c) => c.chapterNumber === chapterNumber);
+              return match?.charactersInScene || [];
+            }
+            return [];
+          })();
+
+          const uniqueNames = Array.from(
+            new Set(
+              sceneNames.filter(
+                (name): name is string =>
+                  typeof name === 'string' && name.trim().length > 0,
+              ),
+            ),
+          );
+          const nameToCharacter = new Map(
+            outline.characters.map((c) => [c.name, c] as const),
+          );
+          const storyNameToId = new Map(
+            storyContext.characters
+              .filter((c) => typeof c.characterId === 'string' && c.characterId.length > 0)
+              .map((c) => [c.name, c.characterId as string] as const),
+          );
+          const candidateIds = uniqueNames
+            .map((name) => nameToCharacter.get(name)?.characterId || storyNameToId.get(name))
+            .filter((id): id is string => typeof id === 'string' && id.length > 0);
+          const uniqueIds = Array.from(new Set(candidateIds));
+
+          if (uniqueIds.length > 0) {
+            const charactersWithPhotos = await characterService.getCharactersByIds(uniqueIds);
+            for (const character of charactersWithPhotos) {
+              if (!character.photoUrl || !isSupportedGcsUrl(character.photoUrl)) continue;
+              await addRef(character.photoUrl, `character:${character.characterId}`);
+              if (referenceImages.length >= MAX_REFERENCE_IMAGES) break;
+            }
+          }
+        }
+      } catch (charRefErr) {
+        logger.warn('Character reference collection failed', {
+          storyId,
+          runId,
+          imageType,
+          error: charRefErr instanceof Error ? charRefErr.message : String(charRefErr),
+        });
+      }
+
+      // Secondary preference: existing cover/back/previous chapter references
+      if (storyRecord) {
         if (imageType === 'back_cover') {
           await addRef(storyRecord.coverUri as string | undefined, 'cover');
         } else if (imageType === 'chapter') {
