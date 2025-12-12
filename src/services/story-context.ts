@@ -3,15 +3,10 @@
  * Manages story generation context across multiple AI requests
  */
 
-import { readFile } from 'fs/promises';
-import { posix as pathPosix } from 'path';
 import { AIGateway } from '@/ai/gateway.js';
 import { contextManager } from '@/ai/context-manager.js';
 import { StoryService, StoryContext } from './story.js';
-import { PromptService } from './prompt.js';
 import { logger } from '@/config/logger.js';
-import { formatTargetAudience } from '@/shared/utils.js';
-import { getPromptsPath } from '@/shared/path-utils.js';
 
 export interface StoryGenerationSession {
   contextId: string;
@@ -19,92 +14,6 @@ export interface StoryGenerationSession {
   storyContext: StoryContext;
   currentStep: string;
   aiGateway: AIGateway;
-}
-
-/**
- * Format characters for prompt injection
- */
-function formatCharactersForPrompt(
-  characters: StoryContext['characters'],
-): string {
-  return characters
-    .map((char, index) => {
-      const parts = [`${index + 1}. **${char.name}**`];
-      if (char.role) parts.push(`(${char.role})`);
-      if (char.type) parts.push(`- Type: ${char.type}`);
-      if (char.age) parts.push(`- Age: ${char.age}`);
-      if (char.traits?.length) parts.push(`- Traits: ${char.traits.join(', ')}`);
-      if (char.characteristics) parts.push(`- Characteristics: ${char.characteristics}`);
-      if (char.physicalDescription) parts.push(`- Description: ${char.physicalDescription}`);
-      return parts.join(' ');
-    })
-    .join('\n');
-}
-
-type AudienceGuidanceMap = Record<string, string>;
-
-// Length guidance per target audience
-const lengthGuidanceMap: Record<string, string> = {
-  'children_0-2': '1-2 very short paragraphs; keep sentences 1-2 lines; heavy repetition and sensory cues.',
-  'children_3-6': '2-4 concise paragraphs; 2-4 sentences each; ~100-300 words; keep dialogue to 4 turns.',
-  'children_7-10': '4-8 paragraphs; 2-4 sentences each; ~400-800 words; dialogue limited to key beats.',
-  'children_11-14': '6-12 paragraphs; 5-8 sentences each; ~800-1500 words; mix action and reflection.',
-  'young_adult_15-17': '8-15 paragraphs; 6-10 sentences each; ~1200-2500 words; allow complex dialogue.',
-  'adult_18+': '10-20 paragraphs; 6-12 sentences each; ~1500-4000 words; full narrative freedom.',
-  all_ages: 'Balanced length; keep prose warm and accessible for mixed ages; avoid extreme pacing.',
-};
-
-// Pacing and plot-structure guidance per target audience
-const pacingGuidanceMap: Record<string, string> = {
-  'children_0-2': 'Use a soothing, repetitive rhythm; 1 clear beat per page; focus on sensory moments; no rapid shifts.',
-  'children_3-6': 'Simple beginning-middle-end with 3 core beats: gentle hook, friendly complication, comforting resolution.',
-  'children_7-10': '3-4 act flow: hook, rising fun/problem, climax, cozy wrap-up; short beats and quick payoffs.',
-  'children_11-14': 'Classic 3-act with clear stakes; alternate action and reflection; keep momentum steady, avoid long detours.',
-  'young_adult_15-17': '3-act with subplots; build tension over multiple beats; allow quieter character moments between set pieces.',
-  'adult_18+': 'Flexible 3- or 4-act structure; braid main and subplot beats; vary pacing but keep throughline visible.',
-  all_ages: 'Use a clear 3-act throughline (setup, confrontation, resolution) with evenly spaced beats and no pacing whiplash.',
-};
-
-let cachedAudienceGuidance: AudienceGuidanceMap | null = null;
-
-async function loadAudienceGuidance(): Promise<AudienceGuidanceMap> {
-  if (cachedAudienceGuidance) return cachedAudienceGuidance;
-
-  const filePath = pathPosix.join(getPromptsPath(), 'en-US', 'target-audience-guidance.json');
-  try {
-    const raw = await readFile(filePath, 'utf-8');
-    cachedAudienceGuidance = JSON.parse(raw) as AudienceGuidanceMap;
-    return cachedAudienceGuidance;
-  } catch (error) {
-    logger.warn('Failed to load audience guidance, using defaults', {
-      error: error instanceof Error ? error.message : String(error),
-      filePath,
-    });
-    cachedAudienceGuidance = {};
-    return cachedAudienceGuidance;
-  }
-}
-
-async function getAudienceGuidance(targetAudience?: string): Promise<string> {
-  const guidanceMap = await loadAudienceGuidance();
-  const key = targetAudience || 'all_ages';
-  return guidanceMap[key] || guidanceMap.all_ages || 'Keep tone and complexity aligned to the audience.';
-}
-
-function getLengthGuidance(targetAudience?: string): string {
-  const key = targetAudience || 'all_ages';
-  return lengthGuidanceMap[key] || lengthGuidanceMap.all_ages;
-}
-
-function getPacingGuidance(targetAudience?: string): string {
-  const key = targetAudience || 'all_ages';
-  return pacingGuidanceMap[key] || pacingGuidanceMap.all_ages;
-}
-
-function buildVoiceGuidance(story: StoryContext['story']): string {
-  const audience = formatTargetAudience(story.targetAudience);
-  const style = (story.novelStyle || 'narrative').toLowerCase();
-  return `Maintain a consistent ${style} narrative voice; default to close third-person past unless explicitly specified; keep POV and tense steady; adjust vocabulary and cadence to suit ${audience}; avoid jarring tone shifts.`;
 }
 
 export class StoryContextService {
@@ -141,8 +50,8 @@ export class StoryContextService {
       // Create context ID from story and run
       const contextId = `${storyId}-${runId}`;
 
-      // Create system prompt using PromptService
-      const systemPrompt = await this.buildSystemPrompt(storyContext);
+      // Create system prompt that includes story context
+      const systemPrompt = this.createSystemPrompt(storyContext);
 
       // Initialize context manager
       await contextManager.initializeContext(contextId, storyId, systemPrompt);
@@ -188,12 +97,12 @@ export class StoryContextService {
     additionalPrompt?: string,
   ): Promise<string> {
     try {
-      const prompt = await this.buildOutlinePrompt(session.storyContext, additionalPrompt);
+      const prompt = this.createOutlinePrompt(session.storyContext, additionalPrompt);
 
       const textService = session.aiGateway.getTextService();
       const outline = await textService.complete(prompt, {
         contextId: session.contextId,
-        temperature: 1.0,
+        temperature: 0.8,
       });
 
       // Update session step
@@ -225,7 +134,7 @@ export class StoryContextService {
     outline?: string,
   ): Promise<string> {
     try {
-      const prompt = await this.buildChapterPrompt(
+      const prompt = this.createChapterPrompt(
         session.storyContext,
         chapterNumber,
         chapterTitle,
@@ -235,7 +144,7 @@ export class StoryContextService {
       const textService = session.aiGateway.getTextService();
       const chapter = await textService.complete(prompt, {
         contextId: session.contextId,
-        temperature: 0.9,
+        temperature: 0.7,
       });
 
       // Update session step
@@ -287,78 +196,122 @@ export class StoryContextService {
   }
 
   /**
-   * Build system prompt using PromptService
+   * Create system prompt that includes story context
    */
-  private async buildSystemPrompt(storyContext: StoryContext): Promise<string> {
+  private createSystemPrompt(storyContext: StoryContext): string {
     const { story, characters } = storyContext;
-    const promptTemplate = await PromptService.loadPrompt('en-US', 'story-system');
-    const audienceGuidance = await getAudienceGuidance(story.targetAudience);
-    const pacingGuidance = getPacingGuidance(story.targetAudience);
-    const voiceGuidance = buildVoiceGuidance(story);
 
-    const templateVars = {
-      title: story.title,
-      targetAudience: formatTargetAudience(story.targetAudience),
-      novelStyle: story.novelStyle || 'Adventure',
-      place: story.place || 'Not specified',
-      plotDescription: story.plotDescription || '',
-      synopsis: story.synopsis || '',
-      additionalRequests: story.additionalRequests || '',
-      imageGenerationInstructions: story.imageGenerationInstructions || '',
-      characters: formatCharactersForPrompt(characters),
-      audienceGuidance,
-      pacingGuidance,
-      voiceGuidance,
-    };
+    let systemPrompt = `You are a creative storyteller helping to write a personalized story. Here are the story details:
 
-    return PromptService.processPrompt(promptTemplate.systemPrompt || '', templateVars);
-  }
+**Story Information:**
+- Title: ${story.title}
+- Target Audience: ${story.targetAudience || 'General'}
+- Novel Style: ${story.novelStyle || 'Adventure'}
+- Setting: ${story.place || 'Not specified'}`;
 
-  /**
-   * Build outline generation prompt using PromptService
-   */
-  private async buildOutlinePrompt(
-    storyContext: StoryContext,
-    additionalPrompt?: string,
-  ): Promise<string> {
-    const promptTemplate = await PromptService.loadPrompt('en-US', 'story-outline-session');
-    const audienceGuidance = await getAudienceGuidance(storyContext.story.targetAudience);
-    const pacingGuidance = getPacingGuidance(storyContext.story.targetAudience);
-    const voiceGuidance = buildVoiceGuidance(storyContext.story);
-    const characters = formatCharactersForPrompt(storyContext.characters);
-    return PromptService.buildPrompt(promptTemplate, {
-      additionalPrompt: additionalPrompt || '',
-      audienceGuidance,
-      pacingGuidance,
-      voiceGuidance,
-      characters,
+    if (story.plotDescription) {
+      systemPrompt += `\n- Plot Description: ${story.plotDescription}`;
+    }
+
+    if (story.synopsis) {
+      systemPrompt += `\n- Synopsis: ${story.synopsis}`;
+    }
+
+    if (story.additionalRequests) {
+      systemPrompt += `\n- Additional Requirements: ${story.additionalRequests}`;
+    }
+
+    if (story.imageGenerationInstructions) {
+      systemPrompt += `\n- Image Generation Instructions: ${story.imageGenerationInstructions}`;
+    }
+
+    systemPrompt += `\n\n**Characters:**`;
+
+    characters.forEach((char, index) => {
+      systemPrompt += `\n${index + 1}. **${char.name}**`;
+      if (char.role) systemPrompt += ` (${char.role})`;
+      if (char.type) systemPrompt += ` - Type: ${char.type}`;
+      if (char.age) systemPrompt += ` - Age: ${char.age}`;
+      if (char.traits && char.traits.length > 0)
+        systemPrompt += ` - Traits: ${char.traits.join(', ')}`;
+      if (char.characteristics) systemPrompt += ` - Characteristics: ${char.characteristics}`;
+      if (char.physicalDescription) systemPrompt += ` - Description: ${char.physicalDescription}`;
     });
+
+    systemPrompt += `\n\n**Instructions:**
+- Keep the story consistent with the provided character details and story settings
+- Maintain continuity across all story elements
+- Write in an engaging, age-appropriate style for the target audience
+- Incorporate the characters' traits and characteristics naturally into the narrative
+- Remember previous story elements to maintain consistency`;
+
+    return systemPrompt;
+  }
+  /**
+   * Create outline generation prompt
+   */
+  private createOutlinePrompt(_storyContext: StoryContext, additionalPrompt?: string): string {
+    let prompt = `Please create a detailed story outline for this personalized story. The outline should:
+
+1. Include a compelling beginning that introduces the characters and setting
+2. Develop the main conflict or adventure
+3. Include 3-5 major plot points or chapters
+4. Show character growth and use of their unique abilities
+5. Provide a satisfying resolution
+
+**Character Appearance Guidelines:**
+When describing characters in the outline, include detailed physical descriptions that will help with visual generation:
+- Detailed descriptions of hair color, style, and length
+- Eye color and distinctive facial features
+- Height, build, and general appearance
+- Clothing style and colors that reflect their personality
+- Any distinctive accessories, jewelry, or unique characteristics
+- Age-appropriate appearance details for the target audience
+
+**Visual Scene Descriptions:**
+For each major plot point or chapter, include:
+- Detailed descriptions of settings and environments
+- Lighting conditions (bright daylight, sunset, moonlight, etc.)
+- Weather and atmospheric details
+- Key visual elements that would make compelling illustrations
+- Character positioning and interactions in scenes
+- Emotional expressions and body language
+
+The outline should be engaging for the target audience and incorporate all the character details provided, with enhanced visual descriptions suitable for AI image generation.`;
+
+    if (additionalPrompt) {
+      prompt += `\n\nAdditional requirements: ${additionalPrompt}`;
+    }
+
+    prompt += `\n\nPlease provide the outline in a clear, structured format with rich visual descriptions.`;
+
+    return prompt;
   }
 
   /**
-   * Build chapter generation prompt using PromptService
-   */
-  private async buildChapterPrompt(
-    storyContext: StoryContext,
+   * Create chapter generation prompt
+   */ private createChapterPrompt(
+    _storyContext: StoryContext,
     chapterNumber: number,
     chapterTitle: string,
     outline?: string,
-  ): Promise<string> {
-    const promptTemplate = await PromptService.loadPrompt('en-US', 'story-chapter-session');
-    const audienceGuidance = await getAudienceGuidance(storyContext.story.targetAudience);
-    const lengthGuidance = getLengthGuidance(storyContext.story.targetAudience);
-    const pacingGuidance = getPacingGuidance(storyContext.story.targetAudience);
-    const voiceGuidance = buildVoiceGuidance(storyContext.story);
-    const characters = formatCharactersForPrompt(storyContext.characters);
-    return PromptService.buildPrompt(promptTemplate, {
-      chapterNumber: chapterNumber.toString(),
-      chapterTitle,
-      outline: outline || '',
-      audienceGuidance,
-      lengthGuidance,
-      pacingGuidance,
-      voiceGuidance,
-      characters,
-    });
+  ): string {
+    let prompt = `Please write Chapter ${chapterNumber}: "${chapterTitle}" of the story.`;
+
+    if (outline) {
+      prompt += `\n\nBased on the story outline:\n${outline}`;
+    }
+
+    prompt += `\n\nChapter Requirements:
+- Write approximately 800-1200 words
+- Include vivid descriptions and engaging dialogue
+- Show character development and interactions
+- Maintain consistency with previous chapters and the overall story
+- Include action and emotional moments appropriate for the target audience
+- End with a natural transition to the next chapter
+
+Please write the complete chapter content.`;
+
+    return prompt;
   }
 }

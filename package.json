@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc && tsc-alias && copyfiles -u 1 \"src/**/*.json\" \"src/**/*.html\" \"src/**/*.icc\" dist/",
+    "build": "tsc && tsc-alias && copyfiles -u 1 \"src/**/*.json\" \"src/**/*.html\" \"src/**/*.icc\" \"src/**/*.mp3\" dist/",
     "start": "node dist/index.js",
     "lint": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"npx eslint src/ --ext .ts\"",
     "lint:fix": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"npx eslint src/ --ext .ts --fix\"",

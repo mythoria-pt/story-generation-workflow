@@ -54,6 +54,9 @@ COPY src/config/paper-caliper.json ./dist/config/
 # Copy local ICC profiles to the container
 COPY icc-profiles/ /app/icc-profiles/
 
+# Copy background music files from the built dist folder
+COPY --from=builder /app/dist/backgroundMusics ./dist/backgroundMusics
+
 # Set environment variables for PDF processing
 ENV GHOSTSCRIPT_BINARY=gs
 ENV TEMP_DIR=/tmp/mythoria-print

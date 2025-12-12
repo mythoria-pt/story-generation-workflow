@@ -7,10 +7,12 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 import { logger } from '@/config/logger.js';
 
-// Background music directory path (relative to dist folder structure)
-// In production, this resolves to dist/backgroundMusics
-// The files are copied during build
-const BACKGROUND_MUSIC_DIR = join(process.cwd(), 'src', 'backgroundMusics');
+// Background music directory path
+// In production (dist), this resolves to dist/backgroundMusics
+// In development, we check src/backgroundMusics as fallback
+const DIST_MUSIC_DIR = join(process.cwd(), 'dist', 'backgroundMusics');
+const SRC_MUSIC_DIR = join(process.cwd(), 'src', 'backgroundMusics');
+const BACKGROUND_MUSIC_DIR = existsSync(DIST_MUSIC_DIR) ? DIST_MUSIC_DIR : SRC_MUSIC_DIR;
 
 // -----------------------------------------------------------------------------
 // Type Definitions
