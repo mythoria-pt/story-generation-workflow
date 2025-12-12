@@ -11,20 +11,7 @@ import { TTSService } from '@/services/tts.js';
 import { ProgressTrackerService } from '@/services/progress-tracker.js';
 import { StoryService } from '@/services/story.js';
 import { ChaptersService } from '@/services/chapters.js';
-
-// Type for outline data structure
-type OutlineData = {
-  bookTitle: string;
-  bookCoverPrompt: string;
-  bookBackCoverPrompt: string;
-  synopses: string;
-  chapters: Array<{
-    chapterNumber: number;
-    chapterTitle: string;
-    chapterSynopses: string;
-    chapterPhotoPrompt: string;
-  }>;
-};
+import type { OutlineData } from '@/types/database.js';
 
 const router = Router();
 
@@ -390,7 +377,6 @@ router.post('/runs/:runId/chapter/:chapterNumber', async (req, res) => {
     // Update progress percentage after storing chapter
     try {
       await progressTracker.updateStoryProgress(runId);
-      logger.debug('Progress percentage updated after chapter storage', { runId, chapterNumber });
     } catch (progressError) {
       logger.warn('Failed to update progress percentage after chapter storage', {
         runId,

@@ -3,12 +3,12 @@
  * Helper functions for Text-to-Speech processing and configuration
  */
 
-import { logger } from '@/config/logger.js';
 import { countWords } from '@/shared/utils.js';
 import { AudioPromptService } from './audio-prompt.js';
+import { TTSProvider } from '@/ai/interfaces.js';
 
 export interface TTSConfig {
-  provider: 'openai';
+  provider: TTSProvider;
   model: string;
   voice: string;
   speed: number;
@@ -16,14 +16,43 @@ export interface TTSConfig {
 }
 
 /**
+ * Get default voice for a given TTS provider
+ */
+export function getDefaultVoice(provider: TTSProvider): string {
+  switch (provider) {
+    case 'openai':
+      return 'coral';
+    case 'google-genai':
+      return 'Charon';
+    default:
+      return 'coral';
+  }
+}
+
+/**
+ * Get default model for a given TTS provider
+ */
+export function getDefaultModel(provider: TTSProvider): string {
+  switch (provider) {
+    case 'openai':
+      return 'gpt-4o-mini-tts';
+    case 'google-genai':
+      return 'gemini-2.5-pro-preview-tts';
+    default:
+      return 'gpt-4o-mini-tts';
+  }
+}
+
+/**
  * Get TTS configuration from environment variables
  */
 export function getTTSConfig(): TTSConfig {
+  const provider = (process.env.TTS_PROVIDER || 'openai') as TTSProvider;
   return {
-    provider: 'openai',
-    model: process.env.TTS_MODEL || 'gpt-4o-mini-tts',
-    voice: process.env.TTS_VOICE || 'nova',
-    speed: parseFloat(process.env.TTS_SPEED || '1.0'), // Updated to 1.0x
+    provider,
+    model: process.env.TTS_MODEL || getDefaultModel(provider),
+    voice: process.env.TTS_VOICE || getDefaultVoice(provider),
+    speed: parseFloat(process.env.TTS_SPEED || '1.0'),
     language: process.env.TTS_LANGUAGE || 'en-US',
   };
 }
@@ -86,30 +115,21 @@ export function estimateDuration(text: string): number {
 }
 
 /**
- * Truncate text to fit within TTS character limits while preserving sentence boundaries
+ * Get maximum chunk size (in characters) for a given TTS provider
+ * Each provider has different limits for text input per request
  */
-export function truncateTextForTTS(text: string, maxLength: number = 4096): string {
-  if (text.length <= maxLength) {
-    return text;
-  }
-
-  logger.warn('Text exceeds recommended length, truncating', {
-    originalLength: text.length,
-    maxLength,
-  });
-
-  // Truncate at sentence boundary
-  const truncated = text.substring(0, maxLength - 200); // Leave some buffer
-  const lastSentenceEnd = Math.max(
-    truncated.lastIndexOf('.'),
-    truncated.lastIndexOf('!'),
-    truncated.lastIndexOf('?'),
-  );
-
-  if (lastSentenceEnd > 0) {
-    return truncated.substring(0, lastSentenceEnd + 1);
-  } else {
-    return truncated + '...';
+export function getMaxChunkSize(provider?: TTSProvider): number {
+  const effectiveProvider = provider || getTTSConfig().provider;
+  switch (effectiveProvider) {
+    case 'openai':
+      // OpenAI TTS has a 4096 character limit per request
+      return 4096;
+    case 'google-genai':
+      // Gemini TTS supports longer text - using conservative 8000 char limit
+      // Actual limit may be higher but this provides safe margin
+      return 8000;
+    default:
+      return 4096;
   }
 }
 

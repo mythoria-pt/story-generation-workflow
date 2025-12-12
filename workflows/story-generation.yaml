@@ -55,39 +55,105 @@ main:
 
             # 2. Generate outline (AI-Gateway)
             - genOutline:
-                call: http.request
-                args:
-                  url: ${baseUrl + "/ai/text/outline"}
-                  method: POST
-                  auth: { type: OIDC }
-                  headers:
-                    x-api-key: ${apiKey}
-                  body:
-                    storyId: ${storyId}
-                    runId: ${runId}
-                result: outlineResp
-            - saveOutline:
-                call: http.request
-                args:
-                  url: ${baseUrl + "/internal/runs/" + runId + "/outline"}
-                  method: POST
-                  auth: { type: OIDC }
-                  body:
-                    outline: ${outlineResp.body.outline}
+                try:
+                  steps:
+                    - initOutlineRetry:
+                        assign:
+                          - outlineMaxAttempts: 3
+                          - outlineRetryDelay: 60
+                          - outlineSuccess: false
+                          - outlineLastError: null
+                          - outlineResp: null
 
-            # Extract chapter count from outline
-            - extractChapterCount:
-                assign:
-                  - chapters: ${len(outlineResp.body.outline.chapters)}
+                    - outlineRetryLoop:
+                        for:
+                          value: attempt
+                          range: ${[1, outlineMaxAttempts]}
+                          steps:
+                            - checkOutlineAlreadySuccessful:
+                                switch:
+                                  - condition: ${outlineSuccess}
+                                    next: continue
+                            - tryOutlineGeneration:
+                                try:
+                                  steps:
+                                    - outlineRequest:
+                                        call: http.request
+                                        args:
+                                          url: ${baseUrl + "/ai/text/outline"}
+                                          method: POST
+                                          auth: { type: OIDC }
+                                          headers:
+                                            x-api-key: ${apiKey}
+                                          body:
+                                            storyId: ${storyId}
+                                            runId: ${runId}
+                                        result: outlineRespTemp
+                                    - saveOutlineResponse:
+                                        assign:
+                                          - outlineResp: ${outlineRespTemp}
+                                          - outlineSuccess: true
+                                except:
+                                  as: outlineAttemptError
+                                  steps:
+                                    - saveOutlineError:
+                                        assign:
+                                          - outlineLastError: ${outlineAttemptError}
+                                    - logOutlineRetry:
+                                        call: sys.log
+                                        args:
+                                          severity: WARNING
+                                          text: '${"Outline attempt " + string(attempt) + " failed, retrying after " + string(outlineRetryDelay) + "s: " + outlineAttemptError.message}'
+                                    - delayOutlineRetry:
+                                        call: sys.sleep
+                                        args:
+                                          seconds: ${outlineRetryDelay}
 
-            - setChaptersStep:
-                call: http.request
-                args:
-                  url: ${baseUrl + "/internal/runs/" + runId}
-                  method: PATCH
-                  auth: { type: OIDC }
-                  body:
-                    currentStep: 'write_chapters'
+                except:
+                  as: outlineError
+                  steps:
+                    - logOutlineFailure:
+                        call: sys.log
+                        args:
+                          severity: WARNING
+                          text: '${"Outline generation failed after retries: " + outlineError.message}'
+                    - raiseOutlineFailure:
+                        raise: ${outlineError}
+
+            - handleOutlineOutcome:
+                switch:
+                  - condition: ${outlineSuccess}
+                    steps:
+                      - saveOutline:
+                          call: http.request
+                          args:
+                            url: ${baseUrl + "/internal/runs/" + runId + "/outline"}
+                            method: POST
+                            auth: { type: OIDC }
+                            body:
+                              outline: ${outlineResp.body.outline}
+
+                      - extractChapterCount:
+                          assign:
+                            - chapters: ${len(outlineResp.body.outline.chapters)}
+
+                      - setChaptersStep:
+                          call: http.request
+                          args:
+                            url: ${baseUrl + "/internal/runs/" + runId}
+                            method: PATCH
+                            auth: { type: OIDC }
+                            body:
+                              currentStep: 'write_chapters'
+                  - condition: ${not(outlineSuccess)}
+                    steps:
+                      - logOutlineUnavailable:
+                          call: sys.log
+                          args:
+                            severity: WARNING
+                            text: '${"Outline unavailable after retries; last error: " + if(outlineLastError != null, outlineLastError.message, "unknown")}'
+                      - raiseOutlineUnavailable:
+                          raise: 'Outline generation failed after retries'
 
             # 3. Write chapters sequentially
             - writeChaptersSequential:
@@ -101,33 +167,85 @@ main:
                           - chapterTitle: ${currentChapter.chapterTitle}
                           - chapterSynopses: ${currentChapter.chapterSynopses}
 
-                    - genChapter:
-                        call: http.request
-                        args:
-                          url: ${baseUrl + "/ai/text/chapter/" + string(chapterNum)}
-                          method: POST
-                          auth: { type: OIDC }
-                          headers:
-                            x-api-key: ${apiKey}
-                          body:
-                            storyId: ${storyId}
-                            runId: ${runId}
-                            chapterNumber: ${chapterNum}
-                            chapterTitle: ${chapterTitle}
-                            chapterSynopses: ${chapterSynopses}
-                            chapterCount: ${chapters}
-                            outline: ${outlineResp.body.outline}
-                        result: chapterResp
+                    - initChapterTextRetry:
+                        assign:
+                          - chapterTextMaxAttempts: 3
+                          - chapterTextRetryDelay: 60
+                          - chapterTextSuccess: false
+                          - chapterTextLastError: null
+                          - chapterResp: null
 
-                    - saveChapter:
-                        call: http.request
-                        args:
-                          url: ${baseUrl + "/internal/runs/" + runId + "/chapter/" + string(chapterNum)}
-                          method: POST
-                          auth: { type: OIDC }
-                          body:
-                            chapter: ${chapterResp.body.chapter}
-                            chapterTitle: ${chapterTitle}
+                    - chapterTextRetryLoop:
+                        for:
+                          value: attempt
+                          range: ${[1, chapterTextMaxAttempts]}
+                          steps:
+                            - checkChapterTextAlreadySuccessful:
+                                switch:
+                                  - condition: ${chapterTextSuccess}
+                                    next: continue
+                            - tryChapterTextGeneration:
+                                try:
+                                  steps:
+                                    - chapterRequest:
+                                        call: http.request
+                                        args:
+                                          url: ${baseUrl + "/ai/text/chapter/" + string(chapterNum)}
+                                          method: POST
+                                          auth: { type: OIDC }
+                                          headers:
+                                            x-api-key: ${apiKey}
+                                          body:
+                                            storyId: ${storyId}
+                                            runId: ${runId}
+                                            chapterNumber: ${chapterNum}
+                                            chapterTitle: ${chapterTitle}
+                                            chapterSynopses: ${chapterSynopses}
+                                            chapterCount: ${chapters}
+                                            outline: ${outlineResp.body.outline}
+                                        result: chapterRespTemp
+                                    - saveChapterTextResponse:
+                                        assign:
+                                          - chapterResp: ${chapterRespTemp}
+                                          - chapterTextSuccess: true
+                                except:
+                                  as: chapterTextAttemptError
+                                  steps:
+                                    - saveChapterTextError:
+                                        assign:
+                                          - chapterTextLastError: ${chapterTextAttemptError}
+                                    - logChapterTextRetry:
+                                        call: sys.log
+                                        args:
+                                          severity: WARNING
+                                          text: '${"Chapter " + string(chapterNum) + " text attempt " + string(attempt) + " failed, retrying after " + string(chapterTextRetryDelay) + "s: " + chapterTextAttemptError.message}'
+                                    - delayChapterTextRetry:
+                                        call: sys.sleep
+                                        args:
+                                          seconds: ${chapterTextRetryDelay}
+
+                    - handleChapterTextOutcome:
+                        switch:
+                          - condition: ${chapterTextSuccess}
+                            steps:
+                              - saveChapter:
+                                  call: http.request
+                                  args:
+                                    url: ${baseUrl + "/internal/runs/" + runId + "/chapter/" + string(chapterNum)}
+                                    method: POST
+                                    auth: { type: OIDC }
+                                    body:
+                                      chapter: ${chapterResp.body.chapter}
+                                      chapterTitle: ${chapterTitle}
+                          - condition: ${not(chapterTextSuccess)}
+                            steps:
+                              - logChapterTextFailure:
+                                  call: sys.log
+                                  args:
+                                    severity: WARNING
+                                    text: '${"Chapter text unavailable after retries for chapter " + string(chapterNum) + "; last error: " + if(chapterTextLastError != null, chapterTextLastError.message, "unknown")}'
+                              - raiseChapterTextFailure:
+                                  raise: ${"Chapter text generation failed after retries for chapter " + string(chapterNum)}
 
             # 4. Generate book front cover
             - setFrontCoverStep:

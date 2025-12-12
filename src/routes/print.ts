@@ -121,6 +121,7 @@ printRouter.post('/self-service', async (req, res) => {
         serviceCode: 'selfPrinting',
         storyTitle: story.title,
         initiatedBy: 'selfService',
+        origin: 'self-service',
       },
       requestedBy: {
         authorId: story.authorId,
@@ -143,6 +144,7 @@ printRouter.post('/self-service', async (req, res) => {
       generateCMYK: generateCMYK !== false,
       delivery,
       initiatedBy: 'selfService',
+      origin: 'self-service',
     };
 
     const workflowEvent = {
@@ -162,6 +164,7 @@ printRouter.post('/self-service', async (req, res) => {
         : {}),
       delivery,
       serviceCode: 'selfPrinting',
+      origin: 'self-service',
       workflowExecutionId: executionId,
     };
 
@@ -230,6 +233,7 @@ const NotifyRequestSchema = z.object({
   storyId: z.string().uuid(),
   runId: z.string().uuid(),
   initiatedBy: z.string().optional(),
+  origin: z.string().optional(),
   delivery: z
     .object({
       recipients: z.array(RecipientSchema).optional(),
@@ -253,19 +257,38 @@ internalPrintRouter.post('/self-service/notify', async (req, res) => {
     return;
   }
 
-  const { storyId, runId, delivery, printResult, initiatedBy } = parsed.data;
+  const { storyId, runId, delivery, printResult, initiatedBy, origin } = parsed.data;
 
-  const resolvedInitiatedBy = initiatedBy
-    ? initiatedBy
-    : ((delivery?.metadata?.initiatedBy as string | undefined) ?? 'selfService');
+  const originFromMetadata =
+    typeof delivery?.metadata?.origin === 'string'
+      ? (delivery?.metadata?.origin as string)
+      : undefined;
+
+  const resolvedInitiatedBy =
+    initiatedBy ??
+    (delivery?.metadata?.initiatedBy as string | undefined) ??
+    (origin === 'admin'
+      ? 'adminPortal'
+      : origin === 'self-service'
+        ? 'selfService'
+        : 'selfService');
+
+  const resolvedOrigin =
+    origin ??
+    originFromMetadata ??
+    (resolvedInitiatedBy === 'adminPortal'
+      ? 'admin'
+      : resolvedInitiatedBy === 'selfService'
+        ? 'self-service'
+        : 'self-service');
 
   const resolvedServiceCode =
     (delivery?.metadata?.serviceCode as string | undefined) ??
-    (resolvedInitiatedBy === 'adminPortal' ? 'printGeneration' : 'selfPrinting');
+    (resolvedOrigin === 'admin' ? 'printGeneration' : 'selfPrinting');
 
   const recipients = delivery?.recipients ?? [];
   const hasRecipients = recipients.length > 0;
-  const shouldSendInstructions = hasRecipients && resolvedInitiatedBy !== 'adminPortal';
+  const shouldSendInstructions = hasRecipients && resolvedOrigin === 'self-service';
 
   try {
     const run = await runsService.getRun(runId);
@@ -284,6 +307,7 @@ internalPrintRouter.post('/self-service/notify', async (req, res) => {
       metadata: {
         serviceCode: resolvedServiceCode,
         initiatedBy: resolvedInitiatedBy,
+        origin: resolvedOrigin,
       },
     });
 
@@ -292,11 +316,12 @@ internalPrintRouter.post('/self-service/notify', async (req, res) => {
         storyId,
         runId,
         initiatedBy: resolvedInitiatedBy,
+        origin: resolvedOrigin,
         reason: hasRecipients ? 'admin_initiated' : 'no_recipients',
       });
       res.json({
         success: true,
-        reason: resolvedInitiatedBy === 'adminPortal' ? 'suppressed_for_admin' : 'no_recipients',
+        reason: resolvedOrigin === 'admin' ? 'suppressed_for_admin' : 'no_recipients',
       });
       return;
     }
@@ -361,10 +386,12 @@ internalPrintRouter.post('/self-service/notify', async (req, res) => {
         runId,
         serviceCode: resolvedServiceCode,
         workflowExecutionId: executionId,
+        origin: resolvedOrigin,
         requestedByName:
           (deliveryPayload.metadata?.requestedBy as string | undefined) ||
           (deliveryPayload.metadata?.requestedByName as string | undefined),
       },
+      origin: resolvedOrigin,
       pdfs: {
         interiorPdfUrl: printResult.interiorPdfUrl,
         coverPdfUrl: printResult.coverPdfUrl,

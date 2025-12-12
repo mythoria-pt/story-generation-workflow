@@ -244,12 +244,6 @@ export class RunsService {
         stepData.createdAt = new Date().toISOString();
         await this.db.insert(storyGenerationSteps).values(stepData);
       }
-
-      logger.debug('Step result stored successfully', {
-        runId,
-        stepName,
-        status: stepResult.status,
-      });
     } catch (error) {
       logger.error('Failed to store step result', {
         error: error instanceof Error ? error.message : String(error),

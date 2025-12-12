@@ -62,12 +62,47 @@ const envSchema = z.object({
   GOOGLE_GENAI_IMAGE_MODEL: z.string().optional().default('gemini-2.5-flash-image-preview'),
 
   // TTS Configuration
-  // Vertex removed; only OpenAI supported currently for TTS
-  TTS_PROVIDER: z.enum(['openai']).optional().default('openai'),
-  TTS_MODEL: z.string().optional().default('gpt-4o-mini-tts'),
-  TTS_VOICE: z.string().optional().default('nova'),
-  TTS_SPEED: z.string().optional().default('0.9'),
+  // Supports OpenAI and Google Gemini TTS providers
+  TTS_PROVIDER: z.enum(['openai', 'google-genai']).optional().default('google-genai'),
+  TTS_MODEL: z.string().optional().default('gemini-2.5-pro-preview-tts'),
+  TTS_VOICE: z.string().optional().default('Charon'),
+  TTS_SPEED: z.string().optional().default('1'),
   TTS_LANGUAGE: z.string().optional().default('en-US'),
+
+  // Background Music Configuration
+  // Controls whether background music is mixed with narration audio
+  BACKGROUND_MUSIC_ENABLED: z
+    .string()
+    .optional()
+    .default('true')
+    .transform((v) => v === 'true' || v === '1'),
+  // Volume of background music relative to narration (0.0 to 1.0)
+  BACKGROUND_MUSIC_VOLUME: z
+    .string()
+    .optional()
+    .default('0.2')
+    .transform((v) => {
+      const n = v ? parseFloat(v) : 0.2;
+      return Number.isNaN(n) ? 0.2 : Math.max(0, Math.min(1, n));
+    }),
+  // Fade in duration in seconds for background music
+  BACKGROUND_MUSIC_FADE_IN: z
+    .string()
+    .optional()
+    .default('1.5')
+    .transform((v) => {
+      const n = v ? parseFloat(v) : 1.5;
+      return Number.isNaN(n) ? 1.5 : Math.max(0, n);
+    }),
+  // Fade out duration in seconds for background music
+  BACKGROUND_MUSIC_FADE_OUT: z
+    .string()
+    .optional()
+    .default('1.5')
+    .transform((v) => {
+      const n = v ? parseFloat(v) : 1.5;
+      return Number.isNaN(n) ? 1.5 : Math.max(0, n);
+    }),
 
   // Notification Engine
   NOTIFICATION_ENGINE_URL: z.string().optional(),

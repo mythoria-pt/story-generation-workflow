@@ -88,22 +88,12 @@ export class GoogleGenAIImageService implements IImageGenerationService {
   async generate(prompt: string, options?: ImageGenerationOptions): Promise<Buffer> {
     try {
       const model = options?.model || this.model;
+      const aspectRatio = this.resolveAspectRatio(options);
 
       // Gemini image (multimodal) path
       const forceRest = process.env.GOOGLE_GENAI_FORCE_REST === 'true';
       if (model.startsWith('gemini-') && !forceRest) {
-        if (!this.genAIClient) {
-          const { GoogleGenAI } = await import('@google/genai');
-          // Only pass vertex options if projectId is defined (explicitly enabled)
-          this.genAIClient = this.projectId
-            ? new GoogleGenAI({
-                apiKey: this.apiKey,
-                vertexai: true,
-                project: this.projectId,
-                location: this.location,
-              } as any)
-            : new GoogleGenAI({ apiKey: this.apiKey } as any);
-        }
+        const client = await this.getGenAIClient();
         logger.debug('Google Gemini Image Debug - using @google/genai client', {
           model,
           projectId: this.projectId,
@@ -130,71 +120,45 @@ export class GoogleGenAIImageService implements IImageGenerationService {
               });
             }
           }
+          // Only add the hardcoded reference instruction if no system prompt is provided,
+          // or if we want to ensure it's always there.
+          // With Gemini 3, we can rely on the system prompt for this if passed.
+          // For now, we keep it but make it less "authoritative" if system prompt exists?
+          // Actually, the plan said "improve reference image logic".
+          // Let's keep it simple: if systemPrompt is passed, we assume it handles style instructions.
+          // But reference images still need context.
           parts.push({
-            text: 'The preceding images are authoritative references for characters and artistic style. Maintain consistency in faces, proportions, palette, and clothing unless explicitly instructed otherwise.',
+            text: 'The preceding images are reference material. Use them to maintain consistency in characters and style.',
           });
         }
         parts.push({ text: prompt });
 
-        // Non-streaming generate content per current docs for image generation
-        const response = await (this.genAIClient as any).models.generateContent({
+        const generateRequest: any = {
           model,
           contents: [{ role: 'user', parts }],
-        });
+          config: {
+            generationConfig: {
+              aspectRatio,
+            },
+          },
+        };
+
+        // Add system instruction if provided
+        if (options?.systemPrompt) {
+          // In @google/genai SDK, systemInstruction is often part of the config
+          generateRequest.config.systemInstruction = {
+            parts: [{ text: options.systemPrompt }],
+          };
+        }
+
+        // Non-streaming generate content per current docs for image generation
+        const response = await (client as any).models.generateContent(generateRequest);
         logger.debug('Google Gemini Image Debug - raw response keys', {
           model,
           hasCandidates: !!response?.candidates,
           keys: response ? Object.keys(response) : [],
         });
-        const candidates = response?.candidates || [];
-        let imagePartBase64: string | undefined;
-        for (const c of candidates) {
-          const parts = c?.content?.parts || [];
-          for (const p of parts) {
-            if (p.inlineData?.data) {
-              imagePartBase64 = p.inlineData.data;
-              break;
-            }
-          }
-          if (imagePartBase64) break;
-        }
-        if (!imagePartBase64) {
-          const candidateDiagnostics = candidates.map((c: any, idx: number) => ({
-            idx,
-            finishReason: c.finishReason,
-            hasContent: !!c.content,
-            partCount: c.content?.parts?.length || 0,
-            partSummaries: (c.content?.parts || []).map((p: any) => ({
-              keys: Object.keys(p),
-              hasInline: !!p.inlineData,
-              hasText: !!p.text,
-            })),
-          }));
-          const finishReasons = Array.from(
-            new Set(candidateDiagnostics.map((d: any) => d.finishReason).filter(Boolean)),
-          ) as string[];
-          logger.error('Google Gemini Image Debug - no inline image data in response', {
-            model,
-            candidateCount: candidates.length,
-            candidateDiagnostics,
-            finishReasons,
-          });
-          // If all candidates are blocked for prohibited content, surface a structured safety error
-          if (finishReasons.length && finishReasons.every((r) => r === 'PROHIBITED_CONTENT')) {
-            throw new ImageGenerationBlockedError({
-              provider: 'google-genai',
-              finishReasons,
-              diagnostics: candidateDiagnostics,
-              message:
-                'Image generation blocked by Google safety filters (reason: PROHIBITED_CONTENT). Adjust prompt to comply with content policies.',
-            });
-          }
-          // Generic fallback error with finish reasons context
-          throw new Error(
-            'No image data returned from Gemini image model' +
-              (finishReasons.length ? ` (finishReasons=${finishReasons.join(',')})` : ''),
-          );
-        }
+        const imagePartBase64 = this.extractInlineImageBase64(response, model);
         const buffer = Buffer.from(imagePartBase64, 'base64');
         logger.info('Google Gemini Image: image generated', {
           model,
@@ -217,7 +181,7 @@ export class GoogleGenAIImageService implements IImageGenerationService {
         imageGenerationConfig: {
           numberOfImages: 1,
           sampleImageSize: '2K',
-          aspectRatio: this.getAspectRatio(options?.width, options?.height),
+          aspectRatio,
           personGeneration: 'allow_all',
         },
       };
@@ -294,24 +258,218 @@ export class GoogleGenAIImageService implements IImageGenerationService {
     }
   }
 
-  private getAspectRatio(width?: number, height?: number): '1:1' | '3:4' | '4:3' | '9:16' | '16:9' {
+  async edit(prompt: string, originalImage: Buffer, options?: ImageGenerationOptions): Promise<Buffer> {
+    const model = options?.model || this.model;
+    const aspectRatio = this.resolveAspectRatio(options);
+    const forceRest = process.env.GOOGLE_GENAI_FORCE_REST === 'true';
+
+    try {
+      // Prefer true edit via Gemini image models; otherwise fall back to reference-guided generate.
+      if (model.startsWith('gemini-') && !forceRest) {
+        const client = await this.getGenAIClient();
+        const primaryMime =
+          options?.referenceImages?.[0]?.mimeType ||
+          (options?.imageType === 'front_cover' || options?.imageType === 'back_cover'
+            ? 'image/jpeg'
+            : 'image/png');
+
+        const parts: any[] = [
+          {
+            inlineData: {
+              data: originalImage.toString('base64'),
+              mimeType: primaryMime,
+            },
+          },
+        ];
+
+        for (const ref of options?.referenceImages || []) {
+          try {
+            parts.push({
+              inlineData: {
+                data: ref.buffer.toString('base64'),
+                mimeType: ref.mimeType || 'image/jpeg',
+              },
+            });
+          } catch (e) {
+            logger.warn('Failed to encode supplemental reference image for Gemini edit', {
+              error: e instanceof Error ? e.message : String(e),
+              source: ref.source,
+            });
+          }
+        }
+
+        parts.push({ text: prompt });
+
+        const generateRequest: any = {
+          model,
+          contents: [{ role: 'user', parts }],
+          config: {
+            generationConfig: {
+              aspectRatio,
+            },
+            responseModalities: ['IMAGE'],
+          },
+        };
+
+        if (options?.systemPrompt) {
+          generateRequest.config.systemInstruction = {
+            parts: [{ text: options.systemPrompt }],
+          };
+        }
+
+        const response = await (client as any).models.generateContent(generateRequest);
+        const imagePartBase64 = this.extractInlineImageBase64(response, model);
+        const buffer = Buffer.from(imagePartBase64, 'base64');
+        logger.info('Google Gemini Image: edit completed', {
+          model,
+          size: buffer.length,
+          referenceImageCount: options?.referenceImages?.length || 0,
+          imageType: options?.imageType,
+        });
+        return buffer;
+      }
+
+      logger.info('Gemini edit path unavailable; using generate() with reference image', {
+        model,
+        useRestFallback: forceRest,
+        imageType: options?.imageType,
+      });
+
+      return this.generate(prompt, {
+        ...options,
+        referenceImages: [
+          {
+            buffer: originalImage,
+            mimeType: options?.referenceImages?.[0]?.mimeType || 'image/jpeg',
+            source: 'edit-original',
+          },
+          ...(options?.referenceImages || []),
+        ],
+      });
+    } catch (error) {
+      const structured = GoogleGenAIImageService.extractGoogleError(error);
+      logger.error('Google Imagen image edit failed', {
+        error: error instanceof Error ? error.message : String(error),
+        ...structured,
+        promptLength: prompt.length,
+        model: this.model,
+      });
+      if (error instanceof Error) throw error;
+      throw new Error(String(error));
+    }
+  }
+
+  private resolveAspectRatio(
+    options?: ImageGenerationOptions,
+  ): '1:1' | '2:3' | '3:4' | '4:3' | '9:16' | '16:9' {
+    const allowed: Record<string, boolean> = {
+      '1:1': true,
+      '2:3': true,
+      '3:4': true,
+      '4:3': true,
+      '9:16': true,
+      '16:9': true,
+    };
+
+    if (options?.aspectRatio && allowed[options.aspectRatio]) {
+      return options.aspectRatio as '1:1' | '2:3' | '3:4' | '4:3' | '9:16' | '16:9';
+    }
+
+    return this.getAspectRatio(options?.width, options?.height);
+  }
+
+  private getAspectRatio(
+    width?: number,
+    height?: number,
+  ): '1:1' | '2:3' | '3:4' | '4:3' | '9:16' | '16:9' {
     if (!width || !height) {
-      return '3:4';
+      return '2:3';
     }
 
     const ratio = width / height;
-    if (ratio > 1.7) {
+    if (ratio >= 1.7) {
       return '16:9';
     }
-    if (ratio > 1.3) {
+    if (ratio >= 1.3) {
       return '4:3';
     }
-    if (ratio < 0.6) {
+    if (ratio <= 0.6) {
       return '9:16';
     }
-    if (ratio < 0.8) {
+    if (ratio <= 0.72) {
+      return '2:3';
+    }
+    if (ratio <= 0.9) {
       return '3:4';
     }
     return '1:1';
+  }
+
+  private async getGenAIClient(): Promise<GoogleGenAIType> {
+    if (!this.genAIClient) {
+      const { GoogleGenAI } = await import('@google/genai');
+      this.genAIClient = this.projectId
+        ? new GoogleGenAI({
+            apiKey: this.apiKey,
+            vertexai: true,
+            project: this.projectId,
+            location: this.location,
+          } as any)
+        : new GoogleGenAI({ apiKey: this.apiKey } as any);
+    }
+    return this.genAIClient as GoogleGenAIType;
+  }
+
+  private extractInlineImageBase64(response: any, model: string): string {
+    const candidates = response?.candidates || [];
+    let imagePartBase64: string | undefined;
+    for (const c of candidates) {
+      const parts = c?.content?.parts || [];
+      for (const p of parts) {
+        if (p.inlineData?.data) {
+          imagePartBase64 = p.inlineData.data;
+          break;
+        }
+      }
+      if (imagePartBase64) break;
+    }
+    if (imagePartBase64) {
+      return imagePartBase64;
+    }
+
+    const candidateDiagnostics = candidates.map((c: any, idx: number) => ({
+      idx,
+      finishReason: c.finishReason,
+      hasContent: !!c.content,
+      partCount: c.content?.parts?.length || 0,
+      partSummaries: (c.content?.parts || []).map((p: any) => ({
+        keys: Object.keys(p),
+        hasInline: !!p.inlineData,
+        hasText: !!p.text,
+      })),
+    }));
+    const finishReasons = Array.from(
+      new Set(candidateDiagnostics.map((d: any) => d.finishReason).filter(Boolean)),
+    ) as string[];
+    logger.error('Google Gemini Image Debug - no inline image data in response', {
+      model,
+      candidateCount: candidates.length,
+      candidateDiagnostics,
+      finishReasons,
+    });
+    if (finishReasons.length && finishReasons.every((r) => r === 'PROHIBITED_CONTENT')) {
+      throw new ImageGenerationBlockedError({
+        provider: 'google-genai',
+        finishReasons,
+        diagnostics: candidateDiagnostics,
+        message:
+          'Image generation blocked by Google safety filters (reason: PROHIBITED_CONTENT). Adjust prompt to comply with content policies.',
+      });
+    }
+
+    throw new Error(
+      'No image data returned from Gemini image model' +
+        (finishReasons.length ? ` (finishReasons=${finishReasons.join(',')})` : ''),
+    );
   }
 }

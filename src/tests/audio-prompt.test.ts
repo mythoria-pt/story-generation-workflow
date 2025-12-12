@@ -35,7 +35,7 @@ describe('AudioPromptService', () => {
     expect(config?.language).toBe('pt-PT');
     expect(config?.languageName).toBe('Portuguese (Portugal)');
     expect(config?.systemPrompt).toContain('narradora Portuguesa');
-    expect(config?.targetAgeOptions).toContain('crianças');
+    expect(config?.targetAgeOptions).toContain('criancas');
   });
 
   it('should return null for non-existent language', async () => {

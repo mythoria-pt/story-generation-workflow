@@ -393,6 +393,39 @@ export class GoogleGenAITextService implements ITextGenerationService {
             });
 
             response = await chat.sendMessage(prompt);
+
+            // Check if response is empty and retry once with stateless generation as fallback
+            const rawCheck = response as any;
+            const candidatesCheck = rawCheck?.response?.candidates || rawCheck?.candidates;
+            const firstCandCheck = Array.isArray(candidatesCheck) ? candidatesCheck[0] : undefined;
+            const hasContent = firstCandCheck?.content?.parts?.some(
+              (p: any) => p?.text?.length > 0,
+            );
+
+            if (!hasContent) {
+              logger.warn(
+                'Google GenAI Debug - Empty chat response, falling back to stateless generation',
+                {
+                  contextId: options.contextId,
+                  model: this.model,
+                  finishReason: firstCandCheck?.finishReason,
+                },
+              );
+
+              // Fallback to stateless generation
+              const fallbackConfig: any = {
+                maxOutputTokens:
+                  options?.maxTokens || getMaxOutputTokens(options?.model || this.model),
+                temperature: options?.temperature || 0.7,
+                topP: options?.topP || 0.9,
+                topK: options?.topK || 40,
+              };
+              const fallbackModel = this.genAI.getGenerativeModel({
+                model: options?.model || this.model,
+                generationConfig: fallbackConfig,
+              });
+              response = await fallbackModel.generateContent(prompt);
+            }
           }
         }
       }

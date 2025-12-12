@@ -261,11 +261,6 @@ export class ProgressTrackerService {
         totalSteps,
       };
 
-      logger.debug('Progress calculated', {
-        runId,
-        ...result,
-      });
-
       return result;
     } catch (error) {
       logger.error('Failed to calculate progress', {

@@ -1,7 +1,8 @@
 /**
  * TTS (Text-to-Speech) Service
- * Handles generating audio narration for stories using OpenAI
- * Generates audio per chapter to avoid character limits and provide better UX
+ * Handles generating audio narration for stories using configurable TTS providers
+ * Generates audio per chapter with intelligent chunking and audio concatenation
+ * for texts that exceed provider limits.
  */
 
 import { StoryService } from './story.js';
@@ -11,24 +12,27 @@ import { ChaptersService } from './chapters.js';
 import { tokenUsageTrackingService } from './token-usage-tracking.js';
 import { AudioPromptService } from './audio-prompt.js';
 import { logger } from '@/config/logger.js';
-import OpenAI from 'openai';
+import { getEnvironment } from '@/config/environment.js';
 import { countWords, extractTargetAge } from '@/shared/utils.js';
 import {
-  TTSConfig,
   getTTSConfig,
   estimateDuration,
-  truncateTextForTTS,
   getAudioFilename,
   buildFirstChapterAudioText,
   buildChapterAudioText,
 } from './tts-utils.js';
+import { getTTSGateway } from '@/ai/tts-gateway.js';
+import { ITTSService, TTSProvider, TTSOptions } from '@/ai/interfaces.js';
+import { splitTextIntoChunks, needsChunking } from './text-chunking.js';
+import { concatenateAudioBuffers, mixAudioWithBackground } from './audio-concatenation.js';
+import { getBackgroundMusicForStory } from './background-music.js';
 
 export interface TTSChapterResult {
   chapterNumber: number;
   audioUrl: string;
   duration: number; // in seconds
   format: string;
-  provider: 'openai';
+  provider: TTSProvider;
   voice: string;
   metadata: {
     totalWords: number;
@@ -42,64 +46,15 @@ export class TTSService {
   private storyService: StoryService;
   private storageService: StorageService;
   private chaptersService: ChaptersService;
-  private openaiClient: OpenAI | null = null;
+  private ttsProvider: ITTSService;
 
   constructor() {
     this.storyService = new StoryService();
     this.storageService = getStorageService();
     this.chaptersService = new ChaptersService();
 
-    // Initialize OpenAI client if API key is available
-    const openaiApiKey = process.env.OPENAI_API_KEY;
-    if (openaiApiKey) {
-      this.openaiClient = new OpenAI({
-        apiKey: openaiApiKey,
-      });
-    }
-  }
-
-  /**
-   * Synthesize speech using OpenAI TTS
-   */
-  private async synthesizeSpeechOpenAI(
-    text: string,
-    config: TTSConfig,
-  ): Promise<{ buffer: Buffer; voice: string; model: string }> {
-    if (!this.openaiClient) {
-      throw new Error('OpenAI client not initialized. Check OPENAI_API_KEY environment variable.');
-    }
-
-    try {
-      logger.info('Generating TTS with OpenAI', {
-        model: config.model,
-        voice: config.voice,
-        speed: config.speed,
-        textLength: text.length,
-      });
-
-      const response = await this.openaiClient.audio.speech.create({
-        model: config.model as 'gpt-4o-mini-tts' | 'gpt-4o-mini-tts-hd',
-        voice: config.voice as 'alloy' | 'echo' | 'fable' | 'onyx' | 'nova' | 'shimmer',
-        input: text,
-        speed: config.speed,
-        response_format: 'mp3',
-      });
-
-      const buffer = Buffer.from(await response.arrayBuffer());
-
-      return {
-        buffer,
-        voice: config.voice,
-        model: config.model,
-      };
-    } catch (error) {
-      logger.error('OpenAI TTS synthesis failed', {
-        error: error instanceof Error ? error.message : String(error),
-        model: config.model,
-        voice: config.voice,
-      });
-      throw error;
-    }
+    // Initialize TTS provider from gateway
+    this.ttsProvider = getTTSGateway().getTTSService();
   }
 
   /**
@@ -117,6 +72,7 @@ export class TTSService {
       dedicatoryMessage?: string;
       storyLanguage?: string;
       isFirstChapter?: boolean;
+      includeBackgroundMusic?: boolean;
     },
   ): Promise<TTSChapterResult> {
     try {
@@ -169,9 +125,6 @@ export class TTSService {
         chapterText = await buildChapterAudioText(chapterNumber, storyLanguage, chapterContent);
       }
 
-      // Ensure text is within TTS limits
-      chapterText = truncateTextForTTS(chapterText);
-
       // Enhance text with audio prompts if available
       if (audioPromptConfig) {
         logger.info('Applying audio prompt configuration', {
@@ -197,20 +150,154 @@ export class TTSService {
         });
       }
 
-      // Generate audio for the chapter
-      let audioBuffer: Buffer;
-      let actualVoice: string;
-      let actualModel: string;
+      // Get TTS system prompt for accent enforcement
+      // This is sent as a system instruction to the TTS API on every request
+      const ttsSystemPrompt = await AudioPromptService.getTTSSystemPrompt(storyLanguage, targetAge);
 
-      if (config.provider === 'openai') {
-        const result = await this.synthesizeSpeechOpenAI(chapterText, config);
-        audioBuffer = result.buffer;
-        actualVoice = result.voice;
-        actualModel = result.model;
+      logger.info('TTS system prompt loaded for accent enforcement', {
+        storyId,
+        chapterNumber,
+        storyLanguage,
+        promptLength: ttsSystemPrompt.length,
+      });
+
+      // Generate audio for the chapter using the TTS provider
+      // Uses intelligent chunking and concatenation for long texts
+      const ttsOptions: TTSOptions = {
+        voice: config.voice,
+        speed: config.speed,
+        model: config.model,
+        language: storyLanguage,
+        systemPrompt: ttsSystemPrompt,
+      };
+
+      const maxTextLength = this.ttsProvider.getMaxTextLength();
+      let audioBuffer: Buffer;
+      let actualVoice: string = config.voice;
+      let actualModel: string = config.model;
+      let actualProvider: TTSProvider = config.provider;
+
+      if (needsChunking(chapterText, maxTextLength)) {
+        // Text exceeds provider limit - use chunking and concatenation
+        logger.info('Text exceeds provider limit, using chunking', {
+          storyId,
+          chapterNumber,
+          textLength: chapterText.length,
+          maxTextLength,
+          provider: config.provider,
+        });
+
+        const chunks = splitTextIntoChunks(chapterText, maxTextLength, {
+          preferParagraphs: true,
+          minChunkSize: 500,
+          preserveDialogue: true,
+        });
+
+        logger.info('Text split into chunks', {
+          storyId,
+          chapterNumber,
+          chunkCount: chunks.length,
+          chunkSizes: chunks.map((c) => c.text.length),
+        });
+
+        // Generate audio for each chunk sequentially
+        const audioBuffers: Buffer[] = [];
+        for (let i = 0; i < chunks.length; i++) {
+          const chunk = chunks[i];
+          if (!chunk) {
+            throw new Error(`Chunk at index ${i} is undefined`);
+          }
+          logger.info('Generating audio for chunk', {
+            storyId,
+            chapterNumber,
+            chunkIndex: i + 1,
+            chunkCount: chunks.length,
+            chunkLength: chunk.text.length,
+          });
+
+          const chunkResult = await this.ttsProvider.synthesize(chunk.text, ttsOptions);
+          audioBuffers.push(chunkResult.buffer);
+
+          // Store first chunk's metadata as the canonical values
+          if (i === 0) {
+            actualVoice = chunkResult.voice;
+            actualModel = chunkResult.model;
+            actualProvider = chunkResult.provider;
+          }
+        }
+
+        // Concatenate all audio chunks into single MP3
+        logger.info('Concatenating audio chunks', {
+          storyId,
+          chapterNumber,
+          chunkCount: audioBuffers.length,
+        });
+
+        const concatenationResult = await concatenateAudioBuffers(audioBuffers);
+        audioBuffer = concatenationResult.buffer;
+
+        logger.info('Audio concatenation complete', {
+          storyId,
+          chapterNumber,
+          finalSize: audioBuffer.length,
+          chunkCount: concatenationResult.chunkCount,
+        });
       } else {
-        throw new Error(
-          `TTS provider '${config.provider}' is not supported. Only 'openai' is currently supported.`,
-        );
+        // Text within limit - single synthesis call
+        const ttsResult = await this.ttsProvider.synthesize(chapterText, ttsOptions);
+        audioBuffer = ttsResult.buffer;
+        actualVoice = ttsResult.voice;
+        actualModel = ttsResult.model;
+        actualProvider = ttsResult.provider;
+      }
+
+      // Mix with background music if enabled
+      const env = getEnvironment();
+      const shouldMixBackground =
+        env.BACKGROUND_MUSIC_ENABLED && (extraParams?.includeBackgroundMusic ?? true);
+
+      if (shouldMixBackground) {
+        const backgroundMusic = getBackgroundMusicForStory(story.targetAudience, story.novelStyle);
+
+        if (backgroundMusic) {
+          logger.info('Mixing narration with background music', {
+            storyId,
+            chapterNumber,
+            musicCode: backgroundMusic.musicCode,
+            backgroundVolume: env.BACKGROUND_MUSIC_VOLUME,
+          });
+
+          const mixResult = await mixAudioWithBackground(audioBuffer, backgroundMusic.filePath, {
+            backgroundVolume: env.BACKGROUND_MUSIC_VOLUME,
+            fadeInDuration: env.BACKGROUND_MUSIC_FADE_IN,
+            fadeOutDuration: env.BACKGROUND_MUSIC_FADE_OUT,
+          });
+
+          if (mixResult.hasMixedBackground) {
+            audioBuffer = mixResult.buffer;
+            logger.info('Background music mixed successfully', {
+              storyId,
+              chapterNumber,
+              musicCode: backgroundMusic.musicCode,
+              originalSize: audioBuffer.length,
+              mixedSize: mixResult.buffer.length,
+            });
+          }
+        } else {
+          logger.info('Skipping background music - file not available', {
+            storyId,
+            chapterNumber,
+            targetAudience: story.targetAudience,
+            novelStyle: story.novelStyle,
+          });
+        }
+      } else {
+        logger.debug('Background music disabled for this chapter', {
+          storyId,
+          chapterNumber,
+          globalEnabled: env.BACKGROUND_MUSIC_ENABLED,
+          requestEnabled: extraParams?.includeBackgroundMusic,
+        });
       }
 
       // Record token usage for TTS generation
@@ -227,7 +314,7 @@ export class TTSService {
             chapterText: chapterText.substring(0, 500) + '...', // Store first 500 chars for reference
             voice: actualVoice,
             speed: config.speed,
-            provider: config.provider,
+            provider: actualProvider,
             model: actualModel,
             storyLanguage: storyLanguage,
             audioPromptConfig: audioPromptConfig
@@ -276,7 +363,7 @@ export class TTSService {
         audioUrl,
         duration: estimateDuration(chapterText),
         format: 'mp3',
-        provider: config.provider,
+        provider: actualProvider,
         voice: actualVoice,
         metadata: {
           totalWords: countWords(chapterText),
@@ -289,7 +376,7 @@ export class TTSService {
       logger.info('TTS generation completed for chapter', {
         storyId,
         chapterNumber,
-        provider: config.provider,
+        provider: actualProvider,
         audioUrl,
         duration: result.duration,
         wordCount: result.metadata.totalWords,

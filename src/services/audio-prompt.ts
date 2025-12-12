@@ -15,6 +15,33 @@ export interface AudioPromptConfig {
   };
 }
 
+/**
+ * Default accent enforcement prompts for languages without a config file
+ * These are used as fallback when no locale-specific prompt is available
+ */
+const DEFAULT_ACCENT_PROMPTS: Record<string, string> = {
+  'en-US':
+    'You are a professional American voice actor. Speak strictly in American English with an authentic American accent.',
+  'en-GB':
+    'You are a professional British voice actor. Speak strictly in British English with an authentic British accent.',
+  'pt-PT':
+    'You are a professional Portuguese voice actor from Lisbon, Portugal. Speak strictly in European Portuguese (pt-PT). Do not use Brazilian pronunciations or vocabulary.',
+  'pt-BR':
+    'You are a professional Brazilian voice actor. Speak strictly in Brazilian Portuguese (pt-BR). Use authentic Brazilian pronunciation and expressions.',
+  'es-ES':
+    'You are a professional Spanish voice actor from Spain. Speak strictly in European Spanish (es-ES). Do not use Latin American pronunciations.',
+  'fr-FR':
+    'You are a professional French voice actor from France. Speak strictly in Metropolitan French (fr-FR) with an authentic Parisian accent.',
+  'de-DE':
+    'You are a professional German voice actor. Speak strictly in Standard German (Hochdeutsch) with an authentic German accent.',
+  'it-IT':
+    'You are a professional Italian voice actor. Speak strictly in Standard Italian with an authentic Italian accent.',
+  'nl-NL':
+    'You are a professional Dutch voice actor from the Netherlands. Speak strictly in Dutch (nl-NL) with an authentic Dutch accent.',
+  'pl-PL':
+    'You are a professional Polish voice actor. Speak strictly in Polish with an authentic Polish accent.',
+};
+
 export class AudioPromptService {
   private static promptCache = new Map<string, AudioPromptConfig>();
 
@@ -213,6 +240,53 @@ export class AudioPromptService {
    */
   static clearCache(): void {
     this.promptCache.clear();
+  }
+
+  /**
+   * Get the TTS system prompt for accent enforcement
+   * This prompt is sent as a system instruction to the TTS API to ensure
+   * consistent accent and pronunciation for the target language.
+   *
+   * @param storyLanguage - The language code (e.g., 'pt-PT', 'en-US')
+   * @param targetAge - Optional target age for audience-specific adjustments
+   * @returns The system prompt string for the TTS API
+   */
+  static async getTTSSystemPrompt(storyLanguage: string, targetAge?: string): Promise<string> {
+    // Try to load the full audio prompt config
+    const promptConfig = await this.loadAudioPrompt(storyLanguage);
+
+    if (promptConfig) {
+      // Process the system prompt with target age
+      const processedPrompt = this.processSystemPrompt(
+        promptConfig.systemPrompt,
+        targetAge,
+        promptConfig.targetAgeOptions,
+      );
+
+      logger.info('Using locale-specific TTS system prompt', {
+        language: storyLanguage,
+        languageName: promptConfig.languageName,
+        targetAge,
+        promptLength: processedPrompt.length,
+      });
+
+      return processedPrompt;
+    }
+
+    // Fallback to default accent enforcement prompts
+    const defaultPrompt = DEFAULT_ACCENT_PROMPTS[storyLanguage];
+    if (defaultPrompt) {
+      logger.info('Using default accent enforcement prompt', {
+        language: storyLanguage,
+      });
+      return defaultPrompt;
+    }
+
+    // Ultimate fallback for unknown languages
+    logger.warn('No accent enforcement prompt available, using generic fallback', {
+      language: storyLanguage,
+    });
+    return `You are a professional voice actor. Speak clearly and naturally in ${storyLanguage}.`;
   }
 
   /**

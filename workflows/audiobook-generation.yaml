@@ -2,7 +2,7 @@
 # Trigger: Pub/Sub topic mythoria-audiobook-requests
 #
 # Pub/Sub message (base-64 JSON):
-#   { "storyId": "<uuid>", "runId": "<uuid>", "voice": "<voice>", "timestamp": "<iso-string>" }
+#   { "storyId": "<uuid>", "runId": "<uuid>", "voice": "<voice>", "includeBackgroundMusic": true, "timestamp": "<iso-string>" }
 #
 # Cloud Run base URL (internal API + AI-Gateway):
 #   https://story-generation-workflow-803421888801.europe-west9.run.app
@@ -21,6 +21,7 @@ main:
           - storyId: ${payload.storyId}
           - runId: ${payload.runId}
           - voice: ${default(payload.voice, "coral")}
+          - includeBackgroundMusic: ${default(payload.includeBackgroundMusic, true)}
           - baseUrl: 'https://story-generation-workflow-803421888801.europe-west9.run.app'
           - now: ${time.format(sys.now())}
 
@@ -94,6 +95,7 @@ main:
                             voice: ${voice}
                             storyLanguage: ${storyLanguage}
                             isFirstChapter: ${chapterNum == 1}
+                            includeBackgroundMusic: ${includeBackgroundMusic}
                         result: chapterAudioResp
 
             # 4. Finalize audiobook and mark as completed
