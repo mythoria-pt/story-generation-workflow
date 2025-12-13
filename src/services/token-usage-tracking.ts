@@ -182,27 +182,32 @@ export class TokenUsageTrackingService {
     // Google Models
     else if (estimation.provider === 'google-genai') {
       if (estimation.model.includes('gemini-3-pro-preview')) {
-        // Gemini 3 Pro Preview - Most powerful multimodal and agentic model
-        inputCostPer1KTokens = 0.002; // $2.00 per 1M (prompts <= 200k)
-        outputCostPer1KTokens = 0.012; // $12.00 per 1M (prompts <= 200k)
-        cachedInputCostPer1KTokens = 0.0002; // $0.20 per 1M
+        // Gemini 3 Pro - Next-gen multimodal model
+        // Input: $2.00 per 1M tokens
+        // Output (Text): $12.00 per 1M tokens
+        // Output (Audio): Pricing TBD (using text rate for now)
+        inputCostPer1KTokens = 0.002; // $2.00 per 1M
+        outputCostPer1KTokens = 0.012; // $12.00 per 1M
+        cachedInputCostPer1KTokens = 0.0002; // 10% of input
       } else if (
         estimation.model.includes('gemini-2.5-pro-preview-tts') ||
         estimation.model.includes('gemini-2.5-pro-tts')
       ) {
-        // Gemini 2.5 Pro Preview TTS - Powerful speech generation
-        // Input (text): $1.00 per 1M, Output (audio): $20.00 per 1M
-        inputCostPer1KTokens = 0.001; // $1.00 per 1M (text)
-        outputCostPer1KTokens = 0.02; // $20.00 per 1M (audio)
+        // Gemini 2.5 Pro TTS - High-fidelity, reasoning-enhanced TTS
+        // Input (Text): $1.00 per 1M tokens
+        // Output (Audio): $20.00 per 1M tokens
+        inputCostPer1KTokens = 0.001; // $1.00 per 1M
+        outputCostPer1KTokens = 0.02; // $20.00 per 1M
         cachedInputCostPer1KTokens = 0.0001; // 10% of input
       } else if (
         estimation.model.includes('gemini-2.5-flash-preview-tts') ||
         estimation.model.includes('gemini-2.5-flash-tts')
       ) {
-        // Gemini 2.5 Flash Preview TTS - Cost-effective speech generation
-        // Input (text): $0.50 per 1M, Output (audio): $10.00 per 1M
-        inputCostPer1KTokens = 0.0005; // $0.50 per 1M (text)
-        outputCostPer1KTokens = 0.01; // $10.00 per 1M (audio)
+        // Gemini 2.5 Flash TTS - Low-latency, cost-effective multimodal TTS
+        // Input (Text): $0.50 per 1M tokens
+        // Output (Audio): $10.00 per 1M tokens
+        inputCostPer1KTokens = 0.0005; // $0.50 per 1M
+        outputCostPer1KTokens = 0.01; // $10.00 per 1M
         cachedInputCostPer1KTokens = 0.00005; // 10% of input
       } else if (estimation.model.includes('gemini-2.5-flash-image')) {
         // Gemini 2.5 Flash Image - Native image generation

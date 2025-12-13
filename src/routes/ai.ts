@@ -12,6 +12,7 @@ import { StoryService } from '@/services/story.js';
 import { workflowErrorHandler } from '@/shared/workflow-error-handler.js';
 import { PromptService } from '@/services/prompt.js';
 import { SchemaService } from '@/services/schema.js';
+import { LiteraryPersonaService } from '@/services/literary-persona.js';
 import { getImageDimensions } from '@/utils/imageUtils.js';
 import { getAIGatewayWithTokenTracking } from '@/ai/gateway-with-tracking.js';
 import { getStorageService } from '@/services/storage-singleton.js';
@@ -37,6 +38,8 @@ import {
   CHARACTER_TRAITS,
 } from '@/shared/character-constants.js';
 import { RunsService } from '@/services/runs.js';
+import { logPromptRefinementFailure, refineImagePrompt } from '@/services/image-prompt-utils.js';
+import { ImageSafetyService } from '@/services/image-safety-service.js';
 
 // Initialize services
 const router = Router();
@@ -45,76 +48,7 @@ const storyService = new StoryService();
 const storageService = getStorageService();
 const characterService = new CharacterService();
 const runsService = new RunsService();
-
-// Image prompt refinement helper (applies consistent best-practice formatting across providers)
-function refineImagePrompt(
-  raw: string,
-  opts: { fallbackSubject?: string; styleHint?: string } = {},
-): string {
-  if (!raw || typeof raw !== 'string') {
-    return opts.fallbackSubject || 'storybook illustration, soft lighting';
-  }
-  let p = raw
-    .replace(/\s+/g, ' ') // collapse whitespace
-    .replace(/^\s+|\s+$/g, '')
-    .replace(/^"|"$/g, ''); // trim quotes
-
-  // Remove leading articles that add little value
-  p = p.replace(/^(?:An?|The)\s+/i, '');
-
-  // Ensure it describes a scene, not a command
-  p = p.replace(/^Imagine\s+/, '');
-
-  // Provide a gentle style hint if none present (avoid stacking many styles)
-  const lower = p.toLowerCase();
-  const styleProvided =
-    /(illustration|digital painting|oil painting|watercolor|pixel art|anime|storybook|cinematic|render)/.test(
-      lower,
-    );
-  const style = styleProvided ? '' : opts.styleHint || 'storybook illustration, soft lighting';
-
-  // Cap length
-  if (p.length > 600) {
-    const cut = p.slice(0, 600);
-    const lastPeriod = cut.lastIndexOf('.');
-    p = lastPeriod > 60 ? cut.slice(0, lastPeriod + 1) : cut;
-  }
-
-  // Avoid trailing punctuation duplication (commas, semicolons, colons, dashes)
-  // Hyphen does not need escaping inside the character class when placed first
-  p = p.replace(/[-,;:]+$/, '').trim();
-
-  return style ? `${p} – ${style}` : p;
-}
-
-function buildSafeFallbackPrompt(original: string, opts: { styleHint?: string } = {}): string {
-  let prompt = original || '';
-
-  // Generalize age/gender terms to be more neutral
-  prompt = prompt.replace(/\b\d+\s*-?\s*month\s*-?\s*old\b/gi, 'young');
-  prompt = prompt.replace(/\btoddler\b/gi, 'child');
-  prompt = prompt.replace(/\bboy\b/gi, 'child');
-  prompt = prompt.replace(/\bgirl\b/gi, 'child');
-
-  // Ensure the scene is described as safe and wholesome
-  if (!/safe|wholesome|cheerful/i.test(prompt)) {
-    prompt += ' The scene is wholesome, safe, and cheerful.';
-  }
-
-  // Ensure characters are described as fully clothed
-  if (!/clothed|wearing|dressed|outfit|attire/i.test(prompt)) {
-    prompt += ' The character is fully clothed in appropriate daily attire.';
-  }
-
-  // Add lighting context if missing
-  if (!/lighting|lit/i.test(prompt)) {
-    prompt += ' Warm, gentle lighting.';
-  }
-
-  return refineImagePrompt(prompt, {
-    styleHint: opts.styleHint || 'wholesome family illustration, soft lighting',
-  });
-}
+const imageSafetyService = new ImageSafetyService({ aiGateway });
 
 // Shared outline + character schema definitions
 const CharacterTypeEnum = z.enum(CHARACTER_TYPES);
@@ -300,6 +234,14 @@ router.post('/text/outline', async (req, res) => {
       return;
     } // Load prompt template and prepare variables
     const promptTemplate = await PromptService.loadPrompt('en-US', 'text-outline'); // Use the chapterCount from the database, fallback to 6 if not available
+
+    // Build literary persona guidance (en-US only)
+    const personaGuidance = await (async () => {
+      const code = storyContext.story.literaryPersona;
+      if (!code) return '';
+      const persona = await LiteraryPersonaService.getPersona(code, 'en-US');
+      return persona ? LiteraryPersonaService.formatStyleBlock(persona) : '';
+    })();
     const chapterCount = storyContext.story.chapterCount || 6;
 
     // Prepare template variables
@@ -317,6 +259,7 @@ router.post('/text/outline', async (req, res) => {
         'No description provided',
       description: storyContext.story.plotDescription || 'No specific plot description provided.',
       graphicalStyle: storyContext.story.graphicalStyle || 'colorful and vibrant illustration',
+      literaryPersonaGuidance: personaGuidance,
       // Placeholder values for template completion
       bookCoverPrompt: 'A book cover prompt will be generated',
       bookBackCoverPrompt: 'A back cover prompt will be generated',
@@ -405,9 +348,7 @@ router.post('/text/outline', async (req, res) => {
           }));
         }
       } catch (refErr) {
-        logger.warn('Prompt refinement failed (non-fatal)', {
-          error: refErr instanceof Error ? refErr.message : String(refErr),
-        });
+        logPromptRefinementFailure(refErr);
       }
 
       return outlineData;
@@ -511,29 +452,13 @@ router.post('/text/structure', async (req, res) => {
     const RequestSchema = z.object({
       storyId: z.string().uuid(),
       userDescription: z.string().optional(),
-      imageData: z.string().nullable().optional(), // legacy base64 (discouraged)
-      audioData: z.string().nullable().optional(), // legacy base64 (discouraged)
-      imageObjectPath: z.string().optional(), // preferred: object path in bucket
+      imageObjectPath: z.string().optional(),
       audioObjectPath: z.string().optional(),
       characterIds: z.array(z.string().uuid()).optional(), // optional array of character IDs to include
     });
 
-    const {
-      storyId,
-      userDescription,
-      imageObjectPath,
-      audioObjectPath,
-      imageData,
-      audioData,
-      characterIds,
-    } = RequestSchema.parse(req.body);
-    logger.info('AI Text Structure: request received', {
-      storyId,
-      hasText: !!userDescription,
-      hasImage: !!req.body?.imageData || !!imageObjectPath,
-      hasAudio: !!req.body?.audioData || !!audioObjectPath,
-      characterIdsCount: characterIds?.length || 0,
-    });
+    const { storyId, userDescription, imageObjectPath, audioObjectPath, characterIds } =
+      RequestSchema.parse(req.body);
 
     // Get story and author
     const storyContext = await storyService.getStoryContext(storyId);
@@ -564,6 +489,8 @@ router.post('/text/structure', async (req, res) => {
 
     // Build prompt
     const promptTemplate = await PromptService.loadPrompt('en-US', 'text-structure');
+    const personas = await LiteraryPersonaService.loadPersonas('en-US');
+    const personaOptions = LiteraryPersonaService.buildOptionsSummary(personas);
     const templateVars = {
       authorName: '',
       userDescription: userDescription ?? '',
@@ -577,6 +504,7 @@ router.post('/text/structure', async (req, res) => {
           physicalDescription: c.physicalDescription ?? undefined,
         })),
       ),
+      literaryPersonaOptions: personaOptions,
     };
     const finalPrompt = PromptService.buildPrompt(promptTemplate, templateVars);
     const structSchema = await SchemaService.loadSchema('story-structure');
@@ -599,11 +527,7 @@ router.post('/text/structure', async (req, res) => {
 
     // Build media parts if we can use Gemini multimodal
     let aiResponse: string;
-    const hasB64Image = typeof imageData === 'string' && imageData.length > 0;
-    const hasB64Audio = typeof audioData === 'string' && audioData.length > 0;
-    const canUseGemini =
-      textProvider === 'google-genai' &&
-      (imageObjectPath || audioObjectPath || hasB64Image || hasB64Audio);
+    const canUseGemini = textProvider === 'google-genai' && (imageObjectPath || audioObjectPath);
     if (canUseGemini) {
       const storage = getStorageService();
       const mediaParts: Array<{ mimeType: string; data: Buffer | string }> = [];
@@ -626,29 +550,6 @@ router.post('/text/structure', async (req, res) => {
           mimeType: meta.contentType || 'audio/wav',
           data: buf,
         });
-      }
-      // Fallback: attach base64 media directly (dev-friendly, no GCS needed)
-      if (hasB64Image) {
-        const str = imageData as string;
-        let mime = 'image/jpeg';
-        let b64 = str;
-        const match = /^data:([^;]+);base64,(.*)$/.exec(str);
-        if (match) {
-          mime = (match[1] as string) || mime;
-          b64 = (match[2] as string) || b64;
-        }
-        mediaParts.push({ mimeType: mime, data: Buffer.from(b64, 'base64') });
-      }
-      if (hasB64Audio) {
-        const str = audioData as string;
-        let mime = 'audio/wav';
-        let b64 = str;
-        const match = /^data:([^;]+);base64,(.*)$/.exec(str);
-        if (match) {
-          mime = (match[1] as string) || mime;
-          b64 = (match[2] as string) || b64;
-        }
-        mediaParts.push({ mimeType: mime, data: Buffer.from(b64, 'base64') });
       }
       aiResponse = await aiGateway.getTextService(aiContext).complete(finalPrompt, {
         temperature: 0.8,
@@ -690,6 +591,7 @@ router.post('/text/structure', async (req, res) => {
     if (parsed.story.targetAudience) updates.targetAudience = parsed.story.targetAudience;
     if (parsed.story.novelStyle) updates.novelStyle = parsed.story.novelStyle;
     if (parsed.story.graphicalStyle) updates.graphicalStyle = parsed.story.graphicalStyle;
+    if (parsed.story.literaryPersona) updates.literaryPersona = parsed.story.literaryPersona;
     if (parsed.story.storyLanguage) updates.storyLanguage = parsed.story.storyLanguage;
 
     // Direct DB update via webapp schema synced to SGW
@@ -775,8 +677,6 @@ router.post('/text/structure', async (req, res) => {
       story: { ...updates, storyId },
       characters: processedCharacters,
       originalInput: userDescription ?? '',
-      hasImageInput: false,
-      hasAudioInput: false,
       message: 'Story structure generated successfully.',
     });
   } catch (error) {
@@ -912,8 +812,6 @@ router.post('/media/analyze-character-photo', async (req, res) => {
       : '';
     const userPrompt = PromptService.processPrompt(promptTemplate.userPrompt, variables);
 
-    logger.info('Analyzing character photo', { locale, languageName });
-
     // Create a timeout promise
     const timeoutPromise = new Promise<never>((_, reject) => {
       setTimeout(() => reject(new Error('Analysis request timed out')), REQUEST_TIMEOUT_MS);
@@ -950,11 +848,6 @@ router.post('/media/analyze-character-photo', async (req, res) => {
       .replace(/\n+/g, ' ') // Replace newlines with spaces
       .trim();
 
-    logger.info('Character photo analysis completed', {
-      locale,
-      descriptionLength: cleanedDescription.length,
-    });
-
     res.json({ success: true, description: cleanedDescription });
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -967,7 +860,9 @@ router.post('/media/analyze-character-photo', async (req, res) => {
 
     // Check if it's a timeout error
     if (errorMessage.includes('timed out')) {
-      res.status(504).json({ success: false, error: 'Analysis request timed out. Please try again.' });
+      res
+        .status(504)
+        .json({ success: false, error: 'Analysis request timed out. Please try again.' });
       return;
     }
 
@@ -1138,6 +1033,14 @@ router.post('/text/chapter/:chapterNumber', async (req, res) => {
     } // Load chapter prompt template and prepare variables
     const promptTemplate = await PromptService.loadPrompt('en-US', 'text-chapter');
 
+    // Build literary persona guidance (en-US only)
+    const personaGuidance = await (async () => {
+      const code = storyContext.story.literaryPersona;
+      if (!code) return '';
+      const persona = await LiteraryPersonaService.getPersona(code, 'en-US');
+      return persona ? LiteraryPersonaService.formatStyleBlock(persona) : '';
+    })();
+
     // Prepare template variables
     const hookInstruction =
       chapterCount && chapterNumber < chapterCount
@@ -1154,6 +1057,7 @@ router.post('/text/chapter/:chapterNumber', async (req, res) => {
       language: getLanguageName(storyContext.story.storyLanguage),
       chapterCount: chapterCount?.toString() || '10',
       hookInstruction: hookInstruction,
+      literaryPersonaGuidance: personaGuidance,
     };
 
     // Build dynamic memory (previous chapters) heuristic: fetch saved chapters < current
@@ -1560,6 +1464,8 @@ router.post('/text/context/clear', async (req, res) => {
 router.post('/image', async (req, res) => {
   let currentStep = 'parsing_request';
   let promptRewriteAttempted = false;
+  let promptRewriteApplied = false;
+  let promptRewriteError: string | undefined;
   let originalPrompt: string | undefined;
   let fallbackPromptUsed = false;
 
@@ -1579,6 +1485,8 @@ router.post('/image', async (req, res) => {
       return;
     }
 
+    const customInstructions = storyContext.story.imageGenerationInstructions?.trim() || '';
+
     // Create context for token tracking
     const imageContext = {
       authorId: storyContext.story.authorId,
@@ -1596,12 +1504,12 @@ router.post('/image', async (req, res) => {
       imageHeight = dimensions.height;
     }
 
-    // Assemble up to four reference images (JPEG only), prioritizing character photo references,
+    // Assemble up to five reference images (JPEG only), prioritizing character photo references,
     // then falling back to existing cover/previous-chapter references when capacity remains.
     currentStep = 'collecting_references';
     const referenceImages: Array<{ buffer: Buffer; mimeType: string; source: string }> = [];
     const seenReferenceFiles = new Set<string>();
-    const MAX_REFERENCE_IMAGES = 4;
+    const MAX_REFERENCE_IMAGES = 5;
     try {
       const storyRecord = await storyService.getStory(storyId); // includes cover/backcover URIs
       const storage = getStorageService();
@@ -1625,21 +1533,16 @@ router.post('/image', async (req, res) => {
         if (!uri) return;
         if (referenceImages.length >= MAX_REFERENCE_IMAGES) return;
         if (!isSupportedGcsUrl(uri)) {
-          logger.debug('Skipping non-bucket reference image', { uri, source });
           return;
         }
         const filename = extractFilenameFromUri(uri);
         if (!filename || seenReferenceFiles.has(filename)) return;
         const lower = filename.toLowerCase();
-        if (!lower.endsWith('.jpg') && !lower.endsWith('.jpeg')) {
-          logger.debug('Skipping non-jpeg reference image', { filename, source });
-          return;
-        }
+        if (!lower.endsWith('.jpg') && !lower.endsWith('.jpeg')) return;
         try {
           const buf = await storage.downloadFileAsBuffer(filename);
           referenceImages.push({ buffer: buf, mimeType: 'image/jpeg', source });
           seenReferenceFiles.add(filename);
-          logger.info('Reference image added', { source, size: buf.length, filename });
         } catch (refErr) {
           logger.warn('Failed to load reference image', {
             source,
@@ -1654,6 +1557,12 @@ router.post('/image', async (req, res) => {
         const parsedOutline = outlineStep?.detailJson
           ? OutlineSchema.safeParse(outlineStep.detailJson)
           : null;
+
+        const isValidCharacterId = (id: unknown): id is string =>
+          typeof id === 'string' &&
+          id.length > 0 &&
+          id.toLowerCase() !== 'null' &&
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
 
         if (parsedOutline?.success && imageType) {
           const outline = parsedOutline.data;
@@ -1670,22 +1579,19 @@ router.post('/image', async (req, res) => {
           const uniqueNames = Array.from(
             new Set(
               sceneNames.filter(
-                (name): name is string =>
-                  typeof name === 'string' && name.trim().length > 0,
+                (name): name is string => typeof name === 'string' && name.trim().length > 0,
               ),
             ),
           );
-          const nameToCharacter = new Map(
-            outline.characters.map((c) => [c.name, c] as const),
-          );
+          const nameToCharacter = new Map(outline.characters.map((c) => [c.name, c] as const));
           const storyNameToId = new Map(
             storyContext.characters
-              .filter((c) => typeof c.characterId === 'string' && c.characterId.length > 0)
+              .filter((c) => isValidCharacterId(c.characterId))
               .map((c) => [c.name, c.characterId as string] as const),
           );
           const candidateIds = uniqueNames
             .map((name) => nameToCharacter.get(name)?.characterId || storyNameToId.get(name))
-            .filter((id): id is string => typeof id === 'string' && id.length > 0);
+            .filter(isValidCharacterId);
           const uniqueIds = Array.from(new Set(candidateIds));
 
           if (uniqueIds.length > 0) {
@@ -1746,19 +1652,13 @@ router.post('/image', async (req, res) => {
       });
     }
 
-    // Log summary
-    logger.info('Reference images summary', {
-      count: referenceImages.length,
-      sources: referenceImages.map((r) => r.source),
-      totalSizeBytes: referenceImages.reduce((acc, r) => acc + r.buffer.length, 0),
-    });
-
     // Helper function to attempt image generation
     const attemptImageGeneration = async (promptToUse: string): Promise<Buffer> => {
       return await aiGateway.getImageService(imageContext).generate(promptToUse, {
         ...(imageWidth && { width: imageWidth }),
         ...(imageHeight && { height: imageHeight }),
         ...(style && { style }),
+        customInstructions,
         bookTitle: storyContext.story.title,
         ...(storyContext.story.graphicalStyle && {
           graphicalStyle: storyContext.story.graphicalStyle,
@@ -1776,11 +1676,9 @@ router.post('/image', async (req, res) => {
     try {
       // First attempt with original prompt
       imageBuffer = await attemptImageGeneration(prompt);
+      finalPrompt = prompt;
     } catch (firstError) {
-      // Check if this is a safety block error
-      const { isSafetyBlockError } = await import('@/shared/retry-utils.js');
-
-      if (isSafetyBlockError(firstError)) {
+      if (imageSafetyService.isSafetyBlock(firstError)) {
         logger.warn('Image generation blocked by safety system, attempting prompt rewrite', {
           storyId,
           runId,
@@ -1791,125 +1689,33 @@ router.post('/image', async (req, res) => {
         });
 
         currentStep = 'rewriting_prompt';
-        promptRewriteAttempted = true;
 
-        try {
-          // Load the safety rewrite prompt template
-          const rewritePromptTemplate = await PromptService.loadPrompt(
-            'en-US',
-            'image-prompt-safety-rewrite',
-          );
+        const safetyContext = {
+          storyId,
+          runId,
+          authorId: storyContext.story.authorId,
+          ...(typeof chapterNumber === 'number' ? { chapterNumber } : {}),
+          ...(imageType ? { imageType } : {}),
+          ...(storyContext.story.title ? { bookTitle: storyContext.story.title } : {}),
+          ...(storyContext.story.graphicalStyle
+            ? { graphicalStyle: storyContext.story.graphicalStyle }
+            : {}),
+        };
 
-          // Prepare template variables
-          const rewriteVars = {
-            safetyError: firstError instanceof Error ? firstError.message : String(firstError),
-            imageType: imageType || 'chapter',
-            bookTitle: storyContext.story.title,
-            graphicalStyle: storyContext.story.graphicalStyle || 'illustration',
-            chapterNumber: chapterNumber?.toString() || '',
-            originalPrompt: prompt,
-          };
+        const safetyResult = await imageSafetyService.handleSafetyBlock({
+          originalPrompt: prompt,
+          safetyError: firstError,
+          context: safetyContext,
+          attemptImageGeneration,
+        });
 
-          // Build the rewrite prompt
-          const rewritePrompt = PromptService.buildPrompt(rewritePromptTemplate, rewriteVars);
-
-          // Use GenAI (Google) to rewrite the prompt - force TEXT_PROVIDER temporarily
-          const originalProvider = process.env.TEXT_PROVIDER;
-          process.env.TEXT_PROVIDER = 'google-genai';
-
-          try {
-            // Create a text context for the rewrite
-            const textContext = {
-              authorId: storyContext.story.authorId,
-              storyId: storyId,
-              action: 'prompt_rewrite' as const,
-            };
-
-            // Get the rewritten prompt from GenAI
-            const rewrittenPrompt = await aiGateway
-              .getTextService(textContext)
-              .complete(rewritePrompt, {
-                temperature: 0.7, // Moderate creativity for rewriting
-                maxTokens: 65535,
-              });
-
-            // Restore original provider
-            if (originalProvider) {
-              process.env.TEXT_PROVIDER = originalProvider;
-            }
-
-            // Clean up the rewritten prompt
-            finalPrompt = rewrittenPrompt.trim();
-
-            // Check if GenAI refused to rewrite
-            if (finalPrompt.startsWith('UNABLE_TO_REWRITE:')) {
-              throw new Error(
-                'GenAI determined the prompt is fundamentally unsafe and cannot be rewritten',
-              );
-            }
-
-            logger.info('Prompt successfully rewritten by GenAI', {
-              storyId,
-              runId,
-              imageType,
-              originalLength: prompt.length,
-              rewrittenLength: finalPrompt.length,
-              rewrittenPrompt: finalPrompt.substring(0, 100) + '...',
-            });
-
-            // Retry image generation with rewritten prompt (one attempt only)
-            currentStep = 'generating_image_with_rewritten_prompt';
-            imageBuffer = await attemptImageGeneration(finalPrompt);
-
-            logger.info('Image generation succeeded with rewritten prompt', {
-              storyId,
-              runId,
-              imageType,
-              chapterNumber,
-            });
-          } finally {
-            // Restore original provider in case of error
-            if (originalProvider) {
-              process.env.TEXT_PROVIDER = originalProvider;
-            }
-          }
-        } catch (rewriteError) {
-          logger.error('Prompt rewrite or retry failed', {
-            storyId,
-            runId,
-            imageType,
-            chapterNumber,
-            error: rewriteError instanceof Error ? rewriteError.message : String(rewriteError),
-          });
-
-          const fallbackPrompt = storyContext.story.graphicalStyle
-            ? buildSafeFallbackPrompt(prompt, { styleHint: storyContext.story.graphicalStyle })
-            : buildSafeFallbackPrompt(prompt);
-
-          try {
-            fallbackPromptUsed = true;
-            finalPrompt = fallbackPrompt;
-            currentStep = 'generating_image_with_fallback_prompt';
-            imageBuffer = await attemptImageGeneration(finalPrompt);
-            logger.info('Image generation succeeded with fallback sanitized prompt', {
-              storyId,
-              runId,
-              imageType,
-              chapterNumber,
-            });
-          } catch (fallbackErr) {
-            const enrichedError: any = firstError;
-            enrichedError.promptRewriteAttempted = true;
-            enrichedError.promptRewriteError =
-              rewriteError instanceof Error ? rewriteError.message : String(rewriteError);
-            enrichedError.fallbackAttempted = true;
-            enrichedError.fallbackError =
-              fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
-            throw enrichedError;
-          }
-        }
+        imageBuffer = safetyResult.imageBuffer;
+        finalPrompt = safetyResult.finalPrompt;
+        promptRewriteAttempted = safetyResult.promptRewriteAttempted;
+        promptRewriteApplied = safetyResult.promptRewriteApplied;
+        fallbackPromptUsed = safetyResult.fallbackPromptUsed;
+        promptRewriteError = safetyResult.promptRewriteError;
       } else {
-        // Not a safety block, re-throw as-is
         throw firstError;
       }
     }
@@ -1937,9 +1743,10 @@ router.post('/image', async (req, res) => {
         referenceImageSources: referenceImages.map((r) => r.source),
       },
       ...(promptRewriteAttempted && {
-        promptRewriteApplied: true,
+        promptRewriteApplied,
         originalPrompt: originalPrompt,
         rewrittenPrompt: finalPrompt,
+        ...(promptRewriteError && { promptRewriteError }),
         ...(fallbackPromptUsed && { promptRewriteFallback: true }),
       }),
     });
@@ -1971,91 +1778,6 @@ router.post('/image', async (req, res) => {
     if ((error as any)?.fallbackError) resp.fallbackError = (error as any).fallbackError;
     if (fallbackPromptUsed) resp.fallbackPromptUsed = true;
     res.status(statusCode).json(resp);
-  }
-});
-
-/**
- * GET /ai/test-text
- * Test the configured text AI provider with environment variables and basic prompt
- */
-router.get('/test-text', async (_req, res) => {
-  try {
-    // Collect relevant environment variables for AI provider selection
-    const envVars = {
-      TEXT_PROVIDER: process.env.TEXT_PROVIDER,
-      IMAGE_PROVIDER: process.env.IMAGE_PROVIDER,
-
-      // Google GenAI
-      GOOGLE_GENAI_API_KEY: process.env.GOOGLE_GENAI_API_KEY ? '***REDACTED***' : undefined,
-      GOOGLE_GENAI_MODEL: process.env.GOOGLE_GENAI_MODEL,
-      GOOGLE_GENAI_IMAGE_MODEL: process.env.GOOGLE_GENAI_IMAGE_MODEL,
-
-      // OpenAI
-      OPENAI_API_KEY: process.env.OPENAI_API_KEY ? '***REDACTED***' : undefined,
-      OPENAI_TEXT_MODEL: process.env.OPENAI_TEXT_MODEL,
-      OPENAI_IMAGE_MODEL: process.env.OPENAI_IMAGE_MODEL,
-
-      // Debug settings
-      DEBUG_AI_FULL_PROMPTS: process.env.DEBUG_AI_FULL_PROMPTS,
-      DEBUG_AI_FULL_RESPONSES: process.env.DEBUG_AI_FULL_RESPONSES,
-      LOG_LEVEL: process.env.LOG_LEVEL,
-    };
-
-    // Create a test context for the AI call
-    const testContext = {
-      authorId: '00000000-0000-0000-0000-000000000001', // Test UUID
-      storyId: '00000000-0000-0000-0000-000000000002', // Test UUID
-      action: 'test' as const,
-    };
-
-    let success = false;
-    let response = '';
-    let error = null;
-    let provider = '';
-
-    try {
-      // Get the text service from the AI gateway
-      const textService = aiGateway.getTextService(testContext);
-      provider = process.env.TEXT_PROVIDER || 'google-genai';
-
-      // Make a basic prompt request
-      response = await textService.complete(
-        'Say hi and tell me you are working correctly. Keep it brief.',
-        {
-          temperature: 0.7,
-        },
-      );
-
-      success = true;
-    } catch (aiError) {
-      success = false;
-      error = {
-        message: aiError instanceof Error ? aiError.message : String(aiError),
-        stack: aiError instanceof Error ? aiError.stack : undefined,
-        name: aiError instanceof Error ? aiError.name : 'UnknownError',
-      };
-    }
-
-    res.json({
-      success,
-      timestamp: new Date().toISOString(),
-      environment: envVars,
-      testResult: {
-        provider,
-        response: success ? response : null,
-        error: error,
-      },
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      timestamp: new Date().toISOString(),
-      error: {
-        message: error instanceof Error ? error.message : 'Unknown error',
-        stack: error instanceof Error ? error.stack : undefined,
-        name: error instanceof Error ? error.name : 'UnknownError',
-      },
-    });
   }
 });
 

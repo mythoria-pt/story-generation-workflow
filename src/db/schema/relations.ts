@@ -169,4 +169,4 @@ export const printRequestsRelations = relations(printRequests, ({ one }) => ({
   }),
 }));
 
-// Blog relations removed: blog schema not present in this service
+// Blog and FAQ schemas are not synced into SGW; relations omitted.

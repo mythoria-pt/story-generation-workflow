@@ -110,7 +110,22 @@ export class CharacterService {
           and(eq(storyCharacters.storyId, storyId), eq(storyCharacters.characterId, characterId)),
         )
         .limit(1);
-      if (existing) return existing;
+      if (existing) {
+        if (role && existing.role !== role) {
+          const [updated] = await this.db
+            .update(storyCharacters)
+            .set({ role: role as any })
+            .where(
+              and(
+                eq(storyCharacters.storyId, storyId),
+                eq(storyCharacters.characterId, characterId),
+              ),
+            )
+            .returning();
+          return updated || { ...existing, role };
+        }
+        return existing;
+      }
 
       const values: NewStoryCharacter = {
         storyId,

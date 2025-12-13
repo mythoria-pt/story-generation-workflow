@@ -10,7 +10,14 @@ export const characterRoleEnum = pgEnum('character_role', CHARACTER_ROLES);
 export const characterAgeEnum = pgEnum('character_age', CHARACTER_AGES);
 export const characterTraitEnum = pgEnum('character_trait', CHARACTER_TRAITS);
 
-export const storyStatusEnum = pgEnum('story_status', ['draft', 'writing', 'published']);
+// Added 'temporary' status to allow ephemeral placeholder stories that can be hidden
+// from user lists until real content (characters, structured data) is added.
+export const storyStatusEnum = pgEnum('story_status', [
+  'temporary',
+  'draft',
+  'writing',
+  'published',
+]);
 export const audiobookStatusEnum = pgEnum('audiobook_status', [
   'generating',
   'completed',
@@ -29,6 +36,7 @@ export const creditEventTypeEnum = pgEnum('credit_event_type', [
   'eBookGeneration',
   'audioBookGeneration',
   'printOrder',
+  'selfPrinting',
   'refund',
   'voucher',
   'promotion',
@@ -47,7 +55,6 @@ export const runStatusEnum = pgEnum('run_status', [
   'failed',
   'completed',
   'cancelled',
-  'blocked',
 ]);
 
 export const storyRatingEnum = pgEnum('story_rating', ['1', '2', '3', '4', '5']);
@@ -99,6 +106,15 @@ export const graphicalStyleEnum = pgEnum('graphical_style', [
   'colored_pencil',
 ]);
 
+export const literaryPersonaEnum = pgEnum('literary_persona', [
+  'storyteller',
+  'adventurous-narrator',
+  'fun-reporter',
+  'friendly-educator',
+  'institutional-chronicler',
+  'pub-buddy-narrator',
+]);
+
 export const aiActionTypeEnum = pgEnum('ai_action_type', [
   'story_structure',
   'story_outline',
@@ -110,7 +126,6 @@ export const aiActionTypeEnum = pgEnum('ai_action_type', [
   'story_enhancement',
   'audio_generation',
   'content_validation',
-  'prompt_rewrite',
   'test',
 ]);
 
@@ -122,7 +137,6 @@ export const printRequestStatusEnum = pgEnum('print_request_status', [
   'shipped',
   'delivered',
   'cancelled',
-  'blocked',
   'error',
 ]);
 
@@ -135,7 +149,6 @@ export const paymentOrderStatusEnum = pgEnum('payment_order_status', [
   'completed',
   'failed',
   'cancelled',
-  'blocked',
   'expired',
 ]);
 
@@ -170,3 +183,41 @@ export const paymentStatusEnum = pgEnum('payment_status', [
 ]);
 
 export const transactionTypeEnum = pgEnum('transaction_type', ['purchase', 'bonus', 'refund']);
+
+// Onboarding / profile enums
+export const genderEnum = pgEnum('gender', ['female', 'male', 'prefer_not_to_say']);
+
+export const literaryAgeEnum = pgEnum('literary_age', [
+  'school_age',
+  'teen',
+  'emerging_adult',
+  'experienced_adult',
+  'midlife_mentor_or_elder',
+]);
+
+export const primaryGoalEnum = pgEnum('primary_goal', [
+  'family_keepsake',
+  'personalized_gift',
+  'child_development',
+  'fun_and_creativity',
+  'friend_group_memories',
+  'company_engagement',
+  'other',
+]);
+
+export const audienceForStoriesEnum = pgEnum('audience_for_stories', [
+  'my_child',
+  'family_member',
+  'friend_group',
+  'myself',
+  'a_friend',
+  'varies',
+]);
+
+// Notification preferences for user communication cadence/content
+// 'inspiration' is the default (balanced helpful tips)
+export const notificationPreferenceEnum = pgEnum('notification_preference', [
+  'essential', // Only critical account & story updates
+  'inspiration', // Tips & ideas (default)
+  'news', // Product news & special promos
+]);

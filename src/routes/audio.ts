@@ -144,6 +144,7 @@ router.post(
           isFirstChapter: isFirstChapter === true || isFirstChapter === 'true',
           includeBackgroundMusic:
             includeBackgroundMusic !== false && includeBackgroundMusic !== 'false',
+          chapterTitle,
         },
       );
 

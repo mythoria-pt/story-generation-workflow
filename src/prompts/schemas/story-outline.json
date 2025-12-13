@@ -2,9 +2,7 @@
   "type": "object",
   "properties": {
     "bookTitle": {
-      "type": "string",
-      "maxLength": 150,
-      "minLength": 1
+      "type": "string"
     },
     "target-audience": {
       "type": "string",
@@ -21,32 +19,27 @@
     },
     "bookCoverPrompt": {
       "type": "string",
-      "description": "Detailed prompt for generating the book cover illustration. Include characters physical descriptions, actions, and settings, and explicitly include the exact book title text on the cover.",
-      "maxLength": 1200,
-      "minLength": 10
+      "description": "Detailed prompt for generating the book cover illustration. Include characters physical descriptions, actions, and settings, and explicitly include the exact book title text on the cover."
     },
     "bookCoverCharacters": {
       "type": "array",
       "description": "Character names visible on the book cover illustration.",
-      "items": { "type": "string", "minLength": 1 },
+      "items": { "type": "string" },
       "default": []
     },
     "bookBackCoverPrompt": {
       "type": "string",
-      "description": "Detailed prompt for generating the book back cover illustration. Include characters physical descriptions, actions, and settings.",
-      "maxLength": 1200,
-      "minLength": 10
+      "description": "Detailed prompt for generating the book back cover illustration. Include characters physical descriptions, actions, and settings."
     },
     "bookBackCoverCharacters": {
       "type": "array",
       "description": "Character names visible on the book back cover illustration.",
-      "items": { "type": "string", "minLength": 1 },
+      "items": { "type": "string" },
       "default": []
     },
     "synopses": {
       "type": "string",
-      "description": "Detailed synopsis of the entire book",
-      "minLength": 1
+      "description": "Detailed synopsis of the entire book"
     },
     "chapters": {
       "type": "array",
@@ -58,30 +51,26 @@
             "description": "Chapter number (1-based)"
           },
           "chapterTitle": {
-            "type": "string",
-            "minLength": 1
+            "type": "string"
           },
           "chapterSynopses": {
             "type": "string",
-            "description": "Detailed and full synopsis of what happens in this chapter. Include characters names, descriptions and actions",
-            "minLength": 1
+            "description": "Detailed and full synopsis of what happens in this chapter. Include characters names, descriptions and actions"
           },
           "chapterPhotoPrompt": {
             "type": "string",
-            "description": "Detailed prompt for generating an illustration for this chapter. Include characters physical descriptions, actions, and settings.",
-            "minLength": 10
+            "description": "Detailed prompt for generating an illustration for this chapter. Include characters physical descriptions, actions, and settings."
           },
           "charactersInScene": {
             "type": "array",
             "description": "Character names that appear in this chapter's illustration prompt.",
-            "items": { "type": "string", "minLength": 1 },
+            "items": { "type": "string" },
             "default": []
           }
         },
         "required": ["chapterPhotoPrompt", "chapterNumber", "chapterSynopses", "chapterTitle"],
         "additionalProperties": false
-      },
-      "maxItems": 20
+      }
     },
     "characters": {
       "type": "array",
@@ -130,7 +119,6 @@
           },
           "traits": {
             "type": "array",
-            "maxItems": 5,
             "items": {
               "type": "string",
               "enum": [

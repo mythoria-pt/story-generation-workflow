@@ -439,8 +439,10 @@ export class GoogleGenAITextService implements ITextGenerationService {
           ...(options?.stopSequences && { stopSequences: options.stopSequences }),
         };
 
-        // Gemini 3 thinking config - controls reasoning depth
-        if (options?.thinkingLevel) {
+        // Gemini 3 thinking config - only supported on Gemini 3 models
+        const targetModel = (options?.model || this.model).toLowerCase();
+        const supportsThinkingLevel = targetModel.startsWith('gemini-3');
+        if (supportsThinkingLevel && options?.thinkingLevel) {
           generationConfig.thinkingConfig = {
             thinkingLevel: options.thinkingLevel.toUpperCase(), // 'LOW' or 'HIGH'
           };

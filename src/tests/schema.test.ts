@@ -71,13 +71,15 @@ describe('Story Outline Schema', () => {
 
   const schemasRoot = join(process.cwd(), 'src', 'prompts', 'schemas');
 
-  const expectCharacterEnumsToMatch = (schema: any) => {
+  const expectCharacterEnumsToMatch = (schema: any, checkTraits = true) => {
     const characterProps = schema?.properties?.characters?.items?.properties;
     expect(characterProps).toBeDefined();
     expect(characterProps.type.enum).toEqual([...CHARACTER_TYPES]);
     expect(characterProps.role.enum).toEqual([...CHARACTER_ROLES]);
     expect(characterProps.age.enum).toEqual([...CHARACTER_AGES]);
-    expect(characterProps.traits.items.enum).toEqual([...CHARACTER_TRAITS]);
+    if (checkTraits) {
+      expect(characterProps.traits.items.enum).toEqual([...CHARACTER_TRAITS]);
+    }
   };
 
   test('story-outline schema uses canonical character enums', async () => {
@@ -85,7 +87,7 @@ describe('Story Outline Schema', () => {
     const schemaContent = await readFile(schemaPath, 'utf-8');
     const schema = JSON.parse(schemaContent);
 
-    expectCharacterEnumsToMatch(schema);
+    expectCharacterEnumsToMatch(schema, true);
   });
 
   test('story-structure schema uses canonical character enums', async () => {

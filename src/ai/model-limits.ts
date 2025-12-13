@@ -12,6 +12,7 @@ interface ModelLimits {
 // Heuristic / documented limits (output token caps, not context window sizes)
 const LIMITS: Record<string, ModelLimits> = {
   // Google Gemini 2.5 family (Flash / Pro) – typical output cap 8k tokens
+  'gemini-3-pro': { maxOutputTokens: 65535 },
   'gemini-2.5-flash': { maxOutputTokens: 65535 },
   'gemini-2.5-pro': { maxOutputTokens: 65535 },
   'gemini-2.5-flash-lite': { maxOutputTokens: 65535 },

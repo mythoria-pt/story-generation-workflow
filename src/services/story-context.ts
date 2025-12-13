@@ -7,6 +7,7 @@ import { AIGateway } from '@/ai/gateway.js';
 import { contextManager } from '@/ai/context-manager.js';
 import { StoryService, StoryContext } from './story.js';
 import { logger } from '@/config/logger.js';
+import { LiteraryPersonaService } from './literary-persona.js';
 
 export interface StoryGenerationSession {
   contextId: string;
@@ -23,6 +24,28 @@ export class StoryContextService {
    */
   getContextManager() {
     return contextManager;
+  }
+
+  private async buildPersonaGuidance(storyContext: StoryContext): Promise<string | null> {
+    try {
+      const persona = await LiteraryPersonaService.getPersona(
+        storyContext.story.literaryPersona,
+        storyContext.story.storyLanguage || 'en-US',
+      );
+
+      if (!persona) {
+        return null;
+      }
+
+      return LiteraryPersonaService.formatStyleBlock(persona);
+    } catch (error) {
+      logger.warn('Failed to build literary persona guidance', {
+        error: error instanceof Error ? error.message : String(error),
+        storyId: storyContext.story.storyId,
+        literaryPersona: storyContext.story.literaryPersona,
+      });
+      return null;
+    }
   }
 
   /**
@@ -51,7 +74,7 @@ export class StoryContextService {
       const contextId = `${storyId}-${runId}`;
 
       // Create system prompt that includes story context
-      const systemPrompt = this.createSystemPrompt(storyContext);
+      const systemPrompt = await this.createSystemPrompt(storyContext);
 
       // Initialize context manager
       await contextManager.initializeContext(contextId, storyId, systemPrompt);
@@ -97,7 +120,7 @@ export class StoryContextService {
     additionalPrompt?: string,
   ): Promise<string> {
     try {
-      const prompt = this.createOutlinePrompt(session.storyContext, additionalPrompt);
+      const prompt = await this.createOutlinePrompt(session.storyContext, additionalPrompt);
 
       const textService = session.aiGateway.getTextService();
       const outline = await textService.complete(prompt, {
@@ -134,7 +157,7 @@ export class StoryContextService {
     outline?: string,
   ): Promise<string> {
     try {
-      const prompt = this.createChapterPrompt(
+      const prompt = await this.createChapterPrompt(
         session.storyContext,
         chapterNumber,
         chapterTitle,
@@ -198,7 +221,7 @@ export class StoryContextService {
   /**
    * Create system prompt that includes story context
    */
-  private createSystemPrompt(storyContext: StoryContext): string {
+  private async createSystemPrompt(storyContext: StoryContext): Promise<string> {
     const { story, characters } = storyContext;
 
     let systemPrompt = `You are a creative storyteller helping to write a personalized story. Here are the story details:
@@ -245,12 +268,23 @@ export class StoryContextService {
 - Incorporate the characters' traits and characteristics naturally into the narrative
 - Remember previous story elements to maintain consistency`;
 
+    const personaGuidance = await this.buildPersonaGuidance(storyContext);
+    if (personaGuidance) {
+      systemPrompt += `
+
+**Literary Persona Guidance:**
+${personaGuidance}`;
+    }
+
     return systemPrompt;
   }
   /**
    * Create outline generation prompt
    */
-  private createOutlinePrompt(_storyContext: StoryContext, additionalPrompt?: string): string {
+  private async createOutlinePrompt(
+    storyContext: StoryContext,
+    additionalPrompt?: string,
+  ): Promise<string> {
     let prompt = `Please create a detailed story outline for this personalized story. The outline should:
 
 1. Include a compelling beginning that introduces the characters and setting
@@ -279,6 +313,14 @@ For each major plot point or chapter, include:
 
 The outline should be engaging for the target audience and incorporate all the character details provided, with enhanced visual descriptions suitable for AI image generation.`;
 
+    const personaGuidance = await this.buildPersonaGuidance(storyContext);
+    if (personaGuidance) {
+      prompt += `
+
+Please follow this literary persona when crafting the outline:
+${personaGuidance}`;
+    }
+
     if (additionalPrompt) {
       prompt += `\n\nAdditional requirements: ${additionalPrompt}`;
     }
@@ -290,12 +332,13 @@ The outline should be engaging for the target audience and incorporate all the c
 
   /**
    * Create chapter generation prompt
-   */ private createChapterPrompt(
-    _storyContext: StoryContext,
+   */
+  private async createChapterPrompt(
+    storyContext: StoryContext,
     chapterNumber: number,
     chapterTitle: string,
     outline?: string,
-  ): string {
+  ): Promise<string> {
     let prompt = `Please write Chapter ${chapterNumber}: "${chapterTitle}" of the story.`;
 
     if (outline) {
@@ -311,6 +354,11 @@ The outline should be engaging for the target audience and incorporate all the c
 - End with a natural transition to the next chapter
 
 Please write the complete chapter content.`;
+
+    const personaGuidance = await this.buildPersonaGuidance(storyContext);
+    if (personaGuidance) {
+      prompt += `\n\nFollow this literary persona while writing the chapter:\n${personaGuidance}`;
+    }
 
     return prompt;
   }

@@ -24,6 +24,7 @@ export interface StoryContext {
     targetAudience?: string | undefined;
     novelStyle?: string | undefined;
     graphicalStyle?: string | undefined;
+    literaryPersona?: string | undefined;
     storyLanguage: string;
     chapterCount?: number | undefined;
   };
@@ -127,6 +128,7 @@ export class StoryService {
           targetAudience: story.targetAudience || undefined,
           novelStyle: story.novelStyle || undefined,
           graphicalStyle: story.graphicalStyle || undefined,
+          literaryPersona: story.literaryPersona || undefined,
           storyLanguage: story.storyLanguage,
           chapterCount: story.chapterCount || undefined,
         },
@@ -167,6 +169,7 @@ export class StoryService {
           targetAudience: stories.targetAudience,
           novelStyle: stories.novelStyle,
           graphicalStyle: stories.graphicalStyle,
+          literaryPersona: stories.literaryPersona,
           chapterCount: stories.chapterCount,
           status: stories.status,
           features: stories.features,
@@ -275,11 +278,6 @@ export class StoryService {
         3,
         1000,
       ); // 3 retries, starting with 1s delay
-
-      logger.info('Story completion percentage updated', {
-        storyId,
-        completionPercentage,
-      });
 
       return true;
     } catch (error) {

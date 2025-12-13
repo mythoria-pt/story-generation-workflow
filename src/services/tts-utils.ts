@@ -208,6 +208,7 @@ export async function buildFirstChapterAudioText(
   authorName: string,
   storyLanguage: string,
   chapterContent: string,
+  chapterTitle?: string,
 ): Promise<string> {
   let text = storyTitle + '.';
 
@@ -222,7 +223,12 @@ export async function buildFirstChapterAudioText(
 
   // Add translated "Chapter 1"
   const chapterWord = await getTranslatedChapter(storyLanguage);
-  text += ` ${chapterWord} 1.`;
+  const trimmedTitle = chapterTitle?.trim();
+  if (trimmedTitle) {
+    text += ` ${chapterWord} 1 - ${trimmedTitle}.`;
+  } else {
+    text += ` ${chapterWord} 1.`;
+  }
 
   // Add the processed chapter content
   text += ` ${processTextForTTS(chapterContent)}`;
@@ -237,9 +243,13 @@ export async function buildChapterAudioText(
   chapterNumber: number,
   storyLanguage: string,
   chapterContent: string,
+  chapterTitle?: string,
 ): Promise<string> {
   const chapterWord = await getTranslatedChapter(storyLanguage);
-  let text = `${chapterWord} ${chapterNumber}.`;
+  const trimmedTitle = chapterTitle?.trim();
+  let text = trimmedTitle
+    ? `${chapterWord} ${chapterNumber} - ${trimmedTitle}.`
+    : `${chapterWord} ${chapterNumber}.`;
 
   // Add the processed chapter content
   text += ` ${processTextForTTS(chapterContent)}`;

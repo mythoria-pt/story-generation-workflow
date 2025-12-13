@@ -139,12 +139,6 @@ export class RunsService {
         throw new Error(`Run not found: ${runId}`);
       }
 
-      logger.debug('Run updated successfully', {
-        runId,
-        status: updatedRun.status,
-        currentStep: updatedRun.currentStep,
-      });
-
       return updatedRun;
     } catch (error) {
       logger.error('Failed to update run', {

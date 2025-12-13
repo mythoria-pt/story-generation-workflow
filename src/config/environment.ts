@@ -108,6 +108,10 @@ const envSchema = z.object({
   NOTIFICATION_ENGINE_URL: z.string().optional(),
   NOTIFICATION_ENGINE_API_KEY: z.string().optional(),
 
+  // Webapp webhook for persisting async text edits
+  WEBAPP_WEBHOOK_URL: z.string().url().optional(),
+  WEBAPP_WEBHOOK_SECRET: z.string().optional(),
+
   // Image Size Configuration
   IMAGE_DEFAULT_WIDTH: z.string().transform(Number).optional().default(1024),
   IMAGE_DEFAULT_HEIGHT: z.string().transform(Number).optional().default(1536),

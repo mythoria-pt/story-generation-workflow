@@ -79,6 +79,7 @@ export interface ImageGenerationOptions {
   quality?: 'standard' | 'hd';
   style?: 'vivid' | 'natural';
   steps?: number;
+  customInstructions?: string;
   bookTitle?: string;
   graphicalStyle?: string;
   imageType?: 'front_cover' | 'back_cover' | 'chapter';

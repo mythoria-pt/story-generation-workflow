@@ -109,7 +109,6 @@ router.patch('/runs/:runId', async (req: Request, res: Response) => {
       // Only update progress for active runs to avoid unnecessary processing
       if (updatedRun.status === 'running' || updatedRun.status === 'completed') {
         await progressTracker.updateStoryProgress(runId);
-        logger.debug('Progress percentage updated', { runId });
       } else {
         logger.debug('Skipping progress update for inactive run', {
           runId,
@@ -123,12 +122,6 @@ router.patch('/runs/:runId', async (req: Request, res: Response) => {
         error: progressError instanceof Error ? progressError.message : String(progressError),
       });
     }
-
-    logger.info('Internal API: Run updated successfully', {
-      runId,
-      status: updatedRun.status,
-      currentStep: updatedRun.currentStep,
-    });
 
     res.json({
       success: true,
@@ -287,7 +280,6 @@ router.post('/runs/:runId/outline', async (req, res) => {
     // Update progress percentage after storing outline
     try {
       await progressTracker.updateStoryProgress(runId);
-      logger.debug('Progress percentage updated after outline storage', { runId });
     } catch (progressError) {
       logger.warn('Failed to update progress percentage after outline storage', {
         runId,
@@ -547,7 +539,6 @@ router.post('/runs/:runId/image', async (req, res) => {
     // Update progress percentage after storing image result
     try {
       await progressTracker.updateStoryProgress(runId);
-      logger.debug('Progress percentage updated after image storage', { runId, stepName });
     } catch (progressError) {
       logger.warn('Failed to update progress percentage after image storage', {
         runId,
@@ -672,6 +663,11 @@ router.get('/stories/:storyId/html', async (req: Request, res: Response): Promis
         .trim(),
     }));
 
+    const authorName =
+      typeof story.customAuthor === 'string' && story.customAuthor.trim()
+        ? story.customAuthor.trim()
+        : story.author;
+
     logger.info('Internal API: Retrieved chapters from database', {
       storyId,
       chaptersFound: chapters.length,
@@ -683,7 +679,7 @@ router.get('/stories/:storyId/html', async (req: Request, res: Response): Promis
       storyId,
       chapters,
       title: story.title,
-      author: story.author,
+      author: authorName,
       dedicationMessage: story.dedicationMessage,
       storyLanguage: story.storyLanguage,
     });
@@ -709,6 +705,7 @@ router.post('/audiobook/chapter', async (req: Request, res: Response): Promise<v
     const {
       storyId,
       chapterNumber,
+      chapterTitle,
       chapterContent,
       storyTitle,
       storyAuthor,
@@ -716,6 +713,7 @@ router.post('/audiobook/chapter', async (req: Request, res: Response): Promise<v
       voice,
       storyLanguage,
       isFirstChapter,
+      includeBackgroundMusic,
     } = req.body;
 
     logger.info('Internal API: Generating chapter audio', {
@@ -724,6 +722,8 @@ router.post('/audiobook/chapter', async (req: Request, res: Response): Promise<v
       voice,
       storyLanguage,
       isFirstChapter,
+      includeBackgroundMusic,
+      hasTitle: !!chapterTitle,
       contentLength: chapterContent?.length || 0,
     });
 
@@ -749,6 +749,8 @@ router.post('/audiobook/chapter', async (req: Request, res: Response): Promise<v
         dedicatoryMessage,
         storyLanguage,
         isFirstChapter,
+        chapterTitle,
+        includeBackgroundMusic,
       },
     );
 

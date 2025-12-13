@@ -61,6 +61,17 @@
             "colored_pencil"
           ]
         },
+        "literaryPersona": {
+          "type": "string",
+          "enum": [
+            "storyteller",
+            "adventurous-narrator",
+            "fun-reporter",
+            "friendly-educator",
+            "institutional-chronicler",
+            "pub-buddy-narrator"
+          ]
+        },
         "storyLanguage": { "type": "string" }
       },
       "required": ["title", "plotDescription"]

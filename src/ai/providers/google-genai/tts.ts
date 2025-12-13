@@ -113,32 +113,80 @@ export class GoogleGenAITTSService implements ITTSService {
   async synthesize(text: string, options?: TTSOptions): Promise<TTSResult> {
     const voice = options?.voice || this.defaultVoice;
     const model = options?.model || this.model;
+
+    // Normalize model name to match API requirements
+    // The user might provide 'gemini-2.5-pro-tts' but the API expects 'gemini-2.5-pro-preview-tts'
+    let apiModel = model;
+    if (model === 'gemini-2.5-pro-tts') {
+      apiModel = 'gemini-2.5-pro-preview-tts';
+    } else if (model === 'gemini-2.5-flash-tts') {
+      apiModel = 'gemini-2.5-flash-preview-tts';
+    } else if (model === 'gemini-2.5-pro') {
+      // Fallback if user provided base model name but wants TTS
+      apiModel = 'gemini-2.5-pro-preview-tts';
+    } else if (model === 'gemini-2.5-flash') {
+      apiModel = 'gemini-2.5-flash-preview-tts';
+    }
+
     const systemPrompt = options?.systemPrompt;
-    // Note: Gemini TTS doesn't support speed parameter directly,
-    // but we can include speed instructions in the prompt
+    const speed = options?.speed || 1.0;
+    const language = options?.language;
 
     try {
       logger.info('Generating TTS with Google Gemini', {
-        model,
+        model: apiModel,
+        originalModel: model,
         voice,
         textLength: text.length,
         hasSystemPrompt: !!systemPrompt,
+        speed,
+        language,
       });
 
       // Build the content for the request
       // Note: Gemini TTS does NOT support multi-turn chat, so we combine
       // system prompt and text into a single message
-      let contentText: string;
+      let contentText = '';
+
+      // 1. Add System Prompt / Style Instructions
       if (systemPrompt) {
-        // Combine system instructions with the text to read in a single turn
-        contentText = `${systemPrompt}\n\nRead the following text:\n\n${text}`;
+        contentText += `### DIRECTOR'S NOTES\n${systemPrompt}\n`;
+      }
+
+      // 2. Add Speed Instruction if not 1.0 (Gemini TTS doesn't support speed param directly)
+      if (speed !== 1.0) {
+        let paceInstruction = '';
+        if (speed < 0.8) paceInstruction = 'Speak very slowly and clearly.';
+        else if (speed < 1.0) paceInstruction = 'Speak slightly slower than normal.';
+        else if (speed > 1.2) paceInstruction = 'Speak fast and energetically.';
+        else if (speed > 1.0) paceInstruction = 'Speak slightly faster than normal.';
+
+        if (paceInstruction) {
+          if (!contentText.includes("DIRECTOR'S NOTES")) {
+            contentText += `### DIRECTOR'S NOTES\n`;
+          }
+          contentText += `Pacing: ${paceInstruction}\n`;
+        }
+      }
+
+      // 3. Add Language Instruction if systemPrompt didn't cover it
+      if (!systemPrompt && language) {
+        if (!contentText.includes("DIRECTOR'S NOTES")) {
+          contentText += `### DIRECTOR'S NOTES\n`;
+        }
+        contentText += `Language: Read this text in ${language}.\n`;
+      }
+
+      // 4. Add Transcript
+      if (contentText) {
+        contentText += `\n### TRANSCRIPT\n${text}`;
       } else {
         contentText = text;
       }
 
       // Gemini TTS uses the generate_content API with audio response modality
       const response = await this.client.models.generateContent({
-        model,
+        model: apiModel,
         contents: contentText,
         config: {
           responseModalities: ['AUDIO'],
@@ -185,13 +233,13 @@ export class GoogleGenAITTSService implements ITTSService {
         format: 'mp3',
         sampleRate: 24000, // Gemini TTS outputs at 24kHz
         voice,
-        model,
+        model: model.endsWith('-tts') ? model : `${model}-tts`, // Ensure tracking sees it as TTS
         provider: 'google-genai',
       };
     } catch (error) {
       logger.error('Google Gemini TTS synthesis failed', {
         error: error instanceof Error ? error.message : String(error),
-        model,
+        model: apiModel,
         voice,
       });
       throw error;

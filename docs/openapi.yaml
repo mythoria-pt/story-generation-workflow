@@ -363,26 +363,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ImageGenerationError'
-  /ai/test-text:
-    get:
-      tags: [AI]
-      summary: Test AI text provider configuration
-      description: Issues a short prompt against the configured text provider and returns diagnostic metadata.
-      security:
-        - ApiKeyAuth: []
-      responses:
-        '200':
-          description: Provider executed successfully.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/TestTextResponse'
-        '500':
-          description: Provider request failed.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/TestTextResponse'
   /audio/create-audiobook:
     post:
       tags: [Audio]
@@ -1798,29 +1778,6 @@ components:
               type: string
             fallbackPromptUsed:
               type: boolean
-    TestTextResponse:
-      type: object
-      properties:
-        success:
-          type: boolean
-        timestamp:
-          type: string
-          format: date-time
-        environment:
-          type: object
-          additionalProperties: true
-        testResult:
-          type: object
-          properties:
-            provider:
-              type: string
-            response:
-              type: string
-              nullable: true
-            error:
-              type: object
-              nullable: true
-              additionalProperties: true
     AudiobookTriggerRequest:
       type: object
       required:

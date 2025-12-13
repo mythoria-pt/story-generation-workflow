@@ -94,6 +94,7 @@ export class OpenAIImageService implements IImageGenerationService {
             const variables = {
               bookTitle,
               promptText: prompt,
+              customInstructions: (options?.customInstructions ?? '').trim(),
             };
 
             // Use the prompt template for system message

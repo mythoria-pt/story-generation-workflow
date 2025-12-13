@@ -100,15 +100,6 @@ export class TextGenerationMiddleware implements ITextGenerationService {
         },
       });
 
-      logger.info('Text generation completed with token tracking', {
-        context: this.context,
-        promptLength: prompt.length,
-        resultLength: result.length,
-        processingTimeMs,
-        estimatedInputTokens: tokenUsage.inputTokens,
-        estimatedOutputTokens: tokenUsage.outputTokens,
-      });
-
       return result;
     } catch (error) {
       const anyErr: any = error as any;

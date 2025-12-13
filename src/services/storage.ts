@@ -466,11 +466,6 @@ export class StorageService {
       const bucket = this.storage.bucket(this.bucketName);
       const file = bucket.file(filename);
 
-      logger.debug('Downloading file as buffer from GCS', {
-        filename,
-        bucketName: this.bucketName,
-      });
-
       const [exists] = await file.exists();
       if (!exists) {
         throw new Error(`File ${filename} does not exist in bucket ${this.bucketName}`);
