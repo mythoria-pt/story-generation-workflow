@@ -786,32 +786,84 @@ router.post('/audiobook/chapter', async (req: Request, res: Response): Promise<v
  */
 router.post('/audiobook/finalize', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { storyId } = req.body;
+    const { storyId, chapters: providedChapters } = req.body as {
+      storyId?: string;
+      chapters?: Array<{
+        chapterNumber?: number;
+        chapterTitle?: string;
+        audioUrl?: string;
+        duration?: number;
+        imageUri?: string;
+      }>;
+    };
 
     logger.info('Internal API: Finalizing audiobook', { storyId });
 
-    // Get all chapters from database with their audio URIs
+    if (!storyId) {
+      res.status(400).json({
+        success: false,
+        error: 'storyId is required to finalize audiobook',
+      });
+      return;
+    }
+
     const chaptersFromDb = await chaptersService.getStoryChapters(storyId);
-
-    const audioUrls: Record<number, string> = {};
-    let totalDuration = 0;
-
-    // Build audio URLs from chapter audioUri fields
+    const chapterMetaByNumber = new Map<number, { title: string; imageUri?: string | null }>();
     for (const chapter of chaptersFromDb) {
-      if (chapter.audioUri) {
-        audioUrls[chapter.chapterNumber] = chapter.audioUri;
-        totalDuration += 60; // Default 1 minute per chapter, could be enhanced to get actual duration
+      chapterMetaByNumber.set(chapter.chapterNumber, {
+        title: chapter.title,
+        imageUri: chapter.imageUri,
+      });
+    }
+
+    const audiobookChapters: Array<{
+      chapterTitle: string;
+      audioUri: string;
+      duration: number;
+      imageUri?: string | null;
+    }> = [];
+
+    if (Array.isArray(providedChapters) && providedChapters.length > 0) {
+      for (const chapter of providedChapters) {
+        if (!chapter?.audioUrl) continue;
+        const chapterNumber = chapter.chapterNumber ?? audiobookChapters.length + 1;
+        const meta = chapterMetaByNumber.get(chapterNumber);
+        const duration = typeof chapter.duration === 'number' && chapter.duration > 0 ? chapter.duration : 0;
+        audiobookChapters.push({
+          chapterTitle: chapter.chapterTitle || meta?.title || `Chapter ${chapterNumber}`,
+          audioUri: chapter.audioUrl,
+          duration,
+          imageUri: chapter.imageUri ?? meta?.imageUri ?? null,
+        });
+      }
+    } else {
+      for (const chapter of chaptersFromDb) {
+        if (!chapter.audioUri) continue;
+        audiobookChapters.push({
+          chapterTitle: chapter.title || `Chapter ${chapter.chapterNumber}`,
+          audioUri: chapter.audioUri,
+          duration: 0,
+          imageUri: chapter.imageUri ?? null,
+        });
       }
     }
 
-    // Update story hasAudio field
+    const audioUrls: Record<number, string> = {};
+    let totalDuration = 0;
+    audiobookChapters.forEach((chapter, index) => {
+      const key = index + 1;
+      audioUrls[key] = chapter.audioUri;
+      totalDuration += chapter.duration || 0;
+    });
+
     await storyService.updateStoryUris(storyId, {
-      hasAudio: Object.keys(audioUrls).length > 0,
+      hasAudio: audiobookChapters.length > 0,
+      audiobookUri: audiobookChapters,
     });
 
     logger.info('Internal API: Audiobook finalization completed', {
       storyId,
-      chaptersProcessed: Object.keys(audioUrls).length,
+      chaptersProcessed: audiobookChapters.length,
       totalDuration,
     });
 
@@ -819,8 +871,9 @@ router.post('/audiobook/finalize', async (req: Request, res: Response): Promise<
       success: true,
       storyId,
       audioUrls,
+      audiobookChapters,
       totalDuration,
-      chaptersProcessed: Object.keys(audioUrls).length,
+      chaptersProcessed: audiobookChapters.length,
     });
   } catch (error) {
     logger.error('Internal API: Failed to finalize audiobook', {
@@ -846,7 +899,7 @@ router.post('/audiobook/finalize', async (req: Request, res: Response): Promise<
 router.patch('/stories/:storyId/audiobook-status', async (req: Request, res: Response) => {
   try {
     const { storyId } = req.params;
-    const { status, completedAt, failedAt, audioUrls, totalDuration } = req.body;
+    const { status, completedAt, failedAt, audioUrls, totalDuration, chapters } = req.body;
 
     // Validate storyId
     if (!storyId) {
@@ -873,6 +926,7 @@ router.patch('/stories/:storyId/audiobook-status', async (req: Request, res: Res
       completedAt,
       failedAt,
       hasAudioUrls: !!audioUrls,
+      hasChapters: Array.isArray(chapters),
       totalDuration,
     });
 
@@ -886,8 +940,42 @@ router.patch('/stories/:storyId/audiobook-status', async (req: Request, res: Res
       updateData.audiobookStatus = status;
     }
 
-    if (status === 'completed' && audioUrls) {
-      updateData.audiobookUri = audioUrls;
+    if (status === 'completed') {
+      const normalizedChapters: Array<{
+        chapterTitle: string;
+        audioUri: string;
+        duration: number;
+      }> = [];
+
+      if (Array.isArray(chapters)) {
+        chapters.forEach((chapter, idx) => {
+          if (!chapter?.audioUri) return;
+          const chapterNumber = chapter.chapterNumber ?? idx + 1;
+          const duration = typeof chapter.duration === 'number' && chapter.duration > 0 ? chapter.duration : 0;
+          normalizedChapters.push({
+            chapterTitle: chapter.chapterTitle || `Chapter ${chapterNumber}`,
+            audioUri: chapter.audioUri,
+            duration,
+          });
+        });
+      } else if (audioUrls && typeof audioUrls === 'object') {
+        Object.keys(audioUrls)
+          .map((key) => parseInt(key, 10))
+          .sort((a, b) => a - b)
+          .forEach((chapterNumber) => {
+            const audioUri = (audioUrls as Record<string, string>)[chapterNumber];
+            if (!audioUri) return;
+            normalizedChapters.push({
+              chapterTitle: `Chapter ${chapterNumber}`,
+              audioUri,
+              duration: 0,
+            });
+          });
+      }
+
+      if (normalizedChapters.length > 0) {
+        updateData.audiobookUri = normalizedChapters;
+      }
     }
 
     // Update the story in the database

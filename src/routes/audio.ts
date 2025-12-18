@@ -191,53 +191,86 @@ router.post(
   '/internal/audiobook/finalize',
   async (req: express.Request, res: express.Response): Promise<void> => {
     try {
-      const { storyId } = req.body;
+      const { storyId, chapters: providedChapters } = req.body as {
+        storyId?: string;
+        chapters?: Array<{
+          chapterNumber?: number;
+          chapterTitle?: string;
+          audioUrl?: string;
+          duration?: number;
+          imageUri?: string;
+        }>;
+      };
 
       logger.info('Internal API: Finalizing audiobook', { storyId });
 
-      // Get all chapter audio files from storage
-      const audioUrls: Record<number, string> = {};
+      if (!storyId) {
+        res.status(400).json({
+          success: false,
+          error: 'storyId is required to finalize audiobook',
+        });
+        return;
+      }
+
+      const audioFiles: Record<number, string> = {};
       let totalDuration = 0;
-      let chapterNumber = 1;
 
-      // Find all audio files for this story
-      while (true) {
-        try {
-          const audioFilename = `${storyId}/audio/chapter_${chapterNumber}.mp3`;
-          const exists = await storageService.fileExists(audioFilename);
+      if (Array.isArray(providedChapters) && providedChapters.length > 0) {
+        providedChapters.forEach((chapter, idx) => {
+          if (!chapter?.audioUrl) return;
+          const chapterNumber = chapter.chapterNumber ?? idx + 1;
+          audioFiles[chapterNumber] = chapter.audioUrl;
+          if (typeof chapter.duration === 'number' && chapter.duration > 0) {
+            totalDuration += chapter.duration;
+          }
+        });
+      } else {
+        let chapterNumber = 1;
+        while (true) {
+          try {
+            const audioFilename = `${storyId}/audio/chapter_${chapterNumber}.mp3`;
+            const exists = await storageService.fileExists(audioFilename);
 
-          if (exists) {
-            const audioUrl = await storageService.getPublicUrl(audioFilename);
-            audioUrls[chapterNumber] = audioUrl;
-            // Estimate 150 words per minute for duration calculation
-            totalDuration += 60; // Default 1 minute per chapter
-            chapterNumber++;
-          } else {
+            if (exists) {
+              const audioUrl = await storageService.getPublicUrl(audioFilename);
+              audioFiles[chapterNumber] = audioUrl;
+              totalDuration += 0;
+              chapterNumber++;
+            } else {
+              break;
+            }
+          } catch {
             break;
           }
-        } catch {
-          break;
         }
       }
 
-      // Update story with audiobook URIs
-      const audiobookUri = audioUrls as Record<string, string>; // Proper type cast
+      const audiobookChapters = Object.keys(audioFiles)
+        .map((key) => parseInt(key, 10))
+        .sort((a, b) => a - b)
+        .map((chapterNumber) => ({
+          chapterTitle: `Chapter ${chapterNumber}`,
+          audioUri: audioFiles[chapterNumber],
+          duration: 0,
+        }));
+
       await storyService.updateStoryUris(storyId, {
-        audiobookUri,
+        audiobookUri: audiobookChapters,
       });
 
       logger.info('Internal API: Audiobook finalization completed', {
         storyId,
-        chaptersProcessed: Object.keys(audioUrls).length,
+        chaptersProcessed: audiobookChapters.length,
         totalDuration,
       });
 
       res.json({
         success: true,
         storyId,
-        audioUrls,
+        audioUrls: audioFiles,
+        audiobookChapters,
         totalDuration,
-        chaptersProcessed: Object.keys(audioUrls).length,
+        chaptersProcessed: audiobookChapters.length,
       });
     } catch (error) {
       logger.error('Internal API: Failed to finalize audiobook', {

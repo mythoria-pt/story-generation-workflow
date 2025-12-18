@@ -73,6 +73,9 @@ main:
                         - chapters: ${htmlResp.body.chapters} # Chapters from database
 
             # 3. Generate audio for each chapter sequentially
+            - initChapterResults:
+                assign:
+                  - chaptersWithAudio: []
             - generateChapterAudios:
                 for:
                   range: ${[1, len(chapters)]}
@@ -98,6 +101,30 @@ main:
                             includeBackgroundMusic: ${includeBackgroundMusic}
                         result: chapterAudioResp
 
+                    - extractChapterData:
+                        assign:
+                          - currentChapter: ${chapters[chapterNum - 1]}
+                          - chapterImageUri: null
+
+                    - checkImageUri:
+                        switch:
+                          - condition: ${"imageUri" in currentChapter}
+                            assign:
+                              - chapterImageUri: ${currentChapter.imageUri}
+
+                    - buildChapterEntry:
+                        assign:
+                          - chapterEntry:
+                              chapterNumber: ${chapterNum}
+                              chapterTitle: ${currentChapter.title}
+                              audioUrl: ${chapterAudioResp.body.audioUrl}
+                              duration: ${chapterAudioResp.body.duration}
+                              imageUri: ${chapterImageUri}
+
+                    - storeChapterAudio:
+                        assign:
+                          - chaptersWithAudio: ${list.concat(chaptersWithAudio, chapterEntry)}
+
             # 4. Finalize audiobook and mark as completed
             - finalizeAudiobook:
                 call: http.request
@@ -107,6 +134,7 @@ main:
                   auth: { type: OIDC }
                   body:
                     storyId: ${storyId}
+                    chapters: ${chaptersWithAudio}
                 result: finalizeResp
 
             # 5. Mark audiobook as completed
@@ -120,6 +148,7 @@ main:
                     status: 'completed'
                     completedAt: ${time.format(sys.now())}
                     audioUrls: ${finalizeResp.body.audioUrls}
+                    chapters: ${default(finalizeResp.body.audiobookChapters, chaptersWithAudio)}
                     totalDuration: ${finalizeResp.body.totalDuration}
 
             - returnSuccess:
@@ -129,7 +158,7 @@ main:
                   runId: ${runId}
                   audioUrls: ${finalizeResp.body.audioUrls}
                   totalDuration: ${finalizeResp.body.totalDuration}
-                  chaptersProcessed: ${len(chapters)}
+                  chaptersProcessed: ${len(chaptersWithAudio)}
                   generatedAt: ${now}
 
         except:

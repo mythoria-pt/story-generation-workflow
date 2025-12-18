@@ -122,25 +122,51 @@ export class TokenUsageTrackingService {
    * Calculate estimated cost based on provider and model
    *
    * Supported Models:
-   * - Text Generation: gpt-5.1, gemini-2.5-flash, gemini-3-pro-preview
-   * - Image Generation: gpt-5.1, gemini-2.5-flash-image, gpt-image-1, gpt-image-1-mini
-   * - TTS: gemini-2.5-pro-tts, gemini-2.5-flash-tts, gpt-4o-mini-tts
+  * - Text Generation: gpt-5.2, gpt-5.1, gemini-2.5-flash, gemini-3-pro-preview
+  * - Image Generation: gpt-image-1.5, gpt-5.1 image tools, gemini-2.5-flash-image, gpt-image-1, gpt-image-1-mini
+  * - TTS: gemini-2.5-pro-tts, gemini-2.5-flash-tts, gpt-4o-mini-tts
    */
   private calculateCost(estimation: CostEstimation): CostEstimation {
     let inputCostPer1KTokens = 0;
     let outputCostPer1KTokens = 0;
     let cachedInputCostPer1KTokens = 0;
 
-    // Cost calculations in USD (will convert to EUR)
+    // Cost calculations in USD (converted to EUR later)
     // Pricing as of December 2025
 
     // OpenAI Models
     if (estimation.provider === 'openai') {
-      if (estimation.model.includes('gpt-5.1') || estimation.model.includes('gpt-5')) {
-        // GPT-5.1 / GPT-5 - Flagship model for coding and agentic tasks
+      if (estimation.model.includes('gpt-5.2-pro')) {
+        // GPT-5.2 Pro (no cached discount published; treat cached as regular input)
+        inputCostPer1KTokens = 0.021; // $21.00 per 1M
+        outputCostPer1KTokens = 0.168; // $168.00 per 1M
+        cachedInputCostPer1KTokens = 0.021;
+      } else if (estimation.model.includes('gpt-5.2')) {
+        // GPT-5.2 - Flagship responses model (reasoning capable)
+        inputCostPer1KTokens = 0.00175; // $1.75 per 1M
+        outputCostPer1KTokens = 0.014; // $14.00 per 1M
+        cachedInputCostPer1KTokens = 0.000175; // $0.175 per 1M
+      } else if (estimation.model.includes('gpt-5.1') || estimation.model.includes('gpt-5')) {
+        // GPT-5.1 / GPT-5 - legacy pricing retained for backward compatibility
         inputCostPer1KTokens = 0.00125; // $1.25 per 1M
         outputCostPer1KTokens = 0.01; // $10.00 per 1M
         cachedInputCostPer1KTokens = 0.000125; // $0.125 per 1M
+      } else if (estimation.model.includes('gpt-image-1.5')) {
+        // GPT-image-1.5 - Newest image model (Responses API)
+        const imagesGenerated = Math.max(1, Math.ceil(estimation.outputTokens / 1000));
+        let costPerImage = 0.04; // Medium/standard quality default
+        if (estimation.imageQuality === 'hd') {
+          costPerImage = 0.17; // High quality
+        }
+        const cachedTokens = estimation.cachedInputTokens || 0;
+        const regularInputTokens = Math.max(0, estimation.inputTokens - cachedTokens);
+        const inputCostUSD = (regularInputTokens / 1000) * 0.005; // $5.00 per 1M
+        const cachedInputCostUSD = (cachedTokens / 1000) * 0.00125; // $1.25 per 1M
+        const outputCostUSD = (estimation.outputTokens / 1000) * 0.01; // $10.00 per 1M
+        estimation.estimatedCostInEuros =
+          (imagesGenerated * costPerImage + inputCostUSD + cachedInputCostUSD + outputCostUSD) *
+          0.92;
+        return estimation;
       } else if (estimation.model.includes('gpt-image-1-mini')) {
         // GPT-image-1-mini - Cost-effective image generation
         // Input tokens charged, image output is per-image pricing

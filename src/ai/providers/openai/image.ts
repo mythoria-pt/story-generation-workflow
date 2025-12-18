@@ -10,6 +10,7 @@ import { getEnvironment } from '@/config/environment.js';
 export interface OpenAIConfig {
   apiKey: string;
   model?: string;
+  imageModel?: string;
   baseURL?: string;
 }
 
@@ -36,13 +37,22 @@ interface OpenAIResponseData {
 export class OpenAIImageService implements IImageGenerationService {
   private client: OpenAI;
   private model: string;
+  private imageModel: string;
   // private maxRetries: number; // Will be used in future retry logic
   constructor(config: OpenAIConfig) {
     this.client = new OpenAI({
       apiKey: config.apiKey,
       baseURL: config.baseURL,
     });
-    this.model = config.model || 'gpt-5';
+    this.model =
+      config.model ||
+      process.env.OPENAI_BASE_MODEL ||
+      process.env.OPENAI_TEXT_MODEL ||
+      'gpt-5.2';
+    this.imageModel =
+      config.imageModel ||
+      process.env.OPENAI_IMAGE_TOOL_MODEL ||
+      'gpt-image-1.5';
     // maxRetries will be used in future retry logic
     // this.maxRetries = config.maxRetries || 3;
   }
@@ -54,6 +64,7 @@ export class OpenAIImageService implements IImageGenerationService {
 
       logger.info('OpenAI: Generating image with Responses API', {
         model: this.model,
+        imageToolModel: this.imageModel,
         promptLength: prompt.length,
         dimensions: this.getSizeString(options?.width, options?.height),
         quality,
@@ -159,6 +170,7 @@ export class OpenAIImageService implements IImageGenerationService {
       // Debug: Log the complete request being sent to OpenAI
       console.log('=== FULL OPENAI REQUEST DEBUG ===');
       console.log('Model:', this.model);
+      console.log('Image tool model:', this.imageModel);
       console.log('=== System Message ===');
       console.log('System message text:', systemMessage);
       console.log('=== User Prompt ===');
@@ -167,6 +179,7 @@ export class OpenAIImageService implements IImageGenerationService {
       console.log('=== Tool Configuration ===');
       const toolConfig = {
         type: 'image_generation' as const,
+        model: this.imageModel,
         size: finalSize,
         quality: finalQuality,
         output_format: 'jpeg' as const,
@@ -186,6 +199,7 @@ export class OpenAIImageService implements IImageGenerationService {
       // Debug: Log the request parameters being sent to OpenAI
       logger.info('OpenAI: Request parameters for image generation', {
         model: this.model,
+        imageToolModel: this.imageModel,
         promptLength: prompt.length,
         size: finalSize,
         quality: finalQuality,
@@ -297,6 +311,7 @@ export class OpenAIImageService implements IImageGenerationService {
 
       logger.info('OpenAI: Image generated successfully with Responses API', {
         model: this.model,
+        imageToolModel: this.imageModel,
         promptLength: prompt.length,
         imageSize: buffer.length,
         dimensions: finalSize,
@@ -356,6 +371,7 @@ export class OpenAIImageService implements IImageGenerationService {
 
       logger.info('OpenAI: EDIT METHOD CALLED - Editing image with Responses API', {
         model: this.model,
+        imageToolModel: this.imageModel,
         promptLength: prompt.length,
         originalImageSize: originalImage.length,
         dimensions: this.getSizeString(options?.width, options?.height),
@@ -409,6 +425,7 @@ export class OpenAIImageService implements IImageGenerationService {
         tools: [
           {
             type: 'image_generation',
+            model: this.imageModel,
             size: finalSize,
             quality: finalQuality,
             output_format: 'jpeg',
@@ -462,6 +479,7 @@ export class OpenAIImageService implements IImageGenerationService {
 
       logger.info('OpenAI: Image edited successfully with Responses API', {
         model: this.model,
+        imageToolModel: this.imageModel,
         promptLength: prompt.length,
         originalImageSize: originalImage.length,
         editedImageSize: buffer.length,

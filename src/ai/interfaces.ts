@@ -97,7 +97,8 @@ export interface AIProviderConfig {
   credentials: {
     openaiApiKey?: string;
     openaiUseResponsesAPI?: boolean;
-    openaiImageModel?: string;
+    openaiBaseModel?: string;
+    openaiImageToolModel?: string;
     googleGenAIApiKey?: string;
     googleGenAIModel?: string;
     googleGenAIImageModel?: string;
