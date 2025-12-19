@@ -85,8 +85,8 @@ export class GoogleGenAITTSService implements ITTSService {
         resolve(Buffer.concat(chunks));
       });
 
-      outputStream.on('error', (err) => {
-        reject(err);
+      outputStream.on('error', (err: unknown) => {
+        reject(err instanceof Error ? err : new Error(String(err)));
       });
 
       // Convert PCM to MP3
@@ -97,7 +97,7 @@ export class GoogleGenAITTSService implements ITTSService {
         .audioCodec('libmp3lame')
         .audioBitrate('128k')
         .format('mp3')
-        .on('error', (err) => {
+        .on('error', (err: Error) => {
           logger.error('FFmpeg conversion error', {
             error: err.message,
           });

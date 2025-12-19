@@ -33,7 +33,7 @@ if (nodeEnv === 'production') {
 const envSchema = z.object({
   // Added 'test' to support Jest and other test runners without failing validation
   NODE_ENV: z.enum(['development', 'staging', 'production', 'test']),
-  PORT: z.string().transform(Number).default(8080),
+  PORT: z.string().transform(Number).default('8080'),
   DB_HOST: z.string(),
   DB_PORT: z.string().transform(Number),
   DB_USER: z.string(),
@@ -115,12 +115,12 @@ const envSchema = z.object({
   WEBAPP_WEBHOOK_SECRET: z.string().optional(),
 
   // Image Size Configuration
-  IMAGE_DEFAULT_WIDTH: z.string().transform(Number).optional().default(1024),
-  IMAGE_DEFAULT_HEIGHT: z.string().transform(Number).optional().default(1536),
-  IMAGE_CHAPTER_WIDTH: z.string().transform(Number).optional().default(1024),
-  IMAGE_CHAPTER_HEIGHT: z.string().transform(Number).optional().default(1536),
-  IMAGE_COVER_WIDTH: z.string().transform(Number).optional().default(1024),
-  IMAGE_COVER_HEIGHT: z.string().transform(Number).optional().default(1536),
+  IMAGE_DEFAULT_WIDTH: z.string().transform(Number).optional().default('1024'),
+  IMAGE_DEFAULT_HEIGHT: z.string().transform(Number).optional().default('1536'),
+  IMAGE_CHAPTER_WIDTH: z.string().transform(Number).optional().default('1024'),
+  IMAGE_CHAPTER_HEIGHT: z.string().transform(Number).optional().default('1536'),
+  IMAGE_COVER_WIDTH: z.string().transform(Number).optional().default('1024'),
+  IMAGE_COVER_HEIGHT: z.string().transform(Number).optional().default('1536'),
   // Story generation contextual memory cap (characters). Controls how much outline + summaries + last chapters we include.
   STORY_CONTEXT_MAX_CHARS: z
     .string()
