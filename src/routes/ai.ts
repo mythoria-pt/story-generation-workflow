@@ -490,8 +490,7 @@ router.post('/text/structure', async (req, res) => {
 
     // Build prompt
     const promptTemplate = await PromptService.loadPrompt('en-US', 'text-structure');
-    const personas = await LiteraryPersonaService.loadPersonas('en-US');
-    const personaOptions = LiteraryPersonaService.buildOptionsSummary(personas);
+    const defaultPersona = 'classic-novelist';
     const templateVars = {
       authorName: '',
       userDescription: userDescription ?? '',
@@ -505,7 +504,7 @@ router.post('/text/structure', async (req, res) => {
           physicalDescription: c.physicalDescription ?? undefined,
         })),
       ),
-      literaryPersonaOptions: personaOptions,
+      literaryPersona: defaultPersona,
     };
     const finalPrompt = PromptService.buildPrompt(promptTemplate, templateVars);
     const structSchema = await SchemaService.loadSchema('story-structure');
@@ -583,6 +582,8 @@ router.post('/text/structure', async (req, res) => {
 
     // Persist story fields (subset already used by app)
     const updates: Record<string, unknown> = {};
+    parsed.story.literaryPersona = defaultPersona;
+
     if (parsed.story.title) updates.title = parsed.story.title;
     if (parsed.story.plotDescription) updates.plotDescription = parsed.story.plotDescription;
     if (parsed.story.synopsis) updates.synopsis = parsed.story.synopsis;
@@ -592,7 +593,7 @@ router.post('/text/structure', async (req, res) => {
     if (parsed.story.targetAudience) updates.targetAudience = parsed.story.targetAudience;
     if (parsed.story.novelStyle) updates.novelStyle = parsed.story.novelStyle;
     if (parsed.story.graphicalStyle) updates.graphicalStyle = parsed.story.graphicalStyle;
-    if (parsed.story.literaryPersona) updates.literaryPersona = parsed.story.literaryPersona;
+    updates.literaryPersona = defaultPersona;
     if (parsed.story.storyLanguage) updates.storyLanguage = parsed.story.storyLanguage;
 
     // Direct DB update via webapp schema synced to SGW

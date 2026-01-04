@@ -1,5 +1,5 @@
-# Use official Node.js 22 LTS Alpine image for build stage (pinned version for stability)
-FROM node:22.12.0-alpine AS builder
+# Use official Node.js 24 LTS Alpine image for build stage (pinned version for stability)
+FROM node:24.12.0-alpine AS builder
 
 # Set working directory
 WORKDIR /app
@@ -20,7 +20,7 @@ RUN npm run build
 RUN npm prune --omit=dev
 
 # Production stage with Debian-based image for Ghostscript support
-FROM node:22.12.0-slim
+FROM node:24.12.0-slim
 
 # Install system dependencies for PDF processing
 RUN apt-get update && apt-get install -y \
