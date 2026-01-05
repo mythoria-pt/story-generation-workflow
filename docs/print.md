@@ -4,8 +4,8 @@ SGW produces two PDF sets per story—RGB (screen) and CMYK (print-ready)—and 
 
 ## Components & flow
 
-1. **Print service** (`src/services/print.ts`) renders HTML templates into `interior.pdf` and `cover.pdf` via Puppeteer using trim-size + paper-caliper data from `src/config/paper-caliper.json`.
-2. **CMYK conversion service** (`src/services/cmyk-conversion.ts`) calls Ghostscript to turn each RGB PDF into PDF/X‑1a compliant CMYK variants (`*-cmyk.pdf`).
+1. **Print service** (`src/services/print.ts`) renders HTML templates into `interior.pdf` and `cover.pdf` via Puppeteer using trim-size + paper-caliper data from `src/config/paper-caliper.json`. It post-processes the interior PDF to enforce page ordering rules (see below) before any color work happens.
+2. **CMYK conversion service** (`src/services/cmyk-conversion.ts`) calls Ghostscript to turn each RGB PDF into PDF/X‑1a compliant CMYK variants (`*-cmyk.pdf`). Interior generation now creates a grayscale-only copy for text pages and merges it with full-CMYK image pages so non-art pages stay K-only.
 3. **Workflow** (`workflows/print-generation.yaml`) drives the request by hitting `POST /internal/print/generate`, then returns public URLs for RGB + CMYK assets.
 4. **Storage layout**: `{storyId}/print/interior.pdf`, `{storyId}/print/cover.pdf`, and matching `*-cmyk.pdf` outputs plus HTML debug files.
 
@@ -24,6 +24,13 @@ SGW produces two PDF sets per story—RGB (screen) and CMYK (print-ready)—and 
 | ICC profiles   | `npm run setup-icc-profiles` downloads CoatedFOGRA39, ISOcoated_v2_eci, etc. Production Docker builds copy files under `icc-profiles/` and reference `src/config/icc-profiles.json`. |
 | Paper config   | `paper-caliper.json` defines trim size (170×240mm), bleed, safe zones, and caliper used for spine width math.                                                                        |
 | Pub/Sub        | Print jobs can be triggered by webapp orders via topic `mythoria-print-requests`, which in turn calls the workflow.                                                                  |
+
+## Page layout processing (interior)
+
+- **Image detection:** `src/services/pdf-page-processor.ts` uses `pdf-parse@2.x` `getImage()` output to locate full-bleed chapter images (large embedded images starting at page 6 to skip front matter). No hidden `EMPTY-PAGE-MARKER` tags are required anymore.
+- **Blank page removal:** Pages with no extracted text or images are dropped to avoid accidental blank spreads (including the legacy trailing blank page in the template).
+- **Recto rule:** Chapters must open on an odd page. When the chapter image would land on an odd page, the processor flips the sequence so text comes first and the image moves after the chapter text. If the image is already on an even page, the existing image→text order is kept.
+- **Outputs:** `processPages` returns the reordered page map and the final image-page numbers so downstream CMYK conversion can keep art in color while grayscaling text pages.
 
 ## CMYK conversion specifics
 
@@ -48,12 +55,23 @@ SGW produces two PDF sets per story—RGB (screen) and CMYK (print-ready)—and 
 - When an ICC profile is not available, the service skips `metadata.ps` and still emits CMYK output, logging `"Using built-in CMYK conversion (no ICC profile)"`.
 - Errors never break the workflow: failures log `"CMYK conversion failed, continuing with RGB only"` and the API still returns the RGB URLs.
 
+### Interior grayscale + color merge
+
+- The CMYK service now renders two intermediate interiors:
+  - **Grayscale/K-only:** Ghostscript conversion with `/DeviceGray` and black-preservation flags for all non-image pages.
+  - **Color CMYK:** Standard CMYK conversion.
+- Using the image-page list from the processor, the service recombines pages so:
+  - **Chapter image pages** stay full CMYK color.
+  - **All other pages** are replaced with the grayscale/K-only pages, preserving deep black text and keeping non-image spreads strictly B/W.
+- Covers remain full CMYK; selective grayscale applies only to the interior.
+
 ## Testing & validation
 
 | Intent                         | Command                                                                                     |
 | ------------------------------ | ------------------------------------------------------------------------------------------- |
 | Verify Ghostscript presence    | `pwsh -NoProfile -Command "npm run test:ghostscript"`                                       |
 | Render sample PDFs & convert   | `pwsh -NoProfile -Command "npm run test:cmyk"`                                              |
+| Page layout + image detection  | `npm test -- pdf-page-processor`                                                            |
 | Check ICC + Ghostscript health | `pwsh -NoProfile -Command "npm run cmyk:status"`                                            |
 | Exercise API                   | Call `POST /internal/print/generate` with `generateCMYK: true` while running `npm run dev`. |
 
