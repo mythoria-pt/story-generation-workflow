@@ -1,7 +1,7 @@
 import { PDFDocument } from 'pdf-lib';
 import { readFileSync, writeFileSync } from 'fs';
 import { logger } from '@/config/logger.js';
-import pdfParse from 'pdf-parse';
+import { PDFParse } from 'pdf-parse';
 
 export interface PageProcessingResult {
   originalPageCount: number;
@@ -13,25 +13,17 @@ export interface PageProcessingResult {
 
 export class PDFPageProcessor {
   /**
-   * Extract text from a specific page using pdf-parse
+   * Extract text from a specific page using pdf-parse v2
    */
-  private async extractPageText(pdfBytes: Buffer, pageNumber: number): Promise<string> {
+  private async extractPageText(parser: PDFParse, pageNumber: number): Promise<string> {
     try {
-      let pageText = '';
-      const options = {
-        pagerender: (pageData: any) => {
-          if (pageData.pageIndex === pageNumber - 1) {
-            return pageData.getTextContent().then((textContent: any) => {
-              const text = textContent.items.map((item: any) => item.str).join(' ');
-              pageText = text;
-              return text;
-            });
-          }
-          return Promise.resolve('');
-        },
-      };
-      await pdfParse(pdfBytes, options);
-      return pageText;
+      const textResult = await parser.getText({
+        partial: [pageNumber],
+        pageJoiner: '',
+        itemJoiner: ' ',
+      });
+      const page = textResult.pages.find((p) => p.num === pageNumber);
+      return page?.text ?? textResult.text ?? '';
     } catch (error) {
       logger.warn('Error extracting page text', {
         pageNumber,
@@ -50,7 +42,11 @@ export class PDFPageProcessor {
     marker: string,
   ): Promise<boolean> {
     try {
-      const page = pdfDoc.getPages()[pageIndex];
+      const pages = pdfDoc.getPages();
+      if (pageIndex < 0 || pageIndex >= pages.length) {
+        return false;
+      }
+      const page = pages[pageIndex];
       const context: any = (pdfDoc as any).context;
       const ref = (page as any).ref; // PDFRef
       const pageNode = context.lookup(ref);
@@ -85,9 +81,13 @@ export class PDFPageProcessor {
   /**
    * Robust detection for --.-- (handles spacing / rendering artifacts)
    */
-  private async hasEmptyPageMarker(pdfBytes: Buffer, pageNumber: number): Promise<boolean> {
+  private async hasEmptyPageMarker(
+    parser: PDFParse,
+    pageNumber: number,
+    inspectionPdfDoc?: PDFDocument,
+  ): Promise<boolean> {
     try {
-      const raw = await this.extractPageText(pdfBytes, pageNumber);
+      const raw = await this.extractPageText(parser, pageNumber);
       const marker = 'EMPTY-PAGE-MARKER';
       const normalMarker = raw.includes(marker);
       const spacedMarker = raw.includes(marker.split('').join(' '));
@@ -102,15 +102,12 @@ export class PDFPageProcessor {
       const regexMatch = new RegExp(pattern, 'i').test(raw);
       let hasMarker = normalMarker || spacedMarker || normalizedMatch || regexMatch;
 
-      if (!hasMarker) {
-        // Fallback: load PDF once (cache by reference) & inspect raw page stream
+      if (!hasMarker && inspectionPdfDoc) {
         try {
-          const pdfDoc = await PDFDocument.load(pdfBytes);
-          if (await this.rawStreamHasMarker(pdfDoc, pageNumber - 1, marker)) {
+          if (await this.rawStreamHasMarker(inspectionPdfDoc, pageNumber - 1, marker)) {
             hasMarker = true;
           }
         } catch (err) {
-          // Swallowing parse errors is intentional here; log at debug level for traceability
           logger.debug('PDF raw stream fallback failed during marker check', {
             pageNumber,
             error: err instanceof Error ? err.message : String(err),
@@ -137,31 +134,38 @@ export class PDFPageProcessor {
 
     const pdfBytes = readFileSync(inputPath);
     const pdfDoc = await PDFDocument.load(pdfBytes);
+    const inspectionPdfDoc = await PDFDocument.load(pdfBytes);
+    const parser = new PDFParse({ data: pdfBytes });
 
-    const originalPages = pdfDoc.getPages();
-    const originalPageCount = originalPages.length;
+    const originalPageCount = pdfDoc.getPages().length;
 
     const deletedPageNumbers: number[] = [];
     let pagesDeleted = 0;
 
-    for (let i = 7; i < originalPages.length; i++) {
-      const currentLogicalPageNumber = i + 1 - pagesDeleted;
-      const isEmpty = await this.hasEmptyPageMarker(pdfBytes, i + 1);
+    try {
+      for (let i = 7; i < originalPageCount; i++) {
+        const currentLogicalPageNumber = i + 1 - pagesDeleted;
+        const isEmpty = await this.hasEmptyPageMarker(parser, i + 1, inspectionPdfDoc);
 
-      if (!isEmpty) continue;
+        if (!isEmpty) continue;
 
-      if (i + 1 < originalPages.length) {
-        const nextLogical = currentLogicalPageNumber + 1;
-        if (nextLogical % 2 === 1) {
-          pdfDoc.removePage(i - pagesDeleted);
-          deletedPageNumbers.push(i + 1);
-          pagesDeleted++;
+        if (i + 1 < originalPageCount) {
+          const nextLogical = currentLogicalPageNumber + 1;
+          if (nextLogical % 2 === 1) {
+            pdfDoc.removePage(i - pagesDeleted);
+            deletedPageNumbers.push(i + 1);
+            pagesDeleted++;
+          }
         }
       }
-    }
 
-    const processedPdfBytes = await pdfDoc.save();
-    writeFileSync(outputPath, processedPdfBytes);
+      const processedPdfBytes = await pdfDoc.save();
+      writeFileSync(outputPath, processedPdfBytes);
+    } finally {
+      if (typeof parser.destroy === 'function') {
+        await parser.destroy();
+      }
+    }
 
     const result: PageProcessingResult = {
       originalPageCount,
