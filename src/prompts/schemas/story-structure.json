@@ -53,12 +53,29 @@
             "minimalist",
             "vintage",
             "comic_book",
+            "euro_comic_book",
             "anime",
             "pixar_style",
             "disney_style",
             "sketch",
             "oil_painting",
             "colored_pencil"
+          ]
+        },
+        "literaryPersona": {
+          "type": "string",
+          "enum": [
+            "storyteller",
+            "adventurous-narrator",
+            "fun-reporter",
+            "friendly-educator",
+            "institutional-chronicler",
+            "pub-buddy-narrator",
+            "classic-novelist",
+            "noir-investigator",
+            "whimsical-poet",
+            "scifi-analyst",
+            "folklore-traditionalist"
           ]
         },
         "storyLanguage": { "type": "string" }

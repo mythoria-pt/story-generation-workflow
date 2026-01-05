@@ -33,7 +33,7 @@ export function getWorkflowsDatabase() {
 
     workflowsDb = drizzle(workflowsPool, {
       schema: workflowsSchema,
-      logger: process.env.NODE_ENV === 'development',
+      logger: false,
     });
   }
 

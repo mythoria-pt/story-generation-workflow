@@ -73,6 +73,7 @@ export class TTSService {
       storyLanguage?: string;
       isFirstChapter?: boolean;
       includeBackgroundMusic?: boolean;
+      chapterTitle?: string;
     },
   ): Promise<TTSChapterResult> {
     try {
@@ -97,8 +98,13 @@ export class TTSService {
 
       // Use story language from parameters or story record
       const storyLanguage = extraParams?.storyLanguage || story.storyLanguage || 'en-US';
-      const storyAuthor = extraParams?.storyAuthor || story.author || 'Unknown Author';
+      const providedAuthor =
+        typeof extraParams?.storyAuthor === 'string' ? extraParams.storyAuthor.trim() : '';
+      const customAuthor = typeof story.customAuthor === 'string' ? story.customAuthor.trim() : '';
+      const storyAuthor = providedAuthor || customAuthor || story.author || 'Unknown Author';
       const dedicatoryMessage = extraParams?.dedicatoryMessage || story.dedicationMessage;
+      const chapterTitle =
+        typeof extraParams?.chapterTitle === 'string' ? extraParams.chapterTitle.trim() : '';
 
       // Extract target age from story.targetAudience
       const targetAge = extractTargetAge(story.targetAudience);
@@ -119,10 +125,16 @@ export class TTSService {
           storyAuthor,
           storyLanguage,
           chapterContent,
+          chapterTitle,
         );
       } else {
         // For other chapters, use translated "Chapter X" + content
-        chapterText = await buildChapterAudioText(chapterNumber, storyLanguage, chapterContent);
+        chapterText = await buildChapterAudioText(
+          chapterNumber,
+          storyLanguage,
+          chapterContent,
+          chapterTitle,
+        );
       }
 
       // Enhance text with audio prompts if available

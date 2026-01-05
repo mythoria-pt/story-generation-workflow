@@ -2,8 +2,7 @@
   "type": "object",
   "properties": {
     "bookTitle": {
-      "type": "string",
-      "maxLength": 150
+      "type": "string"
     },
     "target-audience": {
       "type": "string",
@@ -20,13 +19,23 @@
     },
     "bookCoverPrompt": {
       "type": "string",
-      "description": "Detailed prompt for generating the book cover illustration. Include characters physical descriptions, actions, and settings.",
-      "maxLength": 1200
+      "description": "Detailed prompt for generating the book cover illustration. Include characters physical descriptions, actions, and settings, and explicitly include the exact book title text on the cover."
+    },
+    "bookCoverCharacters": {
+      "type": "array",
+      "description": "Character names visible on the book cover illustration.",
+      "items": { "type": "string" },
+      "default": []
     },
     "bookBackCoverPrompt": {
       "type": "string",
-      "description": "Detailed prompt for generating the book back cover illustration. Include characters physical descriptions, actions, and settings.",
-      "maxLength": 1200
+      "description": "Detailed prompt for generating the book back cover illustration. Include characters physical descriptions, actions, and settings."
+    },
+    "bookBackCoverCharacters": {
+      "type": "array",
+      "description": "Character names visible on the book back cover illustration.",
+      "items": { "type": "string" },
+      "default": []
     },
     "synopses": {
       "type": "string",
@@ -51,12 +60,17 @@
           "chapterPhotoPrompt": {
             "type": "string",
             "description": "Detailed prompt for generating an illustration for this chapter. Include characters physical descriptions, actions, and settings."
+          },
+          "charactersInScene": {
+            "type": "array",
+            "description": "Character names that appear in this chapter's illustration prompt.",
+            "items": { "type": "string" },
+            "default": []
           }
         },
         "required": ["chapterPhotoPrompt", "chapterNumber", "chapterSynopses", "chapterTitle"],
         "additionalProperties": false
-      },
-      "maxItems": 20
+      }
     },
     "characters": {
       "type": "array",
@@ -105,7 +119,6 @@
           },
           "traits": {
             "type": "array",
-            "maxItems": 5,
             "items": {
               "type": "string",
               "enum": [

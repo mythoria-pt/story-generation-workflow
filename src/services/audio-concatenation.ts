@@ -124,10 +124,10 @@ function runFFmpegConcat(listFilePath: string, outputFilePath: string): Promise<
       .inputOptions(['-f concat', '-safe 0'])
       .outputOptions(['-c copy']) // Lossless copy - no re-encoding
       .output(outputFilePath)
-      .on('start', (commandLine) => {
+      .on('start', (commandLine: string) => {
         logger.debug('FFmpeg concat started', { commandLine });
       })
-      .on('error', (err, _stdout, stderr) => {
+      .on('error', (err: Error, _stdout?: string, stderr?: string) => {
         logger.error('FFmpeg concat error', {
           error: err.message,
           stderr,
@@ -345,10 +345,10 @@ function runFFmpegMix(
       .audioCodec('libmp3lame')
       .audioBitrate('128k')
       .output(outputPath)
-      .on('start', (commandLine) => {
+      .on('start', (commandLine: string) => {
         logger.debug('FFmpeg mix started', { commandLine });
       })
-      .on('error', (err, _stdout, stderr) => {
+      .on('error', (err: Error, _stdout?: string, stderr?: string) => {
         logger.error('FFmpeg mix error', {
           error: err.message,
           stderr,

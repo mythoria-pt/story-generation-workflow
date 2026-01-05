@@ -59,6 +59,8 @@ export interface OutlineData {
   'target-audience': OutlineTargetAudience;
   bookCoverPrompt: string;
   bookBackCoverPrompt: string;
+  bookCoverCharacters: string[];
+  bookBackCoverCharacters: string[];
   synopses: string;
   characters: Array<{
     characterId?: string | null;
@@ -75,6 +77,7 @@ export interface OutlineData {
     chapterTitle: string;
     chapterSynopses: string;
     chapterPhotoPrompt: string;
+    charactersInScene: string[];
   }>;
 }
 

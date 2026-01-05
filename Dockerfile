@@ -1,5 +1,5 @@
-# Use official Node.js 22 LTS Alpine image for build stage (pinned version for stability)
-FROM node:22.12.0-alpine AS builder
+# Use official Node.js 24 LTS Alpine image for build stage (pinned version for stability)
+FROM node:24.12.0-alpine AS builder
 
 # Set working directory
 WORKDIR /app
@@ -20,7 +20,7 @@ RUN npm run build
 RUN npm prune --omit=dev
 
 # Production stage with Debian-based image for Ghostscript support
-FROM node:22.12.0-slim
+FROM node:24.12.0-slim
 
 # Install system dependencies for PDF processing
 RUN apt-get update && apt-get install -y \
@@ -53,6 +53,9 @@ COPY src/config/paper-caliper.json ./dist/config/
 
 # Copy local ICC profiles to the container
 COPY icc-profiles/ /app/icc-profiles/
+
+# Copy background music files from the built dist folder
+COPY --from=builder /app/dist/backgroundMusics ./dist/backgroundMusics
 
 # Set environment variables for PDF processing
 ENV GHOSTSCRIPT_BINARY=gs

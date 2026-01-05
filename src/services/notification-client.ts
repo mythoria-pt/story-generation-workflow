@@ -136,26 +136,9 @@ export async function sendStoryCreatedEmail(payload: StoryCreatedEmailPayload): 
 
   const url = `${env.NOTIFICATION_ENGINE_URL.replace(/\/$/, '')}/email/template`;
 
-  // Enhanced debugging
-  logger.info('Attempting to send story-created email', {
-    url,
-    storyId: payload.storyId,
-    templateId: payload.templateId,
-    recipientCount: payload.recipients.length,
-    recipients: payload.recipients.map((r) => r.email),
-    hasApiKey: !!env.NOTIFICATION_ENGINE_API_KEY,
-    variables: payload.variables,
-  });
-
   try {
     const headers = buildHeaders(env);
     const body = JSON.stringify(payload);
-
-    logger.debug('Request details', {
-      headers: { ...headers, Authorization: headers.Authorization ? '[REDACTED]' : undefined },
-      bodyLength: body.length,
-      payload: payload,
-    });
 
     const res = await fetch(url, {
       method: 'POST',
@@ -174,11 +157,7 @@ export async function sendStoryCreatedEmail(payload: StoryCreatedEmailPayload): 
       return false;
     }
 
-    const responseText = await res.text();
-    logger.info('story-created email dispatched successfully', {
-      recipients: payload.recipients.map((r) => r.email),
-      response: responseText,
-    });
+    await res.text();
     return true;
   } catch (err) {
     logger.error('Error calling notification engine', {

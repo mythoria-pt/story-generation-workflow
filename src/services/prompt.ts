@@ -79,6 +79,31 @@ export class PromptService {
   }
 
   /**
+   * Load a shared/root-level prompt template from JSON file
+   * These are stored directly in src/prompts/ (not in a locale subfolder)
+   */
+  static async loadSharedPrompt(promptName: string): Promise<PromptTemplate> {
+    try {
+      const promptPath = pathPosix.join(this.PROMPTS_BASE_PATH, `${promptName}.json`);
+      const promptContent = await readFile(promptPath, 'utf-8');
+      const promptTemplate = JSON.parse(promptContent) as PromptTemplate;
+
+      logger.debug('Shared prompt template loaded successfully', {
+        promptName,
+        promptPath,
+      });
+
+      return promptTemplate;
+    } catch (error) {
+      logger.error('Failed to load shared prompt template', {
+        error: error instanceof Error ? error.message : String(error),
+        promptName,
+      });
+      throw new Error(`Failed to load shared prompt template: ${promptName}.json`);
+    }
+  }
+
+  /**
    * Process a prompt template by replacing variables
    */
   static processPrompt(template: string, variables: Record<string, unknown>): string {

@@ -39,7 +39,7 @@ describe('TokenUsageTrackingService', () => {
       authorId: 'a1',
       storyId: 's1',
       action: 'chapter_writing',
-      aiModel: 'gpt-5',
+      aiModel: 'gpt-5.2',
       inputTokens: 1000,
       outputTokens: 500,
       inputPromptJson: {},
@@ -48,21 +48,35 @@ describe('TokenUsageTrackingService', () => {
     expect(mockDb.insert).toHaveBeenCalled();
     expect(valuesMock).toHaveBeenCalled();
     const usageRecord = valuesMock.mock.calls[0][0];
-    // GPT-5: ($0.00125 * 1 input K-tokens) + ($0.01 * 0.5 output K-tokens) = $0.00625 USD * 0.92 = €0.00575
-    expect(parseFloat(usageRecord.estimatedCostInEuros)).toBeCloseTo(0.00575, 5);
+    // GPT-5.2: ($0.00175 * 1 input K-tokens) + ($0.014 * 0.5 output K-tokens) = $0.00875 USD * 0.92 ≈ €0.00805
+    expect(parseFloat(usageRecord.estimatedCostInEuros)).toBeCloseTo(0.00805, 5);
     expect(logger.info).toHaveBeenCalled();
   });
 
-  it('calculates cost for OpenAI GPT-5 model', () => {
+  it('calculates cost for OpenAI GPT-5.2 model', () => {
     const estimation = (service as any).calculateCost({
       provider: 'openai',
-      model: 'gpt-5',
+      model: 'gpt-5.2',
       inputTokens: 1000,
       outputTokens: 500,
       estimatedCostInEuros: 0,
     });
-    // GPT-5: ($0.00125 * 1 input K-tokens) + ($0.01 * 0.5 output K-tokens) = $0.00625 USD * 0.92 = €0.00575
-    expect(estimation.estimatedCostInEuros).toBeCloseTo(0.00575, 5);
+    // GPT-5.2: ($0.00175 * 1 input K-tokens) + ($0.014 * 0.5 output K-tokens) = $0.00875 USD * 0.92 ≈ €0.00805
+    expect(estimation.estimatedCostInEuros).toBeCloseTo(0.00805, 5);
+  });
+
+  it('calculates cost for OpenAI gpt-image-1.5 model', () => {
+    const estimation = (service as any).calculateCost({
+      provider: 'openai',
+      model: 'gpt-image-1.5',
+      imageQuality: 'standard',
+      inputTokens: 500,
+      outputTokens: 1000,
+      estimatedCostInEuros: 0,
+    });
+
+    // Costs: 1 image (~$0.04) + input $0.0025 + output $0.01 = $0.0525 USD * 0.92 ≈ €0.0483
+    expect(estimation.estimatedCostInEuros).toBeCloseTo(0.0483, 4);
   });
 
   it('aggregates story usage', async () => {

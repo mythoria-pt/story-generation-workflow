@@ -17,16 +17,74 @@ Story Generation Workflow exposes a small, opinionated REST surface for Mythoria
 
 ### AI text + media (`src/routes/ai.ts`)
 
-| Endpoint                                | Description                                                                                                                                |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `POST /ai/text/outline`                 | Generates outline, cover prompts, and character briefs from `storyId`/`runId`. Returns refined prompts for downstream image generation.    |
-| `POST /ai/text/structure`               | Turns user description plus optional media (`imageObjectPath`, `audioObjectPath`, base64) into structured story metadata and characters.   |
-| `POST /ai/media/upload`                 | Accepts base64 + content type, stores in `storyId/inputs`, returns public URL.                                                             |
-| `POST /ai/media/story-image-upload`     | Uploads user-supplied cover/back/chapter art, handling filename versioning (`*_v00n`).                                                     |
-| `POST /ai/text/chapter/{chapterNumber}` | Generates chapter prose given outline context, prior chapters, and chapter synopsis.                                                       |
-| `POST /ai/text/translate`               | Translates slugs, titles, summaries, and Markdown/HTML content from `en-US` into one or more locales (`pt-PT`, `es-ES`, `fr-FR`, `de-DE`). |
-| `POST /ai/text/context/clear`           | Clears the chat context for `<storyId>:<runId>` once workflows finish.                                                                     |
-| `POST /ai/image`                        | Creates cover/back/chapter illustrations. Automatically retries via safety rewrite logic; `422` signals `blocked`.                         |
+| Endpoint                                 | Description                                                                                                                                  |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /ai/text/outline`                  | Generates outline, cover prompts, and character briefs from `storyId`/`runId`. Returns refined prompts for downstream image generation.      |
+| `POST /ai/text/structure`                | Turns user description plus optional media (`imageObjectPath`, `audioObjectPath`, base64) into structured story metadata and characters.     |
+| `POST /ai/media/character-photo`         | Accepts a JPEG data URL and stores it at `characters/{authorId}/{characterId}.jpg` with long-lived cache headers; returns public URL + path. |
+| `DELETE /ai/media/character-photo`       | Deletes a character photo at the provided GCS path under `characters/`; idempotent if the file is missing.                                   |
+| `POST /ai/media/analyze-character-photo` | Analyzes a character photo using AI (multimodal) and returns a 2-sentence physical description in the user's locale.                         |
+| `POST /ai/media/upload`                  | Accepts base64 + content type, stores in `storyId/inputs`, returns public URL.                                                               |
+| `POST /ai/media/story-image-upload`      | Uploads user-supplied cover/back/chapter art, handling filename versioning (`*_v00n`).                                                       |
+| `POST /ai/text/chapter/{chapterNumber}`  | Generates chapter prose given outline context, prior chapters, and chapter synopsis.                                                         |
+| `POST /ai/text/translate`                | Translates slugs, titles, summaries, and Markdown/HTML content from `en-US` into one or more locales (`pt-PT`, `es-ES`, `fr-FR`, `de-DE`).   |
+| `POST /ai/text/context/clear`            | Clears the chat context for `<storyId>:<runId>` once workflows finish.                                                                       |
+| `POST /ai/image`                         | Creates cover/back/chapter illustrations. Automatically retries via safety rewrite logic; `422` signals `blocked`.                           |
+
+### Character Photo Analysis
+
+Analyzes a character photo using GenAI multimodal capabilities and returns a physical description.
+
+**Endpoint:** `POST /ai/media/analyze-character-photo`
+
+**Request Body:**
+
+```json
+{
+  "dataUrl": "data:image/jpeg;base64,...",
+  "locale": "en-US"
+}
+```
+
+| Field   | Type   | Required | Description                                   |
+| ------- | ------ | -------- | --------------------------------------------- |
+| dataUrl | string | Yes      | Base64-encoded JPEG image as data URL         |
+| locale  | string | Yes      | User locale (e.g., `en-US`, `pt-PT`, `es-ES`) |
+
+**Response (Success):**
+
+```json
+{
+  "success": true,
+  "description": "A young girl with wavy auburn hair and bright green eyes. She has a warm smile and wears a cozy blue sweater."
+}
+```
+
+**Response (Error):**
+
+```json
+{
+  "success": false,
+  "error": "Analysis request timed out. Please try again."
+}
+```
+
+**Status Codes:**
+
+- `200` - Success
+- `400` - Invalid request (missing fields, invalid dataUrl format)
+- `504` - Request timed out (50 second limit)
+- `500` - Internal server error
+
+**Notes:**
+
+- The description is generated in the user's locale (not translated after)
+- Limited to exactly 2 sentences focusing on physical appearance
+- 50 second timeout to prevent long-running requests
+- Optimized for Gemini 3: uses `thinkingLevel: 'low'` and `mediaResolution: 'medium'` for faster response
+- Temperature set to `1.0` per Gemini 3 recommendations
+
+---
 
 Sample translation request:
 
@@ -72,8 +130,6 @@ Response payload:
   }
 }
 ```
-
-| `GET /ai/test-text` | Smoke test for whichever provider `TEXT_PROVIDER` points to (Gemini/OpenAI). |
 
 Sample image request:
 

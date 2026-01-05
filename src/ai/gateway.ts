@@ -34,6 +34,7 @@ export class AIGateway {
         }
         return new OpenAITextService({
           apiKey: this.config.credentials.openaiApiKey,
+          ...(this.config.credentials.openaiBaseModel && { model: this.config.credentials.openaiBaseModel }),
         });
 
       case 'google-genai':
@@ -52,39 +53,29 @@ export class AIGateway {
 
   private createImageService(): IImageGenerationService {
     switch (this.config.imageProvider.toLowerCase()) {
-      case 'openai':
+      case 'openai': {
         if (!this.config.credentials.openaiApiKey) {
           throw new Error('OpenAI API Key is required for OpenAI image service');
         }
+        const baseModel = this.config.credentials.openaiBaseModel;
+        const imageToolModel =
+          this.config.credentials.openaiImageToolModel || 'gpt-image-1.5';
         return new OpenAIImageService({
           apiKey: this.config.credentials.openaiApiKey,
-          model: this.config.credentials.openaiImageModel || 'gpt-5',
+          model: baseModel || 'gpt-5.2',
+          imageModel: imageToolModel,
         });
+      }
 
       case 'google-genai': {
         if (!this.config.credentials.googleGenAIApiKey) {
           throw new Error('Google GenAI API Key is required for Google Imagen service');
         }
-        const legacyEnvModel = process.env.IMAGE_GENERATION_MODEL;
-        let selectedModel =
-          legacyEnvModel ||
-          this.config.credentials.googleGenAIImageModel ||
-          'gemini-2.5-flash-image-preview'; // default to current Gemini image generation model
-        if (selectedModel.startsWith('imagen-')) {
-          logger.warn(
-            'AI Gateway - legacy imagen-* model configured; remapping to gemini-2.5-flash-image-preview',
-            { selectedModel },
-          );
-          selectedModel = 'gemini-2.5-flash-image-preview';
-        }
+        const selectedModel =
+          this.config.credentials.googleGenAIImageModel || 'gemini-2.5-flash-image-preview';
         const service = new GoogleGenAIImageService({
           apiKey: this.config.credentials.googleGenAIApiKey,
           model: selectedModel,
-        });
-        logger.debug('AI Gateway - Google Imagen model resolved', {
-          selectedModel,
-          legacyEnvModel: !!legacyEnvModel,
-          configuredModel: this.config.credentials.googleGenAIImageModel,
         });
         return service;
       }
@@ -114,6 +105,13 @@ export class AIGateway {
   public static fromEnvironment(): AIGateway {
     const textProvider = process.env.TEXT_PROVIDER || 'google-genai';
     const imageProvider = process.env.IMAGE_PROVIDER || 'google-genai';
+    const openaiBaseModel =
+      process.env.OPENAI_BASE_MODEL ||
+      process.env.OPENAI_TEXT_MODEL ||
+      process.env.OPENAI_MODEL ||
+      'gpt-5.2';
+    const openaiImageToolModel =
+      process.env.OPENAI_IMAGE_TOOL_MODEL || 'gpt-image-1.5';
     const config: AIProviderConfig = {
       textProvider,
       imageProvider,
@@ -123,8 +121,11 @@ export class AIGateway {
         }),
         // Always enable OpenAI Responses API (env flag removed)
         openaiUseResponsesAPI: true,
-        ...(process.env.OPENAI_IMAGE_MODEL && {
-          openaiImageModel: process.env.OPENAI_IMAGE_MODEL,
+        ...(openaiBaseModel && {
+          openaiBaseModel,
+        }),
+        ...(openaiImageToolModel && {
+          openaiImageToolModel,
         }),
         ...(process.env.GOOGLE_GENAI_API_KEY && {
           googleGenAIApiKey: process.env.GOOGLE_GENAI_API_KEY,

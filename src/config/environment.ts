@@ -33,7 +33,7 @@ if (nodeEnv === 'production') {
 const envSchema = z.object({
   // Added 'test' to support Jest and other test runners without failing validation
   NODE_ENV: z.enum(['development', 'staging', 'production', 'test']),
-  PORT: z.string().transform(Number).default(8080),
+  PORT: z.string().default('8080').transform(Number),
   DB_HOST: z.string(),
   DB_PORT: z.string().transform(Number),
   DB_USER: z.string(),
@@ -49,7 +49,9 @@ const envSchema = z.object({
   IMAGE_PROVIDER: z.enum(['openai', 'google-genai']).optional().default('google-genai'),
 
   OPENAI_API_KEY: z.string().optional(),
-  OPENAI_IMAGE_MODEL: z.string().optional().default('gpt-5'),
+  OPENAI_BASE_MODEL: z.string().optional().default('gpt-5.2'),
+  OPENAI_TEXT_MODEL: z.string().optional(), // legacy alias for base model
+  OPENAI_IMAGE_TOOL_MODEL: z.string().optional().default('gpt-image-1.5'),
   OPENAI_IMAGE_QUALITY: z.enum(['low', 'standard', 'high']).optional().default('low'),
 
   // Temp directory configuration
@@ -108,13 +110,17 @@ const envSchema = z.object({
   NOTIFICATION_ENGINE_URL: z.string().optional(),
   NOTIFICATION_ENGINE_API_KEY: z.string().optional(),
 
+  // Webapp webhook for persisting async text edits
+  WEBAPP_WEBHOOK_URL: z.string().url().optional(),
+  WEBAPP_WEBHOOK_SECRET: z.string().optional(),
+
   // Image Size Configuration
-  IMAGE_DEFAULT_WIDTH: z.string().transform(Number).optional().default(1024),
-  IMAGE_DEFAULT_HEIGHT: z.string().transform(Number).optional().default(1536),
-  IMAGE_CHAPTER_WIDTH: z.string().transform(Number).optional().default(1024),
-  IMAGE_CHAPTER_HEIGHT: z.string().transform(Number).optional().default(1536),
-  IMAGE_COVER_WIDTH: z.string().transform(Number).optional().default(1024),
-  IMAGE_COVER_HEIGHT: z.string().transform(Number).optional().default(1536),
+  IMAGE_DEFAULT_WIDTH: z.string().optional().default('1024').transform(Number),
+  IMAGE_DEFAULT_HEIGHT: z.string().optional().default('1536').transform(Number),
+  IMAGE_CHAPTER_WIDTH: z.string().optional().default('1024').transform(Number),
+  IMAGE_CHAPTER_HEIGHT: z.string().optional().default('1536').transform(Number),
+  IMAGE_COVER_WIDTH: z.string().optional().default('1024').transform(Number),
+  IMAGE_COVER_HEIGHT: z.string().optional().default('1536').transform(Number),
   // Story generation contextual memory cap (characters). Controls how much outline + summaries + last chapters we include.
   STORY_CONTEXT_MAX_CHARS: z
     .string()
@@ -167,7 +173,10 @@ export function validateEnvironment(): void {
     console.log(`📦 Storage Bucket: ${env.STORAGE_BUCKET_NAME}`);
     console.log(`🎨 Image Provider: ${env.IMAGE_PROVIDER}`);
     if (env.IMAGE_PROVIDER === 'openai') {
-      console.log(`🤖 OpenAI Image Model: ${env.OPENAI_IMAGE_MODEL}`);
+      const baseModel = env.OPENAI_BASE_MODEL || env.OPENAI_TEXT_MODEL || 'gpt-5.2';
+      const imageToolModel = env.OPENAI_IMAGE_TOOL_MODEL || 'gpt-image-1.5';
+      console.log(`🤖 OpenAI Base Model: ${baseModel}`);
+      console.log(`🖼️ OpenAI Image Tool Model: ${imageToolModel}`);
     } else if (env.IMAGE_PROVIDER === 'google-genai') {
       console.log(`🖼️ Google Imagen Model: ${env.GOOGLE_GENAI_IMAGE_MODEL}`);
     }

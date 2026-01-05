@@ -258,7 +258,11 @@ export class GoogleGenAIImageService implements IImageGenerationService {
     }
   }
 
-  async edit(prompt: string, originalImage: Buffer, options?: ImageGenerationOptions): Promise<Buffer> {
+  async edit(
+    prompt: string,
+    originalImage: Buffer,
+    options?: ImageGenerationOptions,
+  ): Promise<Buffer> {
     const model = options?.model || this.model;
     const aspectRatio = this.resolveAspectRatio(options);
     const forceRest = process.env.GOOGLE_GENAI_FORCE_REST === 'true';

@@ -24,6 +24,7 @@ export interface TokenUsageRequest {
     | 'image_edit'
     | 'prompt_rewrite'
     | 'blog_translation'
+    | 'character_photo_analysis'
     | 'test';
   aiModel: string;
   inputTokens: number;
@@ -121,25 +122,51 @@ export class TokenUsageTrackingService {
    * Calculate estimated cost based on provider and model
    *
    * Supported Models:
-   * - Text Generation: gpt-5.1, gemini-2.5-flash, gemini-3-pro-preview
-   * - Image Generation: gpt-5.1, gemini-2.5-flash-image, gpt-image-1, gpt-image-1-mini
-   * - TTS: gemini-2.5-pro-tts, gemini-2.5-flash-tts, gpt-4o-mini-tts
+  * - Text Generation: gpt-5.2, gpt-5.1, gemini-2.5-flash, gemini-3-pro-preview
+  * - Image Generation: gpt-image-1.5, gpt-5.1 image tools, gemini-2.5-flash-image, gpt-image-1, gpt-image-1-mini
+  * - TTS: gemini-2.5-pro-tts, gemini-2.5-flash-tts, gpt-4o-mini-tts
    */
   private calculateCost(estimation: CostEstimation): CostEstimation {
     let inputCostPer1KTokens = 0;
     let outputCostPer1KTokens = 0;
     let cachedInputCostPer1KTokens = 0;
 
-    // Cost calculations in USD (will convert to EUR)
+    // Cost calculations in USD (converted to EUR later)
     // Pricing as of December 2025
 
     // OpenAI Models
     if (estimation.provider === 'openai') {
-      if (estimation.model.includes('gpt-5.1') || estimation.model.includes('gpt-5')) {
-        // GPT-5.1 / GPT-5 - Flagship model for coding and agentic tasks
+      if (estimation.model.includes('gpt-5.2-pro')) {
+        // GPT-5.2 Pro (no cached discount published; treat cached as regular input)
+        inputCostPer1KTokens = 0.021; // $21.00 per 1M
+        outputCostPer1KTokens = 0.168; // $168.00 per 1M
+        cachedInputCostPer1KTokens = 0.021;
+      } else if (estimation.model.includes('gpt-5.2')) {
+        // GPT-5.2 - Flagship responses model (reasoning capable)
+        inputCostPer1KTokens = 0.00175; // $1.75 per 1M
+        outputCostPer1KTokens = 0.014; // $14.00 per 1M
+        cachedInputCostPer1KTokens = 0.000175; // $0.175 per 1M
+      } else if (estimation.model.includes('gpt-5.1') || estimation.model.includes('gpt-5')) {
+        // GPT-5.1 / GPT-5 - legacy pricing retained for backward compatibility
         inputCostPer1KTokens = 0.00125; // $1.25 per 1M
         outputCostPer1KTokens = 0.01; // $10.00 per 1M
         cachedInputCostPer1KTokens = 0.000125; // $0.125 per 1M
+      } else if (estimation.model.includes('gpt-image-1.5')) {
+        // GPT-image-1.5 - Newest image model (Responses API)
+        const imagesGenerated = Math.max(1, Math.ceil(estimation.outputTokens / 1000));
+        let costPerImage = 0.04; // Medium/standard quality default
+        if (estimation.imageQuality === 'hd') {
+          costPerImage = 0.17; // High quality
+        }
+        const cachedTokens = estimation.cachedInputTokens || 0;
+        const regularInputTokens = Math.max(0, estimation.inputTokens - cachedTokens);
+        const inputCostUSD = (regularInputTokens / 1000) * 0.005; // $5.00 per 1M
+        const cachedInputCostUSD = (cachedTokens / 1000) * 0.00125; // $1.25 per 1M
+        const outputCostUSD = (estimation.outputTokens / 1000) * 0.01; // $10.00 per 1M
+        estimation.estimatedCostInEuros =
+          (imagesGenerated * costPerImage + inputCostUSD + cachedInputCostUSD + outputCostUSD) *
+          0.92;
+        return estimation;
       } else if (estimation.model.includes('gpt-image-1-mini')) {
         // GPT-image-1-mini - Cost-effective image generation
         // Input tokens charged, image output is per-image pricing
@@ -181,27 +208,32 @@ export class TokenUsageTrackingService {
     // Google Models
     else if (estimation.provider === 'google-genai') {
       if (estimation.model.includes('gemini-3-pro-preview')) {
-        // Gemini 3 Pro Preview - Most powerful multimodal and agentic model
-        inputCostPer1KTokens = 0.002; // $2.00 per 1M (prompts <= 200k)
-        outputCostPer1KTokens = 0.012; // $12.00 per 1M (prompts <= 200k)
-        cachedInputCostPer1KTokens = 0.0002; // $0.20 per 1M
+        // Gemini 3 Pro - Next-gen multimodal model
+        // Input: $2.00 per 1M tokens
+        // Output (Text): $12.00 per 1M tokens
+        // Output (Audio): Pricing TBD (using text rate for now)
+        inputCostPer1KTokens = 0.002; // $2.00 per 1M
+        outputCostPer1KTokens = 0.012; // $12.00 per 1M
+        cachedInputCostPer1KTokens = 0.0002; // 10% of input
       } else if (
         estimation.model.includes('gemini-2.5-pro-preview-tts') ||
         estimation.model.includes('gemini-2.5-pro-tts')
       ) {
-        // Gemini 2.5 Pro Preview TTS - Powerful speech generation
-        // Input (text): $1.00 per 1M, Output (audio): $20.00 per 1M
-        inputCostPer1KTokens = 0.001; // $1.00 per 1M (text)
-        outputCostPer1KTokens = 0.02; // $20.00 per 1M (audio)
+        // Gemini 2.5 Pro TTS - High-fidelity, reasoning-enhanced TTS
+        // Input (Text): $1.00 per 1M tokens
+        // Output (Audio): $20.00 per 1M tokens
+        inputCostPer1KTokens = 0.001; // $1.00 per 1M
+        outputCostPer1KTokens = 0.02; // $20.00 per 1M
         cachedInputCostPer1KTokens = 0.0001; // 10% of input
       } else if (
         estimation.model.includes('gemini-2.5-flash-preview-tts') ||
         estimation.model.includes('gemini-2.5-flash-tts')
       ) {
-        // Gemini 2.5 Flash Preview TTS - Cost-effective speech generation
-        // Input (text): $0.50 per 1M, Output (audio): $10.00 per 1M
-        inputCostPer1KTokens = 0.0005; // $0.50 per 1M (text)
-        outputCostPer1KTokens = 0.01; // $10.00 per 1M (audio)
+        // Gemini 2.5 Flash TTS - Low-latency, cost-effective multimodal TTS
+        // Input (Text): $0.50 per 1M tokens
+        // Output (Audio): $10.00 per 1M tokens
+        inputCostPer1KTokens = 0.0005; // $0.50 per 1M
+        outputCostPer1KTokens = 0.01; // $10.00 per 1M
         cachedInputCostPer1KTokens = 0.00005; // 10% of input
       } else if (estimation.model.includes('gemini-2.5-flash-image')) {
         // Gemini 2.5 Flash Image - Native image generation

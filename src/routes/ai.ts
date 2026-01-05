@@ -12,11 +12,17 @@ import { StoryService } from '@/services/story.js';
 import { workflowErrorHandler } from '@/shared/workflow-error-handler.js';
 import { PromptService } from '@/services/prompt.js';
 import { SchemaService } from '@/services/schema.js';
+import { LiteraryPersonaService } from '@/services/literary-persona.js';
 import { getImageDimensions } from '@/utils/imageUtils.js';
 import { getAIGatewayWithTokenTracking } from '@/ai/gateway-with-tracking.js';
 import { getStorageService } from '@/services/storage-singleton.js';
 import { logger } from '@/config/logger.js';
-import { formatTargetAudience, getLanguageName, parseAIResponse } from '@/shared/utils.js';
+import {
+  formatTargetAudience,
+  getLanguageName,
+  parseAIResponse,
+  prepareCharactersForPrompt,
+} from '@/shared/utils.js';
 import { CharacterService } from '@/services/characters.js';
 import { eq } from 'drizzle-orm';
 import {
@@ -31,6 +37,9 @@ import {
   CHARACTER_AGES,
   CHARACTER_TRAITS,
 } from '@/shared/character-constants.js';
+import { RunsService } from '@/services/runs.js';
+import { logPromptRefinementFailure, refineImagePrompt } from '@/services/image-prompt-utils.js';
+import { ImageSafetyService } from '@/services/image-safety-service.js';
 
 // Initialize services
 const router = Router();
@@ -38,76 +47,8 @@ const aiGateway = getAIGatewayWithTokenTracking();
 const storyService = new StoryService();
 const storageService = getStorageService();
 const characterService = new CharacterService();
-
-// Image prompt refinement helper (applies consistent best-practice formatting across providers)
-function refineImagePrompt(
-  raw: string,
-  opts: { fallbackSubject?: string; styleHint?: string } = {},
-): string {
-  if (!raw || typeof raw !== 'string') {
-    return opts.fallbackSubject || 'storybook illustration, soft lighting';
-  }
-  let p = raw
-    .replace(/\s+/g, ' ') // collapse whitespace
-    .replace(/^\s+|\s+$/g, '')
-    .replace(/^"|"$/g, ''); // trim quotes
-
-  // Remove leading articles that add little value
-  p = p.replace(/^(?:An?|The)\s+/i, '');
-
-  // Ensure it describes a scene, not a command
-  p = p.replace(/^Imagine\s+/, '');
-
-  // Provide a gentle style hint if none present (avoid stacking many styles)
-  const lower = p.toLowerCase();
-  const styleProvided =
-    /(illustration|digital painting|oil painting|watercolor|pixel art|anime|storybook|cinematic|render)/.test(
-      lower,
-    );
-  const style = styleProvided ? '' : opts.styleHint || 'storybook illustration, soft lighting';
-
-  // Cap length
-  if (p.length > 600) {
-    const cut = p.slice(0, 600);
-    const lastPeriod = cut.lastIndexOf('.');
-    p = lastPeriod > 60 ? cut.slice(0, lastPeriod + 1) : cut;
-  }
-
-  // Avoid trailing punctuation duplication (commas, semicolons, colons, dashes)
-  // Hyphen does not need escaping inside the character class when placed first
-  p = p.replace(/[-,;:]+$/, '').trim();
-
-  return style ? `${p} – ${style}` : p;
-}
-
-function buildSafeFallbackPrompt(original: string, opts: { styleHint?: string } = {}): string {
-  let prompt = original || '';
-
-  // Generalize age/gender terms to be more neutral
-  prompt = prompt.replace(/\b\d+\s*-?\s*month\s*-?\s*old\b/gi, 'young');
-  prompt = prompt.replace(/\btoddler\b/gi, 'child');
-  prompt = prompt.replace(/\bboy\b/gi, 'child');
-  prompt = prompt.replace(/\bgirl\b/gi, 'child');
-
-  // Ensure the scene is described as safe and wholesome
-  if (!/safe|wholesome|cheerful/i.test(prompt)) {
-    prompt += ' The scene is wholesome, safe, and cheerful.';
-  }
-
-  // Ensure characters are described as fully clothed
-  if (!/clothed|wearing|dressed|outfit|attire/i.test(prompt)) {
-    prompt += ' The character is fully clothed in appropriate daily attire.';
-  }
-
-  // Add lighting context if missing
-  if (!/lighting|lit/i.test(prompt)) {
-    prompt += ' Warm, gentle lighting.';
-  }
-
-  return refineImagePrompt(prompt, {
-    styleHint: opts.styleHint || 'wholesome family illustration, soft lighting',
-  });
-}
+const runsService = new RunsService();
+const imageSafetyService = new ImageSafetyService({ aiGateway });
 
 // Shared outline + character schema definitions
 const CharacterTypeEnum = z.enum(CHARACTER_TYPES);
@@ -136,24 +77,27 @@ const CharacterSchema = z.object({
   role: CharacterRoleEnum.optional(),
 });
 
-const OutlineSchema = z.object({
-  bookTitle: z.string(),
+export const OutlineSchema = z.object({
+  bookTitle: z.string().min(1).trim(),
   'target-audience': TargetAudienceEnum,
-  bookCoverPrompt: z.string(),
-  bookBackCoverPrompt: z.string(),
-  synopses: z.string(),
+  bookCoverPrompt: z.string().min(10).trim(),
+  bookBackCoverPrompt: z.string().min(10).trim(),
+  bookCoverCharacters: z.array(z.string().min(1)).default([]),
+  bookBackCoverCharacters: z.array(z.string().min(1)).default([]),
+  synopses: z.string().min(1).trim(),
   characters: z.array(CharacterSchema),
   chapters: z.array(
     z.object({
       chapterNumber: z.number().int().positive(),
-      chapterTitle: z.string(),
-      chapterSynopses: z.string(),
-      chapterPhotoPrompt: z.string(),
+      chapterTitle: z.string().min(1).trim(),
+      chapterSynopses: z.string().min(1).trim(),
+      chapterPhotoPrompt: z.string().min(10).trim(),
+      charactersInScene: z.array(z.string().min(1)).default([]),
     }),
   ),
 });
 
-type OutlineData = z.infer<typeof OutlineSchema>;
+export type OutlineData = z.infer<typeof OutlineSchema>;
 
 // Helper function to check if data matches outline structure
 function isOutlineData(data: unknown): data is OutlineData {
@@ -172,6 +116,12 @@ function isOutlineData(data: unknown): data is OutlineData {
     }
     return false;
   }
+}
+
+function hasNonEmptyCoverPrompts(data: OutlineData): boolean {
+  const front = data.bookCoverPrompt?.trim();
+  const back = data.bookBackCoverPrompt?.trim();
+  return Boolean(front && back && front.length > 0 && back.length > 0);
 }
 
 // Request schemas
@@ -284,6 +234,14 @@ router.post('/text/outline', async (req, res) => {
       return;
     } // Load prompt template and prepare variables
     const promptTemplate = await PromptService.loadPrompt('en-US', 'text-outline'); // Use the chapterCount from the database, fallback to 6 if not available
+
+    // Build literary persona guidance (en-US only)
+    const personaGuidance = await (async () => {
+      const code = storyContext.story.literaryPersona;
+      if (!code) return '';
+      const persona = await LiteraryPersonaService.getPersona(code, 'en-US');
+      return persona ? LiteraryPersonaService.formatStyleBlock(persona) : '';
+    })();
     const chapterCount = storyContext.story.chapterCount || 6;
 
     // Prepare template variables
@@ -293,19 +251,7 @@ router.post('/text/outline', async (req, res) => {
       place: storyContext.story.place || 'a magical land',
       language: getLanguageName(storyContext.story.storyLanguage),
       chapterCount,
-      characters: JSON.stringify(
-        storyContext.characters.map((char) => ({
-          name: char.name,
-          type: char.type || '',
-          role: char.role || '',
-          age: char.age || '',
-          traits: char.traits || [],
-          characteristics: char.characteristics || '',
-          physicalDescription: char.physicalDescription || '',
-        })),
-        null,
-        2,
-      ),
+      characters: prepareCharactersForPrompt(storyContext.characters),
       bookTitle: storyContext.story.title,
       storyDescription:
         storyContext.story.plotDescription ||
@@ -313,6 +259,7 @@ router.post('/text/outline', async (req, res) => {
         'No description provided',
       description: storyContext.story.plotDescription || 'No specific plot description provided.',
       graphicalStyle: storyContext.story.graphicalStyle || 'colorful and vibrant illustration',
+      literaryPersonaGuidance: personaGuidance,
       // Placeholder values for template completion
       bookCoverPrompt: 'A book cover prompt will be generated',
       bookBackCoverPrompt: 'A back cover prompt will be generated',
@@ -332,7 +279,8 @@ router.post('/text/outline', async (req, res) => {
     const textProvider = process.env.TEXT_PROVIDER || 'google-genai';
 
     if (textProvider === 'openai') {
-      outlineModel = process.env.OPENAI_TEXT_MODEL || 'gpt-5';
+      outlineModel =
+        process.env.OPENAI_BASE_MODEL || process.env.OPENAI_TEXT_MODEL || 'gpt-5.2';
     } else if (textProvider === 'google-genai') {
       outlineModel = process.env.GOOGLE_GENAI_MODEL || 'gemini-2.5-flash';
     } else {
@@ -352,55 +300,103 @@ router.post('/text/outline', async (req, res) => {
     // Use a deterministic contextId across the workflow (storyId + runId)
     const contextId = `${storyId}:${runId}`;
 
-    const outline = await aiGateway.getTextService(aiContext).complete(finalPrompt, {
-      ...requestOptions,
-      contextId, // ensure the outline response (as first turn) is bound to a context
-    });
-
-    // Parse and validate the AI response
-    const parsedData = parseAIResponse(outline);
-
-    // Validate that the response matches our expected structure
-    if (!isOutlineData(parsedData)) {
-      // Type guard failed, so we know parsedData doesn't match OutlineData
-      // But we can still safely check basic properties for debugging
-      const dataAsRecord =
-        parsedData && typeof parsedData === 'object' ? (parsedData as Record<string, unknown>) : {};
-      logger.error('Invalid outline structure', {
-        hasBookTitle: !!dataAsRecord?.bookTitle,
-        hasChapters: !!dataAsRecord?.chapters,
-        isChaptersArray: Array.isArray(dataAsRecord?.chapters),
-        actualKeys: Object.keys(dataAsRecord),
+    const runSingleOutlineAttempt = async (): Promise<OutlineData> => {
+      const outline = await aiGateway.getTextService(aiContext).complete(finalPrompt, {
+        ...requestOptions,
+        contextId, // ensure the outline response (as first turn) is bound to a context
       });
-      throw new Error('Invalid outline structure received');
+
+      const parsedData = parseAIResponse(outline);
+
+      if (!isOutlineData(parsedData)) {
+        const dataAsRecord =
+          parsedData && typeof parsedData === 'object'
+            ? (parsedData as Record<string, unknown>)
+            : {};
+        logger.error('Invalid outline structure', {
+          hasBookTitle: !!dataAsRecord?.bookTitle,
+          hasChapters: !!dataAsRecord?.chapters,
+          isChaptersArray: Array.isArray(dataAsRecord?.chapters),
+          actualKeys: Object.keys(dataAsRecord),
+        });
+        throw new Error('Invalid outline structure received');
+      }
+
+      const outlineData = parsedData;
+
+      // Refine cover + chapter image prompts for cross-provider clarity
+      try {
+        if (outlineData.bookCoverPrompt) {
+          outlineData.bookCoverPrompt = refineImagePrompt(outlineData.bookCoverPrompt, {
+            styleHint: 'vibrant cover illustration, detailed, soft lighting',
+          });
+          const title = storyContext.story.title?.trim();
+          if (title) {
+            outlineData.bookCoverPrompt = `${outlineData.bookCoverPrompt} Include the exact book title text "${title}" prominently on the cover.`;
+          }
+        }
+        if (outlineData.bookBackCoverPrompt) {
+          outlineData.bookBackCoverPrompt = refineImagePrompt(outlineData.bookBackCoverPrompt, {
+            styleHint: 'cohesive back cover illustration, soft lighting',
+          });
+        }
+        if (Array.isArray(outlineData.chapters)) {
+          outlineData.chapters = outlineData.chapters.map((ch) => ({
+            ...ch,
+            chapterPhotoPrompt: refineImagePrompt(ch.chapterPhotoPrompt, {
+              styleHint: 'cohesive interior illustration, soft lighting',
+            }),
+          }));
+        }
+      } catch (refErr) {
+        logPromptRefinementFailure(refErr);
+      }
+
+      return outlineData;
+    };
+
+    let outlineData: OutlineData | null = null;
+    let lastError: unknown;
+
+    for (const attempt of [1, 2]) {
+      try {
+        const attemptResult = await runSingleOutlineAttempt();
+
+        if (!hasNonEmptyCoverPrompts(attemptResult)) {
+          throw new Error('Outline missing cover prompts');
+        }
+
+        outlineData = attemptResult;
+        break;
+      } catch (err) {
+        lastError = err;
+
+        if (attempt === 1) {
+          logger.warn('Outline attempt failed, clearing stale outline step and retrying once', {
+            storyId,
+            runId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+
+          try {
+            await runsService.deleteStepResult(runId, 'generate_outline');
+          } catch (deleteErr) {
+            logger.warn('Failed to clear outline step before retry', {
+              storyId,
+              runId,
+              error: deleteErr instanceof Error ? deleteErr.message : String(deleteErr),
+            });
+          }
+
+          continue;
+        }
+      }
     }
 
-    const outlineData = parsedData;
-
-    // Refine cover + chapter image prompts for cross-provider clarity
-    try {
-      if (outlineData.bookCoverPrompt) {
-        outlineData.bookCoverPrompt = refineImagePrompt(outlineData.bookCoverPrompt, {
-          styleHint: 'vibrant cover illustration, detailed, soft lighting',
-        });
-      }
-      if (outlineData.bookBackCoverPrompt) {
-        outlineData.bookBackCoverPrompt = refineImagePrompt(outlineData.bookBackCoverPrompt, {
-          styleHint: 'cohesive back cover illustration, soft lighting',
-        });
-      }
-      if (Array.isArray(outlineData.chapters)) {
-        outlineData.chapters = outlineData.chapters.map((ch) => ({
-          ...ch,
-          chapterPhotoPrompt: refineImagePrompt(ch.chapterPhotoPrompt, {
-            styleHint: 'cohesive interior illustration, soft lighting',
-          }),
-        }));
-      }
-    } catch (refErr) {
-      logger.warn('Prompt refinement failed (non-fatal)', {
-        error: refErr instanceof Error ? refErr.message : String(refErr),
-      });
+    if (!outlineData) {
+      throw lastError instanceof Error
+        ? lastError
+        : new Error('Failed to generate outline after retry');
     }
 
     // Initialize chat context after successful outline (system prompt = condensed outline summary)
@@ -457,29 +453,13 @@ router.post('/text/structure', async (req, res) => {
     const RequestSchema = z.object({
       storyId: z.string().uuid(),
       userDescription: z.string().optional(),
-      imageData: z.string().nullable().optional(), // legacy base64 (discouraged)
-      audioData: z.string().nullable().optional(), // legacy base64 (discouraged)
-      imageObjectPath: z.string().optional(), // preferred: object path in bucket
+      imageObjectPath: z.string().optional(),
       audioObjectPath: z.string().optional(),
       characterIds: z.array(z.string().uuid()).optional(), // optional array of character IDs to include
     });
 
-    const {
-      storyId,
-      userDescription,
-      imageObjectPath,
-      audioObjectPath,
-      imageData,
-      audioData,
-      characterIds,
-    } = RequestSchema.parse(req.body);
-    logger.info('AI Text Structure: request received', {
-      storyId,
-      hasText: !!userDescription,
-      hasImage: !!req.body?.imageData || !!imageObjectPath,
-      hasAudio: !!req.body?.audioData || !!audioObjectPath,
-      characterIdsCount: characterIds?.length || 0,
-    });
+    const { storyId, userDescription, imageObjectPath, audioObjectPath, characterIds } =
+      RequestSchema.parse(req.body);
 
     // Get story and author
     const storyContext = await storyService.getStoryContext(storyId);
@@ -510,6 +490,7 @@ router.post('/text/structure', async (req, res) => {
 
     // Build prompt
     const promptTemplate = await PromptService.loadPrompt('en-US', 'text-structure');
+    const defaultPersona = 'classic-novelist';
     const templateVars = {
       authorName: '',
       userDescription: userDescription ?? '',
@@ -523,6 +504,7 @@ router.post('/text/structure', async (req, res) => {
           physicalDescription: c.physicalDescription ?? undefined,
         })),
       ),
+      literaryPersona: defaultPersona,
     };
     const finalPrompt = PromptService.buildPrompt(promptTemplate, templateVars);
     const structSchema = await SchemaService.loadSchema('story-structure');
@@ -531,7 +513,7 @@ router.post('/text/structure', async (req, res) => {
     let model: string;
     const textProvider = process.env.TEXT_PROVIDER || 'google-genai';
     if (textProvider === 'openai') {
-      model = process.env.OPENAI_TEXT_MODEL || 'gpt-5';
+      model = process.env.OPENAI_BASE_MODEL || process.env.OPENAI_TEXT_MODEL || 'gpt-5.2';
     } else {
       model = process.env.GOOGLE_GENAI_MODEL || 'gemini-2.5-flash';
     }
@@ -545,11 +527,7 @@ router.post('/text/structure', async (req, res) => {
 
     // Build media parts if we can use Gemini multimodal
     let aiResponse: string;
-    const hasB64Image = typeof imageData === 'string' && imageData.length > 0;
-    const hasB64Audio = typeof audioData === 'string' && audioData.length > 0;
-    const canUseGemini =
-      textProvider === 'google-genai' &&
-      (imageObjectPath || audioObjectPath || hasB64Image || hasB64Audio);
+    const canUseGemini = textProvider === 'google-genai' && (imageObjectPath || audioObjectPath);
     if (canUseGemini) {
       const storage = getStorageService();
       const mediaParts: Array<{ mimeType: string; data: Buffer | string }> = [];
@@ -572,29 +550,6 @@ router.post('/text/structure', async (req, res) => {
           mimeType: meta.contentType || 'audio/wav',
           data: buf,
         });
-      }
-      // Fallback: attach base64 media directly (dev-friendly, no GCS needed)
-      if (hasB64Image) {
-        const str = imageData as string;
-        let mime = 'image/jpeg';
-        let b64 = str;
-        const match = /^data:([^;]+);base64,(.*)$/.exec(str);
-        if (match) {
-          mime = (match[1] as string) || mime;
-          b64 = (match[2] as string) || b64;
-        }
-        mediaParts.push({ mimeType: mime, data: Buffer.from(b64, 'base64') });
-      }
-      if (hasB64Audio) {
-        const str = audioData as string;
-        let mime = 'audio/wav';
-        let b64 = str;
-        const match = /^data:([^;]+);base64,(.*)$/.exec(str);
-        if (match) {
-          mime = (match[1] as string) || mime;
-          b64 = (match[2] as string) || b64;
-        }
-        mediaParts.push({ mimeType: mime, data: Buffer.from(b64, 'base64') });
       }
       aiResponse = await aiGateway.getTextService(aiContext).complete(finalPrompt, {
         temperature: 0.8,
@@ -627,6 +582,8 @@ router.post('/text/structure', async (req, res) => {
 
     // Persist story fields (subset already used by app)
     const updates: Record<string, unknown> = {};
+    parsed.story.literaryPersona = defaultPersona;
+
     if (parsed.story.title) updates.title = parsed.story.title;
     if (parsed.story.plotDescription) updates.plotDescription = parsed.story.plotDescription;
     if (parsed.story.synopsis) updates.synopsis = parsed.story.synopsis;
@@ -636,6 +593,7 @@ router.post('/text/structure', async (req, res) => {
     if (parsed.story.targetAudience) updates.targetAudience = parsed.story.targetAudience;
     if (parsed.story.novelStyle) updates.novelStyle = parsed.story.novelStyle;
     if (parsed.story.graphicalStyle) updates.graphicalStyle = parsed.story.graphicalStyle;
+    updates.literaryPersona = defaultPersona;
     if (parsed.story.storyLanguage) updates.storyLanguage = parsed.story.storyLanguage;
 
     // Direct DB update via webapp schema synced to SGW
@@ -721,8 +679,6 @@ router.post('/text/structure', async (req, res) => {
       story: { ...updates, storyId },
       characters: processedCharacters,
       originalInput: userDescription ?? '',
-      hasImageInput: false,
-      hasAudioInput: false,
       message: 'Story structure generated successfully.',
     });
   } catch (error) {
@@ -739,6 +695,183 @@ router.post('/text/structure', async (req, res) => {
  * Body: { storyId: uuid, filename?: string, contentType: string, kind: 'image'|'audio' }
  * Stores under mythoria-generated-stories/{storyId}/inputs/<filename>
  */
+router.post('/media/character-photo', async (req, res) => {
+  try {
+    const Schema = z.object({
+      authorId: z.string().uuid(),
+      characterId: z.string().uuid(),
+      dataUrl: z.string().min(10),
+    });
+    const { authorId, characterId, dataUrl } = Schema.parse(req.body);
+
+    const match = /^data:image\/jpeg;base64,(.+)$/i.exec(dataUrl.trim());
+    if (!match || !match[1]) {
+      res.status(400).json({
+        success: false,
+        error: 'Invalid dataUrl format; expected data:image/jpeg;base64,...',
+      });
+      return;
+    }
+
+    const base64Payload = match[1];
+    const buffer = Buffer.from(base64Payload, 'base64');
+    const objectPath = `characters/${authorId}/${characterId}.jpg`;
+
+    const publicUrl = await storageService.uploadFile(objectPath, buffer, 'image/jpeg', {
+      cacheControl: 'public, max-age=31536000',
+    });
+
+    res.json({ success: true, publicUrl, gcsPath: objectPath });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ success: false, error: error.message });
+      return;
+    }
+
+    logger.error('Failed to upload character photo', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+
+    res.status(500).json({ success: false, error: 'Failed to upload character photo' });
+  }
+});
+
+router.delete('/media/character-photo', async (req, res) => {
+  try {
+    const Schema = z.object({
+      gcsPath: z.string().min(1),
+    });
+    const { gcsPath } = Schema.parse(req.body);
+
+    const normalizedPath = gcsPath.trim();
+    const isCharactersPath = normalizedPath.startsWith('characters/');
+    const hasTraversal = normalizedPath.includes('..');
+    if (!isCharactersPath || hasTraversal) {
+      res.status(400).json({
+        success: false,
+        error: 'Invalid gcsPath; must start with characters/ and not contain ..',
+      });
+      return;
+    }
+
+    const exists = await storageService.fileExists(normalizedPath);
+    if (exists) {
+      await storageService.deleteFile(normalizedPath);
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ success: false, error: error.message });
+      return;
+    }
+
+    logger.error('Failed to delete character photo', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+
+    res.status(500).json({ success: false, error: 'Failed to delete character photo' });
+  }
+});
+
+/**
+ * POST /ai/media/analyze-character-photo
+ * Analyzes a character photo using GenAI and returns a 2-sentence physical description.
+ * Body: { dataUrl: string (base64 JPEG), locale: string (e.g. 'en-US', 'pt-PT') }
+ * Returns: { success: true, description: string } or { success: false, error: string }
+ */
+router.post('/media/analyze-character-photo', async (req, res) => {
+  const REQUEST_TIMEOUT_MS = 50000; // 50 seconds timeout
+
+  try {
+    const Schema = z.object({
+      dataUrl: z.string().min(10),
+      locale: z.string().min(2).max(10),
+    });
+    const { dataUrl, locale } = Schema.parse(req.body);
+
+    // Validate dataUrl format
+    const match = /^data:image\/jpeg;base64,(.+)$/i.exec(dataUrl.trim());
+    if (!match || !match[1]) {
+      res.status(400).json({
+        success: false,
+        error: 'Invalid dataUrl format; expected data:image/jpeg;base64,...',
+      });
+      return;
+    }
+
+    const base64Payload = match[1];
+    const buffer = Buffer.from(base64Payload, 'base64');
+
+    // Get the language name for the prompt
+    const languageName = getLanguageName(locale);
+
+    // Load prompt template from file
+    const promptTemplate = await PromptService.loadSharedPrompt('character-photo-analysis');
+    const variables = { languageName, locale };
+    const systemPrompt = promptTemplate.systemPrompt
+      ? PromptService.processPrompt(promptTemplate.systemPrompt, variables)
+      : '';
+    const userPrompt = PromptService.processPrompt(promptTemplate.userPrompt, variables);
+
+    // Create a timeout promise
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('Analysis request timed out')), REQUEST_TIMEOUT_MS);
+    });
+
+    // Get the text service and make the multimodal request
+    const textService = aiGateway.getTextService({
+      authorId: 'system',
+      storyId: 'character-photo-analysis',
+      action: 'character_photo_analysis',
+    });
+
+    // Gemini 3 specific configuration:
+    // - temperature: 1.0 is strongly recommended for Gemini 3 (lower values can cause looping/degraded performance)
+    // - thinkingLevel: 'low' to minimize latency for this simple descriptive task
+    // - mediaResolution: 'medium' is sufficient for character description (saves tokens vs 'high' default)
+    // - maxTokens: 2048 to accommodate any thinking overhead plus output
+    const fullPrompt = systemPrompt ? `${systemPrompt}\n\n${userPrompt}` : userPrompt;
+    const analysisPromise = textService.complete(fullPrompt, {
+      mediaParts: [{ mimeType: 'image/jpeg', data: buffer }],
+      temperature: 1.0, // Gemini 3 recommended default (lower values can cause issues)
+      maxTokens: 2048, // Accommodate thinking overhead + output
+      thinkingLevel: 'low', // Minimize latency for simple descriptive task
+      mediaResolution: 'medium', // Sufficient for character description, saves tokens
+    });
+
+    // Race the analysis against the timeout
+    const description = await Promise.race([analysisPromise, timeoutPromise]);
+
+    // Clean up the response (remove any markdown, extra whitespace, etc.)
+    const cleanedDescription = description
+      .replace(/^["']|["']$/g, '') // Remove surrounding quotes if any
+      .replace(/^\*+|\*+$/g, '') // Remove markdown bold markers
+      .replace(/\n+/g, ' ') // Replace newlines with spaces
+      .trim();
+
+    res.json({ success: true, description: cleanedDescription });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ success: false, error: error.message });
+      return;
+    }
+
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.error('Failed to analyze character photo', { error: errorMessage });
+
+    // Check if it's a timeout error
+    if (errorMessage.includes('timed out')) {
+      res
+        .status(504)
+        .json({ success: false, error: 'Analysis request timed out. Please try again.' });
+      return;
+    }
+
+    res.status(500).json({ success: false, error: 'Failed to analyze character photo' });
+  }
+});
+
 /**
  * POST /ai/media/upload
  * Server-side upload: accepts base64 data and stores in GCS. No signed URLs.
@@ -902,6 +1035,14 @@ router.post('/text/chapter/:chapterNumber', async (req, res) => {
     } // Load chapter prompt template and prepare variables
     const promptTemplate = await PromptService.loadPrompt('en-US', 'text-chapter');
 
+    // Build literary persona guidance (en-US only)
+    const personaGuidance = await (async () => {
+      const code = storyContext.story.literaryPersona;
+      if (!code) return '';
+      const persona = await LiteraryPersonaService.getPersona(code, 'en-US');
+      return persona ? LiteraryPersonaService.formatStyleBlock(persona) : '';
+    })();
+
     // Prepare template variables
     const hookInstruction =
       chapterCount && chapterNumber < chapterCount
@@ -918,6 +1059,7 @@ router.post('/text/chapter/:chapterNumber', async (req, res) => {
       language: getLanguageName(storyContext.story.storyLanguage),
       chapterCount: chapterCount?.toString() || '10',
       hookInstruction: hookInstruction,
+      literaryPersonaGuidance: personaGuidance,
     };
 
     // Build dynamic memory (previous chapters) heuristic: fetch saved chapters < current
@@ -1324,6 +1466,8 @@ router.post('/text/context/clear', async (req, res) => {
 router.post('/image', async (req, res) => {
   let currentStep = 'parsing_request';
   let promptRewriteAttempted = false;
+  let promptRewriteApplied = false;
+  let promptRewriteError: string | undefined;
   let originalPrompt: string | undefined;
   let fallbackPromptUsed = false;
 
@@ -1343,6 +1487,8 @@ router.post('/image', async (req, res) => {
       return;
     }
 
+    const customInstructions = storyContext.story.imageGenerationInstructions?.trim() || '';
+
     // Create context for token tracking
     const imageContext = {
       authorId: storyContext.story.authorId,
@@ -1360,41 +1506,116 @@ router.post('/image', async (req, res) => {
       imageHeight = dimensions.height;
     }
 
-    // Assemble up to two reference images (JPEG only) according to policy:
-    // back_cover: front cover only (if exists)
-    // chapter n: (1) front cover if exists (2) previous chapter image (n-1) if exists
-    // front_cover: none
+    // Assemble up to five reference images (JPEG only), prioritizing character photo references,
+    // then falling back to existing cover/previous-chapter references when capacity remains.
     currentStep = 'collecting_references';
     const referenceImages: Array<{ buffer: Buffer; mimeType: string; source: string }> = [];
+    const seenReferenceFiles = new Set<string>();
+    const MAX_REFERENCE_IMAGES = 5;
     try {
-      // Lazy import utilities only if needed
-      const { extractFilenameFromUri } = await import('@/utils/imageUtils.js');
       const storyRecord = await storyService.getStory(storyId); // includes cover/backcover URIs
-      if (storyRecord) {
-        const storage = getStorageService();
-        const addRef = async (uri: string | null | undefined, source: string) => {
-          if (!uri) return;
-          if (referenceImages.length >= 2) return;
-          try {
-            const filename = extractFilenameFromUri(uri);
-            if (
-              !filename.toLowerCase().endsWith('.jpg') &&
-              !filename.toLowerCase().endsWith('.jpeg')
-            ) {
-              logger.debug('Skipping non-jpeg reference image', { filename, source });
-              return;
-            }
-            const buf = await storage.downloadFileAsBuffer(filename);
-            referenceImages.push({ buffer: buf, mimeType: 'image/jpeg', source });
-            logger.info('Reference image added', { source, size: buf.length, filename });
-          } catch (refErr) {
-            logger.warn('Failed to load reference image', {
-              source,
-              error: refErr instanceof Error ? refErr.message : String(refErr),
-            });
-          }
-        };
+      const storage = getStorageService();
+      const bucketName = process.env.STORAGE_BUCKET_NAME;
 
+      const isSupportedGcsUrl = (url: string): boolean => {
+        if (!bucketName) return false;
+        if (url.startsWith(`gs://${bucketName}/`)) return true;
+        try {
+          const parsed = new URL(url);
+          return (
+            parsed.hostname === 'storage.googleapis.com' &&
+            parsed.pathname.startsWith(`/${bucketName}/`)
+          );
+        } catch {
+          return false;
+        }
+      };
+
+      const addRef = async (uri: string | null | undefined, source: string) => {
+        if (!uri) return;
+        if (referenceImages.length >= MAX_REFERENCE_IMAGES) return;
+        if (!isSupportedGcsUrl(uri)) {
+          return;
+        }
+        const filename = extractFilenameFromUri(uri);
+        if (!filename || seenReferenceFiles.has(filename)) return;
+        const lower = filename.toLowerCase();
+        if (!lower.endsWith('.jpg') && !lower.endsWith('.jpeg')) return;
+        try {
+          const buf = await storage.downloadFileAsBuffer(filename);
+          referenceImages.push({ buffer: buf, mimeType: 'image/jpeg', source });
+          seenReferenceFiles.add(filename);
+        } catch (refErr) {
+          logger.warn('Failed to load reference image', {
+            source,
+            error: refErr instanceof Error ? refErr.message : String(refErr),
+          });
+        }
+      };
+
+      // First preference: character photo references tied to the scene
+      try {
+        const outlineStep = await runsService.getStepResult(runId, 'generate_outline');
+        const parsedOutline = outlineStep?.detailJson
+          ? OutlineSchema.safeParse(outlineStep.detailJson)
+          : null;
+
+        const isValidCharacterId = (id: unknown): id is string =>
+          typeof id === 'string' &&
+          id.length > 0 &&
+          id.toLowerCase() !== 'null' &&
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
+
+        if (parsedOutline?.success && imageType) {
+          const outline = parsedOutline.data;
+          const sceneNames: string[] = (() => {
+            if (imageType === 'front_cover') return outline.bookCoverCharacters || [];
+            if (imageType === 'back_cover') return outline.bookBackCoverCharacters || [];
+            if (imageType === 'chapter' && typeof chapterNumber === 'number') {
+              const match = outline.chapters.find((c) => c.chapterNumber === chapterNumber);
+              return match?.charactersInScene || [];
+            }
+            return [];
+          })();
+
+          const uniqueNames = Array.from(
+            new Set(
+              sceneNames.filter(
+                (name): name is string => typeof name === 'string' && name.trim().length > 0,
+              ),
+            ),
+          );
+          const nameToCharacter = new Map(outline.characters.map((c) => [c.name, c] as const));
+          const storyNameToId = new Map(
+            storyContext.characters
+              .filter((c) => isValidCharacterId(c.characterId))
+              .map((c) => [c.name, c.characterId as string] as const),
+          );
+          const candidateIds = uniqueNames
+            .map((name) => nameToCharacter.get(name)?.characterId || storyNameToId.get(name))
+            .filter(isValidCharacterId);
+          const uniqueIds = Array.from(new Set(candidateIds));
+
+          if (uniqueIds.length > 0) {
+            const charactersWithPhotos = await characterService.getCharactersByIds(uniqueIds);
+            for (const character of charactersWithPhotos) {
+              if (!character.photoUrl || !isSupportedGcsUrl(character.photoUrl)) continue;
+              await addRef(character.photoUrl, `character:${character.characterId}`);
+              if (referenceImages.length >= MAX_REFERENCE_IMAGES) break;
+            }
+          }
+        }
+      } catch (charRefErr) {
+        logger.warn('Character reference collection failed', {
+          storyId,
+          runId,
+          imageType,
+          error: charRefErr instanceof Error ? charRefErr.message : String(charRefErr),
+        });
+      }
+
+      // Secondary preference: existing cover/back/previous chapter references
+      if (storyRecord) {
         if (imageType === 'back_cover') {
           await addRef(storyRecord.coverUri as string | undefined, 'cover');
         } else if (imageType === 'chapter') {
@@ -1433,19 +1654,13 @@ router.post('/image', async (req, res) => {
       });
     }
 
-    // Log summary
-    logger.info('Reference images summary', {
-      count: referenceImages.length,
-      sources: referenceImages.map((r) => r.source),
-      totalSizeBytes: referenceImages.reduce((acc, r) => acc + r.buffer.length, 0),
-    });
-
     // Helper function to attempt image generation
     const attemptImageGeneration = async (promptToUse: string): Promise<Buffer> => {
       return await aiGateway.getImageService(imageContext).generate(promptToUse, {
         ...(imageWidth && { width: imageWidth }),
         ...(imageHeight && { height: imageHeight }),
         ...(style && { style }),
+        customInstructions,
         bookTitle: storyContext.story.title,
         ...(storyContext.story.graphicalStyle && {
           graphicalStyle: storyContext.story.graphicalStyle,
@@ -1463,11 +1678,9 @@ router.post('/image', async (req, res) => {
     try {
       // First attempt with original prompt
       imageBuffer = await attemptImageGeneration(prompt);
+      finalPrompt = prompt;
     } catch (firstError) {
-      // Check if this is a safety block error
-      const { isSafetyBlockError } = await import('@/shared/retry-utils.js');
-
-      if (isSafetyBlockError(firstError)) {
+      if (imageSafetyService.isSafetyBlock(firstError)) {
         logger.warn('Image generation blocked by safety system, attempting prompt rewrite', {
           storyId,
           runId,
@@ -1478,125 +1691,33 @@ router.post('/image', async (req, res) => {
         });
 
         currentStep = 'rewriting_prompt';
-        promptRewriteAttempted = true;
 
-        try {
-          // Load the safety rewrite prompt template
-          const rewritePromptTemplate = await PromptService.loadPrompt(
-            'en-US',
-            'image-prompt-safety-rewrite',
-          );
+        const safetyContext = {
+          storyId,
+          runId,
+          authorId: storyContext.story.authorId,
+          ...(typeof chapterNumber === 'number' ? { chapterNumber } : {}),
+          ...(imageType ? { imageType } : {}),
+          ...(storyContext.story.title ? { bookTitle: storyContext.story.title } : {}),
+          ...(storyContext.story.graphicalStyle
+            ? { graphicalStyle: storyContext.story.graphicalStyle }
+            : {}),
+        };
 
-          // Prepare template variables
-          const rewriteVars = {
-            safetyError: firstError instanceof Error ? firstError.message : String(firstError),
-            imageType: imageType || 'chapter',
-            bookTitle: storyContext.story.title,
-            graphicalStyle: storyContext.story.graphicalStyle || 'illustration',
-            chapterNumber: chapterNumber?.toString() || '',
-            originalPrompt: prompt,
-          };
+        const safetyResult = await imageSafetyService.handleSafetyBlock({
+          originalPrompt: prompt,
+          safetyError: firstError,
+          context: safetyContext,
+          attemptImageGeneration,
+        });
 
-          // Build the rewrite prompt
-          const rewritePrompt = PromptService.buildPrompt(rewritePromptTemplate, rewriteVars);
-
-          // Use GenAI (Google) to rewrite the prompt - force TEXT_PROVIDER temporarily
-          const originalProvider = process.env.TEXT_PROVIDER;
-          process.env.TEXT_PROVIDER = 'google-genai';
-
-          try {
-            // Create a text context for the rewrite
-            const textContext = {
-              authorId: storyContext.story.authorId,
-              storyId: storyId,
-              action: 'prompt_rewrite' as const,
-            };
-
-            // Get the rewritten prompt from GenAI
-            const rewrittenPrompt = await aiGateway
-              .getTextService(textContext)
-              .complete(rewritePrompt, {
-                temperature: 0.7, // Moderate creativity for rewriting
-                maxTokens: 65535,
-              });
-
-            // Restore original provider
-            if (originalProvider) {
-              process.env.TEXT_PROVIDER = originalProvider;
-            }
-
-            // Clean up the rewritten prompt
-            finalPrompt = rewrittenPrompt.trim();
-
-            // Check if GenAI refused to rewrite
-            if (finalPrompt.startsWith('UNABLE_TO_REWRITE:')) {
-              throw new Error(
-                'GenAI determined the prompt is fundamentally unsafe and cannot be rewritten',
-              );
-            }
-
-            logger.info('Prompt successfully rewritten by GenAI', {
-              storyId,
-              runId,
-              imageType,
-              originalLength: prompt.length,
-              rewrittenLength: finalPrompt.length,
-              rewrittenPrompt: finalPrompt.substring(0, 100) + '...',
-            });
-
-            // Retry image generation with rewritten prompt (one attempt only)
-            currentStep = 'generating_image_with_rewritten_prompt';
-            imageBuffer = await attemptImageGeneration(finalPrompt);
-
-            logger.info('Image generation succeeded with rewritten prompt', {
-              storyId,
-              runId,
-              imageType,
-              chapterNumber,
-            });
-          } finally {
-            // Restore original provider in case of error
-            if (originalProvider) {
-              process.env.TEXT_PROVIDER = originalProvider;
-            }
-          }
-        } catch (rewriteError) {
-          logger.error('Prompt rewrite or retry failed', {
-            storyId,
-            runId,
-            imageType,
-            chapterNumber,
-            error: rewriteError instanceof Error ? rewriteError.message : String(rewriteError),
-          });
-
-          const fallbackPrompt = storyContext.story.graphicalStyle
-            ? buildSafeFallbackPrompt(prompt, { styleHint: storyContext.story.graphicalStyle })
-            : buildSafeFallbackPrompt(prompt);
-
-          try {
-            fallbackPromptUsed = true;
-            finalPrompt = fallbackPrompt;
-            currentStep = 'generating_image_with_fallback_prompt';
-            imageBuffer = await attemptImageGeneration(finalPrompt);
-            logger.info('Image generation succeeded with fallback sanitized prompt', {
-              storyId,
-              runId,
-              imageType,
-              chapterNumber,
-            });
-          } catch (fallbackErr) {
-            const enrichedError: any = firstError;
-            enrichedError.promptRewriteAttempted = true;
-            enrichedError.promptRewriteError =
-              rewriteError instanceof Error ? rewriteError.message : String(rewriteError);
-            enrichedError.fallbackAttempted = true;
-            enrichedError.fallbackError =
-              fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
-            throw enrichedError;
-          }
-        }
+        imageBuffer = safetyResult.imageBuffer;
+        finalPrompt = safetyResult.finalPrompt;
+        promptRewriteAttempted = safetyResult.promptRewriteAttempted;
+        promptRewriteApplied = safetyResult.promptRewriteApplied;
+        fallbackPromptUsed = safetyResult.fallbackPromptUsed;
+        promptRewriteError = safetyResult.promptRewriteError;
       } else {
-        // Not a safety block, re-throw as-is
         throw firstError;
       }
     }
@@ -1624,9 +1745,10 @@ router.post('/image', async (req, res) => {
         referenceImageSources: referenceImages.map((r) => r.source),
       },
       ...(promptRewriteAttempted && {
-        promptRewriteApplied: true,
+        promptRewriteApplied,
         originalPrompt: originalPrompt,
         rewrittenPrompt: finalPrompt,
+        ...(promptRewriteError && { promptRewriteError }),
         ...(fallbackPromptUsed && { promptRewriteFallback: true }),
       }),
     });
@@ -1658,91 +1780,6 @@ router.post('/image', async (req, res) => {
     if ((error as any)?.fallbackError) resp.fallbackError = (error as any).fallbackError;
     if (fallbackPromptUsed) resp.fallbackPromptUsed = true;
     res.status(statusCode).json(resp);
-  }
-});
-
-/**
- * GET /ai/test-text
- * Test the configured text AI provider with environment variables and basic prompt
- */
-router.get('/test-text', async (_req, res) => {
-  try {
-    // Collect relevant environment variables for AI provider selection
-    const envVars = {
-      TEXT_PROVIDER: process.env.TEXT_PROVIDER,
-      IMAGE_PROVIDER: process.env.IMAGE_PROVIDER,
-
-      // Google GenAI
-      GOOGLE_GENAI_API_KEY: process.env.GOOGLE_GENAI_API_KEY ? '***REDACTED***' : undefined,
-      GOOGLE_GENAI_MODEL: process.env.GOOGLE_GENAI_MODEL,
-      GOOGLE_GENAI_IMAGE_MODEL: process.env.GOOGLE_GENAI_IMAGE_MODEL,
-
-      // OpenAI
-      OPENAI_API_KEY: process.env.OPENAI_API_KEY ? '***REDACTED***' : undefined,
-      OPENAI_TEXT_MODEL: process.env.OPENAI_TEXT_MODEL,
-      OPENAI_IMAGE_MODEL: process.env.OPENAI_IMAGE_MODEL,
-
-      // Debug settings
-      DEBUG_AI_FULL_PROMPTS: process.env.DEBUG_AI_FULL_PROMPTS,
-      DEBUG_AI_FULL_RESPONSES: process.env.DEBUG_AI_FULL_RESPONSES,
-      LOG_LEVEL: process.env.LOG_LEVEL,
-    };
-
-    // Create a test context for the AI call
-    const testContext = {
-      authorId: '00000000-0000-0000-0000-000000000001', // Test UUID
-      storyId: '00000000-0000-0000-0000-000000000002', // Test UUID
-      action: 'test' as const,
-    };
-
-    let success = false;
-    let response = '';
-    let error = null;
-    let provider = '';
-
-    try {
-      // Get the text service from the AI gateway
-      const textService = aiGateway.getTextService(testContext);
-      provider = process.env.TEXT_PROVIDER || 'google-genai';
-
-      // Make a basic prompt request
-      response = await textService.complete(
-        'Say hi and tell me you are working correctly. Keep it brief.',
-        {
-          temperature: 0.7,
-        },
-      );
-
-      success = true;
-    } catch (aiError) {
-      success = false;
-      error = {
-        message: aiError instanceof Error ? aiError.message : String(aiError),
-        stack: aiError instanceof Error ? aiError.stack : undefined,
-        name: aiError instanceof Error ? aiError.name : 'UnknownError',
-      };
-    }
-
-    res.json({
-      success,
-      timestamp: new Date().toISOString(),
-      environment: envVars,
-      testResult: {
-        provider,
-        response: success ? response : null,
-        error: error,
-      },
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      timestamp: new Date().toISOString(),
-      error: {
-        message: error instanceof Error ? error.message : 'Unknown error',
-        stack: error instanceof Error ? error.stack : undefined,
-        name: error instanceof Error ? error.name : 'UnknownError',
-      },
-    });
   }
 });
 

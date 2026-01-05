@@ -139,12 +139,6 @@ export class RunsService {
         throw new Error(`Run not found: ${runId}`);
       }
 
-      logger.debug('Run updated successfully', {
-        runId,
-        status: updatedRun.status,
-        currentStep: updatedRun.currentStep,
-      });
-
       return updatedRun;
     } catch (error) {
       logger.error('Failed to update run', {
@@ -270,6 +264,26 @@ export class RunsService {
       return step || null;
     } catch (error) {
       logger.error('Failed to get step result', {
+        error: error instanceof Error ? error.message : String(error),
+        runId,
+        stepName,
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Delete a specific step result (used to clear stale data before retries)
+   */
+  async deleteStepResult(runId: string, stepName: string) {
+    try {
+      await this.db
+        .delete(storyGenerationSteps)
+        .where(
+          and(eq(storyGenerationSteps.runId, runId), eq(storyGenerationSteps.stepName, stepName)),
+        );
+    } catch (error) {
+      logger.error('Failed to delete step result', {
         error: error instanceof Error ? error.message : String(error),
         runId,
         stepName,

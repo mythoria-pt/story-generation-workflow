@@ -91,10 +91,6 @@ export class ProgressTrackerService {
 
         // Try to extract chapter count from outline structure
         if (outline.chapters && Array.isArray(outline.chapters)) {
-          logger.debug('Chapter count determined from outline', {
-            runId,
-            chapterCount: outline.chapters.length,
-          });
           const count = outline.chapters.length;
           this.chapterCountCache.set(runId, { count, timestamp: Date.now() });
           return count;
@@ -104,10 +100,6 @@ export class ProgressTrackerService {
         if (outline.content && typeof outline.content === 'string') {
           const chapterMatches = outline.content.match(/Chapter\s+\d+/gi);
           if (chapterMatches) {
-            logger.debug('Chapter count determined from outline content', {
-              runId,
-              chapterCount: chapterMatches.length,
-            });
             const count = chapterMatches.length;
             this.chapterCountCache.set(runId, { count, timestamp: Date.now() });
             return count;
@@ -260,6 +252,17 @@ export class ProgressTrackerService {
         completedSteps,
         totalSteps,
       };
+
+      // Emit a concise debug trace to aid observability without spamming info logs
+      logger.debug('Calculated progress metrics', {
+        runId,
+        completedPercentage,
+        elapsedTime,
+        remainingTime,
+        currentStep: run.currentStep || 'unknown',
+        completedSteps: completedSteps.length,
+        totalSteps,
+      });
 
       return result;
     } catch (error) {
@@ -414,9 +417,7 @@ export class ProgressTrackerService {
       metadata: { storyId },
     });
 
-    if (sent) {
-      logger.info('Story-created email sent successfully', { storyId, authorId: story.authorId });
-    } else {
+    if (!sent) {
       logger.error('Failed to send story-created email', {
         storyId,
         authorEmail: story.authorEmail,

@@ -8,6 +8,34 @@
       "when": 1751126397673,
       "tag": "0000_classy_lord_tyger",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1751126397674,
+      "tag": "0001_add_blocked_status",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1751126397675,
+      "tag": "0002_add_prompt_rewrite_action",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1751126397676,
+      "tag": "0003_blog_translation_and_text_ids",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1733622252000,
+      "tag": "0004_add_character_photo_analysis_action",
+      "breakpoints": true
     }
   ]
 }

@@ -10,6 +10,7 @@ import {
   boolean,
   index,
 } from 'drizzle-orm/pg-core';
+import { eq, isNotNull } from 'drizzle-orm';
 import { authors } from './authors';
 import {
   storyStatusEnum,
@@ -17,6 +18,7 @@ import {
   targetAudienceEnum,
   novelStyleEnum,
   graphicalStyleEnum,
+  literaryPersonaEnum,
   accessLevelEnum,
   collaboratorRoleEnum,
   audiobookStatusEnum,
@@ -44,12 +46,12 @@ export const stories = pgTable(
     targetAudience: targetAudienceEnum('target_audience'),
     novelStyle: novelStyleEnum('novel_style'),
     graphicalStyle: graphicalStyleEnum('graphical_style'),
+    literaryPersona: literaryPersonaEnum('literary_persona'),
     status: storyStatusEnum('status').default('draft'),
     features: jsonb('features'), // {"ebook":true,"printed":false,"audiobook":true}
     deliveryAddress: jsonb('delivery_address'), // Delivery address for printed books
     customAuthor: text('custom_author'), // Custom author name(s) for the story
     dedicationMessage: text('dedication_message'), // Personalized dedication message
-    // Removed html_uri and pdf_uri in favor of generating HTML from chapters and using interior/cover print PDFs
     audiobookUri: jsonb('audiobook_uri'), // JSON object with internal GS links to each chapter audio file
     audiobookStatus: audiobookStatusEnum('audiobook_status'), // Status of audiobook generation
     coverUri: text('cover_uri'), // Internal Google Storage link to front cover image
@@ -83,9 +85,11 @@ export const stories = pgTable(
       table.createdAt,
     ),
     authorIdStatusIdx: index('stories_author_id_status_idx').on(table.authorId, table.status),
-    isPublicIdx: index('stories_is_public_idx').on(table.isPublic),
-    isFeaturedIdx: index('stories_is_featured_idx').on(table.isFeatured),
-    slugIdx: index('stories_slug_idx').on(table.slug),
+    isPublicIdx: index('stories_is_public_idx').on(table.isPublic).where(eq(table.isPublic, true)),
+    isFeaturedIdx: index('stories_is_featured_idx')
+      .on(table.isFeatured)
+      .where(eq(table.isFeatured, true)),
+    slugIdx: index('stories_slug_idx').on(table.slug).where(isNotNull(table.slug)),
   }),
 );
 

@@ -12,6 +12,7 @@ import { ChaptersService } from '@/services/chapters.js';
 import { PromptService } from '@/services/prompt.js';
 import { getAIGatewayWithTokenTracking } from '@/ai/gateway-with-tracking.js';
 import { formatTargetAudience, getLanguageName } from '@/shared/utils.js';
+import { getEnvironment } from '@/config/environment.js';
 
 // Initialize services
 const storyService = new StoryService();
@@ -55,6 +56,9 @@ export async function processTextEditJob(jobId: string, params: TextEditJobParam
 
     // Mark job as completed with result
     jobManager.updateJobStatus(jobId, 'completed', result);
+
+    // Attempt to notify webapp so it can persist edits even if the browser is closed
+    await notifyWebapp(jobId, result, params);
 
     logger.info('Text edit job completed successfully', {
       jobId,
@@ -136,6 +140,8 @@ async function processSingleChapterEdit(
     storyId,
     chapterNumber,
     updatedHtml: editedContent.trim(),
+    userRequest,
+    authorId: storyContext.story.authorId,
     timestamp: new Date().toISOString(),
   };
 }
@@ -217,8 +223,59 @@ async function processFullStoryEdit(storyId: string, userRequest: string): Promi
     totalChapters: storyChapters.length,
     successfulEdits: editedChapters.filter((ch) => !ch.error).length,
     failedEdits: editedChapters.filter((ch) => ch.error).length,
+    userRequest,
+    authorId: storyContext.story.authorId,
     timestamp: new Date().toISOString(),
   };
+}
+
+/**
+ * Notify webapp to persist completed edits. Best-effort; errors are logged but do not fail the job.
+ */
+async function notifyWebapp(jobId: string, result: any, params: TextEditJobParams): Promise<void> {
+  try {
+    const env = getEnvironment();
+    const webhookUrl = env.WEBAPP_WEBHOOK_URL || process.env.WEBAPP_WEBHOOK_URL;
+    const secret = env.WEBAPP_WEBHOOK_SECRET || process.env.WEBAPP_WEBHOOK_SECRET;
+
+    if (!webhookUrl || !secret) {
+      logger.warn('Webapp webhook not configured; skipping persistence callback', { jobId });
+      return;
+    }
+
+    const payload = {
+      jobId,
+      scope: params.scope,
+      storyId: params.storyId,
+      chapterNumber: params.chapterNumber,
+      result,
+    };
+
+    const res = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-sgw-signature': secret,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => '');
+      logger.error('Failed to notify webapp for text_edit completion', {
+        jobId,
+        status: res.status,
+        body: errBody,
+      });
+    } else {
+      logger.info('Notified webapp to persist text_edit result', { jobId });
+    }
+  } catch (error) {
+    logger.error('Error notifying webapp for text_edit completion', {
+      jobId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 /**
