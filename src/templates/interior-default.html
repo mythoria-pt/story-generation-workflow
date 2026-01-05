@@ -224,6 +224,7 @@
 
       /* Chapter image page (even page - left side) */
       .chapter-image-page {
+        page-break-before: always;
         page-break-after: always;
         margin: 0;
         padding: 0;
@@ -396,22 +397,12 @@
 
       /* Blank page for even/odd page alignment */
       .blank-page {
-        page-break-after: always;
-        width: {{pageWidthMM}}mm;
-        height: {{pageHeightMM}}mm;
-        margin: 0;
-        padding: 0;
-        box-sizing: border-box;
+        display: none;
       }
 
       /* Page break without visible content */
       .page-break {
-        page-break-after: always;
-        width: {{pageWidthMM}}mm;
-        height: {{pageHeightMM}}mm;
-        margin: 0;
-        padding: 0;
-        box-sizing: border-box;
+        display: none;
       }
     </style>
   </head>
@@ -491,8 +482,5 @@
 
     <!-- Chapters -->
     {{chapters}}
-
-    <!-- Final empty page to end on recto -->
-    <div class="page"></div>
   </body>
 </html>
