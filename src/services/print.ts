@@ -145,17 +145,6 @@ export class PrintService {
         imageUrl = convertToAbsoluteImagePath(chapter.imageUri);
       }
 
-      // For all chapters except the first one, add a page break before the chapter image
-      // This ensures we have an empty page before each chapter image (except chapter 1)
-      if (chapterIndex > 0) {
-        html += `
-      <!-- Page break before Chapter ${chapterIndex + 1} image -->
-      <div class="page-break">
-        <span style="color: #F5F5F5; font-size: 6px;">EMPTY-PAGE-MARKER</span>
-      </div>
-      `;
-      }
-
       // Add chapter image (on even page)
       html += `
       <!-- Chapter ${chapterIndex + 1} Image Page (Even/Left) -->
