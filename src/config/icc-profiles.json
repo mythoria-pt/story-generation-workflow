@@ -26,13 +26,32 @@
       "outputIntent": "PSO Uncoated ISO12647",
       "registryName": "http://www.eci.org",
       "info": "FOGRA47L"
+    },
+    "GenericGrayGamma22": {
+      "name": "Generic Gray Gamma 2.2",
+      "filename": "Generic_Gray_Gamma_2.2_Profile.icc",
+      "description": "Gray Gamma 2.2 single-channel profile for black & white text output",
+      "colorSpace": "GRAY",
+      "outputIntent": "Gray Gamma 2.2",
+      "registryName": "http://www.color.org",
+      "info": "GRAYGAMMA22"
     }
   },
   "defaultProfile": "PSOCoatedNPscreen",
+  "grayscaleProfile": "GenericGrayGamma22",
   "ghostscriptSettings": {
     "device": "pdfwrite",
     "colorConversionStrategy": "CMYK",
     "processColorModel": "DeviceCMYK",
+    "compatibilityLevel": "1.4",
+    "pdfx": true,
+    "blackPointCompensation": true,
+    "preserveBlacks": true
+  },
+  "grayscaleGhostscriptSettings": {
+    "device": "pdfwrite",
+    "colorConversionStrategy": "Gray",
+    "processColorModel": "DeviceGray",
     "compatibilityLevel": "1.4",
     "pdfx": true,
     "blackPointCompensation": true,

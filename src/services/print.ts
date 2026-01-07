@@ -404,6 +404,17 @@ export class PrintService {
         metadata,
       );
 
+      await this.cmykService.applyGrayProfileToTextPages({
+        inputPath: result.interiorCMYK,
+        outputPath: result.interiorCMYK,
+        detectionOptions: {
+          imageThreshold: 500,
+          dominantAreaRatio: 0.35,
+          minPageCoverageRatio: 0.15,
+          aspectRatioTolerance: 0.35,
+        },
+      });
+
       logger.info('CMYK conversion completed successfully', {
         interiorCmyk: result.interiorCMYK,
         coverCmyk: result.coverCMYK,

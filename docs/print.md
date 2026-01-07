@@ -47,6 +47,8 @@ SGW produces two PDF sets per story—RGB (screen) and CMYK (print-ready)—and 
 
 - When an ICC profile is not available, the service skips `metadata.ps` and still emits CMYK output, logging `"Using built-in CMYK conversion (no ICC profile)"`.
 - Errors never break the workflow: failures log `"CMYK conversion failed, continuing with RGB only"` and the API still returns the RGB URLs.
+- After CMYK conversion, interior pages are reprocessed so that non-image pages use a **Gray Gamma 2.2** profile while chapter image pages remain in color. The detector favors large, page-filling images (via `pdf-parse` 2.x) and leaves those pages untouched while rerendering text pages in grayscale. The Gray profile ships as `icc-profiles/Generic_Gray_Gamma_2.2_Profile.icc` and is copied into the runtime image alongside the CMYK profiles.
+- Image-page detection uses `pdf-parse`’s `getImage()` with a high threshold and then falls back to a low-level `pdf-lib` scan if PDF.js fails (e.g., when WASM workers are restricted). Detected pages (typically the full-bleed chapter illustrations) stay CMYK; all other interior pages are rendered to Gray Gamma 2.2 to preserve true black while keeping PDF/X‑1a conformance.
 
 ## Testing & validation
 

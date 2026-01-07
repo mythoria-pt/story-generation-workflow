@@ -1,8 +1,20 @@
 import { spawn } from 'child_process';
-import { readFileSync, existsSync, statSync, readdirSync } from 'fs';
+import { readFileSync, existsSync, statSync, readdirSync, writeFileSync, unlinkSync } from 'fs';
 import { join, dirname, basename, extname } from 'path';
+import { PDFDict, PDFDocument, PDFName, PDFStream } from 'pdf-lib';
+import { PDFParse } from 'pdf-parse';
 import { logger } from '@/config/logger.js';
 import { getEnvironment } from '@/config/environment.js';
+
+interface GhostscriptSettings {
+  device: string;
+  colorConversionStrategy: string;
+  processColorModel: string;
+  compatibilityLevel: string;
+  pdfx: boolean;
+  blackPointCompensation: boolean;
+  preserveBlacks: boolean;
+}
 
 interface ICCProfileConfig {
   profiles: Record<
@@ -18,15 +30,9 @@ interface ICCProfileConfig {
     }
   >;
   defaultProfile: string;
-  ghostscriptSettings: {
-    device: string;
-    colorConversionStrategy: string;
-    processColorModel: string;
-    compatibilityLevel: string;
-    pdfx: boolean;
-    blackPointCompensation: boolean;
-    preserveBlacks: boolean;
-  };
+  grayscaleProfile?: string;
+  ghostscriptSettings: GhostscriptSettings;
+  grayscaleGhostscriptSettings?: GhostscriptSettings;
 }
 
 interface CMYKConversionOptions {
@@ -39,6 +45,13 @@ interface CMYKConversionOptions {
     subject?: string;
     creator?: string;
   };
+}
+
+interface ImagePageDetectionOptions {
+  imageThreshold?: number;
+  dominantAreaRatio?: number;
+  minPageCoverageRatio?: number;
+  aspectRatioTolerance?: number;
 }
 
 export class CMYKConversionService {
@@ -79,6 +92,7 @@ export class CMYKConversionService {
       ghostscriptBinary: this.ghostscriptBinary,
       iccProfilesPath: this.iccProfilesPath,
       defaultProfile: this.profileConfig.defaultProfile,
+      grayscaleProfile: this.profileConfig.grayscaleProfile,
     });
   }
 
@@ -202,6 +216,299 @@ export class CMYKConversionService {
     return profilePath;
   }
 
+  private buildGhostscriptArgs(
+    settings: GhostscriptSettings,
+    iccProfilePath: string,
+    inputPath: string,
+    outputPath: string,
+  ): string[] {
+    const gsArgs = [
+      '-dSAFER',
+      '-dBATCH',
+      '-dNOPAUSE',
+      `-sDEVICE=${settings.device}`,
+      `-dCompatibilityLevel=${settings.compatibilityLevel}`,
+      `-dColorConversionStrategy=/${settings.colorConversionStrategy}`,
+      `-dProcessColorModel=/${settings.processColorModel}`,
+      '-dOverrideICC',
+      '-dDeviceGrayToK',
+      '-dAutoRotatePages=/None',
+      '-dEmbedAllFonts',
+      '-dSubsetFonts',
+    ];
+
+    if (settings.pdfx) {
+      gsArgs.push('-dPDFX=true');
+    }
+    if (settings.blackPointCompensation) {
+      gsArgs.push('-dBlackPointCompensation=true');
+    }
+
+    if (iccProfilePath) {
+      const isGray = settings.processColorModel.toLowerCase() === 'devicegray';
+      const defaultProfileFlag = isGray ? '-sDefaultGrayProfile' : '-sDefaultCMYKProfile';
+      gsArgs.push(`${defaultProfileFlag}=${iccProfilePath}`);
+      gsArgs.push(`-sOutputICCProfile=${iccProfilePath}`);
+    } else {
+      logger.info('Proceeding without ICC profile for Ghostscript conversion');
+    }
+
+    gsArgs.push('-o');
+    gsArgs.push(outputPath);
+    gsArgs.push(inputPath);
+
+    return gsArgs;
+  }
+
+  private async runGhostscript(args: string[]): Promise<{ stdout: string; stderr: string }> {
+    logger.debug('Executing Ghostscript command', {
+      binary: this.ghostscriptBinary,
+      argCount: args.length,
+    });
+
+    return new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
+      const child = spawn(this.ghostscriptBinary, args, {
+        timeout: 300000, // 5 minutes timeout
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+
+      let stdout = '';
+      let stderr = '';
+
+      child.stdout?.on('data', (data) => {
+        stdout += data.toString();
+      });
+
+      child.stderr?.on('data', (data) => {
+        stderr += data.toString();
+      });
+
+      child.on('error', (error) => {
+        reject(new Error(`Failed to execute Ghostscript: ${error.message}`));
+      });
+
+      child.on('close', (code) => {
+        if (code === 0) {
+          resolve({ stdout, stderr });
+        } else {
+          reject(new Error(`Ghostscript exited with code ${code}. Stderr: ${stderr}`));
+        }
+      });
+    });
+  }
+
+  private detectImagePagesWithPdfLib(pdfDoc: PDFDocument): Set<number> {
+    const imagePages = new Set<number>();
+    const pages = pdfDoc.getPages();
+
+    for (let i = 0; i < pages.length; i++) {
+      const page = pages[i];
+      const node = (page as any).node;
+      if (!node || typeof node.Resources !== 'function') continue;
+
+      const resources = node.Resources();
+      const xObject = resources?.lookupMaybe(PDFName.of('XObject'), PDFDict);
+      if (!xObject) continue;
+
+      for (const key of xObject.keys()) {
+        const xObj = xObject.lookupMaybe(key, PDFStream);
+        const subtype = xObj?.dict?.lookupMaybe(PDFName.of('Subtype'), PDFName);
+        const subtypeName = subtype?.asString();
+        if (subtypeName === '/Image' || subtypeName === 'Image') {
+          imagePages.add(i + 1);
+          break;
+        }
+      }
+    }
+
+    return imagePages;
+  }
+
+  async detectLargeImagePages(
+    pdfPath: string,
+    options: ImagePageDetectionOptions = {},
+  ): Promise<Set<number>> {
+    const imageThreshold = options.imageThreshold ?? 300;
+    const dominantAreaRatio = options.dominantAreaRatio ?? 0.4;
+    const minPageCoverageRatio = options.minPageCoverageRatio ?? 0.18;
+    const aspectRatioTolerance = options.aspectRatioTolerance ?? 0.25;
+
+    if (!existsSync(pdfPath)) {
+      throw new Error(`Input PDF file not found for image detection: ${pdfPath}`);
+    }
+
+    const pdfBytes = readFileSync(pdfPath);
+    const pdfDoc = await PDFDocument.load(pdfBytes);
+    const parser = new PDFParse({
+      data: pdfBytes,
+      useWasm: false, // avoid dynamic import restrictions in Node test/runtime without vm module flags
+    });
+
+    try {
+      const images = await parser.getImage({
+        imageThreshold,
+        imageBuffer: false,
+        imageDataUrl: false,
+      });
+
+      let maxImageArea = 0;
+      images.pages.forEach((page) => {
+        page.images.forEach((img) => {
+          const area = img.width * img.height;
+          if (area > maxImageArea) {
+            maxImageArea = area;
+          }
+        });
+      });
+
+      const imagePages = new Set<number>();
+      images.pages.forEach((page) => {
+        if (page.images.length === 0) return;
+
+        const largestImage = page.images.reduce((prev, current) => {
+          const prevArea = prev.width * prev.height;
+          const currentArea = current.width * current.height;
+          return currentArea > prevArea ? current : prev;
+        });
+
+        const largestArea = largestImage.width * largestImage.height;
+        const normalizedArea = maxImageArea > 0 ? largestArea / maxImageArea : 0;
+        const pageRef = pdfDoc.getPage(page.pageNumber - 1);
+        const pageArea = pageRef.getWidth() * pageRef.getHeight();
+        const pageCoverage = pageArea > 0 ? largestArea / pageArea : 0;
+        const pageAspect = pageRef.getWidth() / pageRef.getHeight();
+        const imageAspect = largestImage.width / largestImage.height;
+        const aspectDelta = Math.abs(pageAspect - imageAspect) / pageAspect;
+
+        const dominantImage = normalizedArea >= dominantAreaRatio;
+        const coversPage = pageCoverage >= minPageCoverageRatio;
+        const aspectAligned = aspectDelta <= aspectRatioTolerance;
+
+        if (dominantImage || (coversPage && aspectAligned)) {
+          imagePages.add(page.pageNumber);
+        }
+      });
+
+      if (imagePages.size > 0) {
+        logger.info('Detected image-heavy pages via pdf-parse', { pages: [...imagePages] });
+        return imagePages;
+      }
+
+      const fallback = this.detectImagePagesWithPdfLib(pdfDoc);
+      if (fallback.size > 0) {
+        logger.info('Detected image-heavy pages via pdf-lib fallback', { pages: [...fallback] });
+      }
+      return fallback;
+    } catch (error) {
+      logger.warn('Failed to detect image pages; falling back to pdf-lib detection', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      const fallback = this.detectImagePagesWithPdfLib(pdfDoc);
+      return fallback;
+    } finally {
+      if (typeof parser.destroy === 'function') {
+        await parser.destroy();
+      }
+    }
+  }
+
+  async applyGrayProfileToTextPages(options: {
+    inputPath: string;
+    outputPath: string;
+    colorPageNumbers?: number[];
+    detectionOptions?: ImagePageDetectionOptions;
+  }): Promise<string> {
+    logger.info('Starting grayscale conversion for text pages', {
+      input: options.inputPath,
+      output: options.outputPath,
+      providedColorPages: options.colorPageNumbers?.length ?? 0,
+    });
+
+    if (!existsSync(options.inputPath)) {
+      throw new Error(`Input PDF file not found: ${options.inputPath}`);
+    }
+
+    const isGhostscriptValid = await this.validateGhostscript();
+    if (!isGhostscriptValid) {
+      throw new Error('Ghostscript validation failed');
+    }
+
+    const grayProfileName = this.profileConfig.grayscaleProfile || this.profileConfig.defaultProfile;
+    const grayProfilePath = this.getICCProfilePath(grayProfileName);
+
+    const grayscaleSettings: GhostscriptSettings = this.profileConfig.grayscaleGhostscriptSettings ?? {
+      ...this.profileConfig.ghostscriptSettings,
+      colorConversionStrategy: 'Gray',
+      processColorModel: 'DeviceGray',
+    };
+
+    const colorPages =
+      options.colorPageNumbers && options.colorPageNumbers.length > 0
+        ? new Set(options.colorPageNumbers)
+        : await this.detectLargeImagePages(options.inputPath, options.detectionOptions);
+
+    const extension = extname(options.outputPath);
+    const grayTempPath = join(
+      dirname(options.outputPath),
+      `${basename(options.outputPath, extension)}-gray-temp${extension}`,
+    );
+
+    try {
+      const gsArgs = this.buildGhostscriptArgs(
+        grayscaleSettings,
+        grayProfilePath,
+        options.inputPath,
+        grayTempPath,
+      );
+      const result = await this.runGhostscript(gsArgs);
+      if (result.stderr && !result.stderr.includes('Warning')) {
+        logger.warn('Ghostscript stderr output during grayscale conversion', { stderr: result.stderr });
+      }
+
+      const originalBytes = readFileSync(options.inputPath);
+      const grayBytes = readFileSync(grayTempPath);
+
+      const originalDoc = await PDFDocument.load(originalBytes);
+      const grayDoc = await PDFDocument.load(grayBytes);
+
+      if (originalDoc.getPageCount() !== grayDoc.getPageCount()) {
+        throw new Error('Page count mismatch after grayscale conversion');
+      }
+
+      for (let pageIndex = 0; pageIndex < originalDoc.getPageCount(); pageIndex++) {
+        const pageNumber = pageIndex + 1;
+        if (colorPages.has(pageNumber)) continue;
+
+        const [grayPage] = await originalDoc.copyPages(grayDoc, [pageIndex]);
+        originalDoc.removePage(pageIndex);
+        originalDoc.insertPage(pageIndex, grayPage);
+      }
+
+      const mergedBytes = await originalDoc.save();
+      writeFileSync(options.outputPath, mergedBytes);
+
+      logger.info('Grayscale conversion applied to text pages', {
+        output: options.outputPath,
+        colorPages: [...colorPages].sort((a, b) => a - b),
+      });
+
+      return options.outputPath;
+    } catch (error) {
+      logger.error('Failed to apply grayscale conversion to text pages', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    } finally {
+      if (existsSync(grayTempPath)) {
+        try {
+          unlinkSync(grayTempPath);
+        } catch {
+          // ignore cleanup errors
+        }
+      }
+    }
+  }
+
   /**
    * Convert RGB PDF to CMYK PDF/X-1a
    */
@@ -228,72 +535,18 @@ export class CMYKConversionService {
 
     try {
       // Build Ghostscript command for CMYK conversion
-      const { ghostscriptSettings } = this.profileConfig;
-      const gsArgs = [
-        '-dSAFER',
-        '-dBATCH',
-        '-dNOPAUSE',
-        `-sDEVICE=${ghostscriptSettings.device}`,
-        `-dCompatibilityLevel=${ghostscriptSettings.compatibilityLevel}`,
-        '-dColorConversionStrategy=/CMYK',
-        '-dProcessColorModel=/DeviceCMYK',
-        '-dOverrideICC',
-        '-dDeviceGrayToK',
-        '-dAutoRotatePages=/None',
-        '-dEmbedAllFonts',
-        '-dSubsetFonts',
-      ];
-
-      // Add ICC profile if available
       if (iccProfilePath) {
-        gsArgs.push(`-sDefaultCMYKProfile=${iccProfilePath}`);
         logger.info('Using ICC profile for CMYK conversion', { profilePath: iccProfilePath });
       } else {
         logger.info('Using built-in CMYK conversion (no ICC profile)');
       }
-
-      // Use -o shorthand for output file
-      gsArgs.push('-o');
-      gsArgs.push(options.outputPath);
-      gsArgs.push(options.inputPath);
-
-      // Execute Ghostscript command
-      const commandArgs = gsArgs.slice();
-
-      logger.debug('Executing Ghostscript command', {
-        binary: this.ghostscriptBinary,
-        argCount: commandArgs.length,
-      });
-
-      const result = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
-        const child = spawn(this.ghostscriptBinary, commandArgs, {
-          timeout: 300000, // 5 minutes timeout
-          stdio: ['ignore', 'pipe', 'pipe'],
-        });
-
-        let stdout = '';
-        let stderr = '';
-
-        child.stdout?.on('data', (data) => {
-          stdout += data.toString();
-        });
-
-        child.stderr?.on('data', (data) => {
-          stderr += data.toString();
-        });
-
-        child.on('error', (error) => {
-          reject(new Error(`Failed to execute Ghostscript: ${error.message}`));
-        });
-
-        child.on('close', (code) => {
-          if (code === 0) {
-            resolve({ stdout, stderr });
-          } else {
-            reject(new Error(`Ghostscript exited with code ${code}. Stderr: ${stderr}`));
-          }
-        });
-      });
+      const gsArgs = this.buildGhostscriptArgs(
+        this.profileConfig.ghostscriptSettings,
+        iccProfilePath,
+        options.inputPath,
+        options.outputPath,
+      );
+      const result = await this.runGhostscript(gsArgs);
 
       if (result.stderr && !result.stderr.includes('Warning')) {
         logger.warn('Ghostscript stderr output', { stderr: result.stderr });
