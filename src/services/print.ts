@@ -482,7 +482,7 @@ export class PrintService {
           interiorPostProcessedPath, // Use post-processed version for CMYK
           coverOutputPath,
           storyData,
-          processingResult.imagePageNumbers,
+          processingResult.imagePagesDetected,
         );
 
         result.interiorCmykPdfPath = cmykResult.interiorCmykPath;

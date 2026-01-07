@@ -1,6 +1,5 @@
 import { PDFDict, PDFDocument, PDFName, PDFStream } from 'pdf-lib';
 import { readFileSync, writeFileSync } from 'fs';
-import { join } from 'path';
 import { logger } from '@/config/logger.js';
 import { PDFParse } from 'pdf-parse';
 
