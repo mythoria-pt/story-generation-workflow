@@ -59,8 +59,29 @@ describe('CMYKConversionService image detection', () => {
     const imagePages = await service.detectLargeImagePages(pdfPath, {
       imageThreshold: 0,
       minPageCoverageRatio: 0.12,
+      // Override default to test raw detection without page 2 exclusion
+      grayscaleOnlyPages: [],
     });
 
     expect([...imagePages]).toEqual([2]);
+  });
+
+  it('excludes page 2 (QR code page) from color detection by default', async () => {
+    ensureTestEnv();
+
+    const workDir = mkdtempSync(path.join(tmpdir(), 'cmyk-detect-page2-'));
+    const pdfPath = path.join(workDir, 'sample.pdf');
+    await createSamplePdf(pdfPath);
+
+    const { CMYKConversionService } = await import('@/services/cmyk-conversion.js');
+    const service = new CMYKConversionService();
+    // Use default options which should exclude page 2
+    const imagePages = await service.detectLargeImagePages(pdfPath, {
+      imageThreshold: 0,
+      minPageCoverageRatio: 0.12,
+    });
+
+    // Page 2 should NOT be included because it's forced to grayscale by default
+    expect([...imagePages]).toEqual([]);
   });
 });

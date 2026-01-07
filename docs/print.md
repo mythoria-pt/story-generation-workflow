@@ -50,6 +50,21 @@ SGW produces two PDF sets per story—RGB (screen) and CMYK (print-ready)—and 
 - After CMYK conversion, interior pages are reprocessed so that non-image pages use a **Gray Gamma 2.2** profile while chapter image pages remain in color. The detector favors large, page-filling images (via `pdf-parse` 2.x) and leaves those pages untouched while rerendering text pages in grayscale. The Gray profile ships as `icc-profiles/Generic_Gray_Gamma_2.2_Profile.icc` and is copied into the runtime image alongside the CMYK profiles.
 - Image-page detection uses `pdf-parse`’s `getImage()` with a high threshold and then falls back to a low-level `pdf-lib` scan if PDF.js fails (e.g., when WASM workers are restricted). Detected pages (typically the full-bleed chapter illustrations) stay CMYK; all other interior pages are rendered to Gray Gamma 2.2 to preserve true black while keeping PDF/X‑1a conformance.
 
+### Interior PDF page structure
+
+The interior PDF follows a fixed structure that the grayscale conversion must respect:
+
+| Page | Content | Color Treatment |
+|------|---------|-----------------|
+| 1 | Title page | Grayscale |
+| 2 | Technical/copyright info + QR code | **Grayscale** (forced) |
+| 3 | Title and subtitle | Grayscale |
+| 4 | Synopsis | Grayscale |
+| 5 | Table of Contents | Grayscale |
+| 6+ | Chapter images + text | Images = CMYK, Text = Grayscale |
+
+**Why page 2 is forced to grayscale:** Page 2 contains a QR code which triggers the image detection heuristics (it's recognized as an image). However, QR codes print correctly in grayscale and don't require color. By default, `grayscaleOnlyPages: [2]` ensures this page is always converted to Gray Gamma 2.2, reducing print costs and avoiding false-positive color page detection.
+
 ## Testing & validation
 
 | Intent                         | Command                                                                                     |

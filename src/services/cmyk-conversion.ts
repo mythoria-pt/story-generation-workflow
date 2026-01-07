@@ -52,6 +52,22 @@ interface ImagePageDetectionOptions {
   dominantAreaRatio?: number;
   minPageCoverageRatio?: number;
   aspectRatioTolerance?: number;
+  /**
+   * Pages that should ALWAYS be converted to grayscale, even if they contain images.
+   * By default, includes page 2 (copyright/technical info page with QR code).
+   *
+   * Story PDF structure:
+   * - Page 1: Title (B&W)
+   * - Page 2: Technical/copyright info with QR code (B&W - forced grayscale)
+   * - Page 3: Title and subtitle (B&W)
+   * - Page 4: Synopsis (B&W)
+   * - Page 5: Table of Contents (B&W)
+   * - Page 6+: Chapter images (color) followed by chapter text (B&W)
+   *
+   * The QR code on page 2 triggers image detection but should remain grayscale
+   * for proper print output and cost optimization.
+   */
+  grayscaleOnlyPages?: number[];
 }
 
 export class CMYKConversionService {
@@ -197,9 +213,9 @@ export class CMYKConversionService {
       return '';
     }
 
-    // Check if it's a real ICC profile (binary file, should be > 100KB)
+    // Check if it's a real ICC profile (binary file, should be > 1KB)
     const stats = statSync(profilePath);
-    if (stats.size < 100 * 1024) {
+    if (stats.size < 1 * 1024) {
       logger.warn(
         `ICC profile file too small (${stats.size} bytes), likely a placeholder. Using built-in CMYK conversion`,
       );
@@ -248,7 +264,9 @@ export class CMYKConversionService {
       const isGray = settings.processColorModel.toLowerCase() === 'devicegray';
       const defaultProfileFlag = isGray ? '-sDefaultGrayProfile' : '-sDefaultCMYKProfile';
       gsArgs.push(`${defaultProfileFlag}=${iccProfilePath}`);
-      gsArgs.push(`-sOutputICCProfile=${iccProfilePath}`);
+      // Note: -sOutputICCProfile is intentionally NOT used here as it causes
+      // "Unrecoverable error, exit code 1" with Ghostscript 10.x on Windows.
+      // The Default*Profile flag is sufficient for color conversion.
     } else {
       logger.info('Proceeding without ICC profile for Ghostscript conversion');
     }
@@ -261,9 +279,11 @@ export class CMYKConversionService {
   }
 
   private async runGhostscript(args: string[]): Promise<{ stdout: string; stderr: string }> {
+    // Log the full command for debugging (useful when troubleshooting GS issues)
     logger.debug('Executing Ghostscript command', {
       binary: this.ghostscriptBinary,
       argCount: args.length,
+      fullCommand: `"${this.ghostscriptBinary}" ${args.map((a) => (a.includes(' ') ? `"${a}"` : a)).join(' ')}`,
     });
 
     return new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
@@ -297,11 +317,15 @@ export class CMYKConversionService {
     });
   }
 
-  private detectImagePagesWithPdfLib(pdfDoc: PDFDocument): Set<number> {
+  private detectImagePagesWithPdfLib(pdfDoc: PDFDocument, grayscaleOnlyPages: Set<number> = new Set()): Set<number> {
     const imagePages = new Set<number>();
     const pages = pdfDoc.getPages();
 
     for (let i = 0; i < pages.length; i++) {
+      const pageNumber = i + 1;
+      // Skip pages that are forced to grayscale
+      if (grayscaleOnlyPages.has(pageNumber)) continue;
+
       const page = pages[i];
       const node = (page as any).node;
       if (!node || typeof node.Resources !== 'function') continue;
@@ -315,7 +339,7 @@ export class CMYKConversionService {
         const subtype = xObj?.dict?.lookupMaybe(PDFName.of('Subtype'), PDFName);
         const subtypeName = subtype?.asString();
         if (subtypeName === '/Image' || subtypeName === 'Image') {
-          imagePages.add(i + 1);
+          imagePages.add(pageNumber);
           break;
         }
       }
@@ -332,6 +356,11 @@ export class CMYKConversionService {
     const dominantAreaRatio = options.dominantAreaRatio ?? 0.4;
     const minPageCoverageRatio = options.minPageCoverageRatio ?? 0.18;
     const aspectRatioTolerance = options.aspectRatioTolerance ?? 0.25;
+
+    // Pages that should always be grayscale regardless of image detection.
+    // Default: page 2 contains a QR code which triggers image detection but
+    // should remain grayscale (it's the copyright/technical info page).
+    const grayscaleOnlyPages = new Set(options.grayscaleOnlyPages ?? [2]);
 
     if (!existsSync(pdfPath)) {
       throw new Error(`Input PDF file not found for image detection: ${pdfPath}`);
@@ -385,16 +414,26 @@ export class CMYKConversionService {
         const aspectAligned = aspectDelta <= aspectRatioTolerance;
 
         if (dominantImage || (coversPage && aspectAligned)) {
-          imagePages.add(page.pageNumber);
+          // Skip pages that are forced to grayscale (e.g., page 2 with QR code)
+          if (!grayscaleOnlyPages.has(page.pageNumber)) {
+            imagePages.add(page.pageNumber);
+          }
         }
       });
+
+      // Log which pages were excluded due to grayscaleOnlyPages setting
+      if (grayscaleOnlyPages.size > 0) {
+        logger.debug('Pages forced to grayscale (excluded from color detection)', {
+          grayscaleOnlyPages: [...grayscaleOnlyPages],
+        });
+      }
 
       if (imagePages.size > 0) {
         logger.info('Detected image-heavy pages via pdf-parse', { pages: [...imagePages] });
         return imagePages;
       }
 
-      const fallback = this.detectImagePagesWithPdfLib(pdfDoc);
+      const fallback = this.detectImagePagesWithPdfLib(pdfDoc, grayscaleOnlyPages);
       if (fallback.size > 0) {
         logger.info('Detected image-heavy pages via pdf-lib fallback', { pages: [...fallback] });
       }
@@ -403,7 +442,7 @@ export class CMYKConversionService {
       logger.warn('Failed to detect image pages; falling back to pdf-lib detection', {
         error: error instanceof Error ? error.message : String(error),
       });
-      const fallback = this.detectImagePagesWithPdfLib(pdfDoc);
+      const fallback = this.detectImagePagesWithPdfLib(pdfDoc, grayscaleOnlyPages);
       return fallback;
     } finally {
       if (typeof parser.destroy === 'function') {
