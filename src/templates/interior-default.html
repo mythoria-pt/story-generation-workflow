@@ -226,6 +226,8 @@
       .chapter-image-page {
         page-break-before: always;
         page-break-after: always;
+        page-break-before: always;
+        break-before: page;
         margin: 0;
         padding: 0;
         width: {{pageWidthMM}}mm;
@@ -395,15 +397,6 @@
         }
       }
 
-      /* Blank page for even/odd page alignment */
-      .blank-page {
-        display: none;
-      }
-
-      /* Page break without visible content */
-      .page-break {
-        display: none;
-      }
     </style>
   </head>
   <body>

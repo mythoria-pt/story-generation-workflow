@@ -1,9 +1,8 @@
-import { PDFDocument } from 'pdf-lib';
+import { PDFDict, PDFDocument, PDFName, PDFStream } from 'pdf-lib';
 import { readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { logger } from '@/config/logger.js';
-import { PDFParse, type PageImages } from 'pdf-parse';
-import { Worker } from 'node:worker_threads';
+import { PDFParse } from 'pdf-parse';
 
 export interface PageProcessingResult {
   originalPageCount: number;
@@ -11,191 +10,144 @@ export interface PageProcessingResult {
   pagesDeleted: number;
   deletedPageNumbers: number[];
   processedFilePath: string;
-  imagePageNumbers: number[];
-  reorderedPageNumbers: number[];
+  pagesReordered: number;
+  reorderedPairs: Array<{ from: number; to: number }>;
+  imagePagesDetected: number[];
 }
 
+const FRONT_MATTER_PAGES = 5;
+
 export class PDFPageProcessor {
-  private readonly minChapterImageWidth = 500;
-  private readonly minChapterImageHeight = 500;
-  private readonly chapterStartPage = 6; // Skip front-matter when looking for chapter art
-  private workerConfigured = false;
+  private detectImagePagesWithPdfLib(pdfDoc: PDFDocument): Set<number> {
+    const imagePages = new Set<number>();
+    const pages = pdfDoc.getPages();
 
-  private configureWorker(): void {
-    if (this.workerConfigured) return;
-    try {
-      if (typeof (global as any).Worker === 'undefined') {
-        (global as any).Worker = Worker;
-      }
-      const workerPath = join(
-        process.cwd(),
-        'node_modules',
-        'pdfjs-dist',
-        'legacy',
-        'build',
-        'pdf.worker.js',
-      );
-      PDFParse.setWorker(workerPath);
-      this.workerConfigured = true;
-    } catch (error) {
-      logger.warn('Failed to configure pdf.js worker, continuing with default', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
+    for (let i = 0; i < pages.length; i++) {
+      const page = pages[i];
+      const node = (page as any).node;
+      if (!node || typeof node.Resources !== 'function') continue;
 
-  /**
-   * Identify pages that contain full-bleed chapter images.
-   */
-  private identifyImagePages(pages: PageImages[]): number[] {
-    const imagePages = pages
-      .filter((page) => {
-        if (page.pageNumber < this.chapterStartPage) return false;
-        return page.images.some(
-          (img) =>
-            img.width >= this.minChapterImageWidth && img.height >= this.minChapterImageHeight,
-        );
-      })
-      .map((page) => page.pageNumber);
+      const resources = node.Resources();
+      const xObject = resources?.lookupMaybe(PDFName.of('XObject'), PDFDict);
+      if (!xObject) continue;
 
-    return Array.from(new Set(imagePages)).sort((a, b) => a - b);
-  }
-
-  /**
-   * Analyze the PDF with pdf-parse to find image pages and blank pages.
-   */
-  private async analyzePdf(pdfBytes: Buffer): Promise<{
-    imagePages: number[];
-    blankPages: Set<number>;
-    totalPages: number;
-  }> {
-    this.configureWorker();
-    const parser = new PDFParse({ data: pdfBytes, disableWorker: true } as any);
-    try {
-      const [imageResult, textResult] = await Promise.all([
-        parser.getImage({ imageBuffer: false, imageDataUrl: false, imageThreshold: 0 }),
-        parser.getText({ itemJoiner: ' ', pageJoiner: '' }),
-      ]);
-
-      const imagePages = this.identifyImagePages(imageResult.pages);
-      const blankPages = new Set<number>();
-
-      textResult.pages.forEach((page) => {
-        const trimmed = page.text.replace(/\s+/g, '');
-        if (!trimmed.length && !imagePages.includes(page.num)) {
-          blankPages.add(page.num);
+      for (const key of xObject.keys()) {
+        const xObj = xObject.lookupMaybe(key, PDFStream);
+        const subtype = xObj?.dict?.lookupMaybe(PDFName.of('Subtype'), PDFName);
+        const subtypeName = subtype?.asString();
+        if (subtypeName === '/Image' || subtypeName === 'Image') {
+          imagePages.add(i + 1);
+          break;
         }
-      });
-
-      return {
-        imagePages,
-        blankPages,
-        totalPages: textResult.total,
-      };
-    } catch (error) {
-      logger.error('PDF analysis failed', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      throw error;
-    } finally {
-      await parser.destroy();
+      }
     }
+
+    return imagePages;
   }
 
-  /**
-   * Build a new page order that removes blanks and flips chapter sequences when needed.
-   */
-  private buildPageOrder(
-    totalPages: number,
-    imagePages: number[],
-    blankPages: Set<number>,
-  ): number[] {
-    const order: number[] = [];
+  private async getImagePageNumbers(parser: PDFParse, pdfDoc: PDFDocument): Promise<Set<number>> {
+    try {
+      const images = await parser.getImage({
+        imageThreshold: 0,
+        imageBuffer: false,
+        imageDataUrl: false,
+      });
+      const pagesWithImages = images.pages
+        .filter((page) => page.images.length > 0)
+        .map((page) => page.pageNumber);
+      if (pagesWithImages.length > 0) {
+        return new Set(pagesWithImages);
+      }
+    } catch (error) {
+      logger.warn('Failed to detect images with pdf-parse', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
 
+    const fallbackPages = this.detectImagePagesWithPdfLib(pdfDoc);
+    if (fallbackPages.size > 0) {
+      logger.debug('Falling back to pdf-lib image detection', {
+        pages: [...fallbackPages],
+      });
+    }
+    return fallbackPages;
+  }
+
+  private buildInitialOrder(totalPages: number): number[] {
+    return Array.from({ length: totalPages }, (_, index) => index);
+  }
+
+  private reorderOddImagePages(
+    pageOrder: number[],
+    imagePages: Set<number>,
+  ): { updatedOrder: number[]; swaps: Array<{ from: number; to: number }> } {
+    const swaps: Array<{ from: number; to: number }> = [];
     const sortedImages = [...imagePages].sort((a, b) => a - b);
-    let cursor = 1;
 
-    for (let i = 0; i < sortedImages.length; i++) {
-      const imagePage = sortedImages[i]!;
-      const nextImageStart = sortedImages[i + 1] ?? totalPages + 1;
+    for (const pageNumber of sortedImages) {
+      if (pageNumber <= FRONT_MATTER_PAGES) continue;
+      if (pageNumber % 2 === 0) continue;
 
-      for (let page = cursor; page < imagePage; page++) {
-        if (!blankPages.has(page)) {
-          order.push(page);
-        }
-      }
+      const currentIndex = pageOrder.indexOf(pageNumber - 1);
+      if (currentIndex === -1) continue;
+      const nextIndex = currentIndex + 1;
+      if (nextIndex >= pageOrder.length) continue;
 
-      const textPages: number[] = [];
-      for (let page = imagePage + 1; page < nextImageStart; page++) {
-        if (!blankPages.has(page)) {
-          textPages.push(page);
-        }
-      }
+      const currentValue = pageOrder[currentIndex];
+      const nextValue = pageOrder[nextIndex];
+      if (currentValue === undefined || nextValue === undefined) continue;
 
-      const imageWouldBeOdd = (order.length + 1) % 2 === 1;
-      if (imageWouldBeOdd && textPages.length > 0) {
-        order.push(...textPages, imagePage);
-      } else {
-        order.push(imagePage, ...textPages);
-      }
+      pageOrder[currentIndex] = nextValue;
+      pageOrder[nextIndex] = currentValue;
 
-      cursor = nextImageStart;
+      swaps.push({ from: pageNumber, to: pageNumber + 1 });
     }
 
-    for (let page = cursor; page <= totalPages; page++) {
-      if (!blankPages.has(page)) {
-        order.push(page);
-      }
-    }
-
-    return order;
+    return { updatedOrder: pageOrder, swaps };
   }
 
   /**
-   * Process PDF to ensure chapter images land on even pages and chapters open on recto.
+   * Process PDF to ensure chapter text begins on odd pages
+   * by moving odd-positioned chapter images after their first text page.
    */
   async processPages(inputPath: string, outputPath: string): Promise<PageProcessingResult> {
     logger.info('PDF page processing start', { inputPath, outputPath });
 
     const pdfBytes = readFileSync(inputPath);
-    const pdfDoc = await PDFDocument.load(pdfBytes);
+    const sourcePdf = await PDFDocument.load(pdfBytes);
+    const parser = new PDFParse({ data: pdfBytes });
 
-    const analysis = await this.analyzePdf(pdfBytes);
-    const reorderedPageNumbers = this.buildPageOrder(
-      analysis.totalPages,
-      analysis.imagePages,
-      analysis.blankPages,
-    );
+    try {
+      const originalPageCount = sourcePdf.getPageCount();
+      const imagePages = await this.getImagePageNumbers(parser, sourcePdf);
 
-    const newDoc = await PDFDocument.create();
-    const copiedPages = await newDoc.copyPages(
-      pdfDoc,
-      reorderedPageNumbers.map((p) => p - 1),
-    );
-    copiedPages.forEach((page) => newDoc.addPage(page));
+      const initialOrder = this.buildInitialOrder(originalPageCount);
+      const { updatedOrder, swaps } = this.reorderOddImagePages(initialOrder, imagePages);
 
-    const processedPdfBytes = await newDoc.save();
-    writeFileSync(outputPath, processedPdfBytes);
+      const outputPdf = await PDFDocument.create();
+      const copiedPages = await outputPdf.copyPages(sourcePdf, updatedOrder);
+      copiedPages.forEach((page) => outputPdf.addPage(page));
 
-    const finalImagePages = reorderedPageNumbers.reduce<number[]>((acc, sourcePage, idx) => {
-      if (analysis.imagePages.includes(sourcePage)) {
-        acc.push(idx + 1);
+      const processedPdfBytes = await outputPdf.save();
+      writeFileSync(outputPath, processedPdfBytes);
+
+      const result: PageProcessingResult = {
+        originalPageCount,
+        finalPageCount: originalPageCount,
+        pagesDeleted: 0,
+        deletedPageNumbers: [],
+        processedFilePath: outputPath,
+        pagesReordered: swaps.length * 2,
+        reorderedPairs: swaps,
+        imagePagesDetected: [...imagePages].sort((a, b) => a - b),
+      };
+      logger.info('PDF page processing done', result);
+      return result;
+    } finally {
+      if (typeof parser.destroy === 'function') {
+        await parser.destroy();
       }
-      return acc;
-    }, []);
-
-    const deletedPageNumbers = Array.from(analysis.blankPages).sort((a, b) => a - b);
-    const result: PageProcessingResult = {
-      originalPageCount: pdfDoc.getPages().length,
-      finalPageCount: reorderedPageNumbers.length,
-      pagesDeleted: deletedPageNumbers.length,
-      deletedPageNumbers,
-      processedFilePath: outputPath,
-      imagePageNumbers: finalImagePages,
-      reorderedPageNumbers,
-    };
-    logger.info('PDF page processing done', result);
-    return result;
+    }
   }
 
   /**
