@@ -383,6 +383,7 @@ export class PrintService {
     interiorPdfPath: string,
     coverPdfPath: string,
     storyData: any,
+    imagePageNumbers: number[],
   ): Promise<{ interiorCmykPath: string; coverCmykPath: string }> {
     logger.info('Starting CMYK conversion for print files', {
       interior: interiorPdfPath,
@@ -402,6 +403,7 @@ export class PrintService {
         interiorPdfPath,
         coverPdfPath,
         metadata,
+        imagePageNumbers,
       );
 
       logger.info('CMYK conversion completed successfully', {
@@ -461,7 +463,10 @@ export class PrintService {
     ]);
 
     // Process the interior PDF to fix page layout
-    await this.processPageLayout(interiorPreProcessedPath, interiorPostProcessedPath);
+    const processingResult = await this.processPageLayout(
+      interiorPreProcessedPath,
+      interiorPostProcessedPath,
+    );
 
     const result: PrintResult = {
       interiorPdfPath: interiorPostProcessedPath, // Use post-processed version as main
@@ -477,6 +482,7 @@ export class PrintService {
           interiorPostProcessedPath, // Use post-processed version for CMYK
           coverOutputPath,
           storyData,
+          processingResult.imagePageNumbers,
         );
 
         result.interiorCmykPdfPath = cmykResult.interiorCmykPath;

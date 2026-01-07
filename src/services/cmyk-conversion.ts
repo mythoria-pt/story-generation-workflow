@@ -1,6 +1,7 @@
 import { spawn } from 'child_process';
-import { readFileSync, existsSync, statSync, readdirSync } from 'fs';
+import { readFileSync, existsSync, statSync, readdirSync, writeFileSync } from 'fs';
 import { join, dirname, basename, extname } from 'path';
+import { PDFDocument } from 'pdf-lib';
 import { logger } from '@/config/logger.js';
 import { getEnvironment } from '@/config/environment.js';
 
@@ -203,6 +204,64 @@ export class CMYKConversionService {
   }
 
   /**
+   * Execute Ghostscript with the provided arguments and verify output creation.
+   */
+  private async runGhostscript(args: string[], outputPath: string): Promise<void> {
+    logger.debug('Executing Ghostscript command', {
+      binary: this.ghostscriptBinary,
+      argCount: args.length,
+    });
+
+    const result = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
+      const child = spawn(this.ghostscriptBinary, args, {
+        timeout: 300000, // 5 minutes timeout
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+
+      let stdout = '';
+      let stderr = '';
+
+      child.stdout?.on('data', (data) => {
+        stdout += data.toString();
+      });
+
+      child.stderr?.on('data', (data) => {
+        stderr += data.toString();
+      });
+
+      child.on('error', (error) => {
+        reject(new Error(`Failed to execute Ghostscript: ${error.message}`));
+      });
+
+      child.on('close', (code) => {
+        if (code === 0) {
+          resolve({ stdout, stderr });
+        } else {
+          reject(new Error(`Ghostscript exited with code ${code}. Stderr: ${stderr}`));
+        }
+      });
+    });
+
+    if (result.stderr && !result.stderr.includes('Warning')) {
+      logger.warn('Ghostscript stderr output', { stderr: result.stderr });
+    }
+
+    if (!existsSync(outputPath)) {
+      throw new Error('Expected output PDF was not generated');
+    }
+  }
+
+  /**
+   * Build a variant filename using a suffix.
+   */
+  private buildVariantPath(basePath: string, suffix: string): string {
+    const dir = dirname(basePath);
+    const ext = extname(basePath);
+    const name = basename(basePath, ext);
+    return join(dir, `${name}${suffix}${ext}`);
+  }
+
+  /**
    * Convert RGB PDF to CMYK PDF/X-1a
    */
   async convertToCMYK(options: CMYKConversionOptions): Promise<string> {
@@ -257,52 +316,7 @@ export class CMYKConversionService {
       gsArgs.push(options.outputPath);
       gsArgs.push(options.inputPath);
 
-      // Execute Ghostscript command
-      const commandArgs = gsArgs.slice();
-
-      logger.debug('Executing Ghostscript command', {
-        binary: this.ghostscriptBinary,
-        argCount: commandArgs.length,
-      });
-
-      const result = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
-        const child = spawn(this.ghostscriptBinary, commandArgs, {
-          timeout: 300000, // 5 minutes timeout
-          stdio: ['ignore', 'pipe', 'pipe'],
-        });
-
-        let stdout = '';
-        let stderr = '';
-
-        child.stdout?.on('data', (data) => {
-          stdout += data.toString();
-        });
-
-        child.stderr?.on('data', (data) => {
-          stderr += data.toString();
-        });
-
-        child.on('error', (error) => {
-          reject(new Error(`Failed to execute Ghostscript: ${error.message}`));
-        });
-
-        child.on('close', (code) => {
-          if (code === 0) {
-            resolve({ stdout, stderr });
-          } else {
-            reject(new Error(`Ghostscript exited with code ${code}. Stderr: ${stderr}`));
-          }
-        });
-      });
-
-      if (result.stderr && !result.stderr.includes('Warning')) {
-        logger.warn('Ghostscript stderr output', { stderr: result.stderr });
-      }
-
-      // Verify output file was created
-      if (!existsSync(options.outputPath)) {
-        throw new Error('CMYK PDF was not generated');
-      }
+      await this.runGhostscript(gsArgs, options.outputPath);
 
       logger.info('CMYK conversion completed successfully', {
         input: options.inputPath,
@@ -332,38 +346,152 @@ export class CMYKConversionService {
   }
 
   /**
+   * Convert an RGB PDF to grayscale while preserving embedded black text.
+   */
+  private async convertToGrayscale(options: CMYKConversionOptions): Promise<string> {
+    logger.info('Starting grayscale conversion', {
+      input: options.inputPath,
+      output: options.outputPath,
+    });
+
+    if (!existsSync(options.inputPath)) {
+      throw new Error(`Input PDF file not found: ${options.inputPath}`);
+    }
+
+    const isGhostscriptValid = await this.validateGhostscript();
+    if (!isGhostscriptValid) {
+      throw new Error('Ghostscript validation failed');
+    }
+
+    const gsArgs = [
+      '-dSAFER',
+      '-dBATCH',
+      '-dNOPAUSE',
+      '-sDEVICE=pdfwrite',
+      '-dCompatibilityLevel=1.4',
+      '-dColorConversionStrategy=/Gray',
+      '-dProcessColorModel=/DeviceGray',
+      '-dOverrideICC',
+      '-dDeviceGrayToK',
+      '-dAutoRotatePages=/None',
+      '-dEmbedAllFonts',
+      '-dSubsetFonts',
+      '-o',
+      options.outputPath,
+      options.inputPath,
+    ];
+
+    await this.runGhostscript(gsArgs, options.outputPath);
+
+    logger.info('Grayscale conversion completed successfully', {
+      input: options.inputPath,
+      output: options.outputPath,
+      outputSize: statSync(options.outputPath).size,
+    });
+
+    return options.outputPath;
+  }
+
+  /**
+   * Merge grayscale text pages with color CMYK image pages.
+   */
+  private async mergeSelectivePages(
+    colorPath: string,
+    grayscalePath: string,
+    colorPageNumbers: number[],
+    outputPath: string,
+  ): Promise<void> {
+    const colorDoc = await PDFDocument.load(readFileSync(colorPath));
+    const grayscaleDoc = await PDFDocument.load(readFileSync(grayscalePath));
+
+    const totalPages = colorDoc.getPageCount();
+    if (grayscaleDoc.getPageCount() !== totalPages) {
+      throw new Error('Mismatched page counts between color and grayscale PDFs');
+    }
+
+    const finalDoc = await PDFDocument.create();
+    const colorPagesSet = new Set(colorPageNumbers);
+
+    for (let i = 0; i < totalPages; i++) {
+      const sourceDoc = colorPagesSet.has(i + 1) ? colorDoc : grayscaleDoc;
+      const [page] = await finalDoc.copyPages(sourceDoc, [i]);
+      finalDoc.addPage(page);
+    }
+
+    const bytes = await finalDoc.save();
+    writeFileSync(outputPath, bytes);
+  }
+
+  /**
    * Convert both interior and cover PDFs to CMYK
    */
   async convertPrintSetToCMYK(
     interiorPath: string,
     coverPath: string,
     metadata?: CMYKConversionOptions['metadata'],
+    imagePageNumbers: number[] = [],
   ): Promise<{ interiorCMYK: string; coverCMYK: string }> {
     const interiorCMYKPath = this.generateCMYKFilename(interiorPath);
     const coverCMYKPath = this.generateCMYKFilename(coverPath);
+    const normalizedMetadata: NonNullable<CMYKConversionOptions['metadata']> = metadata ?? {};
 
     logger.info('Converting print set to CMYK', {
       interior: { rgb: interiorPath, cmyk: interiorCMYKPath },
       cover: { rgb: coverPath, cmyk: coverCMYKPath },
     });
 
+    const convertInterior = imagePageNumbers.length
+      ? async () => {
+          const colorPath = this.buildVariantPath(interiorCMYKPath, '-color');
+          const grayPath = this.buildVariantPath(interiorCMYKPath, '-gray');
+
+          const interiorMetadata = {
+            ...normalizedMetadata,
+            subject: `${normalizedMetadata.subject || 'Story'} - Interior`,
+          };
+
+          await Promise.all([
+            this.convertToCMYK({
+              inputPath: interiorPath,
+              outputPath: colorPath,
+              metadata: interiorMetadata,
+            }),
+            this.convertToGrayscale({
+              inputPath: interiorPath,
+              outputPath: grayPath,
+              metadata: normalizedMetadata,
+            }),
+          ]);
+
+          await this.mergeSelectivePages(colorPath, grayPath, imagePageNumbers, interiorCMYKPath);
+          return interiorCMYKPath;
+        }
+      : async () =>
+          this.convertToCMYK({
+            inputPath: interiorPath,
+            outputPath: interiorCMYKPath,
+            metadata: {
+              ...normalizedMetadata,
+              subject: `${normalizedMetadata.subject || 'Story'} - Interior`,
+            },
+          });
+
     // Convert both PDFs in parallel for efficiency
     const [interiorResult, coverResult] = await Promise.all([
-      this.convertToCMYK({
-        inputPath: interiorPath,
-        outputPath: interiorCMYKPath,
-        metadata: { ...metadata, subject: `${metadata?.subject || 'Story'} - Interior` },
-      }),
+      convertInterior(),
       this.convertToCMYK({
         inputPath: coverPath,
         outputPath: coverCMYKPath,
-        metadata: { ...metadata, subject: `${metadata?.subject || 'Story'} - Cover` },
+        metadata: {
+          ...normalizedMetadata,
+          subject: `${normalizedMetadata.subject || 'Story'} - Cover`,
+        },
       }),
     ]);
 
     return {
-      interiorCMYK: interiorResult,
-      coverCMYK: coverResult,
+      interiorCMYK: interiorResult as string,
+      coverCMYK: coverResult as string,
     };
   }
 }
