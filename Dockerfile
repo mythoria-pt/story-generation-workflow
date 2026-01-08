@@ -7,6 +7,9 @@ WORKDIR /app
 # Copy package files first for better layer caching
 COPY package*.json ./
 
+# Debug: List what was copied
+RUN ls -la
+
 # Install ALL dependencies first (including dev dependencies for build)
 RUN npm ci && npm cache clean --force
 
