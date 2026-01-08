@@ -13,6 +13,9 @@ npm-debug.log
 .env.development
 .env.test
 
+# Explicitly include package-lock.json for npm ci
+!package-lock.json
+
 # Keep .env.production for deployment
 !.env.production
 
