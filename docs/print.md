@@ -27,10 +27,10 @@ SGW produces two PDF sets per story—RGB (screen) and CMYK (print-ready)—and 
 
 ## Page layout processing (interior)
 
-- **Image detection:** `src/services/pdf-page-processor.ts` uses `pdf-parse@2.x` `getImage()` output to locate full-bleed chapter images (large embedded images starting at page 6 to skip front matter). No hidden `EMPTY-PAGE-MARKER` tags are required anymore.
+- **Image detection:** `src/services/pdf-page-processor.ts` uses `pdf-parse@2.x` `getImage()` output to locate full-bleed chapter images (large embedded images starting at page 6 to skip front matter). No hidden `EMPTY-PAGE-MARKER` tags are required anymore. Image detection logs show which pages contain images in the original PDF.
 - **Blank page removal:** Pages with no extracted text or images are dropped to avoid accidental blank spreads (including the legacy trailing blank page in the template).
-- **Recto rule:** Chapters must open on an odd page. When the chapter image would land on an odd page, the processor flips the sequence so text comes first and the image moves after the chapter text. If the image is already on an even page, the existing image→text order is kept.
-- **Outputs:** `processPages` returns the reordered page map and the final image-page numbers so downstream CMYK conversion can keep art in color while grayscaling text pages.
+- **Recto rule:** Chapters must open on an odd page. When the chapter image would land on an odd page, the processor flips the sequence so text comes first and the image moves after the chapter text. If the image is already on an even page, the existing image→text order is kept. Debug logs track both the original and final positions of image pages.
+- **Outputs:** `processPages` returns the reordered page map and the final image-page numbers (after reordering) so downstream CMYK conversion can keep art in color while grayscaling text pages. The `imagePagesDetected` array contains page numbers in their **final positions after reordering**, not their original positions.
 
 ## CMYK conversion specifics
 

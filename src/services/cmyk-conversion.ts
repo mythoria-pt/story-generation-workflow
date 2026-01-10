@@ -401,10 +401,23 @@ export class CMYKConversionService {
     colorPageNumbers: number[],
     outputPath: string,
   ): Promise<void> {
+    logger.info('Starting selective page merge', {
+      colorPath,
+      grayscalePath,
+      colorPageNumbers: colorPageNumbers.sort((a, b) => a - b),
+      colorPageCount: colorPageNumbers.length,
+    });
+
     const colorDoc = await PDFDocument.load(readFileSync(colorPath));
     const grayscaleDoc = await PDFDocument.load(readFileSync(grayscalePath));
 
     const totalPages = colorDoc.getPageCount();
+    logger.info('Loaded PDFs for merging', {
+      totalPagesInColorPDF: totalPages,
+      totalPagesInGrayscalePDF: grayscaleDoc.getPageCount(),
+      colorPageNumbers: colorPageNumbers.sort((a, b) => a - b),
+    });
+
     if (grayscaleDoc.getPageCount() !== totalPages) {
       throw new Error('Mismatched page counts between color and grayscale PDFs');
     }
@@ -412,14 +425,38 @@ export class CMYKConversionService {
     const finalDoc = await PDFDocument.create();
     const colorPagesSet = new Set(colorPageNumbers);
 
+    const colorPagesList: number[] = [];
+    const grayscalePagesList: number[] = [];
+
     for (let i = 0; i < totalPages; i++) {
-      const sourceDoc = colorPagesSet.has(i + 1) ? colorDoc : grayscaleDoc;
+      const pageNumber = i + 1; // 1-based page number
+      const useColorForThisPage = colorPagesSet.has(pageNumber);
+      const sourceDoc = useColorForThisPage ? colorDoc : grayscaleDoc;
       const [page] = await finalDoc.copyPages(sourceDoc, [i]);
       finalDoc.addPage(page);
+
+      if (useColorForThisPage) {
+        colorPagesList.push(pageNumber);
+      } else {
+        grayscalePagesList.push(pageNumber);
+      }
     }
+
+    logger.info('Page merge completed', {
+      totalPages,
+      colorPages: colorPagesList,
+      grayscalePages: grayscalePagesList,
+      colorPageCount: colorPagesList.length,
+      grayscalePageCount: grayscalePagesList.length,
+    });
 
     const bytes = await finalDoc.save();
     writeFileSync(outputPath, bytes);
+
+    logger.info('Selective page merge saved', {
+      outputPath,
+      outputSize: bytes.length,
+    });
   }
 
   /**
@@ -438,6 +475,9 @@ export class CMYKConversionService {
     logger.info('Converting print set to CMYK', {
       interior: { rgb: interiorPath, cmyk: interiorCMYKPath },
       cover: { rgb: coverPath, cmyk: coverCMYKPath },
+      imagePageNumbers: imagePageNumbers.sort((a, b) => a - b),
+      imagePageCount: imagePageNumbers.length,
+      selectiveConversionEnabled: imagePageNumbers.length > 0,
     });
 
     const convertInterior = imagePageNumbers.length
