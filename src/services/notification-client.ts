@@ -28,6 +28,23 @@ export interface StoryPrintInstructionsEmailPayload {
   origin?: 'self-service' | 'admin' | string;
 }
 
+export interface StoryFeedbackEmailPayload {
+  storyId: string;
+  storyTitle: string;
+  storyAuthorId: string;
+  storyAuthorName: string;
+  storyAuthorEmail: string;
+  storyAuthorLocale: string;
+  senderAuthorId: string;
+  senderName: string;
+  senderEmail: string;
+  senderLocale: string;
+  subject: string;
+  message: string;
+  storyUrl: string;
+  metadata?: Record<string, unknown>;
+}
+
 const PDF_MIME_TYPE = 'application/pdf';
 
 function normalizeStorageUri(uri: string): string {
@@ -163,6 +180,81 @@ export async function sendStoryCreatedEmail(payload: StoryCreatedEmailPayload): 
     logger.error('Error calling notification engine', {
       error: err instanceof Error ? err.message : String(err),
       stack: err instanceof Error ? err.stack : undefined,
+      url,
+    });
+    return false;
+  }
+}
+
+export async function sendStoryFeedbackEmail(
+  payload: StoryFeedbackEmailPayload,
+): Promise<boolean> {
+  const env = getEnvironment();
+  if (!env.NOTIFICATION_ENGINE_URL) {
+    logger.warn('Notification Engine URL not configured; skipping story-feedback email');
+    return false;
+  }
+
+  const url = `${env.NOTIFICATION_ENGINE_URL.replace(/\/$/, '')}/email/template`;
+  const headers = buildHeaders(env);
+
+  const body = JSON.stringify({
+    templateId: 'story-feedback',
+    recipients: [
+      {
+        email: payload.storyAuthorEmail,
+        name: payload.storyAuthorName,
+        language: payload.storyAuthorLocale,
+      },
+    ],
+    cc: [
+      {
+        email: payload.senderEmail,
+        name: payload.senderName,
+        language: payload.senderLocale,
+      },
+    ],
+    variables: {
+      authorName: payload.storyAuthorName,
+      storyTitle: payload.storyTitle,
+      storyUrl: payload.storyUrl,
+      senderName: payload.senderName,
+      senderEmail: payload.senderEmail,
+      subject: payload.subject,
+      message: payload.message,
+    },
+    metadata: {
+      ...(payload.metadata || {}),
+      notificationType: 'story-feedback',
+      storyId: payload.storyId,
+      senderAuthorId: payload.senderAuthorId,
+    },
+    storyId: payload.storyId,
+    authorId: payload.storyAuthorId,
+  });
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers,
+      body,
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      logger.error('Failed to send story-feedback email', {
+        status: res.status,
+        statusText: res.statusText,
+        body: text,
+      });
+      return false;
+    }
+
+    await res.text();
+    return true;
+  } catch (err) {
+    logger.error('Error calling notification engine for story-feedback email', {
+      error: err instanceof Error ? err.message : String(err),
       url,
     });
     return false;

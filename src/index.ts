@@ -71,6 +71,7 @@ import { getAIGateway } from '@/ai/gateway-singleton.js';
 import { getStorageService } from '@/services/storage-singleton.js';
 import { CMYKConversionService } from '@/services/cmyk-conversion.js';
 import { debugImageRouter } from '@/routes/debug-image.js';
+import { storyFeedbackRouter } from '@/routes/story-feedback.js';
 import apiKeyAuth from './middleware/apiKeyAuth.js';
 // Protect external-facing APIs with x-api-key
 {
@@ -85,6 +86,7 @@ app.use('/internal', internalRouter); // keep internal open or handle separately
 app.use('/print', apiKeyAuth, printRouter);
 app.use('/internal/print', internalPrintRouter);
 app.use('/api/story-edit', apiKeyAuth, storyEditRouter);
+app.use('/api/story-feedback', apiKeyAuth, storyFeedbackRouter);
 app.use('/api/jobs', apiKeyAuth, asyncJobRouter);
 app.use('/', apiKeyAuth, pingRouter); // ping/test endpoints protected as well
 
