@@ -79,9 +79,10 @@ export interface WorkflowStepHandler<TParams = unknown, TResult = unknown> {
   execute(params: TParams): Promise<TResult>;
 }
 
-export class StoryOutlineHandler
-  implements WorkflowStepHandler<StoryOutlineParams, StoryOutlineResult>
-{
+export class StoryOutlineHandler implements WorkflowStepHandler<
+  StoryOutlineParams,
+  StoryOutlineResult
+> {
   private storyContextService = new StoryContextService();
 
   async execute(params: StoryOutlineParams): Promise<StoryOutlineResult> {
@@ -142,9 +143,10 @@ export class StoryOutlineHandler
   }
 }
 
-export class ChapterWritingHandler
-  implements WorkflowStepHandler<ChapterWritingParams, ChapterWritingResult>
-{
+export class ChapterWritingHandler implements WorkflowStepHandler<
+  ChapterWritingParams,
+  ChapterWritingResult
+> {
   private storyContextService = new StoryContextService();
 
   async execute(params: ChapterWritingParams): Promise<ChapterWritingResult> {
@@ -226,9 +228,10 @@ export class ChapterWritingHandler
   }
 }
 
-export class ImageGenerationHandler
-  implements WorkflowStepHandler<ImageGenerationParams, ImageGenerationResult>
-{
+export class ImageGenerationHandler implements WorkflowStepHandler<
+  ImageGenerationParams,
+  ImageGenerationResult
+> {
   private storyService = new StoryService();
 
   async execute(params: ImageGenerationParams): Promise<ImageGenerationResult> {
@@ -351,9 +354,10 @@ export class ImageGenerationHandler
   }
 }
 
-export class FinalProductionHandler
-  implements WorkflowStepHandler<FinalProductionParams, FinalProductionResult>
-{
+export class FinalProductionHandler implements WorkflowStepHandler<
+  FinalProductionParams,
+  FinalProductionResult
+> {
   async execute(params: FinalProductionParams): Promise<FinalProductionResult> {
     // TODO: Implement final production (HTML + PDF) using Puppeteer
 
@@ -366,9 +370,10 @@ export class FinalProductionHandler
   }
 }
 
-export class AudioRecordingHandler
-  implements WorkflowStepHandler<AudioRecordingParams, AudioRecordingResult>
-{
+export class AudioRecordingHandler implements WorkflowStepHandler<
+  AudioRecordingParams,
+  AudioRecordingResult
+> {
   async execute(params: AudioRecordingParams): Promise<AudioRecordingResult> {
     // TODO: Implement audio recording using Google Cloud Text-to-Speech
 
@@ -399,9 +404,10 @@ export interface PrintGenerationResult {
   status: string;
 }
 
-export class PrintGenerationHandler
-  implements WorkflowStepHandler<PrintGenerationParams, PrintGenerationResult>
-{
+export class PrintGenerationHandler implements WorkflowStepHandler<
+  PrintGenerationParams,
+  PrintGenerationResult
+> {
   private printService = new PrintService();
   private storyService = new StoryService();
   private storageService = getStorageService();

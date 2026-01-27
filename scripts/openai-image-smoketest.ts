@@ -18,7 +18,9 @@ async function main(): Promise<void> {
   const imagePaths = imageArgs;
 
   if (imagePaths.length === 0) {
-    throw new Error('Provide at least one image path: npx tsx scripts/openai-image-smoketest.ts "prompt" path/to/img1.jpg [img2...]');
+    throw new Error(
+      'Provide at least one image path: npx tsx scripts/openai-image-smoketest.ts "prompt" path/to/img1.jpg [img2...]',
+    );
   }
 
   const client = new OpenAI({ apiKey });
@@ -28,7 +30,11 @@ async function main(): Promise<void> {
       const filename = path.basename(abs);
       const ext = path.extname(filename).toLowerCase();
       const mime =
-        ext === '.png' ? 'image/png' : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'image/webp';
+        ext === '.png'
+          ? 'image/png'
+          : ext === '.jpg' || ext === '.jpeg'
+            ? 'image/jpeg'
+            : 'image/webp';
       const stream = fs.createReadStream(abs);
       return toFile(stream, filename, { type: mime });
     }),

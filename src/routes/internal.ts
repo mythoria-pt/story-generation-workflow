@@ -828,7 +828,8 @@ router.post('/audiobook/finalize', async (req: Request, res: Response): Promise<
         if (!chapter?.audioUrl) continue;
         const chapterNumber = chapter.chapterNumber ?? audiobookChapters.length + 1;
         const meta = chapterMetaByNumber.get(chapterNumber);
-        const duration = typeof chapter.duration === 'number' && chapter.duration > 0 ? chapter.duration : 0;
+        const duration =
+          typeof chapter.duration === 'number' && chapter.duration > 0 ? chapter.duration : 0;
         audiobookChapters.push({
           chapterTitle: chapter.chapterTitle || meta?.title || `Chapter ${chapterNumber}`,
           audioUri: chapter.audioUrl,
@@ -951,7 +952,8 @@ router.patch('/stories/:storyId/audiobook-status', async (req: Request, res: Res
         chapters.forEach((chapter, idx) => {
           if (!chapter?.audioUri) return;
           const chapterNumber = chapter.chapterNumber ?? idx + 1;
-          const duration = typeof chapter.duration === 'number' && chapter.duration > 0 ? chapter.duration : 0;
+          const duration =
+            typeof chapter.duration === 'number' && chapter.duration > 0 ? chapter.duration : 0;
           normalizedChapters.push({
             chapterTitle: chapter.chapterTitle || `Chapter ${chapterNumber}`,
             audioUri: chapter.audioUri,

@@ -122,9 +122,9 @@ export class TokenUsageTrackingService {
    * Calculate estimated cost based on provider and model
    *
    * Supported Models:
-  * - Text Generation: gpt-5.2, gpt-5.1, gemini-2.5-flash, gemini-3-pro-preview
-  * - Image Generation: gpt-image-1.5, gpt-5.1 image tools, gemini-2.5-flash-image, gpt-image-1, gpt-image-1-mini
-  * - TTS: gemini-2.5-pro-tts, gemini-2.5-flash-tts, gpt-4o-mini-tts
+   * - Text Generation: gpt-5.2, gpt-5.1, gemini-2.5-flash, gemini-3-pro-preview
+   * - Image Generation: gpt-image-1.5, gpt-5.1 image tools, gemini-2.5-flash-image, gpt-image-1, gpt-image-1-mini
+   * - TTS: gemini-2.5-pro-tts, gemini-2.5-flash-tts, gpt-4o-mini-tts
    */
   private calculateCost(estimation: CostEstimation): CostEstimation {
     let inputCostPer1KTokens = 0;

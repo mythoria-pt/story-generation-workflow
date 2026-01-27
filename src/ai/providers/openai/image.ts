@@ -45,14 +45,8 @@ export class OpenAIImageService implements IImageGenerationService {
       baseURL: config.baseURL,
     });
     this.model =
-      config.model ||
-      process.env.OPENAI_BASE_MODEL ||
-      process.env.OPENAI_TEXT_MODEL ||
-      'gpt-5.2';
-    this.imageModel =
-      config.imageModel ||
-      process.env.OPENAI_IMAGE_TOOL_MODEL ||
-      'gpt-image-1.5';
+      config.model || process.env.OPENAI_BASE_MODEL || process.env.OPENAI_TEXT_MODEL || 'gpt-5.2';
+    this.imageModel = config.imageModel || process.env.OPENAI_IMAGE_TOOL_MODEL || 'gpt-image-1.5';
     // maxRetries will be used in future retry logic
     // this.maxRetries = config.maxRetries || 3;
   }
