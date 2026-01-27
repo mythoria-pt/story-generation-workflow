@@ -107,7 +107,7 @@ router.post(
       logger.info('Internal API: Generating chapter audio', {
         storyId,
         chapterNumber,
-        voice,
+        requestedVoice: voice,
         storyLanguage,
         isFirstChapter,
         includeBackgroundMusic,

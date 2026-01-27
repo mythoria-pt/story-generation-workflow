@@ -719,7 +719,7 @@ router.post('/audiobook/chapter', async (req: Request, res: Response): Promise<v
     logger.info('Internal API: Generating chapter audio', {
       storyId,
       chapterNumber,
-      voice,
+      requestedVoice: voice,
       storyLanguage,
       isFirstChapter,
       includeBackgroundMusic,
@@ -759,6 +759,8 @@ router.post('/audiobook/chapter', async (req: Request, res: Response): Promise<v
       chapterNumber,
       audioUrl: result.audioUrl,
       duration: result.duration,
+      voice: result.voice,
+      provider: result.provider,
     });
 
     res.json({

@@ -181,6 +181,7 @@ export class TTSService {
         model: config.model,
         language: storyLanguage,
         systemPrompt: ttsSystemPrompt,
+        chapterNumber,
       };
 
       const maxTextLength = this.ttsProvider.getMaxTextLength();

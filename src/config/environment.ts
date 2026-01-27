@@ -5,27 +5,32 @@ import path from 'path';
 
 // Load environment variables based on NODE_ENV
 const nodeEnv = process.env.NODE_ENV || 'development';
+const shouldQuietEnv = nodeEnv === 'test';
+
+const loadEnvFile = (envPath: string): void => {
+  config({ path: envPath, quiet: shouldQuietEnv });
+};
 
 // Load appropriate environment files only if they exist
 if (nodeEnv === 'production') {
   // In production (Cloud Run), environment variables are set via deployment config
   // Only load .env.production if it exists locally
   if (fs.existsSync('.env.production')) {
-    config({ path: '.env.production' });
+    loadEnvFile('.env.production');
   }
 } else if (nodeEnv === 'development') {
   if (fs.existsSync('.env.local')) {
-    config({ path: '.env.local' });
+    loadEnvFile('.env.local');
   }
   if (fs.existsSync('.env')) {
-    config({ path: '.env' });
+    loadEnvFile('.env');
   }
 } else {
   if (fs.existsSync(`.env.${nodeEnv}`)) {
-    config({ path: `.env.${nodeEnv}` });
+    loadEnvFile(`.env.${nodeEnv}`);
   }
   if (fs.existsSync('.env')) {
-    config({ path: '.env' });
+    loadEnvFile('.env');
   }
 }
 

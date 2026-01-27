@@ -127,6 +127,8 @@ export interface TTSOptions {
   model?: string;
   /** System prompt for accent/style enforcement (sent as instruction to TTS API) */
   systemPrompt?: string;
+  /** Chapter number for contextual logging */
+  chapterNumber?: number;
 }
 
 /**

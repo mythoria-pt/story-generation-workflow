@@ -9,12 +9,63 @@
 import { GoogleGenAI } from '@google/genai';
 import { ITTSService, TTSOptions, TTSResult, TTSProvider } from '../../interfaces.js';
 import { logger } from '@/config/logger.js';
+import { withRetry } from '@/shared/retry-utils.js';
 import ffmpeg from 'fluent-ffmpeg';
 import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 import { Readable, PassThrough } from 'stream';
 
 // Set ffmpeg path from installer
 ffmpeg.setFfmpegPath(ffmpegInstaller.path);
+
+function extractGeminiErrorDetails(error: unknown): Record<string, unknown> {
+  const details: Record<string, unknown> = {
+    errorType: typeof error,
+  };
+
+  if (error instanceof Error) {
+    details.name = error.name;
+    details.message = error.message;
+    details.stack = error.stack;
+  }
+
+  if (typeof error === 'object' && error !== null) {
+    const err = error as Record<string, unknown>;
+    const status =
+      (err.status as unknown) ??
+      (err.statusCode as unknown) ??
+      (err.code as unknown) ??
+      (err.error as { code?: unknown } | undefined)?.code;
+
+    if (status !== undefined) {
+      details.status = status;
+    }
+
+    if (err.error !== undefined) {
+      details.serviceError = err.error;
+    }
+
+    if (err.details !== undefined) {
+      details.details = err.details;
+    }
+
+    if (err.response !== undefined) {
+      details.response = err.response;
+    }
+
+    if (typeof err.message === 'string') {
+      const trimmed = err.message.trim();
+      if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+        try {
+          details.parsedMessage = JSON.parse(trimmed);
+        } catch {
+          details.parsedMessage = 'unparseable-json';
+        }
+      }
+    }
+  }
+
+  return details;
+}
 
 export interface GoogleGenAITTSConfig {
   apiKey: string;
@@ -131,6 +182,7 @@ export class GoogleGenAITTSService implements ITTSService {
     const systemPrompt = options?.systemPrompt;
     const speed = options?.speed || 1.0;
     const language = options?.language;
+    const chapterNumber = options?.chapterNumber;
 
     try {
       logger.info('Generating TTS with Google Gemini', {
@@ -185,20 +237,41 @@ export class GoogleGenAITTSService implements ITTSService {
       }
 
       // Gemini TTS uses the generate_content API with audio response modality
-      const response = await this.client.models.generateContent({
-        model: apiModel,
-        contents: contentText,
-        config: {
-          responseModalities: ['AUDIO'],
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: {
-                voiceName: voice,
+      const response = await withRetry(
+        async (context) => {
+          if (context.attempt > 1) {
+            logger.warn('Retrying Gemini TTS request', {
+              attempt: context.attempt,
+              maxAttempts: context.maxAttempts,
+              model: apiModel,
+              voice,
+              chapterNumber,
+              textLength: text.length,
+            });
+          }
+
+          return this.client.models.generateContent({
+            model: apiModel,
+            contents: contentText,
+            config: {
+              responseModalities: ['AUDIO'],
+              speechConfig: {
+                voiceConfig: {
+                  prebuiltVoiceConfig: {
+                    voiceName: voice,
+                  },
+                },
               },
             },
-          },
+          });
         },
-      });
+        {
+          maxAttempts: 2,
+          baseDelayMs: 2000,
+          maxDelayMs: 5000,
+          jitterMs: 500,
+        },
+      );
 
       // Extract audio data from response
       const candidate = response.candidates?.[0];
@@ -239,8 +312,11 @@ export class GoogleGenAITTSService implements ITTSService {
     } catch (error) {
       logger.error('Google Gemini TTS synthesis failed', {
         error: error instanceof Error ? error.message : String(error),
+        errorDetails: extractGeminiErrorDetails(error),
         model: apiModel,
         voice,
+        chapterNumber,
+        textLength: text.length,
       });
       throw error;
     }
