@@ -30,6 +30,29 @@ if ($Follow) {
     $logCommand = "tail"
 }
 
+function Write-ErrorLogFile {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SourceFile
+    )
+
+    if (-not (Test-Path -Path $SourceFile)) {
+        return
+    }
+
+    $dir = Split-Path -Parent $SourceFile
+    $base = [System.IO.Path]::GetFileNameWithoutExtension($SourceFile)
+    $ext = [System.IO.Path]::GetExtension($SourceFile)
+    if ([string]::IsNullOrWhiteSpace($ext)) {
+        $ext = ".json"
+    }
+    $errorsFile = Join-Path $dir ($base + "_errors" + $ext)
+
+    # Keep lines that look like error entries. This matches JSON severity or plain text logs.
+    Get-Content -Path $SourceFile | Select-String -Pattern '"severity"\s*:\s*"ERROR"|\berror\b' -CaseSensitive:$false | ForEach-Object { $_.Line } | Set-Content -Path $errorsFile
+    Write-Host "Saved error-only logs to: $errorsFile"
+}
+
 $baseArgs = @(
     "run", "services", "logs",
     $logCommand,
@@ -48,13 +71,16 @@ try {
         if ($LASTEXITCODE -ne 0) {
             $commandSucceeded = $false
         }
-    } else {
+    }
+    else {
         $readArgs = $baseArgs + @("--limit", $Limit, "--format", "json")
         gcloud @readArgs 2>&1 | Tee-Object -FilePath $OutFile | Out-Null
         if ($LASTEXITCODE -ne 0) {
             $commandSucceeded = $false
-        } else {
+        }
+        else {
             Write-Host "Saved logs to: $OutFile"
+            Write-ErrorLogFile -SourceFile $OutFile
         }
     }
 }
@@ -66,7 +92,8 @@ catch {
 if (-not $commandSucceeded) {
     if ($primaryErrorMessage) {
         Write-Warning "Cloud Run logs command failed: $primaryErrorMessage"
-    } else {
+    }
+    else {
         Write-Warning "Cloud Run logs command failed with exit code $LASTEXITCODE"
     }
 
@@ -78,7 +105,8 @@ if (-not $commandSucceeded) {
                 "--format", "json"
             )
             gcloud @fallbackArgs
-        } else {
+        }
+        else {
             $fallbackArgs = @(
                 "logging", "read", $logFilter,
                 "--project", $ProjectId,
@@ -87,6 +115,7 @@ if (-not $commandSucceeded) {
             )
             gcloud @fallbackArgs 2>&1 | Tee-Object -FilePath $OutFile | Out-Null
             Write-Host "Saved logs to: $OutFile (Cloud Logging fallback)"
+            Write-ErrorLogFile -SourceFile $OutFile
         }
         if ($LASTEXITCODE -ne 0) {
             throw "Cloud Logging fallback command failed."
