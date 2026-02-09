@@ -25,6 +25,7 @@ export interface TokenUsageRequest {
     | 'prompt_rewrite'
     | 'blog_translation'
     | 'character_photo_analysis'
+    | 'email_asset_generation'
     | 'test';
   aiModel: string;
   inputTokens: number;

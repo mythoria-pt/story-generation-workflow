@@ -6,7 +6,7 @@
 import { randomUUID } from 'crypto';
 import { logger } from '@/config/logger.js';
 
-export type JobType = 'text_edit' | 'image_edit' | 'text_translate';
+export type JobType = 'text_edit' | 'image_edit' | 'text_translate' | 'email_asset_generation';
 export type JobStatus = 'pending' | 'processing' | 'completed' | 'failed';
 
 export interface Job {
@@ -213,6 +213,10 @@ export function getEstimatedDuration(
         return params.chapterCount * 60 * 1000;
       }
       return 60 * 1000;
+
+    case 'email_asset_generation':
+      // Email asset generation: ~30s per locale (generate source + translate others)
+      return 5 * 30 * 1000; // 5 locales x 30s each = 150s
 
     default:
       return 60 * 1000; // Default fallback

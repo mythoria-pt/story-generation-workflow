@@ -12,6 +12,7 @@ import { jobManager, getEstimatedDuration } from '@/services/job-manager.js';
 import { processTextEditJob } from '@/workers/text-edit-worker.js';
 import { processImageEditJob } from '@/workers/image-edit-worker.js';
 import { processTranslationJob } from '@/workers/translation-worker.js';
+import { processEmailAssetJob } from '@/workers/email-asset-worker.js';
 import { StoryService } from '@/services/story.js';
 import { ChaptersService } from '@/services/chapters.js';
 
@@ -341,6 +342,75 @@ router.post('/translate-text', async (req, res) => {
       sendErrorResponse(res, 400, 'Invalid request parameters', { validationErrors: error.issues });
     } else {
       sendErrorResponse(res, 500, 'Failed to create translation job', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Email asset generation
+// ---------------------------------------------------------------------------
+
+const EmailAssetJobSchema = z.object({
+  sourceLocale: z.enum(['en-US', 'pt-PT', 'es-ES', 'fr-FR', 'de-DE']),
+  subject: z.string().min(1).max(500),
+  bodyDescription: z.string().min(1).max(5000),
+  templateHtml: z.string().min(1),
+  campaignId: z.string().min(1),
+});
+
+/**
+ * POST /jobs/generate-email-assets
+ * Create an async email asset generation job.
+ * Generates HTML email templates for all supported locales using AI.
+ */
+router.post('/generate-email-assets', async (req, res) => {
+  try {
+    const params = EmailAssetJobSchema.parse(req.body);
+
+    logger.info('Email asset generation job request received', {
+      campaignId: params.campaignId,
+      sourceLocale: params.sourceLocale,
+      subjectLength: params.subject.length,
+      bodyDescriptionLength: params.bodyDescription.length,
+    });
+
+    const estimatedDuration = getEstimatedDuration('email_asset_generation', {});
+
+    const metadata: any = {
+      storyId: params.campaignId,
+      operationType: 'email_asset_generation',
+    };
+
+    const jobId = jobManager.createJob('email_asset_generation', metadata, estimatedDuration);
+
+    processEmailAssetJob(jobId, params).catch((error: any) => {
+      logger.error('Email asset generation job processing failed', {
+        jobId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      jobManager.updateJobStatus(
+        jobId,
+        'failed',
+        undefined,
+        error instanceof Error ? error.message : 'Processing failed',
+      );
+    });
+
+    res.json({
+      success: true,
+      jobId,
+      estimatedDuration,
+      message: 'Email asset generation job created successfully',
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      sendErrorResponse(res, 400, 'Invalid request parameters', {
+        validationErrors: error.issues,
+      });
+    } else {
+      sendErrorResponse(res, 500, 'Failed to create email asset generation job', {
         error: error instanceof Error ? error.message : String(error),
       });
     }

@@ -175,12 +175,13 @@ Even though two endpoints live under `/audio/internal/*`, they still require the
 
 ### Async jobs (`src/routes/async-jobs.ts`)
 
-| Endpoint                        | Description                                                                                                                  |
-| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `POST /api/jobs/text-edit`      | Enqueues a background job to edit one chapter (`scope: 'chapter'`) or an entire story (`scope: 'story'`).                    |
-| `POST /api/jobs/image-edit`     | Creates an async image edit/replacement job. Supports `userImageUri` conversions and styled replacements (`convertToStyle`). |
-| `POST /api/jobs/translate-text` | Translates all chapters to `targetLocale`. Rejects if the locale matches the current story language.                         |
-| `GET /api/jobs/{jobId}`         | Returns status, simulated progress, and optional result/error blob.                                                          |
+| Endpoint                               | Description                                                                                                                  |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `POST /api/jobs/text-edit`             | Enqueues a background job to edit one chapter (`scope: 'chapter'`) or an entire story (`scope: 'story'`).                    |
+| `POST /api/jobs/image-edit`            | Creates an async image edit/replacement job. Supports `userImageUri` conversions and styled replacements (`convertToStyle`). |
+| `POST /api/jobs/translate-text`        | Translates all chapters to `targetLocale`. Rejects if the locale matches the current story language.                         |
+| `POST /api/jobs/generate-email-assets` | Generates HTML email assets for all supported locales using AI, based on a reference template and content description.       |
+| `GET /api/jobs/{jobId}`                | Returns status, simulated progress, and optional result/error blob.                                                          |
 
 All job creation responses follow:
 
@@ -191,6 +192,70 @@ All job creation responses follow:
   "estimatedDuration": 90000
 }
 ```
+
+### Email Asset Generation (`POST /api/jobs/generate-email-assets`)
+
+Creates an async job that generates localized HTML email templates for marketing campaigns. The AI generates an email body for the source locale based on a reference HTML template and a content description, then translates it to all remaining supported locales (`en-US`, `pt-PT`, `es-ES`, `fr-FR`, `de-DE`).
+
+**Request Body:**
+
+```json
+{
+  "sourceLocale": "en-US",
+  "subject": "Your story awaits - a new chapter begins",
+  "bodyDescription": "A warm welcome email for new leads, highlighting personalized story creation with a CTA to start writing.",
+  "templateHtml": "<html>...full reference HTML template...</html>",
+  "campaignId": "campaign-uuid-123"
+}
+```
+
+| Field           | Type   | Required | Description                                                    |
+| --------------- | ------ | -------- | -------------------------------------------------------------- |
+| sourceLocale    | string | Yes      | IETF locale of the provided subject/description (`en-US`, etc) |
+| subject         | string | Yes      | Email subject line (max 500 chars)                             |
+| bodyDescription | string | Yes      | Description of the email content and purpose (max 5000 chars)  |
+| templateHtml    | string | Yes      | Reference HTML template to use as structural basis             |
+| campaignId      | string | Yes      | Campaign ID for token usage tracking                           |
+
+**Response (Success):**
+
+```json
+{
+  "success": true,
+  "jobId": "e7f2...",
+  "estimatedDuration": 150000,
+  "message": "Email asset generation job created successfully"
+}
+```
+
+**Job Result (on completion via `GET /api/jobs/{jobId}`):**
+
+```json
+{
+  "success": true,
+  "job": {
+    "status": "completed",
+    "progress": 100,
+    "result": {
+      "success": true,
+      "type": "email_asset_generation",
+      "campaignId": "campaign-uuid-123",
+      "sourceLocale": "en-US",
+      "localesGenerated": ["en-US", "pt-PT", "es-ES", "fr-FR", "de-DE"],
+      "assets": {
+        "en-US": { "subject": "...", "htmlBody": "...", "textBody": "..." },
+        "pt-PT": { "subject": "...", "htmlBody": "...", "textBody": "..." }
+      }
+    }
+  }
+}
+```
+
+**Notes:**
+
+- Estimated duration is ~150 seconds (30s per locale x 5 locales).
+- Token usage is tracked under the `email_asset_generation` action type.
+- If translation fails for a specific locale, a placeholder is returned for that locale while others succeed.
 
 ### Ping + diagnostics
 

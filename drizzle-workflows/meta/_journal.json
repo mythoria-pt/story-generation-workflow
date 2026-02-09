@@ -36,6 +36,13 @@
       "when": 1733622252000,
       "tag": "0004_add_character_photo_analysis_action",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1739116800000,
+      "tag": "0005_add_email_asset_generation_action",
+      "breakpoints": true
     }
   ]
 }
