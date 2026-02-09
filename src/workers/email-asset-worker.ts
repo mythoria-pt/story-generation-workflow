@@ -23,6 +23,7 @@ export interface EmailAssetJobParams {
   bodyDescription: string;
   templateHtml: string;
   campaignId: string;
+  targetLocales?: string[];
 }
 
 export interface GeneratedEmailAsset {
@@ -71,7 +72,8 @@ export async function processEmailAssetJob(
       params: { ...params, templateHtml: '[redacted]' },
     });
 
-    const { sourceLocale, subject, bodyDescription, templateHtml, campaignId } = params;
+    const { sourceLocale, subject, bodyDescription, templateHtml, campaignId, targetLocales } =
+      params;
 
     jobManager.updateJobStatus(jobId, 'processing');
 
@@ -121,9 +123,13 @@ export async function processEmailAssetJob(
     // -----------------------------------------------------------------------
     // Step 2: Translate to each remaining locale
     // -----------------------------------------------------------------------
-    const targetLocales = SUPPORTED_LOCALES.filter((l) => l !== sourceLocale);
+    const requestedLocales =
+      targetLocales && targetLocales.length > 0 ? targetLocales : [...SUPPORTED_LOCALES];
+    const localeSet = new Set(requestedLocales);
+    localeSet.add(sourceLocale);
+    const targetLocaleList = Array.from(localeSet).filter((locale) => locale !== sourceLocale);
 
-    for (const targetLocale of targetLocales) {
+    for (const targetLocale of targetLocaleList) {
       try {
         logger.info('Translating email asset', { jobId, targetLocale });
 
