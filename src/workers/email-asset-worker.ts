@@ -23,7 +23,7 @@ export interface EmailAssetJobParams {
   bodyDescription: string;
   templateHtml: string;
   campaignId: string;
-  targetLocales?: string[];
+  targetLocales?: string[] | undefined;
 }
 
 export interface GeneratedEmailAsset {
