@@ -358,7 +358,10 @@ const EmailAssetJobSchema = z.object({
   bodyDescription: z.string().min(1).max(5000),
   templateHtml: z.string().min(1),
   campaignId: z.string().min(1),
-  targetLocales: z.array(z.enum(['en-US', 'pt-PT', 'es-ES', 'fr-FR', 'de-DE'])).min(1).optional(),
+  targetLocales: z
+    .array(z.enum(['en-US', 'pt-PT', 'es-ES', 'fr-FR', 'de-DE']))
+    .min(1)
+    .optional(),
 });
 
 /**
