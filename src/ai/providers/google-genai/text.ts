@@ -46,6 +46,51 @@ export class GoogleGenAITextService implements ITextGenerationService {
   private genAI: any;
   private model: string;
 
+  private static sanitizeErrorPayload(
+    value: unknown,
+    depth: number = 0,
+    seen: WeakSet<object> = new WeakSet(),
+  ): unknown {
+    if (value == null) {
+      return value;
+    }
+
+    if (typeof value === 'string') {
+      return value.length > 2000 ? `${value.slice(0, 2000)}...[truncated]` : value;
+    }
+
+    if (typeof value === 'number' || typeof value === 'boolean') {
+      return value;
+    }
+
+    if (typeof value !== 'object') {
+      return String(value);
+    }
+
+    if (seen.has(value as object)) {
+      return '[Circular]';
+    }
+
+    if (depth >= 4) {
+      return '[TruncatedDepth]';
+    }
+
+    seen.add(value as object);
+
+    if (Array.isArray(value)) {
+      return value.slice(0, 10).map((entry) =>
+        GoogleGenAITextService.sanitizeErrorPayload(entry, depth + 1, seen),
+      );
+    }
+
+    const out: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+      out[key] = GoogleGenAITextService.sanitizeErrorPayload(entry, depth + 1, seen);
+    }
+
+    return out;
+  }
+
   /**
    * Extract structured Google API / GenAI error information if present.
    * The @google/genai client (and underlying fetch) may surface errors in different shapes:
@@ -75,6 +120,16 @@ export class GoogleGenAITextService implements ITextGenerationService {
       }
     }
     return out;
+  }
+
+  private static extractGoogleErrorPayload(err: unknown): unknown {
+    const anyErr: any = err;
+    const source = anyErr?.cause?.error || anyErr?.response?.error || anyErr?.error;
+    if (!source) {
+      return undefined;
+    }
+
+    return GoogleGenAITextService.sanitizeErrorPayload(source);
   }
 
   constructor(config: GoogleGenAITextConfig) {
@@ -687,9 +742,11 @@ export class GoogleGenAITextService implements ITextGenerationService {
       return textContent;
     } catch (error) {
       const structured = GoogleGenAITextService.extractGoogleError(error);
+      const googleErrorResponse = GoogleGenAITextService.extractGoogleErrorPayload(error);
       logger.error('Google GenAI text generation failed', {
         error: error instanceof Error ? error.message : String(error),
         ...structured,
+        ...(googleErrorResponse ? { googleErrorResponse } : {}),
         promptLength: prompt.length,
         model: options?.model || this.model,
         contextId: options?.contextId,

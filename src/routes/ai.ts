@@ -1429,7 +1429,6 @@ router.post('/text/context/clear', async (req, res) => {
     const { storyId, runId } = Schema.parse(req.body);
     const contextId = `${storyId}:${runId}`;
     const { contextManager } = await import('@/ai/context-manager.js');
-    await contextManager.clearContext(contextId);
     // Provider-specific cleanup (google genai)
     const textProvider = process.env.TEXT_PROVIDER || 'google-genai';
     if (textProvider === 'google-genai') {
@@ -1449,6 +1448,7 @@ router.post('/text/context/clear', async (req, res) => {
         });
       }
     }
+    await contextManager.clearContext(contextId);
     res.json({ success: true, contextId });
   } catch (error) {
     res
