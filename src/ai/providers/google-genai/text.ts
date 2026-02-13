@@ -563,8 +563,41 @@ export class GoogleGenAITextService implements ITextGenerationService {
       const raw = response as any;
       const candidateList = raw?.response?.candidates || raw?.candidates;
       const firstCandidate = Array.isArray(candidateList) ? candidateList[0] : undefined;
+      const promptFeedback = raw?.response?.promptFeedback || raw?.promptFeedback;
+      const blockReason = promptFeedback?.blockReason;
       if (!firstCandidate) {
-        throw new Error('No candidates returned from Google GenAI');
+        const directText = raw?.response?.text || raw?.text;
+        if (typeof directText === 'string' && directText.length > 0) {
+          logger.warn('Google GenAI Debug - No candidates array but direct text was present', {
+            model: options?.model || this.model,
+            contextId: options?.contextId,
+            responseLength: directText.length,
+          });
+          return directText;
+        }
+
+        logger.error('Google GenAI Debug - No candidates returned', {
+          model: options?.model || this.model,
+          contextId: options?.contextId,
+          blockReason,
+          promptSafetyRatings: promptFeedback?.safetyRatings,
+          modelStatus: raw?.response?.modelStatus || raw?.modelStatus,
+          responseId: raw?.response?.responseId || raw?.responseId,
+          hasPromptFeedback: !!promptFeedback,
+        });
+
+        if (blockReason) {
+          const blockedError = new Error(
+            `Google GenAI prompt blocked (blockReason=${blockReason}). Rephrase prompt.`,
+          );
+          (blockedError as any).code = blockReason;
+          (blockedError as any).status = 422;
+          (blockedError as any).provider = 'google-genai';
+          (blockedError as any).promptFeedback = promptFeedback;
+          throw blockedError;
+        }
+
+        throw new Error('No candidates returned from Google GenAI. Check promptFeedback.');
       }
 
       // Try to extract text from first candidate; if empty, scan other candidates
@@ -698,6 +731,8 @@ export class GoogleGenAITextService implements ITextGenerationService {
           hasResponse: !!(response as any).response,
           finishReason,
           safetyRatings: safety,
+          promptBlockReason: blockReason,
+          promptSafetyRatings: promptFeedback?.safetyRatings,
           partDiagnostics,
           candidateKeys: Object.keys(candidate || {}),
           model: options?.model || this.model,

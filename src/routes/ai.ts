@@ -370,6 +370,18 @@ router.post('/text/outline', async (req, res) => {
       } catch (err) {
         lastError = err;
 
+        const { isSafetyBlockError } = await import('@/shared/retry-utils.js');
+        const isNonRetryable = isSafetyBlockError(err);
+
+        if (attempt === 1 && isNonRetryable) {
+          logger.warn('Outline attempt failed with non-retryable safety block; skipping retry', {
+            storyId,
+            runId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+          break;
+        }
+
         if (attempt === 1) {
           logger.warn('Outline attempt failed, clearing stale outline step and retrying once', {
             storyId,

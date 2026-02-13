@@ -124,6 +124,10 @@ export function isSafetyBlockError(error: unknown): boolean {
         'content_policy_violation',
         'IMAGE_SAFETY_BLOCKED',
         'PROHIBITED_CONTENT',
+        'SAFETY',
+        'BLOCKLIST',
+        'IMAGE_SAFETY',
+        'BLOCK_REASON_UNSPECIFIED',
       ];
 
       if (safetyErrorCodes.includes(err.code)) {
@@ -140,6 +144,7 @@ export function isSafetyBlockError(error: unknown): boolean {
         /content policy/i,
         /prohibited content/i,
         /safety.*blocked/i,
+        /prompt blocked/i,
       ];
 
       if (safetyPatterns.some((pattern) => pattern.test(message))) {

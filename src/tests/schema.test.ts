@@ -24,6 +24,8 @@ describe('Story Outline Schema', () => {
     expect(schema.type).toBe('object');
     expect(schema.required).toContain('bookTitle');
     expect(schema.required).toContain('chapters');
+    expect(schema.required).toContain('bookCoverCharacters');
+    expect(schema.required).toContain('bookBackCoverCharacters');
     expect(schema.properties).toBeDefined();
     expect(schema.properties.bookTitle).toBeDefined();
     expect(schema.properties.chapters).toBeDefined();
@@ -42,6 +44,7 @@ describe('Story Outline Schema', () => {
     expect(chaptersSchema.items.required).toContain('chapterTitle');
     expect(chaptersSchema.items.required).toContain('chapterSynopses');
     expect(chaptersSchema.items.required).toContain('chapterPhotoPrompt');
+    expect(chaptersSchema.items.required).toContain('charactersInScene');
   });
 
   test('should validate basic story outline structure', () => {
@@ -71,12 +74,22 @@ describe('Story Outline Schema', () => {
 
   const schemasRoot = join(process.cwd(), 'src', 'prompts', 'schemas');
 
-  const expectCharacterEnumsToMatch = (schema: any, checkTraits = true) => {
+  const expectCharacterEnumsToMatch = (schema: any, checkTraits = true, allowNullableEnums = false) => {
     const characterProps = schema?.properties?.characters?.items?.properties;
     expect(characterProps).toBeDefined();
-    expect(characterProps.type.enum).toEqual([...CHARACTER_TYPES]);
-    expect(characterProps.role.enum).toEqual([...CHARACTER_ROLES]);
-    expect(characterProps.age.enum).toEqual([...CHARACTER_AGES]);
+    const normalizedTypeEnum = allowNullableEnums
+      ? characterProps.type.enum.filter((value: unknown) => value !== null)
+      : characterProps.type.enum;
+    const normalizedRoleEnum = allowNullableEnums
+      ? characterProps.role.enum.filter((value: unknown) => value !== null)
+      : characterProps.role.enum;
+    const normalizedAgeEnum = allowNullableEnums
+      ? characterProps.age.enum.filter((value: unknown) => value !== null)
+      : characterProps.age.enum;
+
+    expect(normalizedTypeEnum).toEqual([...CHARACTER_TYPES]);
+    expect(normalizedRoleEnum).toEqual([...CHARACTER_ROLES]);
+    expect(normalizedAgeEnum).toEqual([...CHARACTER_AGES]);
     if (checkTraits) {
       expect(characterProps.traits.items.enum).toEqual([...CHARACTER_TRAITS]);
     }
@@ -87,7 +100,22 @@ describe('Story Outline Schema', () => {
     const schemaContent = await readFile(schemaPath, 'utf-8');
     const schema = JSON.parse(schemaContent);
 
-    expectCharacterEnumsToMatch(schema, true);
+    expectCharacterEnumsToMatch(schema, true, true);
+    expect(schema?.properties?.characters?.items?.additionalProperties).toBe(false);
+    expect(schema?.properties?.characters?.items?.required).toEqual([
+      'characterId',
+      'name',
+      'type',
+      'age',
+      'traits',
+      'characteristics',
+      'physicalDescription',
+      'role',
+    ]);
+    expect(schema?.properties?.characters?.items?.properties?.characteristics?.type).toEqual([
+      'string',
+      'null',
+    ]);
   });
 
   test('story-structure schema uses canonical character enums', async () => {

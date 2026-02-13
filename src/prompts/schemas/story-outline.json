@@ -68,7 +68,7 @@
             "default": []
           }
         },
-        "required": ["chapterPhotoPrompt", "chapterNumber", "chapterSynopses", "chapterTitle"],
+        "required": ["chapterPhotoPrompt", "chapterNumber", "chapterSynopses", "chapterTitle", "charactersInScene"],
         "additionalProperties": false
       }
     },
@@ -81,7 +81,7 @@
           "characterId": { "type": ["string", "null"] },
           "name": { "type": "string" },
           "type": {
-            "type": "string",
+            "type": ["string", "null"],
             "enum": [
               "boy",
               "girl",
@@ -97,11 +97,12 @@
               "robot_cyborg",
               "alien_extraterrestrial",
               "other_creature",
-              "other"
+              "other",
+              null
             ]
           },
           "age": {
-            "type": "string",
+            "type": ["string", "null"],
             "enum": [
               "infant",
               "toddler",
@@ -114,11 +115,12 @@
               "elder",
               "youngling",
               "adult",
-              "senior"
+              "senior",
+              null
             ]
           },
           "traits": {
-            "type": "array",
+            "type": ["array", "null"],
             "items": {
               "type": "string",
               "enum": [
@@ -164,10 +166,10 @@
               ]
             }
           },
-          "characteristics": { "type": "string" },
-          "physicalDescription": { "type": "string" },
+          "characteristics": { "type": ["string", "null"] },
+          "physicalDescription": { "type": ["string", "null"] },
           "role": {
-            "type": "string",
+            "type": ["string", "null"],
             "enum": [
               "protagonist",
               "antagonist",
@@ -177,17 +179,30 @@
               "love_interest",
               "sidekick",
               "narrator",
-              "other"
+              "other",
+              null
             ]
           }
         },
-        "required": ["name"]
+        "required": [
+          "characterId",
+          "name",
+          "type",
+          "age",
+          "traits",
+          "characteristics",
+          "physicalDescription",
+          "role"
+        ],
+        "additionalProperties": false
       }
     }
   },
   "required": [
     "bookTitle",
     "target-audience",
+    "bookCoverCharacters",
+    "bookBackCoverCharacters",
     "characters",
     "chapters",
     "synopses",
