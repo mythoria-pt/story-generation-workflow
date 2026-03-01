@@ -55,16 +55,10 @@ export const envManifest: EnvVarDescriptor[] = [
     name: 'DB_NAME',
     required: true,
     scopes: ['dev', 'runtime', 'prod'],
-    default: 'story_generation_workflow',
+    default: 'mythoria_db',
     source: 'substitution',
   },
-  {
-    name: 'DB_SSL',
-    required: false,
-    scopes: ['dev', 'runtime', 'prod'],
-    default: 'false',
-    note: 'Enable for public Postgres endpoints.',
-  },
+  { name: 'WORKFLOWS_DB', required: true, scopes: ['dev', 'runtime', 'prod'], default: 'workflows_db' },
 
   // Google Cloud
   {
@@ -85,80 +79,125 @@ export const envManifest: EnvVarDescriptor[] = [
     scopes: ['dev', 'runtime', 'prod'],
     source: 'substitution',
   },
+  // AI providers
   {
-    name: 'WORKFLOWS_LOCATION',
-    required: true,
-    scopes: ['dev', 'runtime', 'prod'],
-    source: 'substitution',
-  },
-
-  // Vertex / AI
-  {
-    name: 'VERTEX_AI_MODEL_ID',
-    required: true,
-    scopes: ['dev', 'runtime', 'prod'],
-    source: 'substitution',
-  },
-  {
-    name: 'VERTEX_AI_LOCATION',
+    name: 'TEXT_PROVIDER',
     required: false,
     scopes: ['dev', 'runtime', 'prod'],
-    source: 'substitution',
-    note: 'Defaults to GOOGLE_CLOUD_REGION if unset.',
+    default: 'google-genai',
+    source: 'inline',
   },
   {
-    name: 'IMAGE_GENERATION_MODEL',
+    name: 'IMAGE_PROVIDER',
     required: false,
     scopes: ['dev', 'runtime', 'prod'],
-    note: 'Optional override for image generation provider/model.',
+    default: 'google-genai',
+    source: 'inline',
+  },
+  {
+    name: 'GOOGLE_GENAI_API_KEY',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    secret: true,
+    source: 'secret-manager',
+  },
+  {
+    name: 'GOOGLE_GENAI_MODEL',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    default: 'gemini-2.5-flash',
+    source: 'substitution',
+  },
+  {
+    name: 'GOOGLE_GENAI_IMAGE_MODEL',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    default: 'gemini-3-pro-image-preview',
+    source: 'substitution',
+  },
+  {
+    name: 'OPENAI_API_KEY',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    secret: true,
+    source: 'secret-manager',
+  },
+  {
+    name: 'OPENAI_BASE_MODEL',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    default: 'gpt-5.2',
+    source: 'substitution',
+  },
+  {
+    name: 'OPENAI_TEXT_MODEL',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    default: 'gpt-5.2',
+    deprecated: true,
+    note: 'Legacy alias for OPENAI_BASE_MODEL.',
+  },
+  {
+    name: 'OPENAI_IMAGE_TOOL_MODEL',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    default: 'gpt-image-1.5',
+    source: 'substitution',
+  },
+  {
+    name: 'OPENAI_IMAGE_QUALITY',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    default: 'low',
+    source: 'substitution',
   },
 
   // Logging
   { name: 'LOG_LEVEL', required: false, scopes: ['dev', 'runtime', 'prod'], default: 'info' },
-
-  // OpenAI image retries
-  {
-    name: 'OPENAI_IMAGE_MAX_RETRIES',
-    required: false,
-    scopes: ['dev', 'runtime', 'prod'],
-    default: '2',
-  },
-  {
-    name: 'OPENAI_IMAGE_EDIT_MAX_RETRIES',
-    required: false,
-    scopes: ['dev', 'runtime', 'prod'],
-    default: '2',
-  },
-  {
-    name: 'OPENAI_IMAGE_RETRY_DELAY_MS',
-    required: false,
-    scopes: ['dev', 'runtime', 'prod'],
-    default: '1500',
-  },
-  {
-    name: 'OPENAI_IMAGE_PREFER_BASE64',
-    required: false,
-    scopes: ['dev', 'runtime', 'prod'],
-    default: 'true',
-  },
+  { name: 'DEBUG_AI_FULL_PROMPTS', required: false, scopes: ['dev', 'runtime', 'prod'], default: 'false' },
+  { name: 'DEBUG_AI_FULL_RESPONSES', required: false, scopes: ['dev', 'runtime', 'prod'], default: 'false' },
 
   // TTS
-  { name: 'TTS_PROVIDER', required: false, scopes: ['dev', 'runtime', 'prod'], default: 'openai' },
+  { name: 'TTS_PROVIDER', required: false, scopes: ['dev', 'runtime', 'prod'], default: 'google-genai' },
   {
     name: 'TTS_MODEL',
     required: false,
     scopes: ['dev', 'runtime', 'prod'],
-    default: 'gpt-4o-mini-tts',
+    default: 'gemini-2.5-pro-preview-tts',
   },
-  { name: 'TTS_VOICE', required: false, scopes: ['dev', 'runtime', 'prod'], default: 'coral' },
-  { name: 'TTS_SPEED', required: false, scopes: ['dev', 'runtime', 'prod'], default: '1.0' },
+  { name: 'TTS_VOICE', required: false, scopes: ['dev', 'runtime', 'prod'], default: 'Charon' },
+  { name: 'TTS_SPEED', required: false, scopes: ['dev', 'runtime', 'prod'], default: '1' },
   { name: 'TTS_LANGUAGE', required: false, scopes: ['dev', 'runtime', 'prod'], default: 'en-US' },
+  { name: 'BACKGROUND_MUSIC_VOLUME', required: false, scopes: ['dev', 'runtime', 'prod'], default: '0.2' },
+
+  // Auth / integrations
+  {
+    name: 'STORY_GENERATION_WORKFLOW_API_KEY',
+    required: true,
+    scopes: ['dev', 'runtime', 'prod'],
+    secret: true,
+    source: 'secret-manager',
+  },
+  {
+    name: 'NOTIFICATION_ENGINE_URL',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    source: 'substitution',
+  },
+  {
+    name: 'NOTIFICATION_ENGINE_API_KEY',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    secret: true,
+    source: 'secret-manager',
+  },
 
   // Webhooks
   {
     name: 'WEBAPP_WEBHOOK_URL',
     required: false,
     scopes: ['dev', 'runtime', 'prod'],
+    source: 'substitution',
     note: 'Callback to webapp when jobs complete.',
   },
   {
@@ -166,6 +205,7 @@ export const envManifest: EnvVarDescriptor[] = [
     required: false,
     scopes: ['dev', 'runtime', 'prod'],
     secret: true,
+    source: 'secret-manager',
   },
 ];
 

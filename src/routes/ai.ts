@@ -55,6 +55,152 @@ const CharacterTypeEnum = z.enum(CHARACTER_TYPES);
 const CharacterRoleEnum = z.enum(CHARACTER_ROLES);
 const CharacterAgeEnum = z.enum(CHARACTER_AGES);
 const CharacterTraitEnum = z.enum(CHARACTER_TRAITS);
+
+const CHARACTER_TRAIT_SET = new Set<string>(CHARACTER_TRAITS);
+
+const CHARACTER_TRAIT_ALIASES: Record<string, string> = {
+  // Portuguese and common localized variants
+  amigavel: 'kind',
+  amavel: 'kind',
+  bondoso: 'kind',
+  gentil: 'kind',
+  corajoso: 'courageous',
+  corajosa: 'courageous',
+  curioso: 'curious',
+  curiosa: 'curious',
+  criativo: 'imaginative',
+  criativa: 'imaginative',
+  leal: 'loyal',
+  paciente: 'patient',
+  otimista: 'optimistic',
+  honesto: 'honest',
+  honesta: 'honest',
+  empatico: 'empathetic',
+  empatica: 'empathetic',
+  pratico: 'practical',
+  pratica: 'practical',
+  inteligente: 'resourceful',
+
+  // English near-synonyms that models often produce
+  thoughtful: 'compassionate',
+  caring: 'compassionate',
+  creative: 'imaginative',
+  funny: 'witty',
+  friendly: 'kind',
+  wise: 'pragmatic',
+  disciplined: 'self-disciplined',
+};
+
+const normalizeTraitToken = (value: string): string =>
+  value
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[–—]/g, '-')
+    .replace(/[\s_]+/g, '-')
+    .replace(/[^a-z-]/g, '')
+    .replace(/-+/g, '-');
+
+const splitTraitCandidates = (value: string): string[] =>
+  value
+    .split(/[|,;/]|\band\b/gi)
+    .map((trait) => trait.trim())
+    .filter((trait) => trait.length > 0);
+
+const normalizeAndFilterTraits = (values: string[]): { normalized: string[]; unknown: string[] } => {
+  const normalized: string[] = [];
+  const unknown: string[] = [];
+
+  for (const rawValue of values) {
+    const token = normalizeTraitToken(rawValue);
+    const mapped = CHARACTER_TRAIT_ALIASES[token] ?? token;
+
+    if (CHARACTER_TRAIT_SET.has(mapped)) {
+      if (!normalized.includes(mapped)) {
+        normalized.push(mapped);
+      }
+      continue;
+    }
+
+    if (token.length > 0 && !unknown.includes(rawValue)) {
+      unknown.push(rawValue);
+    }
+  }
+
+  return { normalized: normalized.slice(0, 5), unknown };
+};
+
+const normalizeCharacterTraits = (value: unknown): unknown => {
+  if (value == null) {
+    return undefined;
+  }
+
+  if (typeof value === 'string') {
+    const candidates = splitTraitCandidates(value);
+    const { normalized, unknown } = normalizeAndFilterTraits(candidates);
+
+    if (unknown.length > 0) {
+      logger.warn('Dropped unknown character traits from outline response', {
+        unknownTraits: unknown,
+      });
+    }
+
+    return normalized.length > 0 ? normalized : undefined;
+  }
+
+  if (Array.isArray(value)) {
+    const flattenedCandidates = value
+      .filter((trait): trait is string => typeof trait === 'string')
+      .flatMap((trait) => splitTraitCandidates(trait));
+
+    const { normalized, unknown } = normalizeAndFilterTraits(flattenedCandidates);
+
+    if (unknown.length > 0) {
+      logger.warn('Dropped unknown character traits from outline response', {
+        unknownTraits: unknown,
+      });
+    }
+
+    return normalized.length > 0 ? normalized : undefined;
+  }
+
+  return value;
+};
+
+function buildOutlineValidationError(parsedData: unknown, issues: z.ZodIssue[]): Error {
+  const dataAsRecord =
+    parsedData && typeof parsedData === 'object' ? (parsedData as Record<string, unknown>) : {};
+  const error = new Error('Outline schema validation failed');
+  (error as any).status = 422;
+  (error as any).code = 'OUTLINE_SCHEMA_VALIDATION_FAILED';
+  (error as any).issues = issues.map((issue) => ({
+    path: issue.path.join('.'),
+    message: issue.message,
+    code: issue.code,
+  }));
+  (error as any).actualKeys = Object.keys(dataAsRecord);
+  (error as any).hasBookTitle = !!dataAsRecord?.bookTitle;
+  (error as any).hasChapters = !!dataAsRecord?.chapters;
+  (error as any).isChaptersArray = Array.isArray(dataAsRecord?.chapters);
+  return error;
+}
+
+function isNonRetryableOutlineError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) {
+    return false;
+  }
+
+  const err = error as any;
+  const status = err.status ?? err.statusCode;
+  if (typeof status === 'number' && status >= 400 && status < 500 && status !== 429) {
+    return true;
+  }
+
+  const code = typeof err.code === 'string' ? err.code : '';
+  return code === 'OUTLINE_SCHEMA_VALIDATION_FAILED';
+}
+
 const TargetAudienceEnum = z.enum([
   'children_0-2',
   'children_3-6',
@@ -71,7 +217,7 @@ const CharacterSchema = z.object({
   name: z.string().min(1),
   type: CharacterTypeEnum.optional(),
   age: CharacterAgeEnum.optional(),
-  traits: z.array(CharacterTraitEnum).max(5).optional(),
+  traits: z.preprocess(normalizeCharacterTraits, z.array(CharacterTraitEnum).max(5).optional()),
   characteristics: z.string().optional(),
   physicalDescription: z.string().optional(),
   role: CharacterRoleEnum.optional(),
@@ -98,25 +244,6 @@ export const OutlineSchema = z.object({
 });
 
 export type OutlineData = z.infer<typeof OutlineSchema>;
-
-// Helper function to check if data matches outline structure
-function isOutlineData(data: unknown): data is OutlineData {
-  try {
-    OutlineSchema.parse(data);
-    return true;
-  } catch (err) {
-    if (err instanceof z.ZodError) {
-      logger.error('Outline validation failed', {
-        issues: err.issues.map((i) => ({
-          path: i.path.join('.'),
-          message: i.message,
-          code: i.code,
-        })),
-      });
-    }
-    return false;
-  }
-}
 
 function hasNonEmptyCoverPrompts(data: OutlineData): boolean {
   const front = data.bookCoverPrompt?.trim();
@@ -306,22 +433,19 @@ router.post('/text/outline', async (req, res) => {
       });
 
       const parsedData = parseAIResponse(outline);
-
-      if (!isOutlineData(parsedData)) {
-        const dataAsRecord =
-          parsedData && typeof parsedData === 'object'
-            ? (parsedData as Record<string, unknown>)
-            : {};
-        logger.error('Invalid outline structure', {
-          hasBookTitle: !!dataAsRecord?.bookTitle,
-          hasChapters: !!dataAsRecord?.chapters,
-          isChaptersArray: Array.isArray(dataAsRecord?.chapters),
-          actualKeys: Object.keys(dataAsRecord),
+      const validation = OutlineSchema.safeParse(parsedData);
+      if (!validation.success) {
+        logger.error('Outline validation failed', {
+          issues: validation.error.issues.map((i) => ({
+            path: i.path.join('.'),
+            message: i.message,
+            code: i.code,
+          })),
         });
-        throw new Error('Invalid outline structure received');
+        throw buildOutlineValidationError(parsedData, validation.error.issues);
       }
 
-      const outlineData = parsedData;
+      const outlineData = validation.data;
 
       // Refine cover + chapter image prompts for cross-provider clarity
       try {
@@ -371,7 +495,7 @@ router.post('/text/outline', async (req, res) => {
         lastError = err;
 
         const { isSafetyBlockError } = await import('@/shared/retry-utils.js');
-        const isNonRetryable = isSafetyBlockError(err);
+        const isNonRetryable = isSafetyBlockError(err) || isNonRetryableOutlineError(err);
 
         if (attempt === 1 && isNonRetryable) {
           logger.warn('Outline attempt failed with non-retryable safety block; skipping retry', {
@@ -448,6 +572,21 @@ router.post('/text/outline', async (req, res) => {
       },
     });
   } catch (error) {
+    const status =
+      typeof error === 'object' && error !== null
+        ? ((error as any).status ?? (error as any).statusCode)
+        : undefined;
+
+    if (status === 422) {
+      res.status(422).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Outline schema validation failed',
+        code: typeof error === 'object' && error !== null ? (error as any).code : undefined,
+        issues: typeof error === 'object' && error !== null ? (error as any).issues : undefined,
+      });
+      return;
+    }
+
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',

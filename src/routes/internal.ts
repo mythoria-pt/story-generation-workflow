@@ -11,6 +11,7 @@ import { TTSService } from '@/services/tts.js';
 import { ProgressTrackerService } from '@/services/progress-tracker.js';
 import { StoryService } from '@/services/story.js';
 import { ChaptersService } from '@/services/chapters.js';
+import { serializeError } from '@/utils/errorHandling.js';
 import type { OutlineData } from '@/types/database.js';
 
 const router = Router();
@@ -1000,8 +1001,10 @@ router.patch('/stories/:storyId/audiobook-status', async (req: Request, res: Res
       ...(totalDuration && { totalDuration }),
     });
   } catch (error) {
+    const serializedError = serializeError(error);
     logger.error('Internal API: Failed to update audiobook status', {
-      error: error instanceof Error ? error.message : String(error),
+      error: serializedError.message,
+      errorDetails: serializedError,
       storyId: req.params.storyId,
       requestBody: req.body,
     });

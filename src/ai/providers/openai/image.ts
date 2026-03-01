@@ -55,6 +55,8 @@ export class OpenAIImageService implements IImageGenerationService {
     try {
       const env = getEnvironment();
       const quality = env.OPENAI_IMAGE_QUALITY || 'low';
+      const shouldLogVerboseDebug =
+        process.env.DEBUG_AI_FULL_PROMPTS === 'true' && process.env.NODE_ENV !== 'production';
 
       logger.info('OpenAI: Generating image with Responses API', {
         model: this.model,
@@ -161,16 +163,6 @@ export class OpenAIImageService implements IImageGenerationService {
         systemMessage = `This image is for the book "${bookTitle}". ${prompt} Create a high-quality, detailed image with good composition and visual appeal.`;
       }
 
-      // Debug: Log the complete request being sent to OpenAI
-      console.log('=== FULL OPENAI REQUEST DEBUG ===');
-      console.log('Model:', this.model);
-      console.log('Image tool model:', this.imageModel);
-      console.log('=== System Message ===');
-      console.log('System message text:', systemMessage);
-      console.log('=== User Prompt ===');
-      console.log('User prompt text:', prompt);
-      console.log('User prompt length:', prompt.length);
-      console.log('=== Tool Configuration ===');
       const toolConfig = {
         type: 'image_generation' as const,
         model: this.imageModel,
@@ -181,25 +173,29 @@ export class OpenAIImageService implements IImageGenerationService {
         moderation: 'low' as const,
         partial_images: 0,
       };
-      console.log('Image generation tool config:', JSON.stringify(toolConfig, null, 2));
-      console.log('=== Request Structure ===');
-      console.log('Model:', this.model);
-      console.log('Temperature:', 1);
-      console.log('Max output tokens:', 8192);
-      console.log('Top P:', 1);
-      console.log('Store:', true);
-      console.log('=== END OPENAI REQUEST DEBUG ===');
+      if (shouldLogVerboseDebug) {
+        logger.debug('OpenAI: Verbose image request debug enabled', {
+          model: this.model,
+          imageToolModel: this.imageModel,
+          promptLength: prompt.length,
+          systemPromptLength: systemMessage.length,
+          toolConfig,
+          temperature: 1,
+          maxOutputTokens: 8192,
+          topP: 1,
+          store: true,
+        });
+      }
 
       // Debug: Log the request parameters being sent to OpenAI
       logger.info('OpenAI: Request parameters for image generation', {
         model: this.model,
         imageToolModel: this.imageModel,
         promptLength: prompt.length,
+        systemPromptLength: systemMessage.length,
         size: finalSize,
         quality: finalQuality,
         bookTitle: bookTitle,
-        userPrompt: prompt.substring(0, 200) + (prompt.length > 200 ? '...' : ''),
-        systemPrompt: systemMessage,
         toolConfig: toolConfig,
       });
 

@@ -99,15 +99,36 @@ main:
                                     - saveOutlineError:
                                         assign:
                                           - outlineLastError: ${outlineAttemptError}
+                                    - extractOutlineErrorCode:
+                                      assign:
+                                          - outlineErrorCode: ${default(map.get(outlineAttemptError, "code"), 0)}
+                                    - classifyOutlineRetryability:
+                                      assign:
+                                          - outlineIsRetryable: ${outlineErrorCode == 0 or outlineErrorCode == 408 or outlineErrorCode == 429 or outlineErrorCode >= 500}
+                                    - maybeStopOutlineRetry:
+                                        switch:
+                                          - condition: ${not(outlineIsRetryable)}
+                                            steps:
+                                              - logOutlineNonRetryable:
+                                                  call: sys.log
+                                                  args:
+                                                    severity: WARNING
+                                                    text: '${"Outline attempt " + string(attempt) + " failed with non-retryable code " + string(outlineErrorCode) + ": " + outlineAttemptError.message}'
+                                              - raiseOutlineNonRetryable:
+                                                  raise: ${outlineAttemptError}
                                     - logOutlineRetry:
                                         call: sys.log
                                         args:
                                           severity: WARNING
                                           text: '${"Outline attempt " + string(attempt) + " failed, retrying after " + string(outlineRetryDelay) + "s: " + outlineAttemptError.message}'
-                                    - delayOutlineRetry:
-                                        call: sys.sleep
-                                        args:
-                                          seconds: ${outlineRetryDelay}
+                                    - maybeDelayOutlineRetry:
+                                        switch:
+                                          - condition: ${attempt < outlineMaxAttempts}
+                                            steps:
+                                              - delayOutlineRetry:
+                                                  call: sys.sleep
+                                                  args:
+                                                    seconds: ${outlineRetryDelay}
 
                 except:
                   as: outlineError
@@ -561,10 +582,14 @@ main:
                                                 args:
                                                   severity: WARNING
                                                   text: '${"Chapter " + string(chapterNum) + " image attempt " + string(attempt) + " failed, retrying after " + string(chapterImageRetryDelay) + "s: " + chapterImageAttemptError.message}'
-                                            - delayChapterImageRetry:
-                                                call: sys.sleep
-                                                args:
-                                                  seconds: ${chapterImageRetryDelay}
+                                            - maybeDelayChapterImageRetry:
+                                                switch:
+                                                  - condition: ${attempt < chapterImageMaxAttempts}
+                                                    steps:
+                                                      - delayChapterImageRetry:
+                                                          call: sys.sleep
+                                                          args:
+                                                            seconds: ${chapterImageRetryDelay}
 
                         except:
                           as: chapterImageError
@@ -609,17 +634,28 @@ main:
                                     text: '${"Skipping image persistence for chapter " + string(chapterNum) + " due to repeated failures. Last error: " + if(chapterImageLastError != null, chapterImageLastError.message, "unknown")}'
 
             # 8. Mark run completed
-            - clearContext:
-                call: http.request
-                args:
-                  url: ${baseUrl + "/ai/text/context/clear"}
-                  method: POST
-                  auth: { type: OIDC }
-                  headers:
-                    x-api-key: ${apiKey}
-                  body:
-                    storyId: ${storyId}
-                    runId: ${runId}
+            - clearContextBestEffort:
+                try:
+                  steps:
+                    - clearContext:
+                        call: http.request
+                        args:
+                          url: ${baseUrl + "/ai/text/context/clear"}
+                          method: POST
+                          auth: { type: OIDC }
+                          headers:
+                            x-api-key: ${apiKey}
+                          body:
+                            storyId: ${storyId}
+                            runId: ${runId}
+                except:
+                  as: clearContextError
+                  steps:
+                    - logClearContextFailure:
+                        call: sys.log
+                        args:
+                          severity: WARNING
+                          text: '${"Context clear failed, continuing completion: " + clearContextError.message}'
             - markCompleted:
                 call: http.request
                 args:

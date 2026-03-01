@@ -14,6 +14,8 @@ import { withTokenTracking, AICallContext } from '@/ai/token-tracking-middleware
 
 export class AIGatewayWithTokenTracking {
   private aiGateway: AIGateway;
+  private cachedGooglePrimaryFallbackTextService: ITextGenerationService | null = null;
+  private cachedOpenAIPrimaryFallbackTextService: ITextGenerationService | null = null;
 
   constructor(aiGateway: AIGateway) {
     this.aiGateway = aiGateway;
@@ -27,6 +29,10 @@ export class AIGatewayWithTokenTracking {
     const googleKey = process.env.GOOGLE_GENAI_API_KEY;
 
     if (primaryProvider === 'google-genai' && openaiKey) {
+      if (this.cachedGooglePrimaryFallbackTextService) {
+        return withTokenTracking(this.cachedGooglePrimaryFallbackTextService, context);
+      }
+
       try {
         const fallbackModel =
           process.env.OPENAI_BASE_MODEL || process.env.OPENAI_TEXT_MODEL || 'gpt-5.2';
@@ -42,6 +48,7 @@ export class AIGatewayWithTokenTracking {
           fallbackName: 'openai',
           fallbackModel,
         });
+        this.cachedGooglePrimaryFallbackTextService = service;
       } catch (e) {
         console.warn(
           'Failed to initialize fallback text service (OpenAI). Proceeding without fallback.',
@@ -51,6 +58,10 @@ export class AIGatewayWithTokenTracking {
     }
 
     if (primaryProvider === 'openai' && googleKey) {
+      if (this.cachedOpenAIPrimaryFallbackTextService) {
+        return withTokenTracking(this.cachedOpenAIPrimaryFallbackTextService, context);
+      }
+
       try {
         const fallbackModel = process.env.GOOGLE_GENAI_MODEL || 'gemini-2.5-flash';
         const fallback = new GoogleGenAITextService({
@@ -65,6 +76,7 @@ export class AIGatewayWithTokenTracking {
           fallbackName: 'google-genai',
           fallbackModel,
         });
+        this.cachedOpenAIPrimaryFallbackTextService = service;
       } catch (e) {
         console.warn(
           'Failed to initialize fallback text service (Google GenAI). Proceeding without fallback.',

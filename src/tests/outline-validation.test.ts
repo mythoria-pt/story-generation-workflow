@@ -41,4 +41,36 @@ describe('OutlineSchema validation', () => {
   it('accepts filled cover prompts', () => {
     expect(() => OutlineSchema.parse(baseOutline)).not.toThrow();
   });
+
+  it('normalizes character traits when provided as a string', () => {
+    const withStringTraits = {
+      ...baseOutline,
+      characters: [
+        {
+          ...baseOutline.characters[0],
+          traits: 'brave, kind',
+        },
+      ],
+    };
+
+    const parsed = OutlineSchema.parse(withStringTraits);
+
+    expect(parsed.characters[0]?.traits).toEqual(['brave', 'kind']);
+  });
+
+  it('normalizes localized and synonym traits and drops unknown values', () => {
+    const withLocalizedTraits = {
+      ...baseOutline,
+      characters: [
+        {
+          ...baseOutline.characters[0],
+          traits: ['Corajosa', 'amável', 'friendly', 'invented_trait'],
+        },
+      ],
+    };
+
+    const parsed = OutlineSchema.parse(withLocalizedTraits);
+
+    expect(parsed.characters[0]?.traits).toEqual(['courageous', 'kind']);
+  });
 });

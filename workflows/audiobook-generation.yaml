@@ -23,6 +23,9 @@ main:
           - voice: ${default(payload.voice, "coral")}
           - includeBackgroundMusic: ${default(payload.includeBackgroundMusic, true)}
           - baseUrl: 'https://story-generation-workflow-803421888801.europe-west9.run.app'
+          - chapterGenerationConcurrency: 4
+          - chapterAudioMaxAttempts: 3
+          - chapterAudioRetryDelaySeconds: 10
           - now: ${time.format(sys.now())}
 
     # ───────────────────────────────────────────────
@@ -72,58 +75,79 @@ main:
                         - storyLanguage: ${default(storyResp.body.storyLanguage, "en-US")}
                         - chapters: ${htmlResp.body.chapters} # Chapters from database
 
-            # 3. Generate audio for each chapter sequentially
-            - initChapterResults:
-                assign:
-                  - chaptersWithAudio: []
+            # 3. Generate audio for each chapter in parallel
             - generateChapterAudios:
-                for:
-                  range: ${[1, len(chapters)]}
-                  value: chapterNum
-                  steps:
-                    - generateChapterAudio:
-                        call: http.request
-                        args:
-                          url: ${baseUrl + "/internal/audiobook/chapter"}
-                          method: POST
-                          auth: { type: OIDC }
-                          body:
-                            storyId: ${storyId}
-                            chapterNumber: ${chapterNum}
-                            chapterTitle: ${chapters[chapterNum - 1].title}
-                            chapterContent: ${chapters[chapterNum - 1].content}
-                            storyTitle: ${storyTitle}
-                            storyAuthor: ${storyAuthor}
-                            dedicatoryMessage: ${dedicatoryMessage}
-                            voice: ${voice}
-                            storyLanguage: ${storyLanguage}
-                            isFirstChapter: ${chapterNum == 1}
-                            includeBackgroundMusic: ${includeBackgroundMusic}
-                        result: chapterAudioResp
+                parallel:
+                  concurrency_limit: ${chapterGenerationConcurrency}
+                  for:
+                    range: ${[1, len(chapters)]}
+                    value: chapterNum
+                    steps:
+                      - initChapterAudioRetry:
+                          assign:
+                            - chapterAudioSuccess: false
+                            - chapterAudioLastError: null
 
-                    - extractChapterData:
-                        assign:
-                          - currentChapter: ${chapters[chapterNum - 1]}
-                          - chapterImageUri: null
+                      - chapterAudioRetryLoop:
+                          for:
+                            value: attempt
+                            range: ${[1, chapterAudioMaxAttempts]}
+                            steps:
+                              - checkChapterAudioAlreadySuccessful:
+                                  switch:
+                                    - condition: ${chapterAudioSuccess}
+                                      next: continue
 
-                    - checkImageUri:
-                        switch:
-                          - condition: ${"imageUri" in currentChapter}
-                            assign:
-                              - chapterImageUri: ${currentChapter.imageUri}
+                              - tryChapterAudioGeneration:
+                                  try:
+                                    steps:
+                                      - generateChapterAudio:
+                                          call: http.request
+                                          args:
+                                            url: ${baseUrl + "/internal/audiobook/chapter"}
+                                            method: POST
+                                            timeout: 1800
+                                            auth: { type: OIDC }
+                                            body:
+                                              storyId: ${storyId}
+                                              chapterNumber: ${chapterNum}
+                                              chapterTitle: ${chapters[chapterNum - 1].title}
+                                              chapterContent: ${chapters[chapterNum - 1].content}
+                                              storyTitle: ${storyTitle}
+                                              storyAuthor: ${storyAuthor}
+                                              dedicatoryMessage: ${dedicatoryMessage}
+                                              voice: ${voice}
+                                              storyLanguage: ${storyLanguage}
+                                              isFirstChapter: ${chapterNum == 1}
+                                              includeBackgroundMusic: ${includeBackgroundMusic}
+                                      - markChapterAudioAttemptSuccess:
+                                          assign:
+                                            - chapterAudioSuccess: true
+                                  except:
+                                    as: chapterAudioAttemptError
+                                    steps:
+                                      - saveChapterAudioError:
+                                          assign:
+                                            - chapterAudioLastError: ${chapterAudioAttemptError}
+                                      - logChapterAudioRetry:
+                                          call: sys.log
+                                          args:
+                                            severity: WARNING
+                                            text: '${"Chapter " + string(chapterNum) + " audio attempt " + string(attempt) + " failed, retrying after " + string(chapterAudioRetryDelaySeconds) + "s: " + chapterAudioAttemptError.message}'
+                                      - delayChapterAudioRetry:
+                                          call: sys.sleep
+                                          args:
+                                            seconds: ${chapterAudioRetryDelaySeconds}
 
-                    - buildChapterEntry:
-                        assign:
-                          - chapterEntry:
-                              chapterNumber: ${chapterNum}
-                              chapterTitle: ${currentChapter.title}
-                              audioUrl: ${chapterAudioResp.body.audioUrl}
-                              duration: ${chapterAudioResp.body.duration}
-                              imageUri: ${chapterImageUri}
-
-                    - storeChapterAudio:
-                        assign:
-                          - chaptersWithAudio: ${list.concat(chaptersWithAudio, chapterEntry)}
+                      - handleChapterAudioOutcome:
+                          switch:
+                            - condition: ${not(chapterAudioSuccess)}
+                              steps:
+                                - logChapterAudioFailure:
+                                    call: sys.log
+                                    args:
+                                      severity: WARNING
+                                      text: '${"Chapter audio not confirmed after retries for chapter " + string(chapterNum) + "; last error: " + if(chapterAudioLastError != null, chapterAudioLastError.message, "unknown") + ". Continuing to finalize check."}'
 
             # 4. Finalize audiobook and mark as completed
             - finalizeAudiobook:
@@ -134,8 +158,16 @@ main:
                   auth: { type: OIDC }
                   body:
                     storyId: ${storyId}
-                    chapters: ${chaptersWithAudio}
                 result: finalizeResp
+
+            - validateAudiobookCompleteness:
+                switch:
+                  - condition: ${finalizeResp.body.chaptersProcessed == len(chapters)}
+                    next: markAudiobookCompleted
+                  - condition: ${finalizeResp.body.chaptersProcessed != len(chapters)}
+                    steps:
+                      - raiseIncompleteAudiobook:
+                          raise: '${"Audiobook incomplete after finalize. Expected chapters: " + string(len(chapters)) + ", generated chapters: " + string(finalizeResp.body.chaptersProcessed)}'
 
             # 5. Mark audiobook as completed
             - markAudiobookCompleted:
@@ -148,7 +180,7 @@ main:
                     status: 'completed'
                     completedAt: ${time.format(sys.now())}
                     audioUrls: ${finalizeResp.body.audioUrls}
-                    chapters: ${default(finalizeResp.body.audiobookChapters, chaptersWithAudio)}
+                    chapters: ${finalizeResp.body.audiobookChapters}
                     totalDuration: ${finalizeResp.body.totalDuration}
 
             - returnSuccess:
@@ -158,7 +190,7 @@ main:
                   runId: ${runId}
                   audioUrls: ${finalizeResp.body.audioUrls}
                   totalDuration: ${finalizeResp.body.totalDuration}
-                  chaptersProcessed: ${len(chaptersWithAudio)}
+                  chaptersProcessed: ${finalizeResp.body.chaptersProcessed}
                   generatedAt: ${now}
 
         except:

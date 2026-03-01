@@ -10,6 +10,7 @@ import { characters } from '@/db/schema/characters.js';
 import { authors } from '@/db/schema/authors.js';
 import { retry } from '@/shared/utils.js';
 import { logger } from '@/config/logger.js';
+import { serializeError } from '@/utils/errorHandling.js';
 
 export interface StoryContext {
   story: {
@@ -357,8 +358,10 @@ export class StoryService {
 
       return true;
     } catch (error) {
+      const serializedError = serializeError(error);
       logger.error('Failed to update audiobook status', {
-        error: error instanceof Error ? error.message : String(error),
+        error: serializedError.message,
+        errorDetails: serializedError,
         storyId,
         updates,
       });

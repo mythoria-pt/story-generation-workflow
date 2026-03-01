@@ -266,7 +266,7 @@ export class GoogleGenAITTSService implements ITTSService {
           });
         },
         {
-          maxAttempts: 2,
+          maxAttempts: 3,
           baseDelayMs: 2000,
           maxDelayMs: 5000,
           jitterMs: 500,

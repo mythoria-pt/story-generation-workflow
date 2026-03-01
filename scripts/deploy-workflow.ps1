@@ -2,20 +2,23 @@
 # This script deploys the workflow and sets up the Pub/Sub trigger
 
 param(
-    [Parameter(Mandatory=$false)]
+    [Parameter(Mandatory = $false)]
     [string]$ProjectId = $env:GOOGLE_CLOUD_PROJECT_ID,
     
-    [Parameter(Mandatory=$false)]
+    [Parameter(Mandatory = $false)]
     [string]$Region = $env:GOOGLE_CLOUD_REGION,
     
-    [Parameter(Mandatory=$false)]
+    [Parameter(Mandatory = $false)]
     [string]$ServiceAccount = $env:WORKFLOW_SERVICE_ACCOUNT,
     
-    [Parameter(Mandatory=$false)]
+    [Parameter(Mandatory = $false)]
     [string]$WorkflowName = "mythoria-story-generation",
     
-    [Parameter(Mandatory=$false)]
-    [string]$TopicName = "mythoria-story-requests"
+    [Parameter(Mandatory = $false)]
+    [string]$TopicName = "mythoria-story-requests",
+
+    [Parameter(Mandatory = $false)]
+    [string]$CallLogLevel = $(if ($env:WORKFLOW_CALL_LOG_LEVEL) { $env:WORKFLOW_CALL_LOG_LEVEL } else { "LOG_ERRORS_ONLY" })
 )
 
 # Check required parameters
@@ -38,6 +41,7 @@ Write-Host "Deploying Mythoria Story Generation Workflow..." -ForegroundColor Gr
 Write-Host "   Project ID: $ProjectId" -ForegroundColor Yellow
 Write-Host "   Region: $Region" -ForegroundColor Yellow
 Write-Host "   Workflow Name: $WorkflowName" -ForegroundColor Yellow
+Write-Host "   Call Log Level: $CallLogLevel" -ForegroundColor Yellow
 
 # 1. Deploy the workflow
 Write-Host  "Deploying workflow definition..." -ForegroundColor Blue
@@ -45,6 +49,7 @@ Write-Host  "Deploying workflow definition..." -ForegroundColor Blue
 $deployArgs = @(
     "workflows", "deploy", $WorkflowName,
     "--source=workflows/story-generation.yaml",
+    "--call-log-level=$CallLogLevel",
     "--location=$Region",
     "--project=$ProjectId"
 )
@@ -60,7 +65,8 @@ try {
         throw "Workflow deployment failed"
     }
     Write-Host "[OK] Workflow deployed successfully!" -ForegroundColor Green
-} catch {
+}
+catch {
     Write-Error "[ERR] Failed to deploy workflow: $_"
     exit 1
 }
@@ -78,10 +84,12 @@ try {
         if ($LASTEXITCODE -ne 0) {
             throw "Failed to create Pub/Sub topic"
         }
-    } else {
+    }
+    else {
         Write-Host "   Pub/Sub topic already exists: $TopicName" -ForegroundColor Yellow
     }
-} catch {
+}
+catch {
     Write-Error "[ERR] Failed to setup Pub/Sub topic: $_"
     exit 1
 }
@@ -111,7 +119,8 @@ try {
         Write-Host "   Pub/Sub trigger already exists: $triggerName" -ForegroundColor Yellow
         Write-Host "   You may need to update it manually if the configuration changed." -ForegroundColor Yellow
     }
-} catch {
+}
+catch {
     Write-Error "[ERR] Failed to setup Pub/Sub trigger: $_"
     exit 1
 }
@@ -140,10 +149,12 @@ if ($ServiceAccount) {
                 
             if ($LASTEXITCODE -ne 0) {
                 Write-Warning "[WARN]  Failed to grant Cloud Run Invoker permission. You may need to do this manually."
-            } else {
+            }
+            else {
                 Write-Host "   [OK] Cloud Run Invoker permission granted" -ForegroundColor Green
             }
-        } catch {
+        }
+        catch {
             Write-Warning "[WARN]  Failed to grant Cloud Run Invoker permission: $_"
         }
     }

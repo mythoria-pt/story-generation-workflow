@@ -5,6 +5,55 @@
 
 import { logger } from '@/config/logger.js';
 
+function extractErrorSignals(error: unknown): {
+  status?: number;
+  code?: string;
+  message?: string;
+  causeCode?: string;
+  causeMessage?: string;
+} {
+  if (typeof error !== 'object' || error === null) {
+    return {};
+  }
+
+  const err = error as any;
+  const cause = err.cause && typeof err.cause === 'object' ? err.cause : undefined;
+
+  const rawStatus = err.status ?? err.statusCode;
+  const status = typeof rawStatus === 'number' ? rawStatus : undefined;
+
+  const code = typeof err.code === 'string' ? err.code : undefined;
+  const message = typeof err.message === 'string' ? err.message : undefined;
+  const causeCode = typeof cause?.code === 'string' ? cause.code : undefined;
+  const causeMessage = typeof cause?.message === 'string' ? cause.message : undefined;
+
+  const signals: {
+    status?: number;
+    code?: string;
+    message?: string;
+    causeCode?: string;
+    causeMessage?: string;
+  } = {};
+
+  if (status !== undefined) {
+    signals.status = status;
+  }
+  if (code !== undefined) {
+    signals.code = code;
+  }
+  if (message !== undefined) {
+    signals.message = message;
+  }
+  if (causeCode !== undefined) {
+    signals.causeCode = causeCode;
+  }
+  if (causeMessage !== undefined) {
+    signals.causeMessage = causeMessage;
+  }
+
+  return signals;
+}
+
 export interface RetryOptions {
   maxAttempts?: number;
   baseDelayMs?: number;
@@ -35,12 +84,14 @@ const DEFAULT_RETRY_OPTIONS: Required<Omit<RetryOptions, 'onRetry'>> = {
  * Determine if an error is transient and should be retried
  */
 export function isTransientError(error: unknown): boolean {
+  const signals = extractErrorSignals(error);
+
   // Check for HTTP status codes that indicate transient errors
   if (typeof error === 'object' && error !== null) {
     const err = error as any;
 
     // Check status code
-    const status = err.status || err.statusCode || err.code;
+    const status = signals.status ?? err.status ?? err.statusCode ?? err.code;
     if (typeof status === 'number') {
       // Retryable HTTP status codes
       const retryableStatuses = [
@@ -58,7 +109,7 @@ export function isTransientError(error: unknown): boolean {
     }
 
     // Check error code strings
-    if (typeof err.code === 'string') {
+    if (typeof err.code === 'string' || typeof signals.causeCode === 'string') {
       const retryableErrorCodes = [
         'ETIMEDOUT',
         'ECONNRESET',
@@ -66,22 +117,38 @@ export function isTransientError(error: unknown): boolean {
         'ENOTFOUND',
         'ENETUNREACH',
         'EAI_AGAIN',
+        'UND_ERR_CONNECT_TIMEOUT',
+        'UND_ERR_HEADERS_TIMEOUT',
+        'UND_ERR_BODY_TIMEOUT',
+        'UND_ERR_SOCKET',
         'rate_limit_exceeded',
         'server_error',
         'timeout',
       ];
 
-      if (retryableErrorCodes.includes(err.code)) {
+      if (
+        (typeof err.code === 'string' && retryableErrorCodes.includes(err.code)) ||
+        (typeof signals.causeCode === 'string' && retryableErrorCodes.includes(signals.causeCode))
+      ) {
         return true;
       }
     }
 
     // Check error message for transient indicators
-    const message = err.message || '';
-    if (typeof message === 'string') {
+    const messageParts = [err.message, signals.causeMessage].filter(
+      (part): part is string => typeof part === 'string' && part.length > 0,
+    );
+    const message = messageParts.join(' | ');
+
+    if (message.length > 0) {
       const transientPatterns = [
         /timeout/i,
         /timed out/i,
+        /fetch failed/i,
+        /sending request/i,
+        /network error/i,
+        /socket hang up/i,
+        /connect/i,
         /connection reset/i,
         /ECONNRESET/i,
         /rate limit/i,
@@ -232,11 +299,16 @@ export async function withRetry<T>(
 
       // If not retryable or last attempt, throw
       if (!shouldRetry || attempt >= config.maxAttempts) {
+        const signals = extractErrorSignals(error);
         logger.error('Retry: Final attempt failed or error not retryable', {
           attempt,
           maxAttempts: config.maxAttempts,
           retryable: shouldRetry,
           error: error instanceof Error ? error.message : String(error),
+          errorCode: signals.code,
+          errorStatus: signals.status,
+          causeCode: signals.causeCode,
+          causeMessage: signals.causeMessage,
         });
         throw error;
       }
