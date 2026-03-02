@@ -48,3 +48,46 @@ export class ImageGenerationBlockedError extends Error {
     ];
   }
 }
+
+/**
+ * Error thrown when Google Gemini returns IMAGE_OTHER finish reason.
+ * This is an ambiguous signal: may be a transient hiccup or a soft safety block.
+ * Treated as transient-retryable first, then re-classified as a safety block if it persists.
+ */
+export class ImageOtherError extends Error {
+  public code = 'IMAGE_OTHER';
+  public provider: string;
+  public finishReasons: string[];
+  public diagnostics?: ProviderDiagnostic[];
+  public retryable = true; // Retry once as transient before treating as safety
+
+  constructor(params: {
+    provider: string;
+    finishReasons: string[];
+    diagnostics?: ProviderDiagnostic[];
+    message?: string;
+  }) {
+    const reasonStr = params.finishReasons.join(', ');
+    super(
+      params.message ||
+        `Image generation returned ambiguous result from ${params.provider} (reason(s): ${reasonStr}). May be transient or a soft safety block.`,
+    );
+    this.name = 'ImageOtherError';
+    this.provider = params.provider;
+    this.finishReasons = params.finishReasons;
+    if (params.diagnostics) this.diagnostics = params.diagnostics;
+  }
+
+  /**
+   * Convert this ambiguous error into a definitive ImageGenerationBlockedError
+   * (used after transient retries are exhausted).
+   */
+  toBlockedError(): ImageGenerationBlockedError {
+    return new ImageGenerationBlockedError({
+      provider: this.provider,
+      finishReasons: this.finishReasons,
+      ...(this.diagnostics ? { diagnostics: this.diagnostics } : {}),
+      message: `Image generation blocked by ${this.provider} (reason: ${this.finishReasons.join(',')}). Transient retries exhausted; treating as safety block.`,
+    });
+  }
+}

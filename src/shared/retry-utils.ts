@@ -86,6 +86,15 @@ const DEFAULT_RETRY_OPTIONS: Required<Omit<RetryOptions, 'onRetry'>> = {
 export function isTransientError(error: unknown): boolean {
   const signals = extractErrorSignals(error);
 
+  // IMAGE_OTHER from Gemini is ambiguous (may be transient hiccup or soft safety block).
+  // Treat as transient to allow one quick in-process retry before escalating.
+  if (typeof error === 'object' && error !== null) {
+    const err = error as any;
+    if (err.code === 'IMAGE_OTHER' || err.name === 'ImageOtherError') {
+      return true;
+    }
+  }
+
   // Check for HTTP status codes that indicate transient errors
   if (typeof error === 'object' && error !== null) {
     const err = error as any;
@@ -195,6 +204,8 @@ export function isSafetyBlockError(error: unknown): boolean {
         'BLOCKLIST',
         'IMAGE_SAFETY',
         'BLOCK_REASON_UNSPECIFIED',
+        // IMAGE_OTHER intentionally excluded: it's ambiguous and handled as
+        // transient-first in isTransientError / the route handler.
       ];
 
       if (safetyErrorCodes.includes(err.code)) {

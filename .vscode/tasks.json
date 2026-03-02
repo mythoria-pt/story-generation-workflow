@@ -1,0 +1,14 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Quality Gate",
+			"type": "shell",
+			"command": "npm run typecheck && npm run lint && npm test -- --passWithNoTests",
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "build"
+		}
+	]
+}

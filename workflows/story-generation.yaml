@@ -292,7 +292,7 @@ main:
                     # Initialize retry variables
                     - initFrontCoverRetry:
                         assign:
-                          - frontCoverMaxAttempts: 3
+                          - frontCoverMaxAttempts: 2
                           - frontCoverRetryDelay: 60
                           - frontCoverSuccess: false
                           - frontCoverLastError: null
@@ -411,7 +411,7 @@ main:
                     # Initialize retry variables
                     - initBackCoverRetry:
                         assign:
-                          - backCoverMaxAttempts: 3
+                          - backCoverMaxAttempts: 2
                           - backCoverRetryDelay: 60
                           - backCoverSuccess: false
                           - backCoverLastError: null
@@ -533,7 +533,7 @@ main:
                             # Initialize retry variables for this chapter
                             - initChapterImageRetry:
                                 assign:
-                                  - chapterImageMaxAttempts: 3
+                                  - chapterImageMaxAttempts: 2
                                   - chapterImageRetryDelay: 60
                                   - chapterImageSuccess: false
                                   - chapterImageLastError: null

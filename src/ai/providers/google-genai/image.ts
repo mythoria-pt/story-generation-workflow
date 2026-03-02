@@ -4,7 +4,7 @@
 
 import { IImageGenerationService, ImageGenerationOptions } from '../../interfaces.js';
 import { logger } from '@/config/logger.js';
-import { ImageGenerationBlockedError } from '@/ai/errors.js';
+import { ImageGenerationBlockedError, ImageOtherError } from '@/ai/errors.js';
 // Dynamic import to avoid Jest resolver issues unless Gemini models actually used
 type GoogleGenAIType = any; // Minimal typing to avoid adding types
 
@@ -140,6 +140,7 @@ export class GoogleGenAIImageService implements IImageGenerationService {
             generationConfig: {
               aspectRatio,
             },
+            responseModalities: ['IMAGE'],
           },
         };
 
@@ -441,6 +442,20 @@ export class GoogleGenAIImageService implements IImageGenerationService {
       return imagePartBase64;
     }
 
+    // Check for prompt feedback blocks
+    if (response?.promptFeedback?.blockReason) {
+      logger.error('Google Gemini Image Debug - blocked by prompt feedback', {
+        model,
+        promptFeedback: response.promptFeedback,
+      });
+      throw new ImageGenerationBlockedError({
+        provider: 'google-genai',
+        finishReasons: [response.promptFeedback.blockReason],
+        message: `Image generation blocked: ${response.promptFeedback.blockReason}`,
+        diagnostics: [response.promptFeedback],
+      });
+    }
+
     const candidateDiagnostics = candidates.map((c: any, idx: number) => ({
       idx,
       finishReason: c.finishReason,
@@ -455,19 +470,41 @@ export class GoogleGenAIImageService implements IImageGenerationService {
     const finishReasons = Array.from(
       new Set(candidateDiagnostics.map((d: any) => d.finishReason).filter(Boolean)),
     ) as string[];
+
+    // Log rich diagnostics including token usage and safety ratings
+    const usageMetadata = response?.usageMetadata;
+    const promptFeedback = response?.promptFeedback;
     logger.error('Google Gemini Image Debug - no inline image data in response', {
       model,
       candidateCount: candidates.length,
       candidateDiagnostics,
       finishReasons,
+      usageMetadata: usageMetadata || null,
+      promptFeedback: promptFeedback || null,
+      rawResponse: JSON.stringify(response).slice(0, 1500),
     });
-    if (finishReasons.length && finishReasons.every((r) => r === 'PROHIBITED_CONTENT')) {
+
+    // Definite safety blocks: PROHIBITED_CONTENT, SAFETY, BLOCKLIST
+    const definiteSafetyReasons = ['PROHIBITED_CONTENT', 'SAFETY', 'BLOCKLIST'];
+    if (
+      finishReasons.length &&
+      finishReasons.some((r) => definiteSafetyReasons.includes(r))
+    ) {
       throw new ImageGenerationBlockedError({
         provider: 'google-genai',
         finishReasons,
         diagnostics: candidateDiagnostics,
-        message:
-          'Image generation blocked by Google safety filters (reason: PROHIBITED_CONTENT). Adjust prompt to comply with content policies.',
+        message: `Image generation blocked by Google safety filters (reason: ${finishReasons.join(',')}). Adjust prompt to comply with content policies.`,
+      });
+    }
+
+    // Ambiguous IMAGE_OTHER: could be transient or soft safety block
+    if (finishReasons.includes('IMAGE_OTHER')) {
+      throw new ImageOtherError({
+        provider: 'google-genai',
+        finishReasons,
+        diagnostics: candidateDiagnostics,
+        message: `Image generation returned IMAGE_OTHER from Gemini (may be transient or soft safety block).`,
       });
     }
 

@@ -5,10 +5,10 @@ import { logger } from '@/config/logger.js';
 /**
  * Composite image generation service that provides fallback behavior:
  * 1. Attempt primary provider (e.g. google-genai)
- * 2. If blocked for safety (ImageGenerationBlockedError or PROHIBITED_CONTENT),
- *    attempt fallback provider (e.g. openai)
- * 3. If fallback succeeds, returns its buffer. If it fails, original error is
- *    rethrown with diagnostic flags so HTTP layer can expose details.
+ * 2. If the primary fails for ANY reason (safety block, IMAGE_OTHER, transient,
+ *    or persistent), attempt fallback provider (e.g. openai)
+ * 3. If fallback succeeds, returns its buffer. If it fails, the most actionable
+ *    error is rethrown with diagnostic flags so the HTTP layer can expose details.
  */
 export class FallbackImageGenerationService implements IImageGenerationService {
   private primary: IImageGenerationService;
@@ -36,22 +36,22 @@ export class FallbackImageGenerationService implements IImageGenerationService {
         err instanceof ImageGenerationBlockedError ||
         (err instanceof Error && /PROHIBITED_CONTENT/.test(err.message));
 
-      if (!isSafetyBlocked) {
-        // Non safety errors propagate directly.
-        throw err;
-      }
+      const errorCategory = isSafetyBlocked ? 'safety_block' : 'persistent_failure';
 
-      logger.warn('Primary image provider safety blocked – attempting fallback', {
+      logger.warn('Primary image provider failed, attempting fallback', {
         primary: this.primaryName,
         fallback: this.fallbackName,
+        category: errorCategory,
         reason: err instanceof Error ? err.message : String(err),
+        errorCode: (err as any)?.code,
       });
 
       try {
         const buffer = await this.fallback.generate(prompt, options);
-        logger.info('Fallback image provider succeeded after safety block', {
+        logger.info('Fallback image provider succeeded after primary failure', {
           primary: this.primaryName,
           fallback: this.fallbackName,
+          category: errorCategory,
           promptLength: prompt.length,
           imageType: options?.imageType,
         });
@@ -60,8 +60,28 @@ export class FallbackImageGenerationService implements IImageGenerationService {
         const fallbackIsSafety =
           fallbackErr instanceof ImageGenerationBlockedError ||
           (fallbackErr instanceof Error && /PROHIBITED_CONTENT/.test(fallbackErr.message));
-        if (!fallbackIsSafety) {
-          // Propagate fallback error (more actionable) while attaching original safety context
+
+        if (isSafetyBlocked && fallbackIsSafety) {
+          // Both providers safety blocked: attach info to original and rethrow
+          try {
+            (err as any).fallbackAttempted = true;
+            (err as any).fallbackError =
+              fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
+          } catch {
+            /* ignore */
+          }
+          logger.error('Fallback image provider also safety blocked', {
+            primary: this.primaryName,
+            fallback: this.fallbackName,
+            originalError: err instanceof Error ? err.message : String(err),
+            fallbackError: fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr),
+          });
+          throw err;
+        }
+
+        // If primary was safety-blocked but fallback failed for a different reason,
+        // propagate the fallback error (more actionable) with original context
+        if (isSafetyBlocked) {
           try {
             (fallbackErr as any).fallbackAttempted = true;
             (fallbackErr as any).originalSafetyBlocked = true;
@@ -70,7 +90,7 @@ export class FallbackImageGenerationService implements IImageGenerationService {
           } catch {
             /* ignore */
           }
-          logger.error('Fallback image provider failed (non-safety) after safety block', {
+          logger.error('Fallback image provider failed (non-safety) after primary safety block', {
             primary: this.primaryName,
             fallback: this.fallbackName,
             originalSafety: err instanceof Error ? err.message : String(err),
@@ -78,7 +98,8 @@ export class FallbackImageGenerationService implements IImageGenerationService {
           });
           throw fallbackErr;
         }
-        // Both safety blocked; attach info to original and rethrow original safety error
+
+        // Primary was non-safety, fallback also failed: throw the more informative error
         try {
           (err as any).fallbackAttempted = true;
           (err as any).fallbackError =
@@ -86,10 +107,10 @@ export class FallbackImageGenerationService implements IImageGenerationService {
         } catch {
           /* ignore */
         }
-        logger.error('Fallback image provider also safety blocked', {
+        logger.error('Both image providers failed (non-safety)', {
           primary: this.primaryName,
           fallback: this.fallbackName,
-          originalError: err instanceof Error ? err.message : String(err),
+          primaryError: err instanceof Error ? err.message : String(err),
           fallbackError: fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr),
         });
         throw err;

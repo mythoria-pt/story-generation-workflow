@@ -1854,20 +1854,44 @@ router.post('/image', async (req, res) => {
       });
     }
 
-    // Helper function to attempt image generation
+    // Helper function to attempt image generation with in-process transient retry.
+    // Uses withRetry for quick retries (2 attempts, 5s delay) on transient errors
+    // (timeouts, 5xx, network issues, IMAGE_OTHER). Safety blocks short-circuit immediately.
     const attemptImageGeneration = async (promptToUse: string): Promise<Buffer> => {
-      return await aiGateway.getImageService(imageContext).generate(promptToUse, {
-        ...(imageWidth && { width: imageWidth }),
-        ...(imageHeight && { height: imageHeight }),
-        ...(style && { style }),
-        customInstructions,
-        bookTitle: storyContext.story.title,
-        ...(storyContext.story.graphicalStyle && {
-          graphicalStyle: storyContext.story.graphicalStyle,
-        }),
-        ...(imageType && { imageType }),
-        ...(referenceImages.length > 0 && { referenceImages }),
-      });
+      const { withRetry } = await import('@/shared/retry-utils.js');
+      return await withRetry(
+        async () => {
+          return await aiGateway.getImageService(imageContext).generate(promptToUse, {
+            ...(imageWidth && { width: imageWidth }),
+            ...(imageHeight && { height: imageHeight }),
+            ...(style && { style }),
+            customInstructions,
+            bookTitle: storyContext.story.title,
+            ...(storyContext.story.graphicalStyle && {
+              graphicalStyle: storyContext.story.graphicalStyle,
+            }),
+            ...(imageType && { imageType }),
+            ...(referenceImages.length > 0 && { referenceImages }),
+          });
+        },
+        {
+          maxAttempts: 2,
+          baseDelayMs: 5000,
+          maxDelayMs: 10000,
+          jitterMs: 1000,
+          onRetry: (attempt, error) => {
+            logger.warn('Image generation transient retry', {
+              storyId,
+              runId,
+              imageType,
+              chapterNumber,
+              attempt,
+              error: error instanceof Error ? error.message : String(error),
+              errorCode: (error as any)?.code,
+            });
+          },
+        },
+      );
     };
 
     // Try image generation with safety block handling
@@ -1880,14 +1904,29 @@ router.post('/image', async (req, res) => {
       imageBuffer = await attemptImageGeneration(prompt);
       finalPrompt = prompt;
     } catch (firstError) {
-      if (imageSafetyService.isSafetyBlock(firstError)) {
+      // If IMAGE_OTHER persisted through transient retries, escalate to safety block flow
+      const { ImageOtherError } = await import('@/ai/errors.js');
+      let effectiveError = firstError;
+      if (firstError instanceof ImageOtherError) {
+        logger.warn('IMAGE_OTHER persisted after transient retries, escalating to safety block flow', {
+          storyId,
+          runId,
+          imageType,
+          chapterNumber,
+          originalError: firstError.message,
+        });
+        effectiveError = firstError.toBlockedError();
+      }
+
+      if (imageSafetyService.isSafetyBlock(effectiveError)) {
         logger.warn('Image generation blocked by safety system, attempting prompt rewrite', {
           storyId,
           runId,
           imageType,
           chapterNumber,
           originalPromptLength: prompt.length,
-          error: firstError instanceof Error ? firstError.message : String(firstError),
+          error: effectiveError instanceof Error ? effectiveError.message : String(effectiveError),
+          escalatedFromImageOther: firstError instanceof ImageOtherError,
         });
 
         currentStep = 'rewriting_prompt';
@@ -1906,7 +1945,7 @@ router.post('/image', async (req, res) => {
 
         const safetyResult = await imageSafetyService.handleSafetyBlock({
           originalPrompt: prompt,
-          safetyError: firstError,
+          safetyError: effectiveError,
           context: safetyContext,
           attemptImageGeneration,
         });
@@ -1918,7 +1957,7 @@ router.post('/image', async (req, res) => {
         fallbackPromptUsed = safetyResult.fallbackPromptUsed;
         promptRewriteError = safetyResult.promptRewriteError;
       } else {
-        throw firstError;
+        throw effectiveError;
       }
     }
 
