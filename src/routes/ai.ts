@@ -605,11 +605,20 @@ router.post('/text/structure', async (req, res) => {
       userDescription: z.string().optional(),
       imageObjectPath: z.string().optional(),
       audioObjectPath: z.string().optional(),
+      imageData: z.string().optional(),
+      audioData: z.string().optional(),
       characterIds: z.array(z.string().uuid()).optional(), // optional array of character IDs to include
     });
 
-    const { storyId, userDescription, imageObjectPath, audioObjectPath, characterIds } =
-      RequestSchema.parse(req.body);
+    const {
+      storyId,
+      userDescription,
+      imageObjectPath,
+      audioObjectPath,
+      imageData,
+      audioData,
+      characterIds,
+    } = RequestSchema.parse(req.body);
 
     // Get story and author
     const storyContext = await storyService.getStoryContext(storyId);
@@ -677,10 +686,35 @@ router.post('/text/structure', async (req, res) => {
 
     // Build media parts if we can use Gemini multimodal
     let aiResponse: string;
-    const canUseGemini = textProvider === 'google-genai' && (imageObjectPath || audioObjectPath);
+    const canUseGemini =
+      textProvider === 'google-genai' &&
+      (imageObjectPath || audioObjectPath || imageData || audioData);
     if (canUseGemini) {
       const storage = getStorageService();
       const mediaParts: Array<{ mimeType: string; data: Buffer | string }> = [];
+
+      const parseInlineDataUrl = (
+        value?: string,
+      ): { mimeType: string; data: Buffer } | null => {
+        if (!value || typeof value !== 'string') {
+          return null;
+        }
+
+        const match = /^data:([^;]+);base64,(.*)$/s.exec(value.trim());
+        if (!match || !match[1] || !match[2]) {
+          return null;
+        }
+
+        try {
+          return {
+            mimeType: match[1],
+            data: Buffer.from(match[2], 'base64'),
+          };
+        } catch {
+          return null;
+        }
+      };
+
       if (imageObjectPath) {
         const meta = await storage
           .getFileMetadata(imageObjectPath)
@@ -690,6 +724,14 @@ router.post('/text/structure', async (req, res) => {
           mimeType: meta.contentType || 'image/jpeg',
           data: buf,
         });
+      } else {
+        const inlineImage = parseInlineDataUrl(imageData);
+        if (inlineImage) {
+          mediaParts.push({
+            mimeType: inlineImage.mimeType,
+            data: inlineImage.data,
+          });
+        }
       }
       if (audioObjectPath) {
         const meta = await storage
@@ -700,6 +742,14 @@ router.post('/text/structure', async (req, res) => {
           mimeType: meta.contentType || 'audio/wav',
           data: buf,
         });
+      } else {
+        const inlineAudio = parseInlineDataUrl(audioData);
+        if (inlineAudio) {
+          mediaParts.push({
+            mimeType: inlineAudio.mimeType,
+            data: inlineAudio.data,
+          });
+        }
       }
       aiResponse = await aiGateway.getTextService(aiContext).complete(finalPrompt, {
         temperature: 0.8,
