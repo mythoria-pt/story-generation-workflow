@@ -123,8 +123,8 @@ export class TokenUsageTrackingService {
    * Calculate estimated cost based on provider and model
    *
    * Supported Models:
-   * - Text Generation: gpt-5.2, gpt-5.1, gemini-2.5-flash, gemini-3-pro-preview
-   * - Image Generation: gpt-image-1.5, gpt-5.1 image tools, gemini-2.5-flash-image, gpt-image-1, gpt-image-1-mini
+   * - Text Generation: gpt-5.2, gpt-5.2-pro, gpt-5.1, gemini-3.1-pro-preview, gemini-3-pro-preview, gemini-3-flash-preview, gemini-2.5-flash
+   * - Image Generation: gpt-image-1.5, gpt-image-1, gpt-image-1-mini, gemini-3-pro-image-preview, gemini-3.1-flash-image-preview, gemini-2.5-flash-image
    * - TTS: gemini-2.5-pro-tts, gemini-2.5-flash-tts, gpt-4o-mini-tts
    */
   private calculateCost(estimation: CostEstimation): CostEstimation {
@@ -133,7 +133,7 @@ export class TokenUsageTrackingService {
     let cachedInputCostPer1KTokens = 0;
 
     // Cost calculations in USD (converted to EUR later)
-    // Pricing as of December 2025
+    // Pricing as of March 2026
 
     // OpenAI Models
     if (estimation.provider === 'openai') {
@@ -154,41 +154,45 @@ export class TokenUsageTrackingService {
         cachedInputCostPer1KTokens = 0.000125; // $0.125 per 1M
       } else if (estimation.model.includes('gpt-image-1.5')) {
         // GPT-image-1.5 - Newest image model (Responses API)
+        // Per-image pricing (square 1024x1024): low $0.009, medium $0.034, high $0.133
         const imagesGenerated = Math.max(1, Math.ceil(estimation.outputTokens / 1000));
-        let costPerImage = 0.04; // Medium/standard quality default
+        let costPerImage = 0.034; // Medium/standard quality default
         if (estimation.imageQuality === 'hd') {
-          costPerImage = 0.17; // High quality
+          costPerImage = 0.133; // High quality
         }
         const cachedTokens = estimation.cachedInputTokens || 0;
         const regularInputTokens = Math.max(0, estimation.inputTokens - cachedTokens);
         const inputCostUSD = (regularInputTokens / 1000) * 0.005; // $5.00 per 1M
         const cachedInputCostUSD = (cachedTokens / 1000) * 0.00125; // $1.25 per 1M
-        const outputCostUSD = (estimation.outputTokens / 1000) * 0.01; // $10.00 per 1M
+        const outputCostUSD = (estimation.outputTokens / 1000) * 0.01; // $10.00 per 1M (text output incl. reasoning)
         estimation.estimatedCostInEuros =
           (imagesGenerated * costPerImage + inputCostUSD + cachedInputCostUSD + outputCostUSD) *
           0.92;
         return estimation;
       } else if (estimation.model.includes('gpt-image-1-mini')) {
         // GPT-image-1-mini - Cost-effective image generation
-        // Input tokens charged, image output is per-image pricing
+        // Per-image pricing (square 1024x1024): low $0.005, medium $0.011, high $0.036
         const imagesGenerated = Math.max(1, Math.floor(estimation.outputTokens / 100));
-        // Approximate cost: $0.01 (low quality) per image
-        let costPerImage = 0.01;
+        let costPerImage = 0.011; // Medium/standard quality default
         if (estimation.imageQuality === 'hd') {
-          costPerImage = 0.04; // Medium quality
+          costPerImage = 0.036; // High quality
         }
-        // Also add input token cost: $2.00 per 1M
-        const inputCostUSD = (estimation.inputTokens / 1000) * 0.002;
-        estimation.estimatedCostInEuros = (imagesGenerated * costPerImage + inputCostUSD) * 0.92;
+        // Input tokens: $2.00 per 1M, Cached: $0.20 per 1M
+        const cachedTokens = estimation.cachedInputTokens || 0;
+        const regularInputTokens = Math.max(0, estimation.inputTokens - cachedTokens);
+        const inputCostUSD = (regularInputTokens / 1000) * 0.002; // $2.00 per 1M
+        const cachedInputCostUSD = (cachedTokens / 1000) * 0.0002; // $0.20 per 1M
+        estimation.estimatedCostInEuros =
+          (imagesGenerated * costPerImage + inputCostUSD + cachedInputCostUSD) * 0.92;
         return estimation;
       } else if (estimation.model.includes('gpt-image-1')) {
         // GPT-image-1 - High-fidelity image generation
+        // Per-image pricing (square 1024x1024): low $0.011, medium $0.042, high $0.167
         // Input tokens: $5.00 per 1M, Cached: $1.25 per 1M
         const imagesGenerated = Math.max(1, Math.floor(estimation.outputTokens / 100));
-        // Image output: ~$0.01 (low), $0.04 (medium), $0.17 (high) for square images
-        let costPerImage = 0.04; // Medium quality default
+        let costPerImage = 0.042; // Medium quality default
         if (estimation.imageQuality === 'hd') {
-          costPerImage = 0.17; // High quality
+          costPerImage = 0.167; // High quality
         }
         // Add input token cost
         const cachedTokens = estimation.cachedInputTokens || 0;
@@ -199,23 +203,67 @@ export class TokenUsageTrackingService {
           (imagesGenerated * costPerImage + inputCostUSD + cachedInputCostUSD) * 0.92;
         return estimation;
       } else if (estimation.model.includes('gpt-4o-mini-tts')) {
-        // GPT-4o-mini TTS via Realtime API
-        // Input: $0.60 per 1M, Cached: $0.06 per 1M, Output: $2.40 per 1M
+        // GPT-4o-mini TTS - Text-to-speech model
+        // Input (text): $0.60 per 1M, Output (audio): $12.00 per 1M
         inputCostPer1KTokens = 0.0006; // $0.60 per 1M
-        outputCostPer1KTokens = 0.0024; // $2.40 per 1M
+        outputCostPer1KTokens = 0.012; // $12.00 per 1M (audio tokens)
         cachedInputCostPer1KTokens = 0.00006; // $0.06 per 1M
       }
     }
     // Google Models
     else if (estimation.provider === 'google-genai') {
-      if (estimation.model.includes('gemini-3-pro-preview')) {
-        // Gemini 3 Pro - Next-gen multimodal model
+      if (estimation.model.includes('gemini-3.1-pro')) {
+        // Gemini 3.1 Pro Preview - Latest Gemini 3 family model
         // Input: $2.00 per 1M tokens
         // Output (Text): $12.00 per 1M tokens
-        // Output (Audio): Pricing TBD (using text rate for now)
+        // Cached input: $0.20 per 1M tokens (10% of input)
         inputCostPer1KTokens = 0.002; // $2.00 per 1M
         outputCostPer1KTokens = 0.012; // $12.00 per 1M
-        cachedInputCostPer1KTokens = 0.0002; // 10% of input
+        cachedInputCostPer1KTokens = 0.0002; // $0.20 per 1M
+      } else if (estimation.model.includes('gemini-3-pro-image')) {
+        // Gemini 3 Pro Image Preview - Native image generation on Gemini 3 Pro
+        // Input: $2.00 per 1M tokens (560 tokens per input image)
+        // Text output: $12.00 per 1M tokens
+        // Image output: $120.00 per 1M tokens
+        //   1K/2K images consume 1120 tokens (~$0.134/image)
+        //   4K images consume 2000 tokens (~$0.24/image)
+        const imagesGenerated = Math.max(1, Math.floor(estimation.outputTokens / 1120));
+        const costPerImage = 0.134; // ~$0.134 per 1K/2K image (1120 tokens * $120/1M)
+        const cachedTokens = estimation.cachedInputTokens || 0;
+        const regularInputTokens = Math.max(0, estimation.inputTokens - cachedTokens);
+        const inputCostUSD = (regularInputTokens / 1000) * 0.002; // $2.00 per 1M
+        const cachedInputCostUSD = (cachedTokens / 1000) * 0.0002; // $0.20 per 1M
+        estimation.estimatedCostInEuros =
+          (imagesGenerated * costPerImage + inputCostUSD + cachedInputCostUSD) * 0.92;
+        return estimation;
+      } else if (estimation.model.includes('gemini-3-pro-preview')) {
+        // Gemini 3 Pro Preview - DEPRECATED March 9, 2026 (migrate to gemini-3.1-pro-preview)
+        // Input: $2.00 per 1M tokens
+        // Output (Text): $12.00 per 1M tokens
+        inputCostPer1KTokens = 0.002; // $2.00 per 1M
+        outputCostPer1KTokens = 0.012; // $12.00 per 1M
+        cachedInputCostPer1KTokens = 0.0002; // $0.20 per 1M
+      } else if (estimation.model.includes('gemini-3.1-flash-image') || estimation.model.includes('gemini-3-flash-image')) {
+        // Gemini 3.1 Flash Image Preview - Fast native image generation
+        // Input: $0.25 per 1M tokens (text/image)
+        // Text output: $1.50 per 1M tokens
+        // Image output: $60.00 per 1M tokens
+        //   1K images consume 1120 tokens (~$0.067/image)
+        //   2K images consume 1680 tokens (~$0.101/image)
+        //   4K images consume 2520 tokens (~$0.151/image)
+        const imagesGenerated = Math.max(1, Math.floor(estimation.outputTokens / 1120));
+        const costPerImage = 0.067; // ~$0.067 per 1K image (1120 tokens * $60/1M)
+        const inputCostUSD = (estimation.inputTokens / 1000) * 0.00025; // $0.25 per 1M
+        estimation.estimatedCostInEuros = (imagesGenerated * costPerImage + inputCostUSD) * 0.92;
+        return estimation;
+      } else if (estimation.model.includes('gemini-3-flash')) {
+        // Gemini 3 Flash Preview - Frontier intelligence built for speed
+        // Input: $0.50 per 1M tokens (text/image/video), $1.00 per 1M (audio)
+        // Output: $3.00 per 1M tokens
+        // Cached input: $0.05 per 1M tokens (10% of input)
+        inputCostPer1KTokens = 0.0005; // $0.50 per 1M
+        outputCostPer1KTokens = 0.003; // $3.00 per 1M
+        cachedInputCostPer1KTokens = 0.00005; // $0.05 per 1M
       } else if (
         estimation.model.includes('gemini-2.5-pro-preview-tts') ||
         estimation.model.includes('gemini-2.5-pro-tts')
