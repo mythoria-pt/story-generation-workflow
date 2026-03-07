@@ -303,6 +303,7 @@ export class GoogleGenAITextService implements ITextGenerationService {
   /**
    * Initialize context for a story generation session
    * Creates a stateful chat instance using Google GenAI's ai.chats API
+   * Also creates an explicit cached content object to reduce repeated input token costs.
    */
   async initializeContext(contextId: string, systemPrompt: string): Promise<void> {
     try {
@@ -313,6 +314,39 @@ export class GoogleGenAITextService implements ITextGenerationService {
         hasGetGenerativeModel: typeof this.genAI.getGenerativeModel === 'function',
       });
 
+      // ── Explicit context caching ──────────────────────────────────────
+      // Cache the system prompt so subsequent calls avoid re-sending it as
+      // input tokens. The cache has a 30-minute TTL, matching a typical
+      // story-generation session lifetime.
+      let cachedContentName: string | undefined;
+      try {
+        const cacheResult = await (this.genAI as any).caches.create({
+          model: this.model,
+          config: {
+            displayName: `story-ctx-${contextId.substring(0, 8)}`,
+            systemInstruction: systemPrompt,
+            contents: [],
+            ttl: '1800s', // 30 minutes
+          },
+        });
+        cachedContentName = cacheResult?.name;
+        if (cachedContentName) {
+          logger.info('Google GenAI - Explicit context cache created', {
+            contextId,
+            cacheName: cachedContentName,
+            model: this.model,
+          });
+        }
+      } catch (cacheError) {
+        // Context caching is an optimisation; if it fails we fall back to
+        // the normal flow without caching.
+        logger.warn('Google GenAI - Failed to create context cache, continuing without caching', {
+          contextId,
+          error: cacheError instanceof Error ? cacheError.message : String(cacheError),
+        });
+      }
+
+      // ── Chat instance (existing behaviour) ───────────────────────────
       // Create a chat instance for stateful conversations
       const generativeModel = this.genAI.getGenerativeModel({
         model: this.model,
@@ -332,12 +366,13 @@ export class GoogleGenAITextService implements ITextGenerationService {
         },
       });
 
-      // Store the chat instance in context manager
+      // Store the chat instance and cache name in context manager
       const context = await contextManager.getContext(contextId);
       if (context) {
         await contextManager.updateProviderData(contextId, {
           googleGenAI: {
             chatInstance: chat,
+            ...(cachedContentName ? { cachedContentName } : {}),
           },
         });
       }
@@ -345,6 +380,7 @@ export class GoogleGenAITextService implements ITextGenerationService {
       logger.info('Google GenAI chat context initialized', {
         contextId,
         model: this.model,
+        hasCachedContent: !!cachedContentName,
       });
     } catch (error) {
       logger.error('Failed to initialize Google GenAI context', {
@@ -362,12 +398,33 @@ export class GoogleGenAITextService implements ITextGenerationService {
   async clearContext(contextId: string): Promise<void> {
     try {
       const context = await contextManager.getContext(contextId);
+
+      // Delete the explicit context cache if one was created
+      const cacheName = context?.providerSpecificData.googleGenAI?.cachedContentName;
+      if (cacheName) {
+        try {
+          await (this.genAI as any).caches.delete(cacheName);
+          logger.info('Google GenAI - Explicit context cache deleted', {
+            contextId,
+            cacheName,
+          });
+        } catch (cacheDeleteError) {
+          // Cache may have already expired (TTL); log and continue
+          logger.warn('Google GenAI - Failed to delete context cache (may have expired)', {
+            contextId,
+            cacheName,
+            error:
+              cacheDeleteError instanceof Error
+                ? cacheDeleteError.message
+                : String(cacheDeleteError),
+          });
+        }
+      }
+
       if (context?.providerSpecificData.googleGenAI?.chatInstance) {
-        // Clear the chat instance reference
+        // Clear the chat instance reference and cache name
         await contextManager.updateProviderData(contextId, {
-          googleGenAI: {
-            chatInstance: undefined,
-          },
+          googleGenAI: {},
         });
 
         logger.info('Google GenAI context cleared', {
@@ -385,9 +442,14 @@ export class GoogleGenAITextService implements ITextGenerationService {
   async complete(prompt: string, options?: TextGenerationOptions): Promise<string> {
     try {
       let response;
+      // Resolve explicit context cache name (if one was created via initializeContext)
+      let cachedContentForRequest: string | undefined;
+
       // Try to get existing chat instance for stateful conversation
       if (options?.contextId) {
         const context = await contextManager.getContext(options.contextId);
+        cachedContentForRequest =
+          context?.providerSpecificData.googleGenAI?.cachedContentName;
         const chat = context?.providerSpecificData.googleGenAI?.chatInstance;
 
         if (chat) {
@@ -404,6 +466,7 @@ export class GoogleGenAITextService implements ITextGenerationService {
               ...(options?.stopSequences && { stopSequences: options.stopSequences }),
               responseMimeType: 'application/json',
               responseSchema: this.convertJsonSchemaToGenAISchema(options.jsonSchema),
+              ...(cachedContentForRequest && { cachedContent: cachedContentForRequest }),
             };
 
             const generativeModel = this.genAI.getGenerativeModel({
@@ -474,6 +537,7 @@ export class GoogleGenAITextService implements ITextGenerationService {
                 temperature: options?.temperature || 0.7,
                 topP: options?.topP || 0.9,
                 topK: options?.topK || 40,
+                ...(cachedContentForRequest && { cachedContent: cachedContentForRequest }),
               };
               const fallbackModel = this.genAI.getGenerativeModel({
                 model: options?.model || this.model,
@@ -492,6 +556,7 @@ export class GoogleGenAITextService implements ITextGenerationService {
           topP: options?.topP || 0.9,
           topK: options?.topK || 40,
           ...(options?.stopSequences && { stopSequences: options.stopSequences }),
+          ...(cachedContentForRequest && { cachedContent: cachedContentForRequest }),
         };
 
         // Gemini 3 thinking config - only supported on Gemini 3 models

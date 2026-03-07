@@ -283,10 +283,22 @@ export class ImageGenerationMiddleware implements IImageGenerationService {
       // Calculate processing time
       const processingTimeMs = Date.now() - startTime;
 
-      // For image generation, we use a different approach for "token" calculation
-      // Input tokens are based on prompt length, output tokens represent generation cost
-      const inputTokens = Math.ceil(prompt.length / 4);
-      const outputTokens = 1000; // Fixed cost per image generation
+      // Try to read real usage metadata attached by the OpenAI provider.
+      // The provider augments the returned Buffer with __openaiUsage when available.
+      const augmented = result as Buffer & {
+        __openaiResponseId?: string;
+        __openaiUsage?: {
+          input_tokens?: number;
+          output_tokens?: number;
+          total_tokens?: number;
+        };
+      };
+      const realUsage = augmented.__openaiUsage;
+
+      // Prefer real API usage; fall back to estimates when unavailable
+      const inputTokens = realUsage?.input_tokens ?? Math.ceil(prompt.length / 4);
+      const outputTokens = realUsage?.output_tokens ?? 1000; // 1000 is the legacy estimate
+      const usageSource = realUsage ? 'api' : 'estimate';
 
       // Sanitize options (remove raw buffers from reference images before persisting)
       const sanitizedOptions = this.sanitizeImageOptions(options);
@@ -313,8 +325,10 @@ export class ImageGenerationMiddleware implements IImageGenerationService {
         promptLength: prompt.length,
         imageSizeBytes: result.length,
         processingTimeMs,
-        estimatedInputTokens: inputTokens,
-        estimatedOutputTokens: outputTokens,
+        inputTokens,
+        outputTokens,
+        usageSource,
+        responseId: augmented.__openaiResponseId,
       });
 
       return result;
@@ -375,10 +389,22 @@ export class ImageGenerationMiddleware implements IImageGenerationService {
       // Calculate processing time
       const processingTimeMs = Date.now() - startTime;
 
-      // For image editing, we use a different approach for "token" calculation
-      // Input tokens are based on prompt length + original image size, output tokens represent generation cost
-      const inputTokens = Math.ceil(prompt.length / 4) + Math.ceil(originalImage.length / 1000); // Add image size factor
-      const outputTokens = 1500; // Higher cost for image editing vs generation
+      // Try to read real usage metadata attached by the OpenAI provider.
+      const augmentedEdit = result as Buffer & {
+        __openaiUsage?: {
+          input_tokens?: number;
+          output_tokens?: number;
+          total_tokens?: number;
+        };
+      };
+      const realEditUsage = augmentedEdit.__openaiUsage;
+
+      // Prefer real API usage; fall back to estimates when unavailable
+      const inputTokens =
+        realEditUsage?.input_tokens ??
+        Math.ceil(prompt.length / 4) + Math.ceil(originalImage.length / 1000);
+      const outputTokens = realEditUsage?.output_tokens ?? 1500; // 1500 is the legacy estimate
+      const editUsageSource = realEditUsage ? 'api' : 'estimate';
 
       // Sanitize options (strip raw reference image buffers)
       const sanitizedOptions = this.sanitizeImageOptions(options);
@@ -407,8 +433,9 @@ export class ImageGenerationMiddleware implements IImageGenerationService {
         originalImageSize: originalImage.length,
         editedImageSizeBytes: result.length,
         processingTimeMs,
-        estimatedInputTokens: inputTokens,
-        estimatedOutputTokens: outputTokens,
+        inputTokens,
+        outputTokens,
+        usageSource: editUsageSource,
       });
 
       return result;
@@ -439,7 +466,7 @@ export class ImageGenerationMiddleware implements IImageGenerationService {
         process.env.OPENAI_IMAGE_TOOL_MODEL || process.env.OPENAI_BASE_MODEL || 'gpt-image-1.5'
       );
     } else if (provider === 'google-genai') {
-      return process.env.GOOGLE_GENAI_IMAGE_MODEL || 'gemini-2.5-flash-image-preview';
+      return process.env.GOOGLE_GENAI_IMAGE_MODEL || 'gemini-3.1-flash-image-preview';
     }
 
     return 'unknown';

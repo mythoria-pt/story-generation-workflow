@@ -66,7 +66,7 @@ const envSchema = z.object({
   // Google GenAI Configuration
   GOOGLE_GENAI_API_KEY: z.string().optional(),
   GOOGLE_GENAI_MODEL: z.string().optional().default('gemini-2.5-flash'),
-  GOOGLE_GENAI_IMAGE_MODEL: z.string().optional().default('gemini-2.5-flash-image-preview'),
+  GOOGLE_GENAI_IMAGE_MODEL: z.string().optional().default('gemini-3.1-flash-image-preview'),
 
   // TTS Configuration
   // Supports OpenAI and Google Gemini TTS providers

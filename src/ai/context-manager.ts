@@ -30,6 +30,8 @@ export interface ProviderContextData {
   // Google GenAI - stores chat instance for stateful conversations
   googleGenAI?: {
     chatInstance?: { sendMessage: (message: string) => Promise<unknown> } | undefined; // Chat instance from genAI
+    /** Explicit cached content name for context caching (reduces repeated input token costs) */
+    cachedContentName?: string;
   };
 }
 

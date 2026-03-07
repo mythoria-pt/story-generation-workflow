@@ -151,10 +151,10 @@ export async function handleAIResponse(
 export function getAIModelConfig(modelType: 'outline' | 'chapter' | 'image' = 'outline') {
   // Unified on google-genai environment variables; legacy Vertex variables removed.
   const defaultTextModel = process.env.GOOGLE_GENAI_MODEL || 'gemini-2.5-flash';
-  let defaultImageModel = process.env.GOOGLE_GENAI_IMAGE_MODEL || 'gemini-2.5-flash-image-preview';
+  let defaultImageModel = process.env.GOOGLE_GENAI_IMAGE_MODEL || 'gemini-3.1-flash-image-preview';
   if (defaultImageModel.startsWith('imagen-')) {
     // Silent remap; upstream code logs during provider initialization
-    defaultImageModel = 'gemini-2.5-flash-image-preview';
+    defaultImageModel = 'gemini-3.1-flash-image-preview';
   }
   const configs = {
     outline: {

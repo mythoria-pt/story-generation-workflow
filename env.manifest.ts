@@ -112,7 +112,7 @@ export const envManifest: EnvVarDescriptor[] = [
     name: 'GOOGLE_GENAI_IMAGE_MODEL',
     required: false,
     scopes: ['dev', 'runtime', 'prod'],
-    default: 'gemini-3-pro-image-preview',
+    default: 'gemini-3.1-flash-image-preview',
     source: 'substitution',
   },
   {

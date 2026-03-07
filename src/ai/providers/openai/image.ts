@@ -30,7 +30,16 @@ interface OpenAIImageGenerationCall {
 }
 
 interface OpenAIResponseData {
+  id?: string;
   output?: OpenAIImageGenerationCall[];
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    total_tokens?: number;
+    input_tokens_details?: {
+      cached_tokens?: number;
+    };
+  };
   [key: string]: unknown;
 }
 
@@ -38,6 +47,11 @@ export class OpenAIImageService implements IImageGenerationService {
   private client: OpenAI;
   private model: string;
   private imageModel: string;
+  /**
+   * Stores the last Responses API response ID so the next sequential image
+   * generation can pass `previous_response_id` for implicit style continuity.
+   */
+  private lastResponseId: string | undefined;
   // private maxRetries: number; // Will be used in future retry logic
   constructor(config: OpenAIConfig) {
     this.client = new OpenAI({
@@ -168,6 +182,7 @@ export class OpenAIImageService implements IImageGenerationService {
         model: this.imageModel,
         size: finalSize,
         quality: finalQuality,
+        input_fidelity: 'high' as const,
         output_format: 'jpeg' as const,
         background: 'opaque' as const,
         moderation: 'low' as const,
@@ -247,6 +262,8 @@ export class OpenAIImageService implements IImageGenerationService {
         max_output_tokens: 8192,
         top_p: 1,
         store: true,
+        // Chain sequential image generations for implicit style continuity
+        ...(this.lastResponseId ? { previous_response_id: this.lastResponseId } : {}),
       });
 
       const response = await this.client.responses.create(buildRequestBody() as any);
@@ -299,6 +316,24 @@ export class OpenAIImageService implements IImageGenerationService {
 
       const buffer = Buffer.from(base64Data, 'base64');
 
+      // Store response ID for sequential style continuity via previous_response_id
+      if (responseData.id) {
+        this.lastResponseId = responseData.id;
+      }
+
+      // Attach response metadata to the buffer so the tracking middleware can read
+      // real usage numbers and the response ID instead of using hardcoded estimates.
+      const augmented = buffer as Buffer & {
+        __openaiResponseId?: string;
+        __openaiUsage?: OpenAIResponseData['usage'];
+      };
+      if (responseData.id) {
+        augmented.__openaiResponseId = responseData.id;
+      }
+      if (responseData.usage) {
+        augmented.__openaiUsage = responseData.usage;
+      }
+
       logger.info('OpenAI: Image generated successfully with Responses API', {
         model: this.model,
         imageToolModel: this.imageModel,
@@ -309,9 +344,12 @@ export class OpenAIImageService implements IImageGenerationService {
         revisedPrompt: revisedPrompt?.substring(0, 100) + '...',
         referenceImageCount: options?.referenceImages?.length || 0,
         referenceImageSources: options?.referenceImages?.map((r) => r.source) || [],
+        responseId: responseData.id,
+        usageInputTokens: responseData.usage?.input_tokens,
+        usageOutputTokens: responseData.usage?.output_tokens,
       });
 
-      return buffer;
+      return augmented;
     } catch (error) {
       // If it's an OpenAI API error, log the response body
       if (error instanceof Error && 'response' in error) {

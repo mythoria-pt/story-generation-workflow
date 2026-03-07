@@ -53,7 +53,7 @@ export class GoogleGenAIImageService implements IImageGenerationService {
 
   constructor(config: GoogleGenAIImageConfig) {
     this.apiKey = config.apiKey;
-    this.model = config.model || 'gemini-2.5-flash-image-preview';
+    this.model = config.model || 'gemini-3.1-flash-image-preview';
     // Only enable vertex mode if explicitly requested; API key + projectId without proper auth can cause 404
     const useVertex = process.env.GOOGLE_GENAI_USE_VERTEX === 'true';
     this.projectId = useVertex
@@ -67,7 +67,7 @@ export class GoogleGenAIImageService implements IImageGenerationService {
     const disableMapping = process.env.GOOGLE_GENAI_DISABLE_IMAGEN_MAPPING === 'true';
     if (this.model.startsWith('imagen-') && !disableMapping) {
       const legacy = this.model;
-      this.model = 'gemini-2.5-flash-image-preview';
+      this.model = 'gemini-3.1-flash-image-preview';
       logger.warn('Legacy Google Imagen model detected; mapping to Gemini image model', {
         legacyModel: legacy,
         mappedModel: this.model,
@@ -133,20 +133,23 @@ export class GoogleGenAIImageService implements IImageGenerationService {
         }
         parts.push({ text: prompt });
 
+        // Build imageConfig: aspectRatio always, imageSize only for Gemini 3+ models
+        const imageConfig: any = { aspectRatio };
+        if (this.supportsImageSize(model)) {
+          imageConfig.imageSize = '2K';
+        }
+
         const generateRequest: any = {
           model,
           contents: [{ role: 'user', parts }],
           config: {
-            generationConfig: {
-              aspectRatio,
-            },
+            imageConfig,
             responseModalities: ['IMAGE'],
           },
         };
 
         // Add system instruction if provided
         if (options?.systemPrompt) {
-          // In @google/genai SDK, systemInstruction is often part of the config
           generateRequest.config.systemInstruction = {
             parts: [{ text: options.systemPrompt }],
           };
@@ -305,13 +308,17 @@ export class GoogleGenAIImageService implements IImageGenerationService {
 
         parts.push({ text: prompt });
 
+        // Build imageConfig: aspectRatio always, imageSize only for Gemini 3+ models
+        const editImageConfig: any = { aspectRatio };
+        if (this.supportsImageSize(model)) {
+          editImageConfig.imageSize = '2K';
+        }
+
         const generateRequest: any = {
           model,
           contents: [{ role: 'user', parts }],
           config: {
-            generationConfig: {
-              aspectRatio,
-            },
+            imageConfig: editImageConfig,
             responseModalities: ['IMAGE'],
           },
         };
@@ -364,50 +371,48 @@ export class GoogleGenAIImageService implements IImageGenerationService {
     }
   }
 
-  private resolveAspectRatio(
-    options?: ImageGenerationOptions,
-  ): '1:1' | '2:3' | '3:4' | '4:3' | '9:16' | '16:9' {
-    const allowed: Record<string, boolean> = {
-      '1:1': true,
-      '2:3': true,
-      '3:4': true,
-      '4:3': true,
-      '9:16': true,
-      '16:9': true,
-    };
+  /**
+   * Supported aspect ratios for Gemini image models.
+   * Gemini 3.1 Flash adds: 1:4, 4:1, 1:8, 8:1, 4:5, 5:4
+   */
+  private static readonly ALLOWED_ASPECT_RATIOS = new Set([
+    '1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4',
+    '9:16', '16:9', '21:9',
+    '1:4', '4:1', '1:8', '8:1',
+  ]);
 
-    if (options?.aspectRatio && allowed[options.aspectRatio]) {
-      return options.aspectRatio as '1:1' | '2:3' | '3:4' | '4:3' | '9:16' | '16:9';
+  private resolveAspectRatio(options?: ImageGenerationOptions): string {
+    if (options?.aspectRatio && GoogleGenAIImageService.ALLOWED_ASPECT_RATIOS.has(options.aspectRatio)) {
+      return options.aspectRatio;
     }
 
     return this.getAspectRatio(options?.width, options?.height);
   }
 
-  private getAspectRatio(
-    width?: number,
-    height?: number,
-  ): '1:1' | '2:3' | '3:4' | '4:3' | '9:16' | '16:9' {
+  private getAspectRatio(width?: number, height?: number): string {
     if (!width || !height) {
       return '2:3';
     }
 
     const ratio = width / height;
-    if (ratio >= 1.7) {
-      return '16:9';
-    }
-    if (ratio >= 1.3) {
-      return '4:3';
-    }
-    if (ratio <= 0.6) {
-      return '9:16';
-    }
-    if (ratio <= 0.72) {
-      return '2:3';
-    }
-    if (ratio <= 0.9) {
-      return '3:4';
-    }
+    if (ratio >= 2.0) return '21:9';
+    if (ratio >= 1.7) return '16:9';
+    if (ratio >= 1.3) return '4:3';
+    if (ratio >= 1.1) return '5:4';
+    if (ratio <= 0.6) return '9:16';
+    if (ratio <= 0.72) return '2:3';
+    if (ratio <= 0.8) return '3:4';
+    if (ratio <= 0.9) return '4:5';
     return '1:1';
+  }
+
+  /**
+   * Returns true for Gemini 3+ image models that support the imageSize parameter.
+   * Gemini 2.5 has fixed resolutions per aspect ratio; Gemini 3 supports 1K/2K/4K (3.1 also 512px).
+   */
+  private supportsImageSize(model: string): boolean {
+    const m = model.toLowerCase();
+    return m.includes('gemini-3');
   }
 
   private async getGenAIClient(): Promise<GoogleGenAIType> {
