@@ -28,6 +28,33 @@ export interface StoryPrintInstructionsEmailPayload {
   origin?: 'self-service' | 'admin' | string;
 }
 
+export interface PrintQaCriticalEmailPayload {
+  storyId: string;
+  storyTitle: string;
+  runId: string;
+  reportUrl: string | null;
+  recipientCount: number;
+  recipients: Array<{ email: string; name?: string; language?: string }>;
+  criticalErrors: Array<{
+    code: string;
+    message: string;
+    chapterNumber?: number;
+    pageNumbers?: number[];
+    suggestedFix?: string;
+  }>;
+  fixesApplied?: Array<{
+    chapterNumber: number;
+    strategy: string;
+  }>;
+  printResult: {
+    interiorPdfUrl: string;
+    coverPdfUrl: string;
+    interiorCmykPdfUrl?: string | null;
+    coverCmykPdfUrl?: string | null;
+  };
+  metadata?: Record<string, unknown>;
+}
+
 const PDF_MIME_TYPE = 'application/pdf';
 
 function normalizeStorageUri(uri: string): string {
@@ -127,10 +154,20 @@ function buildHeaders(env: ReturnType<typeof getEnvironment>): Record<string, st
   return headers;
 }
 
-export async function sendStoryCreatedEmail(payload: StoryCreatedEmailPayload): Promise<boolean> {
+async function sendTemplateEmail(payload: {
+  templateId: string;
+  recipients: Array<{ email: string; name?: string; language?: string }>;
+  variables: Record<string, unknown>;
+  priority?: 'low' | 'normal' | 'high' | 'urgent';
+  metadata?: Record<string, unknown>;
+  storyId?: string;
+  entityId?: string;
+}): Promise<boolean> {
   const env = getEnvironment();
   if (!env.NOTIFICATION_ENGINE_URL) {
-    logger.warn('Notification Engine URL not configured; skipping story-created email');
+    logger.warn('Notification Engine URL not configured; skipping templated email', {
+      templateId: payload.templateId,
+    });
     return false;
   }
 
@@ -140,33 +177,37 @@ export async function sendStoryCreatedEmail(payload: StoryCreatedEmailPayload): 
     const headers = buildHeaders(env);
     const body = JSON.stringify(payload);
 
-    const res = await fetch(url, {
+    const response = await fetch(url, {
       method: 'POST',
       headers,
       body,
     });
 
-    if (!res.ok) {
-      const text = await res.text();
-      logger.error('Failed to send story-created email', {
-        status: res.status,
-        statusText: res.statusText,
-        responseHeaders: Object.fromEntries(res.headers.entries()),
+    if (!response.ok) {
+      const text = await response.text();
+      logger.error('Failed to send templated email', {
+        templateId: payload.templateId,
+        status: response.status,
+        statusText: response.statusText,
         body: text,
       });
       return false;
     }
 
-    await res.text();
+    await response.text();
     return true;
   } catch (err) {
-    logger.error('Error calling notification engine', {
+    logger.error('Error calling notification engine for templated email', {
       error: err instanceof Error ? err.message : String(err),
-      stack: err instanceof Error ? err.stack : undefined,
+      templateId: payload.templateId,
       url,
     });
     return false;
   }
+}
+
+export async function sendStoryCreatedEmail(payload: StoryCreatedEmailPayload): Promise<boolean> {
+  return sendTemplateEmail(payload);
 }
 
 export async function sendStoryPrintInstructionsEmail(
@@ -272,4 +313,43 @@ export async function sendStoryPrintInstructionsEmail(
     });
     return false;
   }
+}
+
+export async function sendPrintQaCriticalEmail(
+  payload: PrintQaCriticalEmailPayload,
+): Promise<boolean> {
+  if (payload.recipients.length === 0) {
+    logger.warn('No recipients available for print QA critical email', {
+      storyId: payload.storyId,
+      runId: payload.runId,
+    });
+    return false;
+  }
+
+  return sendTemplateEmail({
+    templateId: 'print-qa-critical',
+    recipients: payload.recipients,
+    storyId: payload.storyId,
+    entityId: payload.runId,
+    priority: 'high',
+    metadata: {
+      ...(payload.metadata || {}),
+      runId: payload.runId,
+      reportUrl: payload.reportUrl,
+      recipientCount: payload.recipientCount,
+    },
+    variables: {
+      storyId: payload.storyId,
+      storyTitle: payload.storyTitle,
+      runId: payload.runId,
+      reportUrl: payload.reportUrl,
+      recipientCount: payload.recipientCount,
+      interiorPdfUrl: payload.printResult.interiorPdfUrl,
+      coverPdfUrl: payload.printResult.coverPdfUrl,
+      interiorCmykPdfUrl: payload.printResult.interiorCmykPdfUrl ?? null,
+      coverCmykPdfUrl: payload.printResult.coverCmykPdfUrl ?? null,
+      criticalErrors: payload.criticalErrors,
+      fixesApplied: payload.fixesApplied ?? [],
+    },
+  });
 }

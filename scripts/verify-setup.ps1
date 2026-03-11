@@ -10,7 +10,8 @@ try {
     $account = gcloud config get-value account
     Write-Host "   [OK] Project: $project" -ForegroundColor Green
     Write-Host "   [OK] Account: $account" -ForegroundColor Green
-} catch {
+}
+catch {
     Write-Host "   [ERROR] gcloud not configured properly" -ForegroundColor Red
     exit 1
 }
@@ -22,11 +23,13 @@ try {
     if ($workflow) {
         Write-Host "   [OK] Workflow 'mythoria-story-generation' found" -ForegroundColor Green
         Write-Host "   [OK] Location: europe-west9" -ForegroundColor Green
-    } else {
+    }
+    else {
         Write-Host "   [MISSING] Workflow 'mythoria-story-generation' not found" -ForegroundColor Red
         exit 1
     }
-} catch {
+}
+catch {
     Write-Host "   [ERROR] Error checking workflow: $_" -ForegroundColor Red
     exit 1
 }
@@ -37,10 +40,12 @@ try {
     $state = gcloud workflows describe mythoria-story-generation --location=europe-west9 --format="value(state)"
     if ($state -eq "ACTIVE") {
         Write-Host "   [OK] Workflow is ACTIVE and ready" -ForegroundColor Green
-    } else {
+    }
+    else {
         Write-Host "   [WARN] Workflow state: $state" -ForegroundColor Yellow
     }
-} catch {
+}
+catch {
     Write-Host "   [ERROR] Error checking workflow state: $_" -ForegroundColor Red
 }
 
@@ -50,10 +55,12 @@ try {
     $service = gcloud run services describe mythoria-story-generation-workflow --region=europe-west9 --format="value(status.url)" 2>$null
     if ($service) {
         Write-Host "   [OK] Cloud Run service found: $service" -ForegroundColor Green
-    } else {
+    }
+    else {
         Write-Host "   [WARN] Cloud Run service not found (this is OK if not deployed yet)" -ForegroundColor Yellow
     }
-} catch {
+}
+catch {
     Write-Host "   [WARN] Cloud Run service not found (this is OK if not deployed yet)" -ForegroundColor Yellow
 }
 
@@ -63,9 +70,7 @@ $requiredSecrets = @(
     "mythoria-db-host",
     "mythoria-db-user", 
     "mythoria-db-password",
-    "mythoria-storage-bucket",
-    # Deprecated vertex ai secrets removed
-    "mythoria-workflows-location"
+    "mythoria-storage-bucket"
 )
 
 $missingSecrets = @()
@@ -74,11 +79,13 @@ foreach ($secret in $requiredSecrets) {
         $exists = gcloud secrets describe $secret --format="value(name)" 2>$null
         if ($exists) {
             Write-Host "   [OK] Secret: $secret" -ForegroundColor Green
-        } else {
+        }
+        else {
             Write-Host "   [MISSING] Secret: $secret" -ForegroundColor Red
             $missingSecrets += $secret
         }
-    } catch {
+    }
+    catch {
         Write-Host "   [MISSING] Secret: $secret" -ForegroundColor Red
         $missingSecrets += $secret
     }
@@ -105,10 +112,12 @@ foreach ($api in $requiredApis) {
         $enabled = gcloud services list --enabled --filter="name:$api" --format="value(name)"
         if ($enabled) {
             Write-Host "   [OK] $api enabled" -ForegroundColor Green
-        } else {
+        }
+        else {
             Write-Host "   [ERROR] $api not enabled" -ForegroundColor Red
         }
-    } catch {
+    }
+    catch {
         Write-Host "   [WARN] Could not check $api" -ForegroundColor Yellow
     }
 }

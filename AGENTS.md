@@ -13,7 +13,7 @@
 When you spin up another agent (or Copilot Workspace) paste the following facts so it stays unblocked:
 
 1. **Environment files**: `.env.local` overrides `.env`, `.env.test` is wired through `src/tests/setup.ts`.
-2. **Critical variables**: `DB_*`, `WORKFLOWS_DB_*`, `STORY_GENERATION_WORKFLOW_API_KEY`, `TEXT_PROVIDER`, `IMAGE_PROVIDER`, `GOOGLE_GENAI_*`, `OPENAI_*`, `STORAGE_BUCKET_NAME`, `GHOSTSCRIPT_BINARY`, `TEMP_DIR`.
+2. **Critical variables**: `DB_*`, `WORKFLOWS_DB_*`, `STORY_GENERATION_WORKFLOW_API_KEY`, `TEXT_PROVIDER`, `IMAGE_PROVIDER`, `GOOGLE_GENAI_*`, `OPENAI_*`, `STORAGE_BUCKET_NAME`, `GHOSTSCRIPT_BINARY`, `TEMP_DIR`, `NOTIFICATION_ENGINE_*`, `MYTHORIA_ADMIN_URL`, `MYTHORIA_ADMIN_API_KEY`.
 3. **Commands must run via PowerShell**: every script assumes `pwsh` semantics (`&&` is invalid, use `;`).
 4. **Database access**: migrations live next door (`../mythoria-webapp/drizzle`). Use the `schema:sync*.ps1` scripts before editing `src/db/schema/*`.
 5. **Workflows**: YAML lives in `workflows/*.yaml`; deploy through `npm run deploy` or `npm run deploy:fast` (workflow only). Keep Cloud Run + Workflows in sync.
@@ -70,6 +70,8 @@ pwsh -NoProfile -Command "npm run dev"
 - Ghostscript + ICC profiles are required before running `src/services/cmyk-conversion.ts`.
 - Setup scripts: `npm run setup-icc-profiles` (downloads profiles), `npm run test:cmyk` (local validation), `npm run cmyk:status` (health check).
 - Print API entry: `/internal/print/generate` (see `src/routes/print.ts`). RGB + CMYK PDFs upload to the story folder in the storage bucket.
+- Print QA now runs immediately after PDF generation. The workflow calls `/internal/print/quality-check`, may call `/internal/print/quality-alert` for unresolved critical issues, and still keeps the run in `completed` state.
+- QA artifacts live under `{storyId}/print/qa/` in GCS. The canonical implementation notes are in `docs/print.md`; `docs/printing.md` is a compatibility pointer for teams still using the older filename.
 
 ## 5. Quick Reference Tables
 
@@ -80,6 +82,7 @@ pwsh -NoProfile -Command "npm run dev"
 | AI Providers     | `src/ai/providers/google-genai/*`, `src/ai/providers/openai/*`                                              | Text + image share token tracking via `src/ai/token-tracking-middleware.ts`. |
 | Prompt Templates | `src/prompts/images/*.json`, `src/prompts/en-US/*.json`                                                     | Conditional handlebars syntax; see `PromptService` for rendering rules.      |
 | Storage          | `src/services/storage-singleton.ts`, `src/services/storage.ts`                                              | Wraps Google Cloud Storage client; prefer singleton to avoid socket churn.   |
+| Print QA         | `src/services/print-quality.ts`, `src/services/print-quality-rules.ts`, `src/routes/print.ts`              | Deterministic QA, bounded interior auto-fix, admin alerts, and QA reporting. |
 
 ## 6. Expectations for Contributions
 

@@ -32,7 +32,7 @@ Key services:
 | Orchestration      | Google Cloud Workflows triggered from Pub/Sub topics                                   |
 | Storage            | Google Cloud Storage buckets per story for HTML, images, PDFs, audio                   |
 | AI Providers       | Google GenAI (Gemini, Imagen) and OpenAI (GPT-4.x, DALL·E, TTS) behind the AI gateway  |
-| Print stack        | Puppeteer HTML→PDF rendering, Ghostscript + ICC profiles for CMYK conversion           |
+| Print stack        | Puppeteer HTML→PDF rendering, large-font chapter hyphenation for child print layouts, Ghostscript + ICC profiles for CMYK conversion |
 | Observability      | Structured JSON logging (`src/config/logger.ts`), Cloud Logging, token usage telemetry |
 
 ## Core Capabilities
@@ -50,7 +50,7 @@ Key services:
 2. **Workflow executes** – Cloud Workflow loads story metadata, calls `/internal/runs/:id` to mark `running`, and steps through phases (`generate_outline`, `write_chapters`, `generate_images`, `assemble`, etc.).
 3. **AI gateway calls** – `/ai/*` endpoints proxy to Google GenAI or OpenAI, applying safety filters, prompt rewrites, and token tracking. Images retry up to three times, with 422 safety blocks routed through rewrite templates.
 4. **Persistence + storage** – Internal routes save outlines, chapters, prompts, translation diffs, and asset URIs. Generated binaries land in Google Cloud Storage under `{storyId}/...`.
-5. **Packaging** – `/internal/print/generate` renders HTML templates via Puppeteer, converts RGB PDFs to CMYK through Ghostscript, and stores both versions. Audiobook workflows stream TTS per chapter and persist URLs on chapter rows.
+5. **Packaging** – `/internal/print/generate` renders HTML templates via Puppeteer, injects soft hyphen opportunities for large-font child-reader print layouts, converts RGB PDFs to CMYK through Ghostscript, and stores both versions. Audiobook workflows stream TTS per chapter and persist URLs on chapter rows.
 6. **Completion** – Workflow updates run status to `completed` / `blocked` / `failed`, triggers notification hooks, and emits telemetry.
 
 ## Data & Integrations

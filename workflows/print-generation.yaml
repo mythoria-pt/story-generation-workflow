@@ -24,6 +24,7 @@ main:
           - now: ${time.format(sys.now())}
           - initiatedBy: ${default(map.get(payload, "initiatedBy"), "printOrder")}
           - delivery: ${default(map.get(payload, "delivery"), null)}
+          - qaAlertSent: false
 
     # Resolve origin in a separate step to avoid YAML/ternary parsing issues
     - setOriginFromInitiatedBy:
@@ -77,9 +78,48 @@ main:
                     storyId: ${storyId}
                     workflowId: ${runId}
                     generateCMYK: true
-                result: printResult
+                result: printGenerationResult
 
-            # 3. Notify self-print customers (only for selfService with delivery info)
+            # 3. Run print QA review
+            - qualityCheckPDF:
+                call: http.request
+                args:
+                  url: ${baseUrl + "/internal/print/quality-check"}
+                  method: POST
+                  auth: { type: OIDC }
+                  body:
+                    storyId: ${storyId}
+                    runId: ${runId}
+                    printResult: ${printGenerationResult.body}
+                result: qaResult
+
+            # 4. Notify admins if critical QA issues remain
+            - checkShouldAlertAdmins:
+                switch:
+                  - condition: ${qaResult.body.alertNeeded == true}
+                    next: notifyPrintQaAdmins
+                next: checkShouldNotify
+
+            - notifyPrintQaAdmins:
+                call: http.request
+                args:
+                  url: ${baseUrl + "/internal/print/quality-alert"}
+                  method: POST
+                  auth: { type: OIDC }
+                  body:
+                    storyId: ${storyId}
+                    runId: ${runId}
+                    reportUrl: ${qaResult.body.reportUrl}
+                    criticalErrors: ${qaResult.body.criticalErrors}
+                    fixesApplied: ${qaResult.body.fixesApplied}
+                    printResult: ${qaResult.body.printResult}
+                result: qaAlertResult
+
+            - setQaAlertSent:
+                assign:
+                  - qaAlertSent: ${default(qaAlertResult.body.sent, false)}
+
+            # 5. Notify self-print customers (only for selfService with delivery info)
             - checkShouldNotify:
                 switch:
                   - condition: ${origin == "self-service" and delivery != null}
@@ -98,10 +138,10 @@ main:
                     delivery: ${delivery}
                     initiatedBy: ${initiatedBy}
                     origin: ${origin}
-                    printResult: ${printResult.body}
+                    printResult: ${qaResult.body.printResult}
                 result: notificationResult
 
-            # 4. Mark run → completed
+            # 6. Mark run → completed
             - markRunCompleted:
                 call: http.request
                 args:
@@ -114,10 +154,16 @@ main:
                     currentStep: 'completed'
                     endedAt: ${time.format(sys.now())}
                     metadata:
-                      interiorPdfUrl: ${printResult.body.interiorPdfUrl}
-                      coverPdfUrl: ${printResult.body.coverPdfUrl}
-                      interiorCmykPdfUrl: ${printResult.body.interiorCmykPdfUrl}
-                      coverCmykPdfUrl: ${printResult.body.coverCmykPdfUrl}
+                      interiorPdfUrl: ${qaResult.body.printResult.interiorPdfUrl}
+                      coverPdfUrl: ${qaResult.body.printResult.coverPdfUrl}
+                      interiorCmykPdfUrl: ${qaResult.body.printResult.interiorCmykPdfUrl}
+                      coverCmykPdfUrl: ${qaResult.body.printResult.coverCmykPdfUrl}
+                      printQaStatus: ${qaResult.body.qaStatus}
+                      printQaReportUrl: ${qaResult.body.reportUrl}
+                      printQaCriticalCount: ${qaResult.body.criticalCount}
+                      printQaWarningCount: ${qaResult.body.warningCount}
+                      printQaFixesApplied: ${qaResult.body.fixesApplied}
+                      printQaAlertSent: ${qaAlertSent}
 
         except:
           as: e

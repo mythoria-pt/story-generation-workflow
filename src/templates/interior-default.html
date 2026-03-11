@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="{{documentLanguage}}">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -19,8 +19,8 @@
         size: {{pageWidthMM}}mm {{pageHeightMM}}mm;
         margin-top: {{chapterTopMarginMM}}mm;
         margin-bottom: {{chapterBottomMarginMM}}mm;
-        margin-left: 21mm;
-        margin-right: 21mm;
+        margin-left: {{defaultChapterMarginLeftMM}}mm;
+        margin-right: {{defaultChapterMarginRightMM}}mm;
         @top-center {
           content: none;
         }
@@ -30,6 +30,8 @@
       @page chapter:first {
         margin-top: {{chapterFirstPageTopMarginMM}}mm; /* Increased by 1cm */
       }
+
+      {{chapterLayoutStyles}}
 
       body {
         margin: 0;
@@ -308,11 +310,19 @@
 
       .chapter-content {
         font-size: 11pt;
-        line-height: 15pt;
+        line-height: var(--chapter-line-height, 15pt);
         orphans: 3;
         widows: 3;
+        overflow-wrap: normal;
+        word-break: normal;
         /* Remove flex: 1 and overflow: hidden */
         /* Let content flow naturally across pages */
+      }
+
+      .chapter-content.hyphenation-enabled,
+      .chapter-content.hyphenation-enabled p {
+        -webkit-hyphens: manual;
+        hyphens: manual;
       }
 
       /* Target audience specific font sizes */
@@ -352,7 +362,7 @@
       }
 
       .chapter-content p {
-        margin-bottom: 15.3pt;
+        margin-bottom: var(--chapter-paragraph-spacing, 15.3pt);
         text-align: justify;
         orphans: 3;
         widows: 3;

@@ -6,12 +6,18 @@ import { logger } from '@/config/logger.js';
 import { StoryService } from '@/services/story.js';
 import { RunsService } from '@/services/runs.js';
 import { GoogleCloudWorkflowsAdapter } from '@/adapters/google-cloud/workflows-adapter.js';
+import { MythoriaAdminClient } from '@/services/mythoria-admin-client.js';
+import { PrintQualityService } from '@/services/print-quality.js';
 import {
   SelfPrintDelivery,
   SelfPrintRecipient,
   SelfPrintWorkflowPayload,
 } from '@/types/self-print.js';
-import { sendStoryPrintInstructionsEmail } from '@/services/notification-client.js';
+import {
+  sendPrintQaCriticalEmail,
+  sendStoryPrintInstructionsEmail,
+} from '@/services/notification-client.js';
+import type { PrintQaAssetUrls } from '@/types/print-quality.js';
 
 export const printRouter = express.Router();
 export const internalPrintRouter = express.Router();
@@ -20,6 +26,8 @@ const storyService = new StoryService();
 const runsService = new RunsService();
 const workflowsAdapter = new GoogleCloudWorkflowsAdapter();
 const printGenerationHandler = new PrintGenerationHandler();
+const printQualityService = new PrintQualityService();
+const mythoriaAdminClient = new MythoriaAdminClient();
 
 const RecipientSchema = z.object({
   email: z.string().email(),
@@ -37,6 +45,51 @@ const SelfPrintRequestSchema = z.object({
   locale: z.string().optional(),
   generateCMYK: z.boolean().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+const PrintResultSchema = z.object({
+  interiorPdfUrl: z.string().url(),
+  coverPdfUrl: z.string().url(),
+  interiorCmykPdfUrl: z.string().url().nullable().optional(),
+  coverCmykPdfUrl: z.string().url().nullable().optional(),
+});
+
+const PrintQaIssueSchema = z.object({
+  code: z.string(),
+  message: z.string(),
+  severity: z.enum(['warning', 'critical']),
+  chapterNumber: z.number().optional(),
+  pageNumbers: z.array(z.number()).optional(),
+  details: z.record(z.string(), z.unknown()).optional(),
+  suggestedFix: z.string().optional(),
+});
+
+const PrintQaFixAppliedSchema = z.object({
+  chapterNumber: z.number(),
+  strategy: z.string(),
+  layoutOverride: z
+    .object({
+      marginLeftMM: z.number().optional(),
+      marginRightMM: z.number().optional(),
+      lineHeightPt: z.number().optional(),
+      paragraphSpacingPt: z.number().optional(),
+    })
+    .optional(),
+});
+
+const QualityCheckRequestSchema = z.object({
+  storyId: z.string().uuid(),
+  runId: z.string().uuid(),
+  printResult: PrintResultSchema,
+});
+
+const QualityAlertRequestSchema = z.object({
+  storyId: z.string().uuid(),
+  runId: z.string().uuid(),
+  reportUrl: z.string().url().nullable().optional(),
+  printResult: PrintResultSchema,
+  criticalErrors: z.array(PrintQaIssueSchema),
+  fixesApplied: z.array(PrintQaFixAppliedSchema).optional(),
 });
 
 function dedupeRecipients(recipients: SelfPrintRecipient[]): SelfPrintRecipient[] {
@@ -242,12 +295,130 @@ const NotifyRequestSchema = z.object({
       ccEmails: z.array(z.string().email()).optional(),
     })
     .optional(),
-  printResult: z.object({
-    interiorPdfUrl: z.string().url(),
-    coverPdfUrl: z.string().url(),
-    interiorCmykPdfUrl: z.string().url().nullable().optional(),
-    coverCmykPdfUrl: z.string().url().nullable().optional(),
-  }),
+  printResult: PrintResultSchema,
+});
+
+internalPrintRouter.post('/quality-check', async (req, res) => {
+  const parsed = QualityCheckRequestSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ success: false, error: 'Invalid request payload' });
+    return;
+  }
+
+  const normalizedPrintResult = {
+    interiorPdfUrl: parsed.data.printResult.interiorPdfUrl,
+    coverPdfUrl: parsed.data.printResult.coverPdfUrl,
+    ...(parsed.data.printResult.interiorCmykPdfUrl !== undefined
+      ? { interiorCmykPdfUrl: parsed.data.printResult.interiorCmykPdfUrl }
+      : {}),
+    ...(parsed.data.printResult.coverCmykPdfUrl !== undefined
+      ? { coverCmykPdfUrl: parsed.data.printResult.coverCmykPdfUrl }
+      : {}),
+  };
+
+  try {
+    const result = await printQualityService.execute({
+      storyId: parsed.data.storyId,
+      runId: parsed.data.runId,
+      printResult: normalizedPrintResult,
+    });
+    res.json(result);
+  } catch (error) {
+    logger.error('Unexpected error in print quality-check route', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    res.json({
+      qaStatus: 'review_failed',
+      reportUrl: null,
+      passCount: 0,
+      warningCount: 0,
+      criticalCount: 1,
+      alertNeeded: true,
+      fixesApplied: [],
+      criticalErrors: [
+        {
+          code: 'print_qa_route_failed',
+          severity: 'critical',
+          message: 'The print QA route failed before the quality report could be returned.',
+          suggestedFix: 'Inspect the internal print QA logs and retry the workflow.',
+        },
+      ],
+      warnings: [],
+      printResult: parsed.data.printResult,
+    });
+  }
+});
+
+internalPrintRouter.post('/quality-alert', async (req, res) => {
+  const parsed = QualityAlertRequestSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ success: false, error: 'Invalid request payload' });
+    return;
+  }
+
+  const { storyId, runId, reportUrl, printResult, criticalErrors, fixesApplied } = parsed.data;
+
+  try {
+    const [story, managers] = await Promise.all([
+      storyService.getStory(storyId),
+      mythoriaAdminClient.getManagers(),
+    ]);
+
+    if (!story) {
+      logger.warn('Story not found for print QA alert', { storyId, runId });
+      res.json({ sent: false, recipientCount: 0, reason: 'story_not_found' });
+      return;
+    }
+
+    const recipients = managers.map((manager) => ({
+      email: manager.email,
+      name: manager.name,
+      language: 'en-US',
+    }));
+
+    if (recipients.length === 0) {
+      logger.warn('No admin recipients available for print QA alert', { storyId, runId });
+      res.json({ sent: false, recipientCount: 0, reason: 'no_recipients' });
+      return;
+    }
+
+    const sent = await sendPrintQaCriticalEmail({
+      storyId,
+      storyTitle: story.title,
+      runId,
+      reportUrl: reportUrl ?? null,
+      recipientCount: recipients.length,
+      recipients,
+      criticalErrors: criticalErrors.map((issue) => ({
+        code: issue.code,
+        message: issue.message,
+        ...(issue.chapterNumber !== undefined ? { chapterNumber: issue.chapterNumber } : {}),
+        ...(issue.pageNumbers !== undefined ? { pageNumbers: issue.pageNumbers } : {}),
+        ...(issue.suggestedFix ? { suggestedFix: issue.suggestedFix } : {}),
+      })),
+      fixesApplied: (fixesApplied ?? []).map((fix) => ({
+        chapterNumber: fix.chapterNumber,
+        strategy: fix.strategy,
+      })),
+      printResult: printResult as PrintQaAssetUrls,
+      metadata: {
+        storyId,
+        runId,
+      },
+    });
+
+    res.json({
+      sent,
+      recipientCount: recipients.length,
+    });
+  } catch (error) {
+    logger.error('Failed to dispatch print QA alert', {
+      storyId,
+      runId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    res.json({ sent: false, recipientCount: 0, reason: 'unexpected_error' });
+  }
 });
 
 internalPrintRouter.post('/self-service/notify', async (req, res) => {

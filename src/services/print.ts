@@ -5,8 +5,14 @@ import { logger } from '@/config/logger.js';
 import { getTemplatesPath } from '@/shared/path-utils.js';
 import { getPrintTranslations, formatPublishDate } from '@/utils/print-translations.js';
 import { convertToAbsoluteImagePath } from '@/utils/imageUtils.js';
+import {
+  getPrintDocumentLanguage,
+  hyphenatePrintChapterHtml,
+  shouldApplyPrintHyphenation,
+} from '@/utils/print-hyphenation.js';
 import { CMYKConversionService } from './cmyk-conversion.js';
 import { PDFPageProcessor } from './pdf-page-processor.js';
+import type { ChapterLayoutOverride } from '@/types/print-quality.js';
 
 interface PaperConfig {
   paperTypes: Record<
@@ -43,13 +49,25 @@ interface RenderOptions {
   outputPath: string;
 }
 
-interface PrintResult {
+interface PrintLayoutOptions {
+  chapterLayoutOverrides?: Record<number, ChapterLayoutOverride>;
+}
+
+export interface PrintSetResult {
   interiorPdfPath: string;
   coverPdfPath: string;
   interiorPreProcessedPdfPath?: string;
   interiorPostProcessedPdfPath?: string;
   interiorCmykPdfPath?: string;
   coverCmykPdfPath?: string;
+}
+
+export interface InteriorPrintVariantResult {
+  interiorPdfPath: string;
+  interiorHtml: string;
+  interiorPreProcessedPdfPath: string;
+  interiorPostProcessedPdfPath: string;
+  imagePageNumbers: number[];
 }
 
 export class PrintService {
@@ -113,10 +131,12 @@ export class PrintService {
    */
   private generateChaptersHTML(
     chapters: any[],
-    _storyLanguage: string,
+    storyLanguage: string,
     targetAudience?: string,
+    options: PrintLayoutOptions = {},
   ): string {
     let html = '';
+    const chapterLayoutOverrides = options.chapterLayoutOverrides || {};
 
     // Map target audience to CSS class
     const getTargetAudienceClass = (audience?: string): string => {
@@ -136,9 +156,27 @@ export class PrintService {
     };
 
     const audienceClass = getTargetAudienceClass(targetAudience);
+    const documentLanguage = getPrintDocumentLanguage(storyLanguage);
+    const hyphenationClass = shouldApplyPrintHyphenation(targetAudience)
+      ? ' hyphenation-enabled'
+      : '';
 
     // Generate HTML for each chapter
     chapters.forEach((chapter: any, chapterIndex: number) => {
+      const chapterNumber = chapterIndex + 1;
+      const layoutOverride = chapterLayoutOverrides[chapterNumber];
+      const chapterPageClass = layoutOverride ? ` chapter-layout-${chapterNumber}` : '';
+      const chapterStyleVariables = [
+        layoutOverride?.lineHeightPt
+          ? `--chapter-line-height: ${layoutOverride.lineHeightPt}pt;`
+          : '',
+        layoutOverride?.paragraphSpacingPt
+          ? `--chapter-paragraph-spacing: ${layoutOverride.paragraphSpacingPt}pt;`
+          : '',
+      ]
+        .filter(Boolean)
+        .join(' ');
+
       // Convert relative image paths to absolute URLs
       let imageUrl = '';
       if (chapter.imageUri) {
@@ -158,11 +196,15 @@ export class PrintService {
       // Add chapter content (starting on odd page)
       html += `
       <!-- Chapter ${chapterIndex + 1} Content Pages -->
-      <div class="chapter-content-page">
+      <div
+        class="chapter-content-page${chapterPageClass}"
+        data-chapter-number="${chapterNumber}"
+        ${chapterStyleVariables ? `style="${chapterStyleVariables}"` : ''}
+      >
         <div class="chapter-content-wrapper">
           <div class="chapter-title"><br/><br/>${chapter.title}</div>
-          <div class="chapter-content ${audienceClass}">
-            ${this.formatChapterContent(chapter.content)}
+          <div class="chapter-content ${audienceClass}${hyphenationClass}" lang="${documentLanguage}">
+            ${this.formatChapterContent(chapter.content, storyLanguage, targetAudience)}
           </div>
         </div>
       </div>
@@ -273,17 +315,33 @@ export class PrintService {
    * - Chapter images: Full bleed to page edges (0mm margin)
    * - Text content: Within safe zone with additional 1cm top margin
    */
-  generateInteriorHTML(storyData: any, dimensions: PrintDimensions): string {
+  generateInteriorHTML(
+    storyData: any,
+    dimensions: PrintDimensions,
+    options: PrintLayoutOptions = {},
+  ): string {
     const { pageWidthMM, pageHeightMM } = dimensions;
     const { bleedMM, safeZoneMM } = this.paperConfig;
 
     // Get translations for the story language
-    const storyLanguage = storyData.storyLanguage || 'en';
+    const storyLanguage = storyData.storyLanguage || 'en-US';
     const translations = getPrintTranslations(storyLanguage);
 
     // Calculate chapter margins with additional 1cm (10mm) top margin
     const chapterTopMarginMM = safeZoneMM + 10; // Add 1cm to standard safe zone
     const chapterFirstPageTopMarginMM = 40 + 10; // Add 1cm to existing 40mm
+
+    const chapterLayoutOverrides = {
+      ...(options.chapterLayoutOverrides || {}),
+    } as Record<number, ChapterLayoutOverride>;
+
+    const chapterLayoutStyles = this.generateChapterLayoutStyles(
+      chapterLayoutOverrides,
+      dimensions,
+      chapterTopMarginMM,
+      20,
+      chapterFirstPageTopMarginMM,
+    );
 
     const variables = {
       title: storyData.title || '',
@@ -297,10 +355,13 @@ export class PrintService {
       imageMarginMM: '0', // Images bleed to edges - no margin
       textSafeZoneMM: safeZoneMM.toString(), // Text stays within 1cm safe zone
       textTotalMarginMM: (safeZoneMM * 2).toString(), // Total margin for text content
+      defaultChapterMarginLeftMM: '21',
+      defaultChapterMarginRightMM: '21',
       // Chapter-specific margins
       chapterTopMarginMM: chapterTopMarginMM.toString(),
       chapterBottomMarginMM: '20',
       chapterFirstPageTopMarginMM: chapterFirstPageTopMarginMM.toString(),
+      chapterLayoutStyles,
       dedicationMessage: storyData.dedicationMessage || '',
       customAuthor: storyData.customAuthor || 'Anonymous',
       publishDate: formatPublishDate(storyData.createdAt, storyLanguage),
@@ -311,6 +372,7 @@ export class PrintService {
         storyData.chapters,
         storyLanguage,
         storyData.targetAudience,
+        options,
       ),
       // Translation variables
       titleLabel: translations.titleLabel,
@@ -323,6 +385,7 @@ export class PrintService {
       promotionText: translations.promotionText,
       synopsisTitle: translations.synopsisTitle,
       tocTitle: translations.tocTitle,
+      documentLanguage: getPrintDocumentLanguage(storyLanguage),
     };
 
     return this.loadTemplate('interior-default.html', variables);
@@ -349,10 +412,56 @@ export class PrintService {
     return this.loadTemplate('cover-default.html', variables);
   }
 
-  private formatChapterContent(content: string): string {
-    // Content is already formatted HTML from the database
-    // Return as-is to preserve HTML formatting
-    return content;
+  private formatChapterContent(
+    content: string,
+    storyLanguage: string,
+    targetAudience?: string,
+  ): string {
+    return hyphenatePrintChapterHtml(content, storyLanguage, targetAudience);
+  }
+
+  private generateChapterLayoutStyles(
+    chapterLayoutOverrides: Record<number, ChapterLayoutOverride>,
+    dimensions: PrintDimensions,
+    chapterTopMarginMM: number,
+    chapterBottomMarginMM: number,
+    chapterFirstPageTopMarginMM: number,
+  ): string {
+    const cssBlocks: string[] = [];
+
+    for (const [chapterNumberText, override] of Object.entries(chapterLayoutOverrides)) {
+      const chapterNumber = parseInt(chapterNumberText, 10);
+      if (!Number.isFinite(chapterNumber) || !override) {
+        continue;
+      }
+
+      const marginLeft = override.marginLeftMM ?? 21;
+      const marginRight = override.marginRightMM ?? 21;
+      const pageName = `chapter-${chapterNumber}`;
+
+      cssBlocks.push(`
+      @page ${pageName} {
+        size: ${dimensions.pageWidthMM}mm ${dimensions.pageHeightMM}mm;
+        margin-top: ${chapterTopMarginMM}mm;
+        margin-bottom: ${chapterBottomMarginMM}mm;
+        margin-left: ${marginLeft}mm;
+        margin-right: ${marginRight}mm;
+        @top-center {
+          content: none;
+        }
+      }
+
+      @page ${pageName}:first {
+        margin-top: ${chapterFirstPageTopMarginMM}mm;
+      }
+
+      .chapter-content-page.chapter-layout-${chapterNumber} {
+        page: ${pageName};
+      }
+      `);
+    }
+
+    return cssBlocks.join('\n');
   }
 
   /**
@@ -426,63 +535,132 @@ export class PrintService {
   }
 
   /**
-   * Generate complete print set with both RGB and CMYK versions
+   * Convert only the interior RGB PDF to CMYK/PDF-X format.
    */
-  async generatePrintSet(
+  async convertInteriorToCMYK(
+    interiorPdfPath: string,
+    storyData: any,
+    imagePageNumbers: number[],
+  ): Promise<string> {
+    logger.info('Starting CMYK conversion for interior print file', {
+      interior: interiorPdfPath,
+      storyId: storyData.id,
+    });
+
+    try {
+      const metadata = {
+        title: storyData.title || 'Mythoria Story',
+        author: storyData.customAuthor || 'Mythoria',
+        subject: 'Print-ready story book',
+        creator: 'Mythoria Print Service',
+      };
+
+      const interiorCmykPath = await this.cmykService.convertInteriorToCMYK(
+        interiorPdfPath,
+        metadata,
+        imagePageNumbers,
+      );
+
+      logger.info('Interior CMYK conversion completed successfully', {
+        interiorCmyk: interiorCmykPath,
+        storyId: storyData.id,
+      });
+
+      return interiorCmykPath;
+    } catch (error) {
+      logger.error('Interior CMYK conversion failed', {
+        error: error instanceof Error ? error.message : String(error),
+        storyId: storyData.id,
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Generate only the interior RGB PDF plus page-processing output for QA attempts.
+   */
+  async generateInteriorVariant(
     storyData: any,
     interiorOutputPath: string,
-    coverOutputPath: string,
-    options: { generateCMYK?: boolean } = {},
-  ): Promise<PrintResult> {
+    options: { chapterLayoutOverrides?: Record<number, ChapterLayoutOverride> } = {},
+  ): Promise<InteriorPrintVariantResult> {
     const pageCount = storyData.chapters?.length * 4 + 8; // Rough estimate
     const dimensions = this.calculateDimensions(pageCount);
+    const interiorHTML = this.generateInteriorHTML(
+      storyData,
+      dimensions,
+      options.chapterLayoutOverrides
+        ? { chapterLayoutOverrides: options.chapterLayoutOverrides }
+        : {},
+    );
 
-    // Generate RGB PDFs first
-    const interiorHTML = this.generateInteriorHTML(storyData, dimensions);
-    const coverHTML = this.generateCoverHTML(storyData, dimensions);
-
-    // Create paths for different PDF versions
     const interiorPreProcessedPath = interiorOutputPath.replace('.pdf', '_pre-page-processing.pdf');
     const interiorPostProcessedPath = interiorOutputPath.replace(
       '.pdf',
       '_post-page-processing.pdf',
     );
 
-    // Render initial RGB PDFs
-    await Promise.all([
-      this.renderPDF(interiorHTML, {
-        width: dimensions.pageWidthMM,
-        height: dimensions.pageHeightMM,
-        outputPath: interiorPreProcessedPath, // Save as pre-processed version first
-      }),
-      this.renderPDF(coverHTML, {
-        width: dimensions.coverSpreadWMM,
-        height: dimensions.coverSpreadHMM,
-        outputPath: coverOutputPath,
-      }),
-    ]);
+    await this.renderPDF(interiorHTML, {
+      width: dimensions.pageWidthMM,
+      height: dimensions.pageHeightMM,
+      outputPath: interiorPreProcessedPath,
+    });
 
-    // Process the interior PDF to fix page layout
     const processingResult = await this.processPageLayout(
       interiorPreProcessedPath,
       interiorPostProcessedPath,
     );
 
-    const result: PrintResult = {
-      interiorPdfPath: interiorPostProcessedPath, // Use post-processed version as main
-      coverPdfPath: coverOutputPath,
+    return {
+      interiorPdfPath: interiorPostProcessedPath,
+      interiorHtml: interiorHTML,
       interiorPreProcessedPdfPath: interiorPreProcessedPath,
       interiorPostProcessedPdfPath: interiorPostProcessedPath,
+      imagePageNumbers: processingResult.imagePagesDetected,
+    };
+  }
+
+  /**
+   * Generate complete print set with both RGB and CMYK versions
+   */
+  async generatePrintSet(
+    storyData: any,
+    interiorOutputPath: string,
+    coverOutputPath: string,
+    options: { generateCMYK?: boolean; chapterLayoutOverrides?: Record<number, ChapterLayoutOverride> } = {},
+  ): Promise<PrintSetResult> {
+    const pageCount = storyData.chapters?.length * 4 + 8; // Rough estimate
+    const dimensions = this.calculateDimensions(pageCount);
+    const coverHTML = this.generateCoverHTML(storyData, dimensions);
+    const coverRenderPromise = this.renderPDF(coverHTML, {
+      width: dimensions.coverSpreadWMM,
+      height: dimensions.coverSpreadHMM,
+      outputPath: coverOutputPath,
+    });
+    const interiorResult = await this.generateInteriorVariant(
+      storyData,
+      interiorOutputPath,
+      options.chapterLayoutOverrides
+        ? { chapterLayoutOverrides: options.chapterLayoutOverrides }
+        : {},
+    );
+    await coverRenderPromise;
+
+    const result: PrintSetResult = {
+      interiorPdfPath: interiorResult.interiorPdfPath,
+      coverPdfPath: coverOutputPath,
+      interiorPreProcessedPdfPath: interiorResult.interiorPreProcessedPdfPath,
+      interiorPostProcessedPdfPath: interiorResult.interiorPostProcessedPdfPath,
     };
 
     // Generate CMYK versions if requested (using post-processed PDF)
     if (options.generateCMYK !== false) {
       try {
         const cmykResult = await this.convertToCMYK(
-          interiorPostProcessedPath, // Use post-processed version for CMYK
+          interiorResult.interiorPdfPath,
           coverOutputPath,
           storyData,
-          processingResult.imagePagesDetected,
+          interiorResult.imagePageNumbers,
         );
 
         result.interiorCmykPdfPath = cmykResult.interiorCmykPath;

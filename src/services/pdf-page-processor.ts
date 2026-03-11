@@ -2,6 +2,7 @@ import { PDFDict, PDFDocument, PDFName, PDFStream } from 'pdf-lib';
 import { readFileSync, writeFileSync } from 'fs';
 import { logger } from '@/config/logger.js';
 import { PDFParse } from 'pdf-parse';
+import { PRINT_FRONT_MATTER_PAGE_COUNT } from '@/services/print-layout-constants.js';
 
 export interface PageProcessingResult {
   originalPageCount: number;
@@ -13,8 +14,6 @@ export interface PageProcessingResult {
   reorderedPairs: Array<{ from: number; to: number }>;
   imagePagesDetected: number[];
 }
-
-const FRONT_MATTER_PAGES = 5;
 
 export class PDFPageProcessor {
   private detectImagePagesWithPdfLib(pdfDoc: PDFDocument): Set<number> {
@@ -102,11 +101,11 @@ export class PDFPageProcessor {
     logger.debug('Starting page reordering', {
       totalPages: pageOrder.length,
       imagePagesBeforeReorder: sortedImages,
-      frontMatterPages: FRONT_MATTER_PAGES,
+      frontMatterPages: PRINT_FRONT_MATTER_PAGE_COUNT,
     });
 
     for (const pageNumber of sortedImages) {
-      if (pageNumber <= FRONT_MATTER_PAGES) {
+      if (pageNumber <= PRINT_FRONT_MATTER_PAGE_COUNT) {
         logger.debug('Skipping front matter image page', { pageNumber });
         continue;
       }

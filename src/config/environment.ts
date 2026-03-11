@@ -115,6 +115,10 @@ const envSchema = z.object({
   NOTIFICATION_ENGINE_URL: z.string().optional(),
   NOTIFICATION_ENGINE_API_KEY: z.string().optional(),
 
+  // Mythoria Admin integration
+  MYTHORIA_ADMIN_URL: z.string().url().optional(),
+  MYTHORIA_ADMIN_API_KEY: z.string().optional(),
+
   // Webapp webhook for persisting async text edits
   WEBAPP_WEBHOOK_URL: z.string().url().optional(),
   WEBAPP_WEBHOOK_SECRET: z.string().optional(),

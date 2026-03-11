@@ -169,7 +169,10 @@ describe('print routers', () => {
         storyId: '00000000-0000-4000-8000-000000000789',
         workflowId: '00000000-0000-4000-8000-000000000987',
         recipient: expect.objectContaining({ email: 'reader@example.com' }),
-        pdfs: expect.objectContaining({ coverPdfUrl: expect.any(String) }),
+        pdfs: expect.objectContaining({
+          interiorPdfUrl: 'https://storage.googleapis.com/bucket/interior.pdf',
+          coverPdfUrl: expect.any(String),
+        }),
         metadata: expect.objectContaining({ workflowExecutionId: 'exec-321' }),
       }),
     );
