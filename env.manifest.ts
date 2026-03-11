@@ -58,7 +58,12 @@ export const envManifest: EnvVarDescriptor[] = [
     default: 'mythoria_db',
     source: 'substitution',
   },
-  { name: 'WORKFLOWS_DB', required: true, scopes: ['dev', 'runtime', 'prod'], default: 'workflows_db' },
+  {
+    name: 'WORKFLOWS_DB',
+    required: true,
+    scopes: ['dev', 'runtime', 'prod'],
+    default: 'workflows_db',
+  },
 
   // Google Cloud
   {
@@ -154,11 +159,26 @@ export const envManifest: EnvVarDescriptor[] = [
 
   // Logging
   { name: 'LOG_LEVEL', required: false, scopes: ['dev', 'runtime', 'prod'], default: 'info' },
-  { name: 'DEBUG_AI_FULL_PROMPTS', required: false, scopes: ['dev', 'runtime', 'prod'], default: 'false' },
-  { name: 'DEBUG_AI_FULL_RESPONSES', required: false, scopes: ['dev', 'runtime', 'prod'], default: 'false' },
+  {
+    name: 'DEBUG_AI_FULL_PROMPTS',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    default: 'false',
+  },
+  {
+    name: 'DEBUG_AI_FULL_RESPONSES',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    default: 'false',
+  },
 
   // TTS
-  { name: 'TTS_PROVIDER', required: false, scopes: ['dev', 'runtime', 'prod'], default: 'google-genai' },
+  {
+    name: 'TTS_PROVIDER',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    default: 'google-genai',
+  },
   {
     name: 'TTS_MODEL',
     required: false,
@@ -168,7 +188,12 @@ export const envManifest: EnvVarDescriptor[] = [
   { name: 'TTS_VOICE', required: false, scopes: ['dev', 'runtime', 'prod'], default: 'Charon' },
   { name: 'TTS_SPEED', required: false, scopes: ['dev', 'runtime', 'prod'], default: '1' },
   { name: 'TTS_LANGUAGE', required: false, scopes: ['dev', 'runtime', 'prod'], default: 'en-US' },
-  { name: 'BACKGROUND_MUSIC_VOLUME', required: false, scopes: ['dev', 'runtime', 'prod'], default: '0.2' },
+  {
+    name: 'BACKGROUND_MUSIC_VOLUME',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    default: '0.2',
+  },
 
   // Auth / integrations
   {

@@ -17,11 +17,7 @@ type HyphenateHtmlSync = (
   },
 ) => string;
 
-const LARGE_TEXT_HYPHENATION_AUDIENCES = new Set([
-  'children_0-2',
-  'children_3-6',
-  'children_7-10',
-]);
+const LARGE_TEXT_HYPHENATION_AUDIENCES = new Set(['children_0-2', 'children_3-6', 'children_7-10']);
 
 const HYPHENATORS: Record<string, HyphenateHtmlSync> = {
   'en-us': hyphenateEnUs,

@@ -96,14 +96,16 @@ describe('print quality routes', () => {
       },
     });
 
-    const response = await request(app).post('/internal/print/quality-check').send({
-      storyId: '00000000-0000-4000-8000-000000000101',
-      runId: '00000000-0000-4000-8000-000000000102',
-      printResult: {
-        interiorPdfUrl: 'https://storage.googleapis.com/bucket/interior.pdf',
-        coverPdfUrl: 'https://storage.googleapis.com/bucket/cover.pdf',
-      },
-    });
+    const response = await request(app)
+      .post('/internal/print/quality-check')
+      .send({
+        storyId: '00000000-0000-4000-8000-000000000101',
+        runId: '00000000-0000-4000-8000-000000000102',
+        printResult: {
+          interiorPdfUrl: 'https://storage.googleapis.com/bucket/interior.pdf',
+          coverPdfUrl: 'https://storage.googleapis.com/bucket/cover.pdf',
+        },
+      });
 
     expect(response.status).toBe(200);
     expect(response.body.qaStatus).toBe('passed');
@@ -138,16 +140,18 @@ describe('print quality routes', () => {
       },
     });
 
-    const response = await request(app).post('/internal/print/quality-check').send({
-      storyId: '00000000-0000-4000-8000-000000000201',
-      runId: '00000000-0000-4000-8000-000000000202',
-      printResult: {
-        interiorPdfUrl: 'https://storage.googleapis.com/bucket/interior.pdf',
-        coverPdfUrl: 'https://storage.googleapis.com/bucket/cover.pdf',
-        interiorCmykPdfUrl: 'https://storage.googleapis.com/bucket/interior_cmyk.pdf',
-        coverCmykPdfUrl: 'https://storage.googleapis.com/bucket/cover_cmyk.pdf',
-      },
-    });
+    const response = await request(app)
+      .post('/internal/print/quality-check')
+      .send({
+        storyId: '00000000-0000-4000-8000-000000000201',
+        runId: '00000000-0000-4000-8000-000000000202',
+        printResult: {
+          interiorPdfUrl: 'https://storage.googleapis.com/bucket/interior.pdf',
+          coverPdfUrl: 'https://storage.googleapis.com/bucket/cover.pdf',
+          interiorCmykPdfUrl: 'https://storage.googleapis.com/bucket/interior_cmyk.pdf',
+          coverCmykPdfUrl: 'https://storage.googleapis.com/bucket/cover_cmyk.pdf',
+        },
+      });
 
     expect(response.status).toBe(200);
     expect(response.body.qaStatus).toBe('passed_with_fixes');
@@ -179,14 +183,16 @@ describe('print quality routes', () => {
       },
     });
 
-    const response = await request(app).post('/internal/print/quality-check').send({
-      storyId: '00000000-0000-4000-8000-000000000301',
-      runId: '00000000-0000-4000-8000-000000000302',
-      printResult: {
-        interiorPdfUrl: 'https://storage.googleapis.com/bucket/interior.pdf',
-        coverPdfUrl: 'https://storage.googleapis.com/bucket/cover.pdf',
-      },
-    });
+    const response = await request(app)
+      .post('/internal/print/quality-check')
+      .send({
+        storyId: '00000000-0000-4000-8000-000000000301',
+        runId: '00000000-0000-4000-8000-000000000302',
+        printResult: {
+          interiorPdfUrl: 'https://storage.googleapis.com/bucket/interior.pdf',
+          coverPdfUrl: 'https://storage.googleapis.com/bucket/cover.pdf',
+        },
+      });
 
     expect(response.status).toBe(200);
     expect(response.body.alertNeeded).toBe(true);
@@ -200,22 +206,24 @@ describe('print quality routes', () => {
     });
     mythoriaAdminClientMock.getManagers.mockResolvedValue([]);
 
-    const response = await request(app).post('/internal/print/quality-alert').send({
-      storyId: '00000000-0000-4000-8000-000000000401',
-      runId: '00000000-0000-4000-8000-000000000402',
-      reportUrl: 'https://storage.googleapis.com/bucket/report.json',
-      printResult: {
-        interiorPdfUrl: 'https://storage.googleapis.com/bucket/interior.pdf',
-        coverPdfUrl: 'https://storage.googleapis.com/bucket/cover.pdf',
-      },
-      criticalErrors: [
-        {
-          code: 'chapter_sparse_last_page',
-          severity: 'critical',
-          message: 'Chapter 4 ends on an almost empty page.',
+    const response = await request(app)
+      .post('/internal/print/quality-alert')
+      .send({
+        storyId: '00000000-0000-4000-8000-000000000401',
+        runId: '00000000-0000-4000-8000-000000000402',
+        reportUrl: 'https://storage.googleapis.com/bucket/report.json',
+        printResult: {
+          interiorPdfUrl: 'https://storage.googleapis.com/bucket/interior.pdf',
+          coverPdfUrl: 'https://storage.googleapis.com/bucket/cover.pdf',
         },
-      ],
-    });
+        criticalErrors: [
+          {
+            code: 'chapter_sparse_last_page',
+            severity: 'critical',
+            message: 'Chapter 4 ends on an almost empty page.',
+          },
+        ],
+      });
 
     expect(response.status).toBe(200);
     expect(response.body.sent).toBe(false);
@@ -237,22 +245,24 @@ describe('print quality routes', () => {
     ]);
     sendPrintQaCriticalEmailMock.mockResolvedValue(false);
 
-    const response = await request(app).post('/internal/print/quality-alert').send({
-      storyId: '00000000-0000-4000-8000-000000000501',
-      runId: '00000000-0000-4000-8000-000000000502',
-      reportUrl: 'https://storage.googleapis.com/bucket/report.json',
-      printResult: {
-        interiorPdfUrl: 'https://storage.googleapis.com/bucket/interior.pdf',
-        coverPdfUrl: 'https://storage.googleapis.com/bucket/cover.pdf',
-      },
-      criticalErrors: [
-        {
-          code: 'chapter_sparse_last_page',
-          severity: 'critical',
-          message: 'Chapter 4 ends on an almost empty page.',
+    const response = await request(app)
+      .post('/internal/print/quality-alert')
+      .send({
+        storyId: '00000000-0000-4000-8000-000000000501',
+        runId: '00000000-0000-4000-8000-000000000502',
+        reportUrl: 'https://storage.googleapis.com/bucket/report.json',
+        printResult: {
+          interiorPdfUrl: 'https://storage.googleapis.com/bucket/interior.pdf',
+          coverPdfUrl: 'https://storage.googleapis.com/bucket/cover.pdf',
         },
-      ],
-    });
+        criticalErrors: [
+          {
+            code: 'chapter_sparse_last_page',
+            severity: 'critical',
+            message: 'Chapter 4 ends on an almost empty page.',
+          },
+        ],
+      });
 
     expect(response.status).toBe(200);
     expect(response.body.sent).toBe(false);
@@ -278,32 +288,34 @@ describe('print quality routes', () => {
     ]);
     sendPrintQaCriticalEmailMock.mockResolvedValue(true);
 
-    const response = await request(app).post('/internal/print/quality-alert').send({
-      storyId: '00000000-0000-4000-8000-000000000601',
-      runId: '00000000-0000-4000-8000-000000000602',
-      reportUrl: 'https://storage.googleapis.com/bucket/report.json',
-      printResult: {
-        interiorPdfUrl: 'https://storage.googleapis.com/bucket/interior.pdf',
-        coverPdfUrl: 'https://storage.googleapis.com/bucket/cover.pdf',
-      },
-      criticalErrors: [
-        {
-          code: 'cover_title_missing',
-          severity: 'critical',
-          message: 'The front cover title is not clearly visible.',
+    const response = await request(app)
+      .post('/internal/print/quality-alert')
+      .send({
+        storyId: '00000000-0000-4000-8000-000000000601',
+        runId: '00000000-0000-4000-8000-000000000602',
+        reportUrl: 'https://storage.googleapis.com/bucket/report.json',
+        printResult: {
+          interiorPdfUrl: 'https://storage.googleapis.com/bucket/interior.pdf',
+          coverPdfUrl: 'https://storage.googleapis.com/bucket/cover.pdf',
         },
-      ],
-      fixesApplied: [
-        {
-          chapterNumber: 4,
-          strategy: 'tighten-chapter-spacing-soft',
-          layoutOverride: {
-            marginLeftMM: 20.25,
-            marginRightMM: 20.25,
+        criticalErrors: [
+          {
+            code: 'cover_title_missing',
+            severity: 'critical',
+            message: 'The front cover title is not clearly visible.',
           },
-        },
-      ],
-    });
+        ],
+        fixesApplied: [
+          {
+            chapterNumber: 4,
+            strategy: 'tighten-chapter-spacing-soft',
+            layoutOverride: {
+              marginLeftMM: 20.25,
+              marginRightMM: 20.25,
+            },
+          },
+        ],
+      });
 
     expect(response.status).toBe(200);
     expect(response.body.sent).toBe(true);

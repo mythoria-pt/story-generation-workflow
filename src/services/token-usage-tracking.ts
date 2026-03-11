@@ -243,7 +243,10 @@ export class TokenUsageTrackingService {
         inputCostPer1KTokens = 0.002; // $2.00 per 1M
         outputCostPer1KTokens = 0.012; // $12.00 per 1M
         cachedInputCostPer1KTokens = 0.0002; // $0.20 per 1M
-      } else if (estimation.model.includes('gemini-3.1-flash-image') || estimation.model.includes('gemini-3-flash-image')) {
+      } else if (
+        estimation.model.includes('gemini-3.1-flash-image') ||
+        estimation.model.includes('gemini-3-flash-image')
+      ) {
         // Gemini 3.1 Flash Image Preview - Fast native image generation
         // Input: $0.25 per 1M tokens (text/image)
         // Text output: $1.50 per 1M tokens

@@ -101,10 +101,10 @@ main:
                                           - outlineLastError: ${outlineAttemptError}
                                     - extractOutlineErrorCode:
                                       assign:
-                                          - outlineErrorCode: ${default(map.get(outlineAttemptError, "code"), 0)}
+                                        - outlineErrorCode: ${default(map.get(outlineAttemptError, "code"), 0)}
                                     - classifyOutlineRetryability:
                                       assign:
-                                          - outlineIsRetryable: ${outlineErrorCode == 0 or outlineErrorCode == 408 or outlineErrorCode == 429 or outlineErrorCode >= 500}
+                                        - outlineIsRetryable: ${outlineErrorCode == 0 or outlineErrorCode == 408 or outlineErrorCode == 429 or outlineErrorCode >= 500}
                                     - maybeStopOutlineRetry:
                                         switch:
                                           - condition: ${not(outlineIsRetryable)}

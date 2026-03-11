@@ -108,7 +108,9 @@ const splitTraitCandidates = (value: string): string[] =>
     .map((trait) => trait.trim())
     .filter((trait) => trait.length > 0);
 
-const normalizeAndFilterTraits = (values: string[]): { normalized: string[]; unknown: string[] } => {
+const normalizeAndFilterTraits = (
+  values: string[],
+): { normalized: string[]; unknown: string[] } => {
   const normalized: string[] = [];
   const unknown: string[] = [];
 
@@ -693,9 +695,7 @@ router.post('/text/structure', async (req, res) => {
       const storage = getStorageService();
       const mediaParts: Array<{ mimeType: string; data: Buffer | string }> = [];
 
-      const parseInlineDataUrl = (
-        value?: string,
-      ): { mimeType: string; data: Buffer } | null => {
+      const parseInlineDataUrl = (value?: string): { mimeType: string; data: Buffer } | null => {
         if (!value || typeof value !== 'string') {
           return null;
         }
@@ -1908,13 +1908,16 @@ router.post('/image', async (req, res) => {
       const { ImageOtherError } = await import('@/ai/errors.js');
       let effectiveError = firstError;
       if (firstError instanceof ImageOtherError) {
-        logger.warn('IMAGE_OTHER persisted after transient retries, escalating to safety block flow', {
-          storyId,
-          runId,
-          imageType,
-          chapterNumber,
-          originalError: firstError.message,
-        });
+        logger.warn(
+          'IMAGE_OTHER persisted after transient retries, escalating to safety block flow',
+          {
+            storyId,
+            runId,
+            imageType,
+            chapterNumber,
+            originalError: firstError.message,
+          },
+        );
         effectiveError = firstError.toBlockedError();
       }
 

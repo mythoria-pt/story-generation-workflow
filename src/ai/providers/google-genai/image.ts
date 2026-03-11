@@ -376,13 +376,27 @@ export class GoogleGenAIImageService implements IImageGenerationService {
    * Gemini 3.1 Flash adds: 1:4, 4:1, 1:8, 8:1, 4:5, 5:4
    */
   private static readonly ALLOWED_ASPECT_RATIOS = new Set([
-    '1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4',
-    '9:16', '16:9', '21:9',
-    '1:4', '4:1', '1:8', '8:1',
+    '1:1',
+    '2:3',
+    '3:2',
+    '3:4',
+    '4:3',
+    '4:5',
+    '5:4',
+    '9:16',
+    '16:9',
+    '21:9',
+    '1:4',
+    '4:1',
+    '1:8',
+    '8:1',
   ]);
 
   private resolveAspectRatio(options?: ImageGenerationOptions): string {
-    if (options?.aspectRatio && GoogleGenAIImageService.ALLOWED_ASPECT_RATIOS.has(options.aspectRatio)) {
+    if (
+      options?.aspectRatio &&
+      GoogleGenAIImageService.ALLOWED_ASPECT_RATIOS.has(options.aspectRatio)
+    ) {
       return options.aspectRatio;
     }
 
@@ -491,10 +505,7 @@ export class GoogleGenAIImageService implements IImageGenerationService {
 
     // Definite safety blocks: PROHIBITED_CONTENT, SAFETY, BLOCKLIST
     const definiteSafetyReasons = ['PROHIBITED_CONTENT', 'SAFETY', 'BLOCKLIST'];
-    if (
-      finishReasons.length &&
-      finishReasons.some((r) => definiteSafetyReasons.includes(r))
-    ) {
+    if (finishReasons.length && finishReasons.some((r) => definiteSafetyReasons.includes(r))) {
       throw new ImageGenerationBlockedError({
         provider: 'google-genai',
         finishReasons,

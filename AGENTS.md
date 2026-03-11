@@ -82,7 +82,7 @@ pwsh -NoProfile -Command "npm run dev"
 | AI Providers     | `src/ai/providers/google-genai/*`, `src/ai/providers/openai/*`                                              | Text + image share token tracking via `src/ai/token-tracking-middleware.ts`. |
 | Prompt Templates | `src/prompts/images/*.json`, `src/prompts/en-US/*.json`                                                     | Conditional handlebars syntax; see `PromptService` for rendering rules.      |
 | Storage          | `src/services/storage-singleton.ts`, `src/services/storage.ts`                                              | Wraps Google Cloud Storage client; prefer singleton to avoid socket churn.   |
-| Print QA         | `src/services/print-quality.ts`, `src/services/print-quality-rules.ts`, `src/routes/print.ts`              | Deterministic QA, bounded interior auto-fix, admin alerts, and QA reporting. |
+| Print QA         | `src/services/print-quality.ts`, `src/services/print-quality-rules.ts`, `src/routes/print.ts`               | Deterministic QA, bounded interior auto-fix, admin alerts, and QA reporting. |
 
 ## 6. Expectations for Contributions
 

@@ -627,7 +627,10 @@ export class PrintService {
     storyData: any,
     interiorOutputPath: string,
     coverOutputPath: string,
-    options: { generateCMYK?: boolean; chapterLayoutOverrides?: Record<number, ChapterLayoutOverride> } = {},
+    options: {
+      generateCMYK?: boolean;
+      chapterLayoutOverrides?: Record<number, ChapterLayoutOverride>;
+    } = {},
   ): Promise<PrintSetResult> {
     const pageCount = storyData.chapters?.length * 4 + 8; // Rough estimate
     const dimensions = this.calculateDimensions(pageCount);

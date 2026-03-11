@@ -78,9 +78,9 @@ export class GoogleGenAITextService implements ITextGenerationService {
     seen.add(value as object);
 
     if (Array.isArray(value)) {
-      return value.slice(0, 10).map((entry) =>
-        GoogleGenAITextService.sanitizeErrorPayload(entry, depth + 1, seen),
-      );
+      return value
+        .slice(0, 10)
+        .map((entry) => GoogleGenAITextService.sanitizeErrorPayload(entry, depth + 1, seen));
     }
 
     const out: Record<string, unknown> = {};
@@ -448,8 +448,7 @@ export class GoogleGenAITextService implements ITextGenerationService {
       // Try to get existing chat instance for stateful conversation
       if (options?.contextId) {
         const context = await contextManager.getContext(options.contextId);
-        cachedContentForRequest =
-          context?.providerSpecificData.googleGenAI?.cachedContentName;
+        cachedContentForRequest = context?.providerSpecificData.googleGenAI?.cachedContentName;
         const chat = context?.providerSpecificData.googleGenAI?.chatInstance;
 
         if (chat) {

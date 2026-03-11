@@ -61,8 +61,7 @@ describe('sendPrintQaCriticalEmail', () => {
         coverPdfUrl: 'https://storage.googleapis.com/test-bucket/story-1/print/cover.pdf',
         interiorCmykPdfUrl:
           'https://storage.googleapis.com/test-bucket/story-1/print/interior_cmyk.pdf',
-        coverCmykPdfUrl:
-          'https://storage.googleapis.com/test-bucket/story-1/print/cover_cmyk.pdf',
+        coverCmykPdfUrl: 'https://storage.googleapis.com/test-bucket/story-1/print/cover_cmyk.pdf',
       },
     });
 

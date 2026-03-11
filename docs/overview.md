@@ -24,16 +24,16 @@ Key services:
 
 ## Tech Stack
 
-| Layer              | Details                                                                                |
-| ------------------ | -------------------------------------------------------------------------------------- |
-| Runtime & Language | Node.js 22+, TypeScript (ESM, path aliases via `tsconfig.json`)                        |
-| Web framework      | Express with API-key auth middleware, no session/JWT support                           |
-| Databases          | PostgreSQL (story data via `drizzle/`), PostgreSQL workflows DB (`drizzle-workflows/`) |
-| Orchestration      | Google Cloud Workflows triggered from Pub/Sub topics                                   |
-| Storage            | Google Cloud Storage buckets per story for HTML, images, PDFs, audio                   |
-| AI Providers       | Google GenAI (Gemini, Imagen) and OpenAI (GPT-4.x, DALL·E, TTS) behind the AI gateway  |
+| Layer              | Details                                                                                                                              |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Runtime & Language | Node.js 22+, TypeScript (ESM, path aliases via `tsconfig.json`)                                                                      |
+| Web framework      | Express with API-key auth middleware, no session/JWT support                                                                         |
+| Databases          | PostgreSQL (story data via `drizzle/`), PostgreSQL workflows DB (`drizzle-workflows/`)                                               |
+| Orchestration      | Google Cloud Workflows triggered from Pub/Sub topics                                                                                 |
+| Storage            | Google Cloud Storage buckets per story for HTML, images, PDFs, audio                                                                 |
+| AI Providers       | Google GenAI (Gemini, Imagen) and OpenAI (GPT-4.x, DALL·E, TTS) behind the AI gateway                                                |
 | Print stack        | Puppeteer HTML→PDF rendering, large-font chapter hyphenation for child print layouts, Ghostscript + ICC profiles for CMYK conversion |
-| Observability      | Structured JSON logging (`src/config/logger.ts`), Cloud Logging, token usage telemetry |
+| Observability      | Structured JSON logging (`src/config/logger.ts`), Cloud Logging, token usage telemetry                                               |
 
 ## Core Capabilities
 

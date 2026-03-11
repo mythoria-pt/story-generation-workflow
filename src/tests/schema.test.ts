@@ -74,7 +74,11 @@ describe('Story Outline Schema', () => {
 
   const schemasRoot = join(process.cwd(), 'src', 'prompts', 'schemas');
 
-  const expectCharacterEnumsToMatch = (schema: any, checkTraits = true, allowNullableEnums = false) => {
+  const expectCharacterEnumsToMatch = (
+    schema: any,
+    checkTraits = true,
+    allowNullableEnums = false,
+  ) => {
     const characterProps = schema?.properties?.characters?.items?.properties;
     expect(characterProps).toBeDefined();
     const normalizedTypeEnum = allowNullableEnums

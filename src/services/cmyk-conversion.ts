@@ -499,12 +499,7 @@ export class CMYKConversionService {
         }),
       ]);
 
-      await this.mergeSelectivePages(
-        colorPath,
-        grayPath,
-        sortedImagePageNumbers,
-        interiorCMYKPath,
-      );
+      await this.mergeSelectivePages(colorPath, grayPath, sortedImagePageNumbers, interiorCMYKPath);
       return interiorCMYKPath;
     }
 

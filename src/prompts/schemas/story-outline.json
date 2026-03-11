@@ -68,7 +68,13 @@
             "default": []
           }
         },
-        "required": ["chapterPhotoPrompt", "chapterNumber", "chapterSynopses", "chapterTitle", "charactersInScene"],
+        "required": [
+          "chapterPhotoPrompt",
+          "chapterNumber",
+          "chapterSynopses",
+          "chapterTitle",
+          "charactersInScene"
+        ],
         "additionalProperties": false
       }
     },

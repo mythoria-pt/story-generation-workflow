@@ -70,8 +70,7 @@ export class FallbackTextGenerationService implements ITextGenerationService {
             primary: this.primaryName,
             fallback: this.fallbackName,
             originalSafety: err instanceof Error ? err.message : String(err),
-            fallbackError:
-              fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr),
+            fallbackError: fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr),
             contextId: options?.contextId,
           });
 
@@ -90,8 +89,7 @@ export class FallbackTextGenerationService implements ITextGenerationService {
           primary: this.primaryName,
           fallback: this.fallbackName,
           originalError: err instanceof Error ? err.message : String(err),
-          fallbackError:
-            fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr),
+          fallbackError: fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr),
           contextId: options?.contextId,
         });
 
