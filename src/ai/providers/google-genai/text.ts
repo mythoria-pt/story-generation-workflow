@@ -319,21 +319,33 @@ export class GoogleGenAITextService implements ITextGenerationService {
       // input tokens. The cache has a 30-minute TTL, matching a typical
       // story-generation session lifetime.
       let cachedContentName: string | undefined;
+      // Google GenAI cache creation requires 'contents' to be a non-empty array.
+      // Since we only have a system prompt at initialization, we must supply a dummy payload 
+      // or bypass explicit cache creation if there's no initial context.
+      // We'll bypass explicit cache creation if we don't have contents.
       try {
-        const cacheResult = await (this.genAI as any).caches.create({
-          model: this.model,
-          config: {
-            displayName: `story-ctx-${contextId.substring(0, 8)}`,
-            systemInstruction: systemPrompt,
-            contents: [],
-            ttl: '1800s', // 30 minutes
-          },
-        });
-        cachedContentName = cacheResult?.name;
-        if (cachedContentName) {
-          logger.info('Google GenAI - Explicit context cache created', {
+        const initialContents: any[] = [];
+        if (initialContents.length > 0) {
+          const cacheResult = await (this.genAI as any).caches.create({
+            model: this.model,
+            config: {
+              displayName: `story-ctx-${contextId.substring(0, 8)}`,
+              systemInstruction: systemPrompt,
+              contents: initialContents,
+              ttl: '1800s', // 30 minutes
+            },
+          });
+          cachedContentName = cacheResult?.name;
+          if (cachedContentName) {
+            logger.info('Google GenAI - Explicit context cache created', {
+              contextId,
+              cacheName: cachedContentName,
+              model: this.model,
+            });
+          }
+        } else {
+          logger.info('Google GenAI - Skipping context cache creation because contents array is empty', {
             contextId,
-            cacheName: cachedContentName,
             model: this.model,
           });
         }
