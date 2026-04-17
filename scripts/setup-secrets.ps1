@@ -64,8 +64,6 @@ $ProjectId = if ($ProjectId) { $ProjectId } else { $env:GOOGLE_CLOUD_PROJECT_ID 
 ${null} = $env:GOOGLE_GENAI_MODEL
 
 # Additional secrets from environment
-<# Vertex AI location deprecated #>
-${null} = $env:VERTEX_AI_LOCATION
 $WorkflowsLocation = $env:GOOGLE_CLOUD_REGION
 $ImageGenerationModel = $env:IMAGE_GENERATION_MODEL
 $AudioGenerationModel = $env:AUDIO_GENERATION_MODEL

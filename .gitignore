@@ -12,6 +12,7 @@ build/
 # Environment files
 .env
 .env.*
+!.env.schema.json
 !.env.*.template
 !.env.*.example
 .env.example
