@@ -1,0 +1,11 @@
+# Ignore node_modules and build output
+node_modules
+dist
+npm-debug.log
+Dockerfile
+.dockerignore
+.git
+.gitignore
+.env
+*.md
+*.tsbuildinfo

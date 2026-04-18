@@ -1,0 +1,41 @@
+# .gcloudignore
+
+# Exclude git history and configuration
+.git/
+.gitignore
+.github/
+
+# Node.js dependencies and development files
+node_modules/
+npm-debug.log
+.env
+.env.local
+.env.development
+.env.test
+
+# Explicitly include package-lock.json for npm ci
+!package-lock.json
+
+# Keep .env.production for deployment
+!.env.production
+
+# Testing
+coverage/
+**/__tests__/
+**/*.test.js
+**/*.test.ts
+
+# TypeScript source files (commented out to include for build)
+# /src/**/*.ts
+# /src/**/*.js
+
+# Build artifacts
+/build/
+/.cache/
+
+# Other files and folders
+.DS_Store
+.vscode/
+*.log
+*.gz
+*.zip

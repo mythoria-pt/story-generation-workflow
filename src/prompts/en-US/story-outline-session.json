@@ -1,0 +1,11 @@
+{
+  "userPrompt": "Generate a clear, structured outline using the provided context. Keep instructions concise and outcome-focused.\n\n<audience_guidance>{{audienceGuidance}}</audience_guidance>\n<voice_guidance>{{voiceGuidance}}</voice_guidance>\n<pacing_guidance>{{pacingGuidance}}</pacing_guidance>\n\n<characters>\nUse every character as listed (names, roles, types, ages, traits, characteristics, physical descriptions). Do not invent new attributes.\n{{characters}}\n</characters>\n\n<requirements>\n- Opening that introduces characters and setting\n- Main conflict or adventure progression\n- 3-5 major plot points or chapters\n- Character growth using their unique abilities\n- Satisfying resolution\n</requirements>\n\n<visual_scene_guidelines>\nFor each major plot point, include settings, lighting, atmosphere, key visual elements, character positioning, and emotional expressions.\n</visual_scene_guidelines>\n\n<character_appearance_guidelines>\nAlways include physical descriptions for visible characters (hair, eyes, build, clothing, accessories, distinctive features) to support illustration prompts.\n</character_appearance_guidelines>\n\n<output_schema>\nReturn the outline using this shape for each chapter:\nChapter 1: Title\n- Summary: 1-2 sentences\n- Beats:\n  - Beat 1: setup or discovery\n  - Beat 2: escalation or complication\n  - Beat 3: consequence or transition\nEnsure chapter titles are explicit and numbered so they can be parsed reliably.\n</output_schema>\n{{#additionalPrompt}}\n<additional_requirements>{{additionalPrompt}}</additional_requirements>\n{{/additionalPrompt}}",
+  "outputFormat": "text",
+  "templateVariables": {
+    "additionalPrompt": "Optional additional requirements from the caller",
+    "audienceGuidance": "Target-audience specific guidance",
+    "voiceGuidance": "Narrative voice and tone guidance",
+    "pacingGuidance": "Target-audience pacing and structure guidance",
+    "characters": "Formatted character roster with full metadata"
+  }
+}

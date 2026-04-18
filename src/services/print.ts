@@ -1,0 +1,680 @@
+import { readFileSync } from 'fs';
+import { join } from 'path';
+import puppeteer from 'puppeteer';
+import { logger } from '@/config/logger.js';
+import { getTemplatesPath } from '@/shared/path-utils.js';
+import { getPrintTranslations, formatPublishDate } from '@/utils/print-translations.js';
+import { convertToAbsoluteImagePath } from '@/utils/imageUtils.js';
+import {
+  getPrintDocumentLanguage,
+  hyphenatePrintChapterHtml,
+  shouldApplyPrintHyphenation,
+} from '@/utils/print-hyphenation.js';
+import { CMYKConversionService } from './cmyk-conversion.js';
+import { PDFPageProcessor } from './pdf-page-processor.js';
+import type { ChapterLayoutOverride } from '@/types/print-quality.js';
+
+interface PaperConfig {
+  paperTypes: Record<
+    string,
+    {
+      name: string;
+      caliper: number;
+      description: string;
+    }
+  >;
+  defaultPaperType: string;
+  bleedMM: {
+    interior: number;
+    cover: number;
+  };
+  safeZoneMM: number;
+  trimSize: {
+    width: number;
+    height: number;
+  };
+}
+
+interface PrintDimensions {
+  pageWidthMM: number;
+  pageHeightMM: number;
+  spineWidthMM: number;
+  coverSpreadWMM: number;
+  coverSpreadHMM: number;
+}
+
+interface RenderOptions {
+  width: number;
+  height: number;
+  outputPath: string;
+}
+
+interface PrintLayoutOptions {
+  chapterLayoutOverrides?: Record<number, ChapterLayoutOverride>;
+}
+
+export interface PrintSetResult {
+  interiorPdfPath: string;
+  coverPdfPath: string;
+  interiorPreProcessedPdfPath?: string;
+  interiorPostProcessedPdfPath?: string;
+  interiorCmykPdfPath?: string;
+  coverCmykPdfPath?: string;
+}
+
+export interface InteriorPrintVariantResult {
+  interiorPdfPath: string;
+  interiorHtml: string;
+  interiorPreProcessedPdfPath: string;
+  interiorPostProcessedPdfPath: string;
+  imagePageNumbers: number[];
+}
+
+export class PrintService {
+  private paperConfig: PaperConfig;
+  private cmykService: CMYKConversionService;
+  private pageProcessor: PDFPageProcessor;
+
+  constructor() {
+    const configPath =
+      process.env.NODE_ENV === 'production'
+        ? join(process.cwd(), 'dist', 'config', 'paper-caliper.json')
+        : join(process.cwd(), 'src', 'config', 'paper-caliper.json');
+    this.paperConfig = JSON.parse(readFileSync(configPath, 'utf-8'));
+    this.cmykService = new CMYKConversionService();
+    this.pageProcessor = new PDFPageProcessor();
+  }
+
+  /**
+   * Load a template file and replace variables
+   */
+  private loadTemplate(templateName: string, variables: Record<string, string>): string {
+    const templatePath = join(getTemplatesPath(), templateName);
+    let template = readFileSync(templatePath, 'utf-8');
+
+    // Replace all {{variable}} placeholders with actual values
+    for (const [key, value] of Object.entries(variables)) {
+      const placeholder = `{{${key}}}`;
+      template = template.replace(new RegExp(placeholder, 'g'), value);
+    }
+
+    return template;
+  }
+
+  /**
+   * Generate table of contents HTML
+   */
+  private generateTableOfContents(chapters: any[]): string {
+    return chapters
+      .map((chapter: any) => {
+        // Extract just the title after the colon, handling translated chapter prefixes
+        let cleanTitle = chapter.title;
+
+        // Look for colon and extract everything after it (trimmed)
+        // If no colon is found, return the original title
+        const colonIndex = cleanTitle.indexOf(':');
+        if (colonIndex !== -1) {
+          cleanTitle = cleanTitle.substring(colonIndex + 1).trim();
+        }
+
+        return `
+      <div class="toc-item">
+        <span class="toc-chapter-title">${cleanTitle}</span>
+      </div>
+    `;
+      })
+      .join('');
+  }
+
+  /**
+   * Generate chapters HTML with two-page spread design
+   */
+  private generateChaptersHTML(
+    chapters: any[],
+    storyLanguage: string,
+    targetAudience?: string,
+    options: PrintLayoutOptions = {},
+  ): string {
+    let html = '';
+    const chapterLayoutOverrides = options.chapterLayoutOverrides || {};
+
+    // Map target audience to CSS class
+    const getTargetAudienceClass = (audience?: string): string => {
+      if (!audience) return '';
+
+      const classMap: Record<string, string> = {
+        'children_0-2': 'target-children-0-2',
+        'children_3-6': 'target-children-3-6',
+        'children_7-10': 'target-children-7-10',
+        'children_11-14': 'target-children-11-14',
+        'young_adult_15-17': 'target-young-adult-15-17',
+        'adult_18+': 'target-adult-18-plus',
+        all_ages: 'target-all-ages',
+      };
+
+      return classMap[audience] || '';
+    };
+
+    const audienceClass = getTargetAudienceClass(targetAudience);
+    const documentLanguage = getPrintDocumentLanguage(storyLanguage);
+    const hyphenationClass = shouldApplyPrintHyphenation(targetAudience)
+      ? ' hyphenation-enabled'
+      : '';
+
+    // Generate HTML for each chapter
+    chapters.forEach((chapter: any, chapterIndex: number) => {
+      const chapterNumber = chapterIndex + 1;
+      const layoutOverride = chapterLayoutOverrides[chapterNumber];
+      const chapterPageClass = layoutOverride ? ` chapter-layout-${chapterNumber}` : '';
+      const chapterStyleVariables = [
+        layoutOverride?.lineHeightPt
+          ? `--chapter-line-height: ${layoutOverride.lineHeightPt}pt;`
+          : '',
+        layoutOverride?.paragraphSpacingPt
+          ? `--chapter-paragraph-spacing: ${layoutOverride.paragraphSpacingPt}pt;`
+          : '',
+      ]
+        .filter(Boolean)
+        .join(' ');
+
+      // Convert relative image paths to absolute URLs
+      let imageUrl = '';
+      if (chapter.imageUri) {
+        imageUrl = convertToAbsoluteImagePath(chapter.imageUri);
+      }
+
+      // Add chapter image (on even page)
+      html += `
+      <!-- Chapter ${chapterIndex + 1} Image Page (Even/Left) -->
+      <div class="chapter-image-page">
+        <div class="chapter-image">
+          ${imageUrl ? `<img src="${imageUrl}" alt="Chapter ${chapterIndex + 1} illustration" />` : ''}
+        </div>
+      </div>
+      `;
+
+      // Add chapter content (starting on odd page)
+      html += `
+      <!-- Chapter ${chapterIndex + 1} Content Pages -->
+      <div
+        class="chapter-content-page${chapterPageClass}"
+        data-chapter-number="${chapterNumber}"
+        ${chapterStyleVariables ? `style="${chapterStyleVariables}"` : ''}
+      >
+        <div class="chapter-content-wrapper">
+          <div class="chapter-title"><br/><br/>${chapter.title}</div>
+          <div class="chapter-content ${audienceClass}${hyphenationClass}" lang="${documentLanguage}">
+            ${this.formatChapterContent(chapter.content, storyLanguage, targetAudience)}
+          </div>
+        </div>
+      </div>
+      `;
+    });
+
+    return html;
+  }
+
+  /**
+   * Calculate print dimensions based on page count
+   */
+  calculateDimensions(pageCount: number, paperType?: string): PrintDimensions {
+    const paperTypeKey = paperType || this.paperConfig.defaultPaperType;
+    const paper = this.paperConfig.paperTypes[paperTypeKey];
+
+    if (!paper) {
+      throw new Error(`Unknown paper type: ${paperTypeKey}`);
+    }
+
+    const { trimSize, bleedMM } = this.paperConfig;
+
+    const pageWidthMM = trimSize.width + 2 * bleedMM.interior;
+    const pageHeightMM = trimSize.height + 2 * bleedMM.interior;
+    const spineWidthMM = Math.ceil((pageCount / 2) * paper.caliper * 10) / 10; // Round up to 0.1mm
+
+    const coverSpreadWMM = 2 * trimSize.width + spineWidthMM + 2 * bleedMM.cover;
+    const coverSpreadHMM = trimSize.height + 2 * bleedMM.cover;
+
+    return {
+      pageWidthMM,
+      pageHeightMM,
+      spineWidthMM,
+      coverSpreadWMM,
+      coverSpreadHMM,
+    };
+  }
+
+  /**
+   * Render HTML to PDF using Puppeteer
+   */
+  async renderPDF(html: string, options: RenderOptions): Promise<void> {
+    logger.info('Starting PDF rendering', {
+      width: options.width,
+      height: options.height,
+      outputPath: options.outputPath,
+    });
+
+    const launchOptions: any = {
+      headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-color-correct-rendering',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--disable-extensions',
+        '--disable-background-timer-throttling',
+        '--disable-backgrounding-occluded-windows',
+        '--disable-renderer-backgrounding',
+        '--disable-features=TranslateUI',
+        '--disable-crash-reporter',
+        '--disable-breakpad',
+      ],
+    };
+
+    // In production, use system Chrome
+    if (process.env.NODE_ENV === 'production') {
+      launchOptions.executablePath = '/usr/bin/google-chrome-stable';
+    }
+
+    const browser = await puppeteer.launch(launchOptions);
+
+    try {
+      const page = await browser.newPage();
+
+      logger.debug('Setting page content for PDF generation');
+      await page.setContent(html, { waitUntil: 'networkidle0' });
+
+      logger.debug('Generating PDF', { outputPath: options.outputPath });
+      await page.pdf({
+        path: options.outputPath,
+        printBackground: true,
+        width: `${options.width}mm`,
+        height: `${options.height}mm`,
+        margin: { top: '0mm', right: '0mm', bottom: '0mm', left: '0mm' },
+        preferCSSPageSize: true,
+        displayHeaderFooter: false,
+        omitBackground: false,
+      });
+
+      logger.info(`PDF generated successfully: ${options.outputPath}`);
+    } catch (error) {
+      logger.error('PDF generation failed', {
+        error: error instanceof Error ? error.message : String(error),
+        outputPath: options.outputPath,
+      });
+      throw error;
+    } finally {
+      await browser.close();
+    }
+  }
+
+  /**
+   * Generate interior PDF HTML
+   *
+   * Margin Strategy:
+   * - Chapter images: Full bleed to page edges (0mm margin)
+   * - Text content: Within safe zone with additional 1cm top margin
+   */
+  generateInteriorHTML(
+    storyData: any,
+    dimensions: PrintDimensions,
+    options: PrintLayoutOptions = {},
+  ): string {
+    const { pageWidthMM, pageHeightMM } = dimensions;
+    const { bleedMM, safeZoneMM } = this.paperConfig;
+
+    // Get translations for the story language
+    const storyLanguage = storyData.storyLanguage || 'en-US';
+    const translations = getPrintTranslations(storyLanguage);
+
+    // Calculate chapter margins with additional 1cm (10mm) top margin
+    const chapterTopMarginMM = safeZoneMM + 10; // Add 1cm to standard safe zone
+    const chapterFirstPageTopMarginMM = 40 + 10; // Add 1cm to existing 40mm
+
+    const chapterLayoutOverrides = {
+      ...(options.chapterLayoutOverrides || {}),
+    } as Record<number, ChapterLayoutOverride>;
+
+    const chapterLayoutStyles = this.generateChapterLayoutStyles(
+      chapterLayoutOverrides,
+      dimensions,
+      chapterTopMarginMM,
+      20,
+      chapterFirstPageTopMarginMM,
+    );
+
+    const variables = {
+      title: storyData.title || '',
+      pageWidthMM: pageWidthMM.toString(),
+      pageHeightMM: pageHeightMM.toString(),
+      interiorBleedMM: bleedMM.interior.toString(),
+      // Legacy variables (for backward compatibility with existing templates)
+      safeZoneMM: safeZoneMM.toString(),
+      totalMarginMM: ((bleedMM.interior + safeZoneMM) * 2).toString(),
+      // New semantic variables for different content types
+      imageMarginMM: '0', // Images bleed to edges - no margin
+      textSafeZoneMM: safeZoneMM.toString(), // Text stays within 1cm safe zone
+      textTotalMarginMM: (safeZoneMM * 2).toString(), // Total margin for text content
+      defaultChapterMarginLeftMM: '21',
+      defaultChapterMarginRightMM: '21',
+      // Chapter-specific margins
+      chapterTopMarginMM: chapterTopMarginMM.toString(),
+      chapterBottomMarginMM: '20',
+      chapterFirstPageTopMarginMM: chapterFirstPageTopMarginMM.toString(),
+      chapterLayoutStyles,
+      dedicationMessage: storyData.dedicationMessage || '',
+      customAuthor: storyData.customAuthor || 'Anonymous',
+      publishDate: formatPublishDate(storyData.createdAt, storyLanguage),
+      synopsis: storyData.synopsis || '',
+      qrCodeImage: 'https://storage.googleapis.com/mythoria-generated-stories/qr-code.png',
+      tableOfContents: this.generateTableOfContents(storyData.chapters),
+      chapters: this.generateChaptersHTML(
+        storyData.chapters,
+        storyLanguage,
+        storyData.targetAudience,
+        options,
+      ),
+      // Translation variables
+      titleLabel: translations.titleLabel,
+      authorLabel: translations.authorLabel,
+      publishDateLabel: translations.publishDateLabel,
+      editingCompanyLabel: translations.editingCompanyLabel,
+      websiteLabel: translations.websiteLabel,
+      copyrightLabel: translations.copyrightLabel,
+      copyrightText: translations.copyrightText,
+      promotionText: translations.promotionText,
+      synopsisTitle: translations.synopsisTitle,
+      tocTitle: translations.tocTitle,
+      documentLanguage: getPrintDocumentLanguage(storyLanguage),
+    };
+
+    return this.loadTemplate('interior-default.html', variables);
+  }
+
+  /**
+   * Generate cover spread PDF HTML
+   */
+  generateCoverHTML(storyData: any, dimensions: PrintDimensions): string {
+    const { coverSpreadWMM, coverSpreadHMM, spineWidthMM } = dimensions;
+    const { bleedMM } = this.paperConfig;
+
+    const variables = {
+      title: storyData.title || '',
+      coverSpreadWMM: coverSpreadWMM.toString(),
+      coverSpreadHMM: coverSpreadHMM.toString(),
+      coverBleedMM: bleedMM.cover.toString(),
+      spineWidthMM: spineWidthMM.toString(),
+      backcoverBackground: storyData.backcoverUri ? `url("${storyData.backcoverUri}")` : '#f5f5f5',
+      frontcoverBackground: storyData.coverUri ? `url("${storyData.coverUri}")` : '#e0e0e0',
+      graphicalStyle: storyData.graphicalStyle || 'cartoon',
+    };
+
+    return this.loadTemplate('cover-default.html', variables);
+  }
+
+  private formatChapterContent(
+    content: string,
+    storyLanguage: string,
+    targetAudience?: string,
+  ): string {
+    return hyphenatePrintChapterHtml(content, storyLanguage, targetAudience);
+  }
+
+  private generateChapterLayoutStyles(
+    chapterLayoutOverrides: Record<number, ChapterLayoutOverride>,
+    dimensions: PrintDimensions,
+    chapterTopMarginMM: number,
+    chapterBottomMarginMM: number,
+    chapterFirstPageTopMarginMM: number,
+  ): string {
+    const cssBlocks: string[] = [];
+
+    for (const [chapterNumberText, override] of Object.entries(chapterLayoutOverrides)) {
+      const chapterNumber = parseInt(chapterNumberText, 10);
+      if (!Number.isFinite(chapterNumber) || !override) {
+        continue;
+      }
+
+      const marginLeft = override.marginLeftMM ?? 21;
+      const marginRight = override.marginRightMM ?? 21;
+      const pageName = `chapter-${chapterNumber}`;
+
+      cssBlocks.push(`
+      @page ${pageName} {
+        size: ${dimensions.pageWidthMM}mm ${dimensions.pageHeightMM}mm;
+        margin-top: ${chapterTopMarginMM}mm;
+        margin-bottom: ${chapterBottomMarginMM}mm;
+        margin-left: ${marginLeft}mm;
+        margin-right: ${marginRight}mm;
+        @top-center {
+          content: none;
+        }
+      }
+
+      @page ${pageName}:first {
+        margin-top: ${chapterFirstPageTopMarginMM}mm;
+      }
+
+      .chapter-content-page.chapter-layout-${chapterNumber} {
+        page: ${pageName};
+      }
+      `);
+    }
+
+    return cssBlocks.join('\n');
+  }
+
+  /**
+   * Process PDF to ensure proper page layout
+   */
+  async processPageLayout(inputPath: string, outputPath: string) {
+    logger.info('Processing PDF page layout', {
+      input: inputPath,
+      output: outputPath,
+    });
+
+    const result = await this.pageProcessor.processPages(inputPath, outputPath);
+
+    logger.info('PDF page processing completed', {
+      originalPages: result.originalPageCount,
+      finalPages: result.finalPageCount,
+      pagesDeleted: result.pagesDeleted,
+      deletedPageNumbers: result.deletedPageNumbers,
+    });
+
+    return result;
+  }
+
+  /**
+   * Convert RGB PDFs to CMYK/PDF-X format
+   */
+  async convertToCMYK(
+    interiorPdfPath: string,
+    coverPdfPath: string,
+    storyData: any,
+    imagePageNumbers: number[],
+  ): Promise<{ interiorCmykPath: string; coverCmykPath: string }> {
+    logger.info('Starting CMYK conversion for print files', {
+      interior: interiorPdfPath,
+      cover: coverPdfPath,
+      storyId: storyData.id,
+    });
+
+    try {
+      const metadata = {
+        title: storyData.title || 'Mythoria Story',
+        author: storyData.customAuthor || 'Mythoria',
+        subject: 'Print-ready story book',
+        creator: 'Mythoria Print Service',
+      };
+
+      const result = await this.cmykService.convertPrintSetToCMYK(
+        interiorPdfPath,
+        coverPdfPath,
+        metadata,
+        imagePageNumbers,
+      );
+
+      logger.info('CMYK conversion completed successfully', {
+        interiorCmyk: result.interiorCMYK,
+        coverCmyk: result.coverCMYK,
+        storyId: storyData.id,
+      });
+
+      return {
+        interiorCmykPath: result.interiorCMYK,
+        coverCmykPath: result.coverCMYK,
+      };
+    } catch (error) {
+      logger.error('CMYK conversion failed', {
+        error: error instanceof Error ? error.message : String(error),
+        storyId: storyData.id,
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Convert only the interior RGB PDF to CMYK/PDF-X format.
+   */
+  async convertInteriorToCMYK(
+    interiorPdfPath: string,
+    storyData: any,
+    imagePageNumbers: number[],
+  ): Promise<string> {
+    logger.info('Starting CMYK conversion for interior print file', {
+      interior: interiorPdfPath,
+      storyId: storyData.id,
+    });
+
+    try {
+      const metadata = {
+        title: storyData.title || 'Mythoria Story',
+        author: storyData.customAuthor || 'Mythoria',
+        subject: 'Print-ready story book',
+        creator: 'Mythoria Print Service',
+      };
+
+      const interiorCmykPath = await this.cmykService.convertInteriorToCMYK(
+        interiorPdfPath,
+        metadata,
+        imagePageNumbers,
+      );
+
+      logger.info('Interior CMYK conversion completed successfully', {
+        interiorCmyk: interiorCmykPath,
+        storyId: storyData.id,
+      });
+
+      return interiorCmykPath;
+    } catch (error) {
+      logger.error('Interior CMYK conversion failed', {
+        error: error instanceof Error ? error.message : String(error),
+        storyId: storyData.id,
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Generate only the interior RGB PDF plus page-processing output for QA attempts.
+   */
+  async generateInteriorVariant(
+    storyData: any,
+    interiorOutputPath: string,
+    options: { chapterLayoutOverrides?: Record<number, ChapterLayoutOverride> } = {},
+  ): Promise<InteriorPrintVariantResult> {
+    const pageCount = storyData.chapters?.length * 4 + 8; // Rough estimate
+    const dimensions = this.calculateDimensions(pageCount);
+    const interiorHTML = this.generateInteriorHTML(
+      storyData,
+      dimensions,
+      options.chapterLayoutOverrides
+        ? { chapterLayoutOverrides: options.chapterLayoutOverrides }
+        : {},
+    );
+
+    const interiorPreProcessedPath = interiorOutputPath.replace('.pdf', '_pre-page-processing.pdf');
+    const interiorPostProcessedPath = interiorOutputPath.replace(
+      '.pdf',
+      '_post-page-processing.pdf',
+    );
+
+    await this.renderPDF(interiorHTML, {
+      width: dimensions.pageWidthMM,
+      height: dimensions.pageHeightMM,
+      outputPath: interiorPreProcessedPath,
+    });
+
+    const processingResult = await this.processPageLayout(
+      interiorPreProcessedPath,
+      interiorPostProcessedPath,
+    );
+
+    return {
+      interiorPdfPath: interiorPostProcessedPath,
+      interiorHtml: interiorHTML,
+      interiorPreProcessedPdfPath: interiorPreProcessedPath,
+      interiorPostProcessedPdfPath: interiorPostProcessedPath,
+      imagePageNumbers: processingResult.imagePagesDetected,
+    };
+  }
+
+  /**
+   * Generate complete print set with both RGB and CMYK versions
+   */
+  async generatePrintSet(
+    storyData: any,
+    interiorOutputPath: string,
+    coverOutputPath: string,
+    options: {
+      generateCMYK?: boolean;
+      chapterLayoutOverrides?: Record<number, ChapterLayoutOverride>;
+    } = {},
+  ): Promise<PrintSetResult> {
+    const pageCount = storyData.chapters?.length * 4 + 8; // Rough estimate
+    const dimensions = this.calculateDimensions(pageCount);
+    const coverHTML = this.generateCoverHTML(storyData, dimensions);
+    const coverRenderPromise = this.renderPDF(coverHTML, {
+      width: dimensions.coverSpreadWMM,
+      height: dimensions.coverSpreadHMM,
+      outputPath: coverOutputPath,
+    });
+    const interiorResult = await this.generateInteriorVariant(
+      storyData,
+      interiorOutputPath,
+      options.chapterLayoutOverrides
+        ? { chapterLayoutOverrides: options.chapterLayoutOverrides }
+        : {},
+    );
+    await coverRenderPromise;
+
+    const result: PrintSetResult = {
+      interiorPdfPath: interiorResult.interiorPdfPath,
+      coverPdfPath: coverOutputPath,
+      interiorPreProcessedPdfPath: interiorResult.interiorPreProcessedPdfPath,
+      interiorPostProcessedPdfPath: interiorResult.interiorPostProcessedPdfPath,
+    };
+
+    // Generate CMYK versions if requested (using post-processed PDF)
+    if (options.generateCMYK !== false) {
+      try {
+        const cmykResult = await this.convertToCMYK(
+          interiorResult.interiorPdfPath,
+          coverOutputPath,
+          storyData,
+          interiorResult.imagePageNumbers,
+        );
+
+        result.interiorCmykPdfPath = cmykResult.interiorCmykPath;
+        result.coverCmykPdfPath = cmykResult.coverCmykPath;
+      } catch (error) {
+        logger.warn('CMYK conversion failed, continuing with RGB only', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    return result;
+  }
+}

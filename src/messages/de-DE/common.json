@@ -1,0 +1,9 @@
+{
+  "Story": {
+    "credits": "Mythoria – Erzähle deine eigene Geschichte.",
+    "tableOfContents": "Inhaltsverzeichnis",
+    "storyImaginedBy": "Diese Geschichte wurde erdacht von",
+    "craftedWith": "Geschaffen mit:",
+    "byAuthor": "von {author}"
+  }
+}

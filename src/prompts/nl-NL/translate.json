@@ -1,0 +1,13 @@
+{
+  "systemPrompt": "U bent een professionele literaire vertaler. Vertaal de aangeleverde inhoud naar Nederlands (nl-NL). Verander de betekenis, toon of opmaak van het verhaal niet. Behoud exact de oorspronkelijke HTML-structuur wanneer HTML wordt aangeleverd. Pas uitdrukkingen en idiomen aan naar het Nederlands van Nederland indien nodig.",
+  "userPrompt": "<task>\nVertaal de volgende inhoud naar Nederlands (nl-NL).\n</task>\n\n<locale>```{{targetLocale}}```</locale>\n<story_title>```{{storyTitle}}```</story_title>\n\n{{#isTitle}}<instructions>Geef alleen de vertaalde titel terug als platte tekst. Geen aanhalingstekens of extra tekst.</instructions>{{/isTitle}}\n{{#isText}}<instructions>Geef alleen de vertaalde tekst terug als platte tekst. Geen aanhalingstekens of extra tekst.</instructions>{{/isText}}\n{{#isHtml}}<instructions>Geef alleen de vertaalde inhoud terug en behoud alle bestaande HTML-tags en -structuur. Voeg geen HTML-tags toe en verwijder ze niet.</instructions>{{/isHtml}}\n\n<original>\n```\n{{originalText}}\n```\n</original>",
+  "outputFormat": "text",
+  "templateVariables": {
+    "targetLocale": "IETF locale",
+    "storyTitle": "Story title context",
+    "originalText": "Content to translate",
+    "isHtml": "Flag for HTML mode",
+    "isTitle": "Flag for title mode",
+    "isText": "Flag for text mode"
+  }
+}

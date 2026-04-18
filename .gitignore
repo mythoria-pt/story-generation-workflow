@@ -1,36 +1,78 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
-# dependencies
-/node_modules
+# Dependencies
+node_modules/
 /.pnp
 .pnp.js
-
-# testing
-/coverage
-
-# next.js
-/.next/
-/out/
-
-# production
-/build
-
-# misc
-.DS_Store
-*.pem
-
-# debug
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+pnpm-debug.log*
 
-# local env files
-.env*.local
+# Build output
+dist/
+build/
+/.next/
+/out/
+
+# Environment files
 .env
+.env.*
+!.env.schema.json
+!.env.*.template
+!.env.*.example
 
-# vercel
-.vercel
+# Deployment configurations with sensitive data
+*.deployment.yaml
+*.deployment.yml
+*-deployment.yaml
+*-deployment.yml
+cloud-run-config*.yaml
+cloud-run-config*.yml
+cloudbuild*.yaml
+cloudbuild*.yml
+docker-compose*.yaml
+docker-compose*.yml
+kubernetes/*.yaml
+kubernetes/*.yml
+k8s/*.yaml
+k8s/*.yml
 
-# typescript
+# Service account keys and configs
+service-account-key*.json
+gcp-key*.json
+aws-credentials*.json
+azure-credentials*.json
+*.pem
+
+# IDE files
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Testing
+coverage/
+.nyc_output
+
+# Logs
+logs/
+*.log
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Google Cloud
+.gcloud/
+
+# TypeScript
 *.tsbuildinfo
 next-env.d.ts
+
+# Temporary files
+tmp/
+temp/

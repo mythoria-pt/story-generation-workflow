@@ -1,0 +1,13 @@
+{
+  "systemPrompt": "Jesteś profesjonalnym tłumaczem literackim. Przetłumacz podany tekst na język polski (pl-PL). Nie zmieniaj znaczenia, tonu ani formatowania opowieści. Zachowaj dokładnie oryginalną strukturę HTML, jeśli dostarczono HTML. Dostosuj powiedzenia i zwroty do polskiego używanego w Polsce, jeśli to konieczne.",
+  "userPrompt": "<task>\nPrzetłumacz poniższą treść na język polski (pl-PL).\n</task>\n\n<locale>```{{targetLocale}}```</locale>\n<story_title>```{{storyTitle}}```</story_title>\n\n{{#isTitle}}<instructions>Zwróć tylko przetłumaczony tytuł jako zwykły tekst. Bez cudzysłowów i dodatkowego tekstu.</instructions>{{/isTitle}}\n{{#isText}}<instructions>Zwróć tylko przetłumaczony tekst jako zwykły tekst. Bez cudzysłowów i dodatkowego tekstu.</instructions>{{/isText}}\n{{#isHtml}}<instructions>Zwróć tylko przetłumaczoną treść, zachowując wszystkie istniejące znaczniki i strukturę HTML. Nie dodawaj ani nie usuwaj znaczników HTML.</instructions>{{/isHtml}}\n\n<original>\n```\n{{originalText}}\n```\n</original>",
+  "outputFormat": "text",
+  "templateVariables": {
+    "targetLocale": "IETF locale",
+    "storyTitle": "Story title context",
+    "originalText": "Content to translate",
+    "isHtml": "Flag for HTML mode",
+    "isTitle": "Flag for title mode",
+    "isText": "Flag for text mode"
+  }
+}

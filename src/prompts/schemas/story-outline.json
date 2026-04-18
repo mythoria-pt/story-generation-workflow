@@ -1,0 +1,219 @@
+{
+  "type": "object",
+  "properties": {
+    "bookTitle": {
+      "type": "string"
+    },
+    "target-audience": {
+      "type": "string",
+      "enum": [
+        "children_0-2",
+        "children_3-6",
+        "children_7-10",
+        "children_11-14",
+        "young_adult_15-17",
+        "adult_18+",
+        "all_ages"
+      ],
+      "description": "Target audience for the story"
+    },
+    "bookCoverPrompt": {
+      "type": "string",
+      "description": "Detailed prompt for generating the book cover illustration. Include characters physical descriptions, actions, and settings, and explicitly include the exact book title text on the cover."
+    },
+    "bookCoverCharacters": {
+      "type": "array",
+      "description": "Character names visible on the book cover illustration.",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "bookBackCoverPrompt": {
+      "type": "string",
+      "description": "Detailed prompt for generating the book back cover illustration. Include characters physical descriptions, actions, and settings."
+    },
+    "bookBackCoverCharacters": {
+      "type": "array",
+      "description": "Character names visible on the book back cover illustration.",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "synopses": {
+      "type": "string",
+      "description": "Detailed synopsis of the entire book"
+    },
+    "chapters": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "chapterNumber": {
+            "type": "integer",
+            "description": "Chapter number (1-based)"
+          },
+          "chapterTitle": {
+            "type": "string"
+          },
+          "chapterSynopses": {
+            "type": "string",
+            "description": "Detailed and full synopsis of what happens in this chapter. Include characters names, descriptions and actions"
+          },
+          "chapterPhotoPrompt": {
+            "type": "string",
+            "description": "Detailed prompt for generating an illustration for this chapter. Include characters physical descriptions, actions, and settings."
+          },
+          "charactersInScene": {
+            "type": "array",
+            "description": "Character names that appear in this chapter's illustration prompt.",
+            "items": { "type": "string" },
+            "default": []
+          }
+        },
+        "required": [
+          "chapterPhotoPrompt",
+          "chapterNumber",
+          "chapterSynopses",
+          "chapterTitle",
+          "charactersInScene"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "characters": {
+      "type": "array",
+      "description": "Roster of characters that appear throughout the outline. Keep roles/types aligned with the app schema.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "characterId": { "type": ["string", "null"] },
+          "name": { "type": "string" },
+          "type": {
+            "type": ["string", "null"],
+            "enum": [
+              "boy",
+              "girl",
+              "man",
+              "woman",
+              "person",
+              "dog",
+              "cat",
+              "bird",
+              "other_animal",
+              "dragon",
+              "elf_fairy_mythical",
+              "robot_cyborg",
+              "alien_extraterrestrial",
+              "other_creature",
+              "other",
+              null
+            ]
+          },
+          "age": {
+            "type": ["string", "null"],
+            "enum": [
+              "infant",
+              "toddler",
+              "preschool",
+              "school_age",
+              "teenage",
+              "emerging_adult",
+              "seasoned_adult",
+              "midlife_mentor",
+              "elder",
+              "youngling",
+              "adult",
+              "senior",
+              null
+            ]
+          },
+          "traits": {
+            "type": ["array", "null"],
+            "items": {
+              "type": "string",
+              "enum": [
+                "adaptable",
+                "brave",
+                "compassionate",
+                "courageous",
+                "curious",
+                "decisive",
+                "empathetic",
+                "generous",
+                "honest",
+                "imaginative",
+                "loyal",
+                "optimistic",
+                "patient",
+                "practical",
+                "pragmatic",
+                "resourceful",
+                "self-disciplined",
+                "sincere",
+                "witty",
+                "kind",
+                "conscientious",
+                "energetic",
+                "arrogant",
+                "callous",
+                "cowardly",
+                "cynical",
+                "deceitful",
+                "impulsive",
+                "jealous",
+                "lazy",
+                "manipulative",
+                "moody",
+                "reckless",
+                "selfish",
+                "vengeful",
+                "aloof",
+                "blunt",
+                "cautious",
+                "methodical"
+              ]
+            }
+          },
+          "characteristics": { "type": ["string", "null"] },
+          "physicalDescription": { "type": ["string", "null"] },
+          "role": {
+            "type": ["string", "null"],
+            "enum": [
+              "protagonist",
+              "antagonist",
+              "supporting",
+              "mentor",
+              "comic_relief",
+              "love_interest",
+              "sidekick",
+              "narrator",
+              "other",
+              null
+            ]
+          }
+        },
+        "required": [
+          "characterId",
+          "name",
+          "type",
+          "age",
+          "traits",
+          "characteristics",
+          "physicalDescription",
+          "role"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "bookTitle",
+    "target-audience",
+    "bookCoverCharacters",
+    "bookBackCoverCharacters",
+    "characters",
+    "chapters",
+    "synopses",
+    "bookBackCoverPrompt",
+    "bookCoverPrompt"
+  ],
+  "additionalProperties": false
+}

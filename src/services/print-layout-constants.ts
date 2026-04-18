@@ -1,0 +1,1 @@
+export const PRINT_FRONT_MATTER_PAGE_COUNT = 5;
