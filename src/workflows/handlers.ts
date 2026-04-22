@@ -394,6 +394,11 @@ export interface PrintGenerationParams {
   storyId: string;
   workflowId: string;
   generateCMYK?: boolean;
+  /** When true, downstream callers should skip the print-QA pipeline. The
+   * handler itself does not run QA (QA lives in /internal/print/quality-check);
+   * this flag is surfaced to the response and propagated through the workflow
+   * YAML. */
+  skipQA?: boolean;
 }
 
 export interface PrintGenerationResult {
@@ -402,6 +407,7 @@ export interface PrintGenerationResult {
   interiorCmykPdfUrl?: string | null;
   coverCmykPdfUrl?: string | null;
   status: string;
+  skipQA?: boolean;
 }
 
 export class PrintGenerationHandler implements WorkflowStepHandler<
@@ -468,6 +474,7 @@ export class PrintGenerationHandler implements WorkflowStepHandler<
         interiorCmykPdfUrl: null,
         coverCmykPdfUrl: null,
         status: 'completed',
+        skipQA: params.skipQA === true,
       };
 
       // Upload CMYK PDFs if they were generated

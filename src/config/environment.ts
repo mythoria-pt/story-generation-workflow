@@ -44,18 +44,26 @@ const envSchema = z.object({
   DB_USER: z.string(),
   DB_PASSWORD: z.string(),
   DB_NAME: z.string(),
+  /** Workflows metadata DB (see drizzle.workflows.config.ts, workflows-db.ts). */
+  WORKFLOWS_DB: z.string().optional().default('workflows_db'),
   GOOGLE_CLOUD_PROJECT_ID: z.string(),
   GOOGLE_CLOUD_REGION: z.string(),
   GOOGLE_GENAI_CLOUD_REGION: z.string().optional().default('global'),
   STORAGE_BUCKET_NAME: z.string(),
   IMAGE_GENERATION_MODEL: z.string().optional(),
-  LOG_LEVEL: z.enum(['error', 'warn', 'info', 'debug']).optional().default('info'), // AI Provider Configuration
+  LOG_LEVEL: z.enum(['error', 'warn', 'info', 'debug']).optional().default('info'),
+  DEBUG_AI_FULL_PROMPTS: z.string().optional().default('false'),
+  DEBUG_AI_FULL_RESPONSES: z.string().optional().default('false'),
+  /** Required in production; middleware reads process.env directly. Empty allowed for some test contexts. */
+  STORY_GENERATION_WORKFLOW_API_KEY: z.string().default(''),
   TEXT_PROVIDER: z.enum(['openai', 'google-genai']).optional().default('google-genai'),
   IMAGE_PROVIDER: z.enum(['openai', 'google-genai']).optional().default('google-genai'),
 
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_BASE_MODEL: z.string().optional().default('gpt-5.2'),
   OPENAI_TEXT_MODEL: z.string().optional(), // legacy alias for base model
+  /** Legacy alias read in src/ai/gateway.ts; prefer OPENAI_BASE_MODEL. */
+  OPENAI_MODEL: z.string().optional(),
   OPENAI_IMAGE_TOOL_MODEL: z.string().optional().default('gpt-image-1.5'),
   OPENAI_IMAGE_QUALITY: z.enum(['low', 'standard', 'high']).optional().default('low'),
 
@@ -67,6 +75,12 @@ const envSchema = z.object({
   GOOGLE_GENAI_API_KEY: z.string().optional(),
   GOOGLE_GENAI_MODEL: z.string().optional().default('gemini-2.5-flash'),
   GOOGLE_GENAI_IMAGE_MODEL: z.string().optional().default('gemini-3.1-flash-image-preview'),
+  /** If set to "true", use Vertex instead of API key (advanced). */
+  GOOGLE_GENAI_USE_VERTEX: z.string().optional(),
+  /** Debug: force REST transport for GenAI image client. */
+  GOOGLE_GENAI_FORCE_REST: z.string().optional(),
+  /** Debug: disable Imagen mapping in the image pipeline. */
+  GOOGLE_GENAI_DISABLE_IMAGEN_MAPPING: z.string().optional(),
 
   // TTS Configuration
   // Supports OpenAI and Google Gemini TTS providers
@@ -139,6 +153,9 @@ const envSchema = z.object({
       return Number.isNaN(n) ? 12000 : n;
     }),
 });
+
+/** Stable list of variable names validated by Zod (for env parity tooling). */
+export const zodEnvironmentVariableNames = Object.keys(envSchema.shape) as string[];
 
 export type Environment = z.infer<typeof envSchema>;
 

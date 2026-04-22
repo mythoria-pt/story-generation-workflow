@@ -47,7 +47,7 @@ export function getDefaultModel(provider: TTSProvider): string {
  * Get TTS configuration from environment variables
  */
 export function getTTSConfig(): TTSConfig {
-  const provider = (process.env.TTS_PROVIDER || 'openai') as TTSProvider;
+  const provider = (process.env.TTS_PROVIDER || 'google-genai') as TTSProvider;
   return {
     provider,
     model: process.env.TTS_MODEL || getDefaultModel(provider),

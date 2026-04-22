@@ -44,7 +44,15 @@ const SelfPrintRequestSchema = z.object({
   ccEmails: z.array(z.string().email()).optional(),
   locale: z.string().optional(),
   generateCMYK: z.boolean().optional(),
+  skipQA: z.boolean().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+const PrintGenerateRequestSchema = z.object({
+  storyId: z.string().uuid(),
+  workflowId: z.string().uuid(),
+  generateCMYK: z.boolean().optional(),
+  skipQA: z.boolean().optional(),
 });
 
 const PrintResultSchema = z.object({
@@ -126,6 +134,7 @@ printRouter.post('/self-service', async (req, res) => {
     ccEmails,
     locale,
     generateCMYK,
+    skipQA,
     metadata,
   } = parsed.data;
 
@@ -198,6 +207,7 @@ printRouter.post('/self-service', async (req, res) => {
       delivery,
       initiatedBy: 'selfService',
       origin: 'self-service',
+      ...(skipQA === true ? { skipQA: true } : {}),
     };
 
     const workflowEvent = {
@@ -256,20 +266,26 @@ printRouter.post('/self-service', async (req, res) => {
 internalPrintRouter.post(
   '/generate',
   async (req: express.Request, res: express.Response): Promise<void> => {
+    const parsed = PrintGenerateRequestSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      res.status(400).json({
+        error: 'Invalid request payload',
+        details: parsed.error.flatten(),
+      });
+      return;
+    }
+
+    const { storyId, workflowId, generateCMYK, skipQA } = parsed.data;
+
     try {
-      const { storyId, workflowId, generateCMYK } = req.body;
+      logger.info('Print generation request received', { storyId, workflowId, skipQA });
 
-      if (!storyId || !workflowId) {
-        res.status(400).json({
-          error: 'Missing required fields',
-          required: ['storyId', 'workflowId'],
-        });
-        return;
-      }
-
-      logger.info('Print generation request received', { storyId, workflowId });
-
-      const result = await printGenerationHandler.execute({ storyId, workflowId, generateCMYK });
+      const result = await printGenerationHandler.execute({
+        storyId,
+        workflowId,
+        ...(generateCMYK !== undefined ? { generateCMYK } : {}),
+        ...(skipQA !== undefined ? { skipQA } : {}),
+      });
 
       res.json(result);
     } catch (error) {

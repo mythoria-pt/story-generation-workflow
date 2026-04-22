@@ -1,5 +1,5 @@
 // Canonical environment variable manifest for Story Generation Workflow
-// Mirrors .env.schema.json; keep scopes aligned with backend expectations.
+// Align with src/config/environment.ts (Zod); .env.schema.json is a legacy subset.
 export type EnvScope = 'dev' | 'prod' | 'runtime' | 'build' | 'public';
 export interface EnvVarDescriptor {
   name: string;
@@ -84,6 +84,14 @@ export const envManifest: EnvVarDescriptor[] = [
     scopes: ['dev', 'runtime', 'prod'],
     source: 'substitution',
   },
+  {
+    name: 'GOOGLE_GENAI_CLOUD_REGION',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    default: 'global',
+    source: 'substitution',
+    note: 'GenAI client location (e.g. global, us-central1, europe-west9).',
+  },
   // AI providers
   {
     name: 'TEXT_PROVIDER',
@@ -121,6 +129,30 @@ export const envManifest: EnvVarDescriptor[] = [
     source: 'substitution',
   },
   {
+    name: 'GOOGLE_GENAI_USE_VERTEX',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    default: 'false',
+    source: 'inline',
+    note: 'If true, use Vertex AI instead of API key (advanced).',
+  },
+  {
+    name: 'GOOGLE_GENAI_FORCE_REST',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    default: 'false',
+    source: 'inline',
+    note: 'Debug: force REST transport (see debug-image routes).',
+  },
+  {
+    name: 'GOOGLE_GENAI_DISABLE_IMAGEN_MAPPING',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    default: 'false',
+    source: 'inline',
+    note: 'Debug: disable Imagen mapping in image pipeline.',
+  },
+  {
     name: 'OPENAI_API_KEY',
     required: false,
     scopes: ['dev', 'runtime', 'prod'],
@@ -143,6 +175,13 @@ export const envManifest: EnvVarDescriptor[] = [
     note: 'Legacy alias for OPENAI_BASE_MODEL.',
   },
   {
+    name: 'OPENAI_MODEL',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    deprecated: true,
+    note: 'Legacy alias read only in src/ai/gateway.ts; prefer OPENAI_BASE_MODEL.',
+  },
+  {
     name: 'OPENAI_IMAGE_TOOL_MODEL',
     required: false,
     scopes: ['dev', 'runtime', 'prod'],
@@ -155,6 +194,77 @@ export const envManifest: EnvVarDescriptor[] = [
     scopes: ['dev', 'runtime', 'prod'],
     default: 'low',
     source: 'substitution',
+  },
+  {
+    name: 'IMAGE_GENERATION_MODEL',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    source: 'substitution',
+    note: 'Optional passthrough model id for image generation.',
+  },
+  {
+    name: 'IMAGE_DEFAULT_WIDTH',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    default: '1024',
+    source: 'substitution',
+  },
+  {
+    name: 'IMAGE_DEFAULT_HEIGHT',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    default: '1536',
+    source: 'substitution',
+  },
+  {
+    name: 'IMAGE_CHAPTER_WIDTH',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    default: '1024',
+    source: 'substitution',
+  },
+  {
+    name: 'IMAGE_CHAPTER_HEIGHT',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    default: '1536',
+    source: 'substitution',
+  },
+  {
+    name: 'IMAGE_COVER_WIDTH',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    default: '1024',
+    source: 'substitution',
+  },
+  {
+    name: 'IMAGE_COVER_HEIGHT',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    default: '1536',
+    source: 'substitution',
+  },
+  {
+    name: 'STORY_CONTEXT_MAX_CHARS',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    default: '12000',
+    source: 'substitution',
+    note: 'Max characters of outline/summaries/chapters in story context.',
+  },
+  {
+    name: 'TEMP_DIR',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    source: 'substitution',
+    note: 'Optional temp directory for print/PDF pipeline.',
+  },
+  {
+    name: 'GHOSTSCRIPT_BINARY',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    source: 'substitution',
+    note: 'Path to Ghostscript binary (CMYK/print); optional on Unix.',
   },
 
   // Logging
@@ -189,10 +299,33 @@ export const envManifest: EnvVarDescriptor[] = [
   { name: 'TTS_SPEED', required: false, scopes: ['dev', 'runtime', 'prod'], default: '1' },
   { name: 'TTS_LANGUAGE', required: false, scopes: ['dev', 'runtime', 'prod'], default: 'en-US' },
   {
+    name: 'BACKGROUND_MUSIC_ENABLED',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    default: 'true',
+    source: 'inline',
+  },
+  {
     name: 'BACKGROUND_MUSIC_VOLUME',
     required: false,
     scopes: ['dev', 'runtime', 'prod'],
     default: '0.2',
+  },
+  {
+    name: 'BACKGROUND_MUSIC_FADE_IN',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    default: '1.5',
+    source: 'inline',
+    note: 'Fade-in seconds for background music.',
+  },
+  {
+    name: 'BACKGROUND_MUSIC_FADE_OUT',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    default: '1.5',
+    source: 'inline',
+    note: 'Fade-out seconds for background music.',
   },
 
   // Auth / integrations
@@ -211,6 +344,20 @@ export const envManifest: EnvVarDescriptor[] = [
   },
   {
     name: 'NOTIFICATION_ENGINE_API_KEY',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    secret: true,
+    source: 'secret-manager',
+  },
+  {
+    name: 'MYTHORIA_ADMIN_URL',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    source: 'substitution',
+    note: 'Mythoria Admin API base URL.',
+  },
+  {
+    name: 'MYTHORIA_ADMIN_API_KEY',
     required: false,
     scopes: ['dev', 'runtime', 'prod'],
     secret: true,

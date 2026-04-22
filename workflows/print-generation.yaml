@@ -25,6 +25,13 @@ main:
           - initiatedBy: ${default(map.get(payload, "initiatedBy"), "printOrder")}
           - delivery: ${default(map.get(payload, "delivery"), null)}
           - qaAlertSent: false
+          - qaSkip: ${default(map.get(payload, "skipQA"), false)}
+          - activePrintResult: null
+          - qaStatus: 'skipped'
+          - qaReportUrl: null
+          - qaCriticalCount: 0
+          - qaWarningCount: 0
+          - qaFixesApplied: []
 
     # Resolve origin in a separate step to avoid YAML/ternary parsing issues
     - setOriginFromInitiatedBy:
@@ -78,9 +85,21 @@ main:
                     storyId: ${storyId}
                     workflowId: ${runId}
                     generateCMYK: true
+                    skipQA: ${qaSkip}
                 result: printGenerationResult
 
-            # 3. Run print QA review
+            # 3. Decide whether to run QA
+            - checkShouldRunQA:
+                switch:
+                  - condition: ${qaSkip == true}
+                    next: skipQualityCheck
+                next: qualityCheckPDF
+
+            - skipQualityCheck:
+                assign:
+                  - activePrintResult: ${printGenerationResult.body}
+                next: checkShouldNotify
+
             - qualityCheckPDF:
                 call: http.request
                 args:
@@ -92,6 +111,15 @@ main:
                     runId: ${runId}
                     printResult: ${printGenerationResult.body}
                 result: qaResult
+
+            - setActivePrintResultFromQa:
+                assign:
+                  - activePrintResult: ${qaResult.body.printResult}
+                  - qaStatus: ${qaResult.body.qaStatus}
+                  - qaReportUrl: ${qaResult.body.reportUrl}
+                  - qaCriticalCount: ${qaResult.body.criticalCount}
+                  - qaWarningCount: ${qaResult.body.warningCount}
+                  - qaFixesApplied: ${qaResult.body.fixesApplied}
 
             # 4. Notify admins if critical QA issues remain
             - checkShouldAlertAdmins:
@@ -138,7 +166,7 @@ main:
                     delivery: ${delivery}
                     initiatedBy: ${initiatedBy}
                     origin: ${origin}
-                    printResult: ${qaResult.body.printResult}
+                    printResult: ${activePrintResult}
                 result: notificationResult
 
             # 6. Mark run → completed
@@ -154,15 +182,16 @@ main:
                     currentStep: 'completed'
                     endedAt: ${time.format(sys.now())}
                     metadata:
-                      interiorPdfUrl: ${qaResult.body.printResult.interiorPdfUrl}
-                      coverPdfUrl: ${qaResult.body.printResult.coverPdfUrl}
-                      interiorCmykPdfUrl: ${qaResult.body.printResult.interiorCmykPdfUrl}
-                      coverCmykPdfUrl: ${qaResult.body.printResult.coverCmykPdfUrl}
-                      printQaStatus: ${qaResult.body.qaStatus}
-                      printQaReportUrl: ${qaResult.body.reportUrl}
-                      printQaCriticalCount: ${qaResult.body.criticalCount}
-                      printQaWarningCount: ${qaResult.body.warningCount}
-                      printQaFixesApplied: ${qaResult.body.fixesApplied}
+                      interiorPdfUrl: ${activePrintResult.interiorPdfUrl}
+                      coverPdfUrl: ${activePrintResult.coverPdfUrl}
+                      interiorCmykPdfUrl: ${activePrintResult.interiorCmykPdfUrl}
+                      coverCmykPdfUrl: ${activePrintResult.coverCmykPdfUrl}
+                      printQaSkipped: ${qaSkip}
+                      printQaStatus: ${qaStatus}
+                      printQaReportUrl: ${qaReportUrl}
+                      printQaCriticalCount: ${qaCriticalCount}
+                      printQaWarningCount: ${qaWarningCount}
+                      printQaFixesApplied: ${qaFixesApplied}
                       printQaAlertSent: ${qaAlertSent}
 
         except:

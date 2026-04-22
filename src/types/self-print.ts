@@ -20,6 +20,7 @@ export interface SelfPrintWorkflowPayload {
   storyId: string;
   runId: string;
   generateCMYK?: boolean;
+  skipQA?: boolean;
   delivery?: SelfPrintDelivery;
   initiatedBy?: 'selfService' | 'adminPortal' | string;
   origin?: 'self-service' | 'admin' | string;

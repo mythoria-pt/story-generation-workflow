@@ -81,7 +81,7 @@ export class TTSGateway {
    * Create TTS Gateway from environment variables
    */
   public static fromEnvironment(): TTSGateway {
-    const provider = (process.env.TTS_PROVIDER || 'openai') as TTSProvider;
+    const provider = (process.env.TTS_PROVIDER || 'google-genai') as TTSProvider;
     const model = process.env.TTS_MODEL;
     const defaultVoice = process.env.TTS_VOICE;
     const defaultSpeed = process.env.TTS_SPEED ? parseFloat(process.env.TTS_SPEED) : undefined;

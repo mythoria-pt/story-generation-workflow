@@ -32,6 +32,7 @@
     "setup-secrets": "powershell -ExecutionPolicy Bypass -File .\\scripts\\setup-secrets.ps1",
     "check-secrets": "powershell -ExecutionPolicy Bypass -File .\\scripts\\check-secrets.ps1",
     "env:validate": "tsx src/config/validate-env.ts",
+    "env:parity": "tsx scripts/check-env-parity.ts",
     "get-logs": "gcloud logging read \"resource.type=cloud_run_revision AND resource.labels.service_name=story-generation-workflow\" --limit=30 --format=\"json\" --project=oceanic-beach-460916-n5",
     "schema:sync": "powershell -ExecutionPolicy Bypass -File .\\scripts\\sync-schema.ps1",
     "schema:sync-dry": "powershell -ExecutionPolicy Bypass -File .\\scripts\\sync-schema.ps1 -DryRun",
