@@ -18,6 +18,12 @@ SGW produces two PDF sets per story—RGB (screen) and CMYK (print-ready)—and 
 - The HTML template sets the document `lang` and enables manual hyphenation for those chapter blocks so Chromium honors the inserted soft hyphens consistently in PDF output.
 - Manual overrides are supported: if editorial content already contains `&shy;`, the renderer will respect it. Language-specific exception words can also be added in `LANGUAGE_EXCEPTIONS` inside `src/utils/print-hyphenation.ts`.
 
+### Skipping QA (`skipQA` flag)
+
+Both `/internal/print/generate` and `/print/self-service` accept an optional `skipQA: boolean` field (default `false`).
+
+When `skipQA` is `true`, `print-generation.yaml` skips the `qualityCheckPDF` and `notifyPrintQaAdmins` steps entirely — the workflow goes straight from PDF generation to customer notification. This is intended for bulk, low-stakes campaigns (e.g. World Book Day) where throughput matters more than QA. The flag is echoed through `SelfPrintWorkflowPayload` and stored in run metadata.
+
 ### Self-print workflow hooks
 
 - `POST /print/self-service` receives requests from the web app, dedupes recipients (author auto-added when possible), and launches `print-generation`. Every accepted request logs `Self-print workflow enqueued` with `storyId`, `workflowId`, `executionId`, and the number of recipients to simplify refunds.
