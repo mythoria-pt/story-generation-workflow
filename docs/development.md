@@ -80,6 +80,16 @@ All commands run through `npm run` wrappers so they pick up the repo’s tsconfi
 - **Ephemeral stories**: Stories marked `status = 'temporary'` and older than 48 hours should be purged from the main DB to keep storage costs flat. Until an automated job exists, run manual SQL / scripts during on-call.
 - When implementing the scheduler endpoint, gate it behind API-key auth and add generous logging so we can reconcile deletions if needed.
 
+## Deferred dependency upgrades
+
+The following major-version bumps were intentionally deferred during the 2026-04 dependency refresh. Revisit in a dedicated follow-up PR so the diff stays reviewable.
+
+- **`eslint` / `@eslint/js` 9 → 10**: requires moving to the unified `typescript-eslint` v9 package (replacing `@typescript-eslint/eslint-plugin` + `@typescript-eslint/parser`) and validating flat-config rule changes. Run `npm run lint:fix` after the bump.
+- **`typescript` 5.9 → 6.0**: brand new; wait until `@typescript-eslint`, `ts-jest`, `drizzle-kit`, Express 5 types, OpenAI 6 types, and Puppeteer 24 types confirm TS6 support. Re-check in ~1 month.
+- **`@types/node` 24 → 25**: low value while Cloud Run runs on Node 22 LTS. Bump when we move to Node 24.
+- **`@types/supertest` 7**: already applied.
+- **`bignumber.js`**: already removed (was unused).
+
 ## When in doubt
 
 - Cross-check desired behavior in `docs/overview.md` + `docs/ai.md`.
