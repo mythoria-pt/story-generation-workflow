@@ -60,11 +60,11 @@ const envSchema = z.object({
   IMAGE_PROVIDER: z.enum(['openai', 'google-genai']).optional().default('google-genai'),
 
   OPENAI_API_KEY: z.string().optional(),
-  OPENAI_BASE_MODEL: z.string().optional().default('gpt-5.2'),
+  OPENAI_BASE_MODEL: z.string().optional().default('gpt-5.5'),
   OPENAI_TEXT_MODEL: z.string().optional(), // legacy alias for base model
   /** Legacy alias read in src/ai/gateway.ts; prefer OPENAI_BASE_MODEL. */
   OPENAI_MODEL: z.string().optional(),
-  OPENAI_IMAGE_TOOL_MODEL: z.string().optional().default('gpt-image-1.5'),
+  OPENAI_IMAGE_TOOL_MODEL: z.string().optional().default('gpt-image-2'),
   OPENAI_IMAGE_QUALITY: z.enum(['low', 'standard', 'high']).optional().default('low'),
 
   // Temp directory configuration
@@ -199,8 +199,8 @@ export function validateEnvironment(): void {
     console.log(`📦 Storage Bucket: ${env.STORAGE_BUCKET_NAME}`);
     console.log(`🎨 Image Provider: ${env.IMAGE_PROVIDER}`);
     if (env.IMAGE_PROVIDER === 'openai') {
-      const baseModel = env.OPENAI_BASE_MODEL || env.OPENAI_TEXT_MODEL || 'gpt-5.2';
-      const imageToolModel = env.OPENAI_IMAGE_TOOL_MODEL || 'gpt-image-1.5';
+      const baseModel = env.OPENAI_BASE_MODEL || env.OPENAI_TEXT_MODEL || 'gpt-5.5';
+      const imageToolModel = env.OPENAI_IMAGE_TOOL_MODEL || 'gpt-image-2';
       console.log(`🤖 OpenAI Base Model: ${baseModel}`);
       console.log(`🖼️ OpenAI Image Tool Model: ${imageToolModel}`);
     } else if (env.IMAGE_PROVIDER === 'google-genai') {

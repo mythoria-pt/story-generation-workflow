@@ -41,7 +41,7 @@ async function main(): Promise<void> {
   );
 
   const response = await client.images.edit({
-    model: 'gpt-image-1.5',
+    model: 'gpt-image-2',
     prompt,
     image: files,
     size: '1024x1536',

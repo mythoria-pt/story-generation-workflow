@@ -40,7 +40,7 @@ describe('OpenAIImageService', () => {
   it('omits input_fidelity for gpt-image-2 image generation tool requests', async () => {
     const service = new OpenAIImageService({
       apiKey: 'test-key',
-      model: 'gpt-5.2',
+      model: 'gpt-5.5',
       imageModel: 'gpt-image-2',
     });
 
@@ -61,7 +61,7 @@ describe('OpenAIImageService', () => {
   it('keeps input_fidelity for gpt-image-1.5 image generation tool requests', async () => {
     const service = new OpenAIImageService({
       apiKey: 'test-key',
-      model: 'gpt-5.2',
+      model: 'gpt-5.5',
       imageModel: 'gpt-image-1.5',
     });
 

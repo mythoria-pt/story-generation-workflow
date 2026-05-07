@@ -39,7 +39,7 @@ describe('TokenUsageTrackingService', () => {
       authorId: 'a1',
       storyId: 's1',
       action: 'chapter_writing',
-      aiModel: 'gpt-5.2',
+      aiModel: 'gpt-5.5',
       inputTokens: 1000,
       outputTokens: 500,
       inputPromptJson: {},
@@ -48,21 +48,99 @@ describe('TokenUsageTrackingService', () => {
     expect(mockDb.insert).toHaveBeenCalled();
     expect(valuesMock).toHaveBeenCalled();
     const usageRecord = valuesMock.mock.calls[0][0];
-    // GPT-5.2: ($0.00175 * 1 input K-tokens) + ($0.014 * 0.5 output K-tokens) = $0.00875 USD * 0.92 ≈ €0.00805
-    expect(parseFloat(usageRecord.estimatedCostInEuros)).toBeCloseTo(0.00805, 5);
+    // GPT-5.5: ($0.005 * 1 input K-tokens) + ($0.03 * 0.5 output K-tokens) = $0.02 USD * 0.92 = €0.0184
+    expect(parseFloat(usageRecord.estimatedCostInEuros)).toBeCloseTo(0.0184, 5);
     expect(logger.info).toHaveBeenCalled();
   });
 
-  it('calculates cost for OpenAI GPT-5.2 model', () => {
+  it('calculates cost for OpenAI GPT-5.5 model', () => {
     const estimation = (service as any).calculateCost({
       provider: 'openai',
-      model: 'gpt-5.2',
+      model: 'gpt-5.5',
       inputTokens: 1000,
       outputTokens: 500,
       estimatedCostInEuros: 0,
     });
-    // GPT-5.2: ($0.00175 * 1 input K-tokens) + ($0.014 * 0.5 output K-tokens) = $0.00875 USD * 0.92 ≈ €0.00805
-    expect(estimation.estimatedCostInEuros).toBeCloseTo(0.00805, 5);
+    // GPT-5.5: ($0.005 * 1 input K-tokens) + ($0.03 * 0.5 output K-tokens) = $0.02 USD * 0.92 = €0.0184
+    expect(estimation.estimatedCostInEuros).toBeCloseTo(0.0184, 5);
+  });
+
+  it('applies cached input discount for GPT-5.5', () => {
+    const estimation = (service as any).calculateCost({
+      provider: 'openai',
+      model: 'gpt-5.5',
+      inputTokens: 1000,
+      cachedInputTokens: 500,
+      outputTokens: 500,
+      estimatedCostInEuros: 0,
+    });
+    // 500 regular input * $0.005/1K + 500 cached * $0.0005/1K + 500 output * $0.03/1K
+    // = $0.0025 + $0.00025 + $0.015 = $0.01775 USD * 0.92 = ~€0.01633
+    expect(estimation.estimatedCostInEuros).toBeCloseTo(0.01633, 5);
+  });
+
+  it('calculates cost for OpenAI gpt-5.4 model', () => {
+    const estimation = (service as any).calculateCost({
+      provider: 'openai',
+      model: 'gpt-5.4',
+      inputTokens: 1000,
+      outputTokens: 500,
+      estimatedCostInEuros: 0,
+    });
+    // GPT-5.4: ($0.0025 * 1 input K-tokens) + ($0.015 * 0.5 output K-tokens) = $0.01 USD * 0.92 = €0.0092
+    expect(estimation.estimatedCostInEuros).toBeCloseTo(0.0092, 5);
+  });
+
+  it('calculates cost for OpenAI gpt-5.4-mini model', () => {
+    const estimation = (service as any).calculateCost({
+      provider: 'openai',
+      model: 'gpt-5.4-mini',
+      inputTokens: 1000,
+      outputTokens: 500,
+      estimatedCostInEuros: 0,
+    });
+    // ($0.00075 * 1) + ($0.0045 * 0.5) = $0.003 USD * 0.92 = €0.00276
+    expect(estimation.estimatedCostInEuros).toBeCloseTo(0.00276, 5);
+  });
+
+  it('calculates cost for OpenAI gpt-5.4-nano model', () => {
+    const estimation = (service as any).calculateCost({
+      provider: 'openai',
+      model: 'gpt-5.4-nano',
+      inputTokens: 1000,
+      outputTokens: 500,
+      estimatedCostInEuros: 0,
+    });
+    // ($0.0002 * 1) + ($0.00125 * 0.5) = $0.000825 USD * 0.92 = ~€0.000759
+    expect(estimation.estimatedCostInEuros).toBeCloseTo(0.000759, 6);
+  });
+
+  it('calculates cost for OpenAI gpt-image-2 model (standard quality)', () => {
+    const estimation = (service as any).calculateCost({
+      provider: 'openai',
+      model: 'gpt-image-2',
+      imageQuality: 'standard',
+      inputTokens: 500,
+      outputTokens: 1000,
+      estimatedCostInEuros: 0,
+    });
+
+    // 1 image * $0.053 + input (500/1000)*$0.005 = $0.0555 USD * 0.92 = ~€0.05106
+    expect(estimation.estimatedCostInEuros).toBeCloseTo(0.05106, 4);
+  });
+
+  it('calculates cost for OpenAI gpt-image-2 model (hd quality)', () => {
+    const estimation = (service as any).calculateCost({
+      provider: 'openai',
+      model: 'gpt-image-2',
+      imageQuality: 'hd',
+      inputTokens: 500,
+      outputTokens: 1000,
+      estimatedCostInEuros: 0,
+    });
+
+    // 1 image * $0.211 + input (500/1000)*$0.005 = $0.2135 USD * 0.92 = ~€0.19642
+    expect(estimation.estimatedCostInEuros).toBeCloseTo(0.19642, 4);
   });
 
   it('calculates cost for OpenAI gpt-image-1.5 model (standard quality)', () => {
@@ -77,48 +155,6 @@ describe('TokenUsageTrackingService', () => {
 
     // 1 image * $0.034 + input (500/1000)*$0.005 + output (1000/1000)*$0.01 = $0.0465 USD * 0.92 = ~0.04278
     expect(estimation.estimatedCostInEuros).toBeCloseTo(0.04278, 4);
-  });
-
-  it('calculates cost for OpenAI gpt-image-1.5 model (hd quality)', () => {
-    const estimation = (service as any).calculateCost({
-      provider: 'openai',
-      model: 'gpt-image-1.5',
-      imageQuality: 'hd',
-      inputTokens: 500,
-      outputTokens: 1000,
-      estimatedCostInEuros: 0,
-    });
-
-    // 1 image * $0.133 + input (500/1000)*$0.005 + output (1000/1000)*$0.01 = $0.1455 USD * 0.92 = ~0.13386
-    expect(estimation.estimatedCostInEuros).toBeCloseTo(0.13386, 4);
-  });
-
-  it('calculates cost for OpenAI gpt-image-1 model', () => {
-    const estimation = (service as any).calculateCost({
-      provider: 'openai',
-      model: 'gpt-image-1',
-      imageQuality: 'standard',
-      inputTokens: 1000,
-      outputTokens: 100,
-      estimatedCostInEuros: 0,
-    });
-
-    // 1 image * $0.042 + input (1000/1000)*$0.005 = $0.047 USD * 0.92 = ~0.04324
-    expect(estimation.estimatedCostInEuros).toBeCloseTo(0.04324, 4);
-  });
-
-  it('calculates cost for OpenAI gpt-image-1-mini model', () => {
-    const estimation = (service as any).calculateCost({
-      provider: 'openai',
-      model: 'gpt-image-1-mini',
-      imageQuality: 'standard',
-      inputTokens: 500,
-      outputTokens: 100,
-      estimatedCostInEuros: 0,
-    });
-
-    // 1 image * $0.011 + input (500/1000)*$0.002 = $0.012 USD * 0.92 = ~0.01104
-    expect(estimation.estimatedCostInEuros).toBeCloseTo(0.01104, 4);
   });
 
   it('calculates cost for OpenAI gpt-4o-mini-tts model', () => {

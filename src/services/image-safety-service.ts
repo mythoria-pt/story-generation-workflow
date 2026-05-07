@@ -90,6 +90,13 @@ export class ImageSafetyService {
         );
       }
 
+      // Avoid burning another ~150s OpenAI call on a rewrite that's nearly
+      // identical to the blocked original — it will almost certainly be
+      // blocked again. Skip straight to the generic fallback in that case.
+      if (isNearIdentical(result.finalPrompt, originalPrompt)) {
+        throw new Error('Rewrite too similar to original prompt; skipping to safe fallback.');
+      }
+
       const imageBuffer = await attemptImageGeneration(result.finalPrompt);
       result.imageBuffer = imageBuffer;
       result.promptRewriteApplied = true;
@@ -106,11 +113,14 @@ export class ImageSafetyService {
       });
     }
 
-    // Step 2: try a sanitized fallback prompt
+    // Step 2: try a sanitized fallback prompt (generic, no-people)
     try {
       result.fallbackPromptUsed = true;
       result.finalPrompt = buildSafeFallbackPrompt(originalPrompt, {
         ...(context.graphicalStyle ? { styleHint: context.graphicalStyle } : {}),
+        ...(context.imageType ? { imageType: context.imageType } : {}),
+        ...(context.chapterNumber !== undefined ? { chapterNumber: context.chapterNumber } : {}),
+        ...(context.bookTitle ? { bookTitle: context.bookTitle } : {}),
       });
       result.imageBuffer = await attemptImageGeneration(result.finalPrompt);
       return result;
@@ -129,4 +139,28 @@ export class ImageSafetyService {
   isSafetyBlock(error: unknown): boolean {
     return isSafetyBlockError(error);
   }
+}
+
+// Token-based Jaccard similarity. Returns true when the rewrite kept >=80% of
+// the original prompt's tokens — that means the rewrite is cosmetic and the
+// safety system will almost certainly block it again.
+function isNearIdentical(a: string, b: string): boolean {
+  const tokenize = (s: string): Set<string> =>
+    new Set(
+      s
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .split(/\s+/)
+        .filter((t) => t.length > 2),
+    );
+
+  const setA = tokenize(a);
+  const setB = tokenize(b);
+  if (setA.size === 0 || setB.size === 0) return false;
+
+  let intersection = 0;
+  for (const t of setA) if (setB.has(t)) intersection++;
+
+  const union = setA.size + setB.size - intersection;
+  return union > 0 && intersection / union >= 0.8;
 }

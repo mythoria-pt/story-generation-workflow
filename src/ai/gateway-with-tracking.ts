@@ -35,7 +35,7 @@ export class AIGatewayWithTokenTracking {
 
       try {
         const fallbackModel =
-          process.env.OPENAI_BASE_MODEL || process.env.OPENAI_TEXT_MODEL || 'gpt-5.2';
+          process.env.OPENAI_BASE_MODEL || process.env.OPENAI_TEXT_MODEL || 'gpt-5.5';
         const fallback = new OpenAITextService({
           apiKey: openaiKey,
           model: fallbackModel,
@@ -98,8 +98,8 @@ export class AIGatewayWithTokenTracking {
     if (primaryProvider === 'google-genai' && openaiKey) {
       try {
         const baseModel =
-          process.env.OPENAI_BASE_MODEL || process.env.OPENAI_TEXT_MODEL || 'gpt-5.2';
-        const imageToolModel = process.env.OPENAI_IMAGE_TOOL_MODEL || 'gpt-image-1.5';
+          process.env.OPENAI_BASE_MODEL || process.env.OPENAI_TEXT_MODEL || 'gpt-5.5';
+        const imageToolModel = process.env.OPENAI_IMAGE_TOOL_MODEL || 'gpt-image-2';
         const fallback = new OpenAIImageService({
           apiKey: openaiKey,
           model: baseModel,

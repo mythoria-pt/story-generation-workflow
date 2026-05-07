@@ -408,11 +408,11 @@ router.post('/text/outline', async (req, res) => {
     const textProvider = process.env.TEXT_PROVIDER || 'google-genai';
 
     if (textProvider === 'openai') {
-      outlineModel = process.env.OPENAI_BASE_MODEL || process.env.OPENAI_TEXT_MODEL || 'gpt-5.2';
+      outlineModel = process.env.OPENAI_BASE_MODEL || process.env.OPENAI_TEXT_MODEL || 'gpt-5.5';
     } else if (textProvider === 'google-genai') {
       outlineModel = process.env.GOOGLE_GENAI_MODEL || 'gemini-2.5-flash';
     } else {
-      outlineModel = 'gpt-5';
+      outlineModel = 'gpt-5.5';
     }
     const requestOptions = {
       temperature: 1,
@@ -674,7 +674,7 @@ router.post('/text/structure', async (req, res) => {
     let model: string;
     const textProvider = process.env.TEXT_PROVIDER || 'google-genai';
     if (textProvider === 'openai') {
-      model = process.env.OPENAI_BASE_MODEL || process.env.OPENAI_TEXT_MODEL || 'gpt-5.2';
+      model = process.env.OPENAI_BASE_MODEL || process.env.OPENAI_TEXT_MODEL || 'gpt-5.5';
     } else {
       model = process.env.GOOGLE_GENAI_MODEL || 'gemini-2.5-flash';
     }

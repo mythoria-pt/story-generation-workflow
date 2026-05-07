@@ -38,31 +38,38 @@ export function refineImagePrompt(
   return style ? `${prompt} – ${style}` : prompt;
 }
 
-// Builds a more neutral fallback prompt aimed at avoiding safety blocks.
+// Builds a generic, no-people fallback prompt designed to bypass safety blocks.
+// Drops the original narrative entirely (which is likely what triggered the
+// moderation block) and synthesizes a neutral scene from sanitized context fields.
 export function buildSafeFallbackPrompt(
-  original: string,
-  opts: { styleHint?: string } = {},
+  _original: string,
+  opts: {
+    styleHint?: string;
+    imageType?: 'front_cover' | 'back_cover' | 'chapter';
+    chapterNumber?: number;
+    bookTitle?: string;
+  } = {},
 ): string {
-  let prompt = original || '';
-
-  prompt = prompt.replace(/\b\d+\s*-?\s*month\s*-?\s*old\b/gi, 'young');
-  prompt = prompt.replace(/\btoddler\b/gi, 'child');
-  prompt = prompt.replace(/\bboy\b/gi, 'child');
-  prompt = prompt.replace(/\bgirl\b/gi, 'child');
-
-  if (!/safe|wholesome|cheerful/i.test(prompt)) {
-    prompt += ' The scene is wholesome, safe, and cheerful.';
+  let subject: string;
+  switch (opts.imageType) {
+    case 'front_cover':
+      subject = 'a decorative storybook front cover';
+      break;
+    case 'back_cover':
+      subject = 'a calm decorative storybook back cover';
+      break;
+    case 'chapter':
+    default:
+      subject = opts.chapterNumber
+        ? `a gentle storybook scene for chapter ${opts.chapterNumber}`
+        : 'a gentle storybook scene';
+      break;
   }
 
-  if (!/clothed|wearing|dressed|outfit|attire/i.test(prompt)) {
-    prompt += ' The character is fully clothed in appropriate daily attire.';
-  }
+  const scene =
+    'Whimsical landscape with no people, soft pastel colors, warm gentle lighting, wholesome and family-friendly composition.';
 
-  if (!/lighting|lit/i.test(prompt)) {
-    prompt += ' Warm, gentle lighting.';
-  }
-
-  return refineImagePrompt(prompt, {
+  return refineImagePrompt(`${subject}. ${scene}`, {
     styleHint: opts.styleHint || 'wholesome family illustration, soft lighting',
   });
 }
