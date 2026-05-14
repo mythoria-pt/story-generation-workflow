@@ -487,6 +487,10 @@ export class ProgressTrackerService {
   }
 
   private shouldDispatchStoryCreatedEmail(metadata: unknown): boolean {
+    if (this.isStoryCreatedEmailSuppressed(metadata)) {
+      return false;
+    }
+
     const serviceCode = this.extractServiceCode(metadata);
     if (!serviceCode) {
       return true;
@@ -494,6 +498,15 @@ export class ProgressTrackerService {
 
     // Only send story-created emails for the core story generation workflow.
     return !this.notificationExclusionServiceCodes.has(serviceCode);
+  }
+
+  private isStoryCreatedEmailSuppressed(metadata: unknown): boolean {
+    if (!metadata || typeof metadata !== 'object') {
+      return false;
+    }
+
+    const root = metadata as Record<string, unknown>;
+    return root.suppressStoryCreatedEmail === true;
   }
 
   private extractServiceCode(metadata: unknown): string | undefined {

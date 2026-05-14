@@ -184,4 +184,31 @@ describe('ProgressTrackerService', () => {
       }),
     );
   });
+
+  it('suppresses story-created email when recovery metadata requests it', async () => {
+    const runId = 'r-suppressed';
+
+    mockRunsService.getRun.mockResolvedValue({
+      runId,
+      storyId: 's-suppressed',
+      status: 'completed',
+      currentStep: 'done',
+      metadata: { serviceCode: 'storyGeneration', suppressStoryCreatedEmail: true },
+    });
+
+    jest.spyOn(service, 'calculateProgress').mockResolvedValue({
+      completedPercentage: 100,
+      totalEstimatedTime: 0,
+      elapsedTime: 0,
+      remainingTime: 0,
+      currentStep: 'done',
+      completedSteps: [],
+      totalSteps: 0,
+    });
+
+    await service.updateStoryProgress(runId);
+    await Promise.resolve();
+
+    expect(mockedSendStoryCreatedEmail).not.toHaveBeenCalled();
+  });
 });

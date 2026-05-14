@@ -339,7 +339,7 @@ main:
                                         call: sys.log
                                         args:
                                           severity: WARNING
-                                          text: '${"Front cover attempt " + string(attempt) + " failed, retrying after " + string(frontCoverRetryDelay) + "s: " + frontCoverAttemptError.message}'
+                                          text: '${"Front cover attempt " + string(attempt) + " failed, retrying after " + string(frontCoverRetryDelay) + "s: " + default(map.get(frontCoverAttemptError, "message"), "unknown")}'
                                     - delayFrontCoverRetry:
                                         call: sys.sleep
                                         args:
@@ -352,10 +352,10 @@ main:
                         call: sys.log
                         args:
                           severity: WARNING
-                          text: '${"Front cover generation failed after retries: " + frontCoverError.message}'
+                          text: '${"Front cover generation failed after retries: " + default(map.get(frontCoverError, "message"), "unknown")}'
                     - flagFrontCoverFailure:
                         assign:
-                          - frontCoverFailureReason: ${frontCoverError.message}
+                          - frontCoverFailureReason: ${default(map.get(frontCoverError, "message"), "unknown")}
                           - frontCoverFailureCode: ${default(map.get(frontCoverError, "code"), "unknown")}
 
             - handleFrontCoverOutcome:
@@ -379,13 +379,13 @@ main:
                     steps:
                       - captureFrontCoverFailure:
                           assign:
-                            - frontCoverFailureReason: ${if(frontCoverLastError != null, frontCoverLastError.message, "unknown")}
-                            - frontCoverFailureCode: ${if(frontCoverLastError != null, frontCoverLastError.code, null)}
+                            - frontCoverFailureReason: ${if(frontCoverLastError != null, default(map.get(frontCoverLastError, "message"), "unknown"), "unknown")}
+                            - frontCoverFailureCode: ${if(frontCoverLastError != null, default(map.get(frontCoverLastError, "code"), "unknown"), "unknown")}
                       - logFrontCoverSkip:
                           call: sys.log
                           args:
                             severity: WARNING
-                            text: '${"Front cover image unavailable after retries; continuing pipeline. Last error: " + if(frontCoverLastError != null, frontCoverLastError.message, "unknown")}'
+                            text: '${"Front cover image unavailable after retries; continuing pipeline. Last error: " + frontCoverFailureReason + " (code: " + string(frontCoverFailureCode) + ")"}'
 
             # 5. Generate book back cover
             - setBackCoverStep:
@@ -458,7 +458,7 @@ main:
                                         call: sys.log
                                         args:
                                           severity: WARNING
-                                          text: '${"Back cover attempt " + string(attempt) + " failed, retrying after " + string(backCoverRetryDelay) + "s: " + backCoverAttemptError.message}'
+                                          text: '${"Back cover attempt " + string(attempt) + " failed, retrying after " + string(backCoverRetryDelay) + "s: " + default(map.get(backCoverAttemptError, "message"), "unknown")}'
                                     - delayBackCoverRetry:
                                         call: sys.sleep
                                         args:
@@ -470,10 +470,10 @@ main:
                         call: sys.log
                         args:
                           severity: WARNING
-                          text: '${"Back cover generation failed after retries: " + backCoverError.message}'
+                          text: '${"Back cover generation failed after retries: " + default(map.get(backCoverError, "message"), "unknown")}'
                     - flagBackCoverFailure:
                         assign:
-                          - backCoverFailureReason: ${backCoverError.message}
+                          - backCoverFailureReason: ${default(map.get(backCoverError, "message"), "unknown")}
                           - backCoverFailureCode: ${default(map.get(backCoverError, "code"), "unknown")}
 
             - handleBackCoverOutcome:
@@ -497,13 +497,13 @@ main:
                     steps:
                       - captureBackCoverFailure:
                           assign:
-                            - backCoverFailureReason: ${if(backCoverLastError != null, backCoverLastError.message, "unknown")}
-                            - backCoverFailureCode: ${if(backCoverLastError != null, backCoverLastError.code, null)}
+                            - backCoverFailureReason: ${if(backCoverLastError != null, default(map.get(backCoverLastError, "message"), "unknown"), "unknown")}
+                            - backCoverFailureCode: ${if(backCoverLastError != null, default(map.get(backCoverLastError, "code"), "unknown"), "unknown")}
                       - logBackCoverSkip:
                           call: sys.log
                           args:
                             severity: WARNING
-                            text: '${"Back cover image unavailable after retries; continuing pipeline. Last error: " + if(backCoverLastError != null, backCoverLastError.message, "unknown")}'
+                            text: '${"Back cover image unavailable after retries; continuing pipeline. Last error: " + backCoverFailureReason + " (code: " + string(backCoverFailureCode) + ")"}'
 
             # 6. Generate chapter images sequentially
             - setImagesStep:
@@ -581,7 +581,7 @@ main:
                                                 call: sys.log
                                                 args:
                                                   severity: WARNING
-                                                  text: '${"Chapter " + string(chapterNum) + " image attempt " + string(attempt) + " failed, retrying after " + string(chapterImageRetryDelay) + "s: " + chapterImageAttemptError.message}'
+                                                  text: '${"Chapter " + string(chapterNum) + " image attempt " + string(attempt) + " failed, retrying after " + string(chapterImageRetryDelay) + "s: " + default(map.get(chapterImageAttemptError, "message"), "unknown")}'
                                             - maybeDelayChapterImageRetry:
                                                 switch:
                                                   - condition: ${attempt < chapterImageMaxAttempts}
@@ -598,10 +598,10 @@ main:
                                 call: sys.log
                                 args:
                                   severity: WARNING
-                                  text: '${"Chapter " + string(chapterNum) + " image failed unexpectedly: " + chapterImageError.message}'
+                                  text: '${"Chapter " + string(chapterNum) + " image failed unexpectedly: " + default(map.get(chapterImageError, "message"), "unknown")}'
                             - flagChapterImageFailure:
                                 assign:
-                                  - chapterImageFailureReason: ${chapterImageError.message}
+                                  - chapterImageFailureReason: ${default(map.get(chapterImageError, "message"), "unknown")}
                                   - chapterImageFailureCode: ${default(map.get(chapterImageError, "code"), "unknown")}
                     - handleChapterImageOutcome:
                         switch:
@@ -625,13 +625,13 @@ main:
                             steps:
                               - captureChapterImageFailure:
                                   assign:
-                                    - chapterImageFailureReason: ${if(chapterImageLastError != null, chapterImageLastError.message, "unknown")}
-                                    - chapterImageFailureCode: ${if(chapterImageLastError != null, chapterImageLastError.code, null)}
+                                    - chapterImageFailureReason: ${if(chapterImageLastError != null, default(map.get(chapterImageLastError, "message"), "unknown"), "unknown")}
+                                    - chapterImageFailureCode: ${if(chapterImageLastError != null, default(map.get(chapterImageLastError, "code"), "unknown"), "unknown")}
                               - logChapterImageSkip:
                                   call: sys.log
                                   args:
                                     severity: WARNING
-                                    text: '${"Skipping image persistence for chapter " + string(chapterNum) + " due to repeated failures. Last error: " + if(chapterImageLastError != null, chapterImageLastError.message, "unknown")}'
+                                    text: '${"Skipping image persistence for chapter " + string(chapterNum) + " due to repeated failures. Last error: " + chapterImageFailureReason + " (code: " + string(chapterImageFailureCode) + ")"}'
 
             # 8. Mark run completed
             - clearContextBestEffort:
