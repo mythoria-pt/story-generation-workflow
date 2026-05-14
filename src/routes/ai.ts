@@ -3,7 +3,7 @@
  * Provider-agnostic endpoints for text and image generation
  */
 
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { Router } from 'express';
 import { z } from 'zod';
 import { validateImageRequest, generateImageFilename, formatImageError } from './ai-image-utils.js';
@@ -49,6 +49,104 @@ const storageService = getStorageService();
 const characterService = new CharacterService();
 const runsService = new RunsService();
 const imageSafetyService = new ImageSafetyService({ aiGateway });
+
+interface ImageRequestTelemetry {
+  storyId: string;
+  runId: string;
+  imageType: 'front_cover' | 'back_cover' | 'chapter' | undefined;
+  chapterNumber: number | undefined;
+  imageSlotKey: string;
+  promptFingerprint: string;
+  promptLength: number;
+  dimensions: string;
+  style: string | undefined;
+  existingImageUri: string | undefined;
+  duplicateRequestCountInProcess: number;
+}
+
+const IMAGE_REQUEST_TELEMETRY_TTL_MS = 60 * 60 * 1000;
+const imageRequestTelemetryCache = new Map<string, { count: number; lastSeenMs: number }>();
+
+function cleanupImageRequestTelemetryCache(nowMs: number): void {
+  for (const [key, value] of imageRequestTelemetryCache.entries()) {
+    if (nowMs - value.lastSeenMs > IMAGE_REQUEST_TELEMETRY_TTL_MS) {
+      imageRequestTelemetryCache.delete(key);
+    }
+  }
+}
+
+function hashImagePromptForTelemetry(params: {
+  prompt: string;
+  customInstructions: string;
+  imageType: string | undefined;
+  width: number | undefined;
+  height: number | undefined;
+  style: string | undefined;
+}): string {
+  return createHash('sha256')
+    .update(
+      JSON.stringify({
+        prompt: params.prompt,
+        customInstructions: params.customInstructions,
+        imageType: params.imageType,
+        width: params.width,
+        height: params.height,
+        style: params.style,
+      }),
+    )
+    .digest('hex')
+    .slice(0, 16);
+}
+
+function registerImageRequestForTelemetry(imageSlotKey: string, promptFingerprint: string): number {
+  const nowMs = Date.now();
+  cleanupImageRequestTelemetryCache(nowMs);
+  const cacheKey = `${imageSlotKey}:${promptFingerprint}`;
+  const previous = imageRequestTelemetryCache.get(cacheKey);
+  const next = { count: (previous?.count || 0) + 1, lastSeenMs: nowMs };
+  imageRequestTelemetryCache.set(cacheKey, next);
+  return next.count;
+}
+
+async function getExistingImageUriForTelemetry(params: {
+  storyId: string;
+  imageType: 'front_cover' | 'back_cover' | 'chapter' | undefined;
+  chapterNumber: number | undefined;
+  coverUri: string | null | undefined;
+  backcoverUri: string | null | undefined;
+}): Promise<string | undefined> {
+  if (params.imageType === 'front_cover') return params.coverUri || undefined;
+  if (params.imageType === 'back_cover') return params.backcoverUri || undefined;
+
+  if (params.imageType === 'chapter' && typeof params.chapterNumber === 'number') {
+    try {
+      const db = (await import('@/db/connection.js')).getDatabase();
+      const { chapters } = await import('@/db/schema/index.js');
+      const { and, desc, eq } = await import('drizzle-orm');
+      const [chapter] = await db
+        .select({ imageUri: chapters.imageUri })
+        .from(chapters)
+        .where(
+          and(
+            eq(chapters.storyId, params.storyId),
+            eq(chapters.chapterNumber, params.chapterNumber),
+          ),
+        )
+        .orderBy(desc(chapters.version))
+        .limit(1);
+      return chapter?.imageUri || undefined;
+    } catch (error) {
+      logger.warn('Image telemetry existing chapter image lookup failed', {
+        storyId: params.storyId,
+        imageType: params.imageType,
+        chapterNumber: params.chapterNumber,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  return undefined;
+}
 
 // Shared outline + character schema definitions
 const CharacterTypeEnum = z.enum(CHARACTER_TYPES);
@@ -1670,6 +1768,9 @@ router.post('/image', async (req, res) => {
   let promptRewriteError: string | undefined;
   let originalPrompt: string | undefined;
   let fallbackPromptUsed = false;
+  let imageRequestTelemetry: ImageRequestTelemetry | undefined;
+  let providerAttemptCount = 0;
+  let transientRetryCount = 0;
 
   try {
     const { prompt, storyId, runId, chapterNumber, imageType, width, height, style } =
@@ -1706,6 +1807,45 @@ router.post('/image', async (req, res) => {
       imageHeight = dimensions.height;
     }
 
+    const storyRecord = await storyService.getStory(storyId); // includes cover/backcover URIs
+    const existingImageUri = await getExistingImageUriForTelemetry({
+      storyId,
+      imageType,
+      chapterNumber,
+      coverUri: storyRecord?.coverUri,
+      backcoverUri: storyRecord?.backcoverUri,
+    });
+    const imageSlotKey = `${storyId}:${runId}:${imageType || 'unspecified'}:${chapterNumber || 'none'}`;
+    const promptFingerprint = hashImagePromptForTelemetry({
+      prompt,
+      customInstructions,
+      imageType,
+      width: imageWidth,
+      height: imageHeight,
+      style,
+    });
+    imageRequestTelemetry = {
+      storyId,
+      runId,
+      imageType,
+      chapterNumber,
+      imageSlotKey,
+      promptFingerprint,
+      promptLength: prompt.length,
+      dimensions: `${imageWidth || 'default'}x${imageHeight || 'default'}`,
+      style,
+      existingImageUri,
+      duplicateRequestCountInProcess: registerImageRequestForTelemetry(
+        imageSlotKey,
+        promptFingerprint,
+      ),
+    };
+    logger.info('Image generation request telemetry', {
+      ...imageRequestTelemetry,
+      existingImagePresent: !!existingImageUri,
+      idempotencyCacheStatus: existingImageUri ? 'existing_image_present' : 'miss_or_not_persisted',
+    });
+
     // Assemble up to five reference images (JPEG only), prioritizing character photo references,
     // then falling back to existing cover/previous-chapter references when capacity remains.
     currentStep = 'collecting_references';
@@ -1713,7 +1853,6 @@ router.post('/image', async (req, res) => {
     const seenReferenceFiles = new Set<string>();
     const MAX_REFERENCE_IMAGES = 5;
     try {
-      const storyRecord = await storyService.getStory(storyId); // includes cover/backcover URIs
       const storage = getStorageService();
       const bucketName = process.env.STORAGE_BUCKET_NAME;
 
@@ -1861,6 +2000,13 @@ router.post('/image', async (req, res) => {
       const { withRetry } = await import('@/shared/retry-utils.js');
       return await withRetry(
         async () => {
+          providerAttemptCount += 1;
+          logger.info('Image generation provider attempt telemetry', {
+            ...imageRequestTelemetry,
+            providerAttemptCount,
+            transientRetryCount,
+            promptVariant: promptToUse === originalPrompt ? 'original' : 'rewritten_or_fallback',
+          });
           return await aiGateway.getImageService(imageContext).generate(promptToUse, {
             ...(imageWidth && { width: imageWidth }),
             ...(imageHeight && { height: imageHeight }),
@@ -1880,12 +2026,12 @@ router.post('/image', async (req, res) => {
           maxDelayMs: 10000,
           jitterMs: 1000,
           onRetry: (attempt, error) => {
+            transientRetryCount += 1;
             logger.warn('Image generation transient retry', {
-              storyId,
-              runId,
-              imageType,
-              chapterNumber,
+              ...imageRequestTelemetry,
               attempt,
+              providerAttemptCount,
+              transientRetryCount,
               error: error instanceof Error ? error.message : String(error),
               errorCode: (error as any)?.code,
             });
@@ -1973,6 +2119,28 @@ router.post('/image', async (req, res) => {
     currentStep = 'uploading_to_storage';
     const imageUrl = await storageService.uploadFile(filename, imageBuffer, 'image/jpeg');
 
+    logger.info('Image generation completion telemetry', {
+      ...imageRequestTelemetry,
+      filename,
+      imageUrl,
+      imageSizeBytes: imageBuffer.length,
+      providerAttemptCount,
+      transientRetryCount,
+      promptRewriteAttempted,
+      promptRewriteApplied,
+      fallbackPromptUsed,
+      referenceImageCount: referenceImages.length,
+      referenceImageSources: referenceImages.map((r) => r.source),
+      finalPromptFingerprint: hashImagePromptForTelemetry({
+        prompt: finalPrompt,
+        customInstructions,
+        imageType,
+        width: imageWidth,
+        height: imageHeight,
+        style,
+      }),
+    });
+
     res.json({
       success: true,
       storyId,
@@ -2021,6 +2189,21 @@ router.post('/image', async (req, res) => {
     if ((error as any)?.fallbackAttempted) resp.fallbackAttempted = true;
     if ((error as any)?.fallbackError) resp.fallbackError = (error as any).fallbackError;
     if (fallbackPromptUsed) resp.fallbackPromptUsed = true;
+
+    logger.error('Image generation failure telemetry', {
+      ...imageRequestTelemetry,
+      currentStep,
+      statusCode,
+      providerAttemptCount,
+      transientRetryCount,
+      promptRewriteAttempted,
+      promptRewriteApplied,
+      fallbackPromptUsed,
+      error: error instanceof Error ? error.message : String(error),
+      errorCode: errorDetails.code,
+      errorCategory: errorDetails.category,
+    });
+
     res.status(statusCode).json(resp);
   }
 });
