@@ -4,7 +4,7 @@ type WorkflowStep = 'outline' | 'chapters' | 'images';
 
 ## Prerequisites
 
-- Node.js **22+** (ESM, top-level await). Use the `engines.node` version in `package.json` to avoid subtle build issues.
+- Node.js **24 LTS** (ESM, top-level await). Use the `engines.node` version in `package.json` to avoid subtle build issues.
 - PowerShell **pwsh** – every helper script in `scripts/*.ps1` assumes PowerShell semantics; avoid `&&`, prefer `;` or multiple commands.
 - PostgreSQL – share the same story + workflow databases as `mythoria-webapp`. Keep that repo checked out next to this one for schema sync scripts.
 - Google Cloud credentials – local runs need a service-account JSON or `gcloud auth application-default login` for Storage + Workflows.
@@ -86,7 +86,7 @@ The following major-version bumps were intentionally deferred during the 2026-04
 
 - **`eslint` / `@eslint/js` 9 → 10**: requires moving to the unified `typescript-eslint` v9 package (replacing `@typescript-eslint/eslint-plugin` + `@typescript-eslint/parser`) and validating flat-config rule changes. Run `npm run lint:fix` after the bump.
 - **`typescript` 5.9 → 6.0**: brand new; wait until `@typescript-eslint`, `ts-jest`, `drizzle-kit`, Express 5 types, OpenAI 6 types, and Puppeteer 24 types confirm TS6 support. Re-check in ~1 month.
-- **`@types/node` 24 → 25**: low value while Cloud Run runs on Node 22 LTS. Bump when we move to Node 24.
+- **`@types/node`**: aligned to Node.js 24 LTS (`^24.12.2`) to match the runtime pinned in `Dockerfile`.
 - **`@types/supertest` 7**: already applied.
 - **`bignumber.js`**: already removed (was unused).
 

@@ -4,7 +4,7 @@ Story Generation Workflow (SGW) orchestrates the AI pipeline that turns a reques
 
 ## Quick Start
 
-- **Requirements**: Node.js 22+, pnpm or npm, PostgreSQL access shared with `mythoria-webapp`, Google Cloud credentials with permission to invoke Workflows and Storage, PowerShell (all local scripts are `.ps1`).
+- **Requirements**: Node.js 24 LTS+, pnpm or npm, PostgreSQL access shared with `mythoria-webapp`, Google Cloud credentials with permission to invoke Workflows and Storage, PowerShell (all local scripts are `.ps1`).
 - **Bootstrap**:
 
 ```powershell
