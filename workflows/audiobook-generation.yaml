@@ -206,11 +206,11 @@ main:
                   body:
                     status: 'failed'
                     failedAt: ${time.format(sys.now())}
-                    error: ${audioError.message}
+                    error: ${string(audioError)}
 
             - returnAudioError:
                 return:
                   success: false
-                  error: ${audioError.message}
+                  error: ${string(audioError)}
                   storyId: ${storyId}
                   runId: ${runId}

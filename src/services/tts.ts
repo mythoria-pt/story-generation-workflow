@@ -16,6 +16,7 @@ import { getEnvironment } from '@/config/environment.js';
 import { countWords, extractTargetAge } from '@/shared/utils.js';
 import {
   getTTSConfig,
+  normalizeTTSVoice,
   estimateDuration,
   getAudioFilename,
   buildFirstChapterAudioText,
@@ -95,6 +96,17 @@ export class TTSService {
       if (voice) {
         config.voice = voice;
       }
+      const normalizedVoice = normalizeTTSVoice(config.provider, config.voice);
+      if (normalizedVoice.wasFallback) {
+        logger.warn('Ignoring unsupported TTS voice for provider', {
+          storyId,
+          chapterNumber,
+          provider: config.provider,
+          requestedVoice: config.voice,
+          fallbackVoice: normalizedVoice.voice,
+        });
+      }
+      config.voice = normalizedVoice.voice;
 
       // Use story language from parameters or story record
       const storyLanguage = extraParams?.storyLanguage || story.storyLanguage || 'en-US';

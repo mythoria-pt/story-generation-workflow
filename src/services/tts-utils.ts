@@ -15,6 +15,31 @@ export interface TTSConfig {
   language: string;
 }
 
+const OPENAI_TTS_VOICES = new Set([
+  'alloy',
+  'ash',
+  'ballad',
+  'coral',
+  'echo',
+  'fable',
+  'nova',
+  'onyx',
+  'sage',
+  'shimmer',
+  'verse',
+]);
+
+const GEMINI_TTS_VOICES = new Set([
+  'Charon',
+  'Aoede',
+  'Puck',
+  'Kore',
+  'Fenrir',
+  'Orus',
+  'Zephyr',
+  'Sulafat',
+]);
+
 /**
  * Get default voice for a given TTS provider
  */
@@ -27,6 +52,25 @@ export function getDefaultVoice(provider: TTSProvider): string {
     default:
       return 'coral';
   }
+}
+
+/**
+ * Normalize request-level voice overrides so voices from one provider are not
+ * forwarded to another provider's API.
+ */
+export function normalizeTTSVoice(
+  provider: TTSProvider,
+  requestedVoice: string | undefined,
+  fallbackVoice = getDefaultVoice(provider),
+): { voice: string; wasFallback: boolean } {
+  const voice = requestedVoice?.trim() || fallbackVoice;
+  const allowedVoices = provider === 'google-genai' ? GEMINI_TTS_VOICES : OPENAI_TTS_VOICES;
+
+  if (allowedVoices.has(voice)) {
+    return { voice, wasFallback: false };
+  }
+
+  return { voice: fallbackVoice, wasFallback: true };
 }
 
 /**

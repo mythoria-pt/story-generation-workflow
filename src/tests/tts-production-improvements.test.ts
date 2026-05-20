@@ -8,6 +8,7 @@ import './setup/environment-mock';
 
 // Use relative path for the import to avoid path resolution issues during tests
 import { AudioPromptService } from '../services/audio-prompt.js';
+import { normalizeTTSVoice } from '../services/tts-utils.js';
 
 describe('TTS Production Improvements', () => {
   beforeEach(() => {
@@ -81,6 +82,26 @@ describe('TTS Production Improvements', () => {
 
       expect(speed).toBeGreaterThanOrEqual(0.25);
       expect(speed).toBeLessThanOrEqual(4.0);
+    });
+  });
+
+  describe('TTS voice normalization', () => {
+    test('should fall back when an OpenAI voice is requested for Gemini TTS', () => {
+      const result = normalizeTTSVoice('google-genai', 'fable');
+
+      expect(result).toEqual({ voice: 'Charon', wasFallback: true });
+    });
+
+    test('should keep valid Gemini voices', () => {
+      const result = normalizeTTSVoice('google-genai', 'Aoede');
+
+      expect(result).toEqual({ voice: 'Aoede', wasFallback: false });
+    });
+
+    test('should keep valid OpenAI voices', () => {
+      const result = normalizeTTSVoice('openai', 'fable');
+
+      expect(result).toEqual({ voice: 'fable', wasFallback: false });
     });
   });
 
