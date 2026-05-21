@@ -58,6 +58,23 @@ describe('OpenAIImageService', () => {
     expect(request.tools[0]).not.toHaveProperty('input_fidelity');
   });
 
+  it('does not send top_p for image generation responses requests', async () => {
+    const service = new OpenAIImageService({
+      apiKey: 'test-key',
+      model: 'gpt-5.5',
+      imageModel: 'gpt-image-2',
+    });
+
+    await service.generate('Generate a chapter illustration.', {
+      systemPrompt: 'Generate story art.',
+      width: 1024,
+      height: 1536,
+    });
+
+    const request = mockResponsesCreate.mock.calls[0]?.[0] as any;
+    expect(request).not.toHaveProperty('top_p');
+  });
+
   it('keeps input_fidelity for gpt-image-1.5 image generation tool requests', async () => {
     const service = new OpenAIImageService({
       apiKey: 'test-key',
