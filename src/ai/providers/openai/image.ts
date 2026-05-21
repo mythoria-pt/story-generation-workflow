@@ -612,7 +612,7 @@ export class OpenAIImageService implements IImageGenerationService {
     responseData: OpenAIResponseData,
     phase: 'generate' | 'edit',
   ): { imageData: any; revisedPrompt: string | null } {
-    let imageData: any = null;
+    let imageData: any;
     let revisedPrompt: string | null = null;
 
     const outputs: any[] = Array.isArray(responseData.output) ? responseData.output : [];

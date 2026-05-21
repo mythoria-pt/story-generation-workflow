@@ -45,7 +45,7 @@ export class AIGateway {
         }
         return new GoogleGenAITextService({
           apiKey: this.config.credentials.googleGenAIApiKey,
-          model: this.config.credentials.googleGenAIModel || 'gemini-2.5-flash',
+          model: this.config.credentials.googleGenAIModel || 'gemini-3.5-flash',
         });
 
       default:

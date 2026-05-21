@@ -193,7 +193,12 @@
         },
         "required": ["name"]
       }
+    },
+    "thought_process": {
+      "type": "string",
+      "description": "Your internal reasoning and plan for this story structure. Analyze the user's input, detect the language, and plan the story beats and character archetypes before generating the structured JSON."
     }
   },
-  "required": ["story", "characters"]
+  "required": ["story", "characters", "thought_process"]
 }
+

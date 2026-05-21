@@ -133,7 +133,7 @@ main:
                                           call: sys.log
                                           args:
                                             severity: WARNING
-                                            text: '${"Chapter " + string(chapterNum) + " audio attempt " + string(attempt) + " failed, retrying after " + string(chapterAudioRetryDelaySeconds) + "s: " + chapterAudioAttemptError.message}'
+                                            text: '${"Chapter " + string(chapterNum) + " audio attempt " + string(attempt) + " failed, retrying after " + string(chapterAudioRetryDelaySeconds) + "s: " + if(type(chapterAudioAttemptError) == "map", chapterAudioAttemptError.message, chapterAudioAttemptError)}'
                                       - delayChapterAudioRetry:
                                           call: sys.sleep
                                           args:
@@ -147,7 +147,7 @@ main:
                                     call: sys.log
                                     args:
                                       severity: WARNING
-                                      text: '${"Chapter audio not confirmed after retries for chapter " + string(chapterNum) + "; last error: " + if(chapterAudioLastError != null, chapterAudioLastError.message, "unknown") + ". Continuing to finalize check."}'
+                                      text: '${"Chapter audio not confirmed after retries for chapter " + string(chapterNum) + "; last error: " + if(chapterAudioLastError != null, if(type(chapterAudioLastError) == "map", chapterAudioLastError.message, chapterAudioLastError), "unknown") + ". Continuing to finalize check."}'
 
             # 4. Finalize audiobook and mark as completed
             - finalizeAudiobook:

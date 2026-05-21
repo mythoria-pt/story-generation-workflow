@@ -73,7 +73,7 @@ const envSchema = z.object({
 
   // Google GenAI Configuration
   GOOGLE_GENAI_API_KEY: z.string().optional(),
-  GOOGLE_GENAI_MODEL: z.string().optional().default('gemini-2.5-flash'),
+  GOOGLE_GENAI_MODEL: z.string().optional().default('gemini-3.5-flash'),
   GOOGLE_GENAI_IMAGE_MODEL: z.string().optional().default('gemini-3.1-flash-image-preview'),
   /** If set to "true", use Vertex instead of API key (advanced). */
   GOOGLE_GENAI_USE_VERTEX: z.string().optional(),
@@ -85,7 +85,7 @@ const envSchema = z.object({
   // TTS Configuration
   // Supports OpenAI and Google Gemini TTS providers
   TTS_PROVIDER: z.enum(['openai', 'google-genai']).optional().default('google-genai'),
-  TTS_MODEL: z.string().optional().default('gemini-2.5-pro-preview-tts'),
+  TTS_MODEL: z.string().optional().default('gemini-3.1-flash-tts-preview'),
   TTS_VOICE: z.string().optional().default('Charon'),
   TTS_SPEED: z.string().optional().default('1'),
   TTS_LANGUAGE: z.string().optional().default('en-US'),
@@ -101,10 +101,19 @@ const envSchema = z.object({
   BACKGROUND_MUSIC_VOLUME: z
     .string()
     .optional()
-    .default('0.2')
+    .default('0.1')
     .transform((v) => {
-      const n = v ? parseFloat(v) : 0.2;
-      return Number.isNaN(n) ? 0.2 : Math.max(0, Math.min(1, n));
+      const n = v ? parseFloat(v) : 0.1;
+      return Number.isNaN(n) ? 0.1 : Math.max(0, Math.min(1, n));
+    }),
+  // Volume of narrator voice (1.0 = original, >1.0 = louder)
+  NARRATOR_VOLUME: z
+    .string()
+    .optional()
+    .default('1.0')
+    .transform((v) => {
+      const n = v ? parseFloat(v) : 1.0;
+      return Number.isNaN(n) ? 1.0 : Math.max(0.1, n);
     }),
   // Fade in duration in seconds for background music
   BACKGROUND_MUSIC_FADE_IN: z

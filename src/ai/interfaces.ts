@@ -67,9 +67,12 @@ export interface TextGenerationOptions {
   mediaParts?: Array<{ mimeType: string; data: Buffer | string }>; // Optional media attachments for multimodal
   usageObserver?: (usage: TextGenerationUsage) => void; // Optional callback for provider usage metadata
   // Gemini 3 specific options
-  thinkingLevel?: 'low' | 'high'; // Controls Gemini 3's reasoning depth (default: high)
+  thinkingLevel?: 'minimal' | 'low' | 'medium' | 'high'; // Controls Gemini 3's reasoning depth (default: medium for Flash)
   mediaResolution?: 'low' | 'medium' | 'high'; // Controls multimodal token allocation (Gemini 3)
+  systemInstruction?: string | undefined; // Optional system instruction for the request (when not using stateful context)
+
 }
+
 
 export interface ImageGenerationOptions {
   width?: number;

@@ -95,6 +95,7 @@ export type GeminiTTSVoice = (typeof GEMINI_TTS_VOICES)[number];
  * Google Gemini TTS models
  */
 export const GEMINI_TTS_MODELS = [
+  'gemini-3.1-flash-tts-preview',
   'gemini-2.5-pro-preview-tts',
   'gemini-2.5-flash-preview-tts',
 ] as const;
@@ -108,7 +109,7 @@ export class GoogleGenAITTSService implements ITTSService {
 
   constructor(config: GoogleGenAITTSConfig) {
     this.client = new GoogleGenAI({ apiKey: config.apiKey });
-    this.model = config.model || 'gemini-2.5-pro-preview-tts';
+    this.model = config.model || 'gemini-3.1-flash-tts-preview';
     this.defaultVoice = config.defaultVoice || 'Charon';
     // Note: Gemini TTS doesn't support speed parameter directly
   }
@@ -166,17 +167,17 @@ export class GoogleGenAITTSService implements ITTSService {
     const model = options?.model || this.model;
 
     // Normalize model name to match API requirements
-    // The user might provide 'gemini-2.5-pro-tts' but the API expects 'gemini-2.5-pro-preview-tts'
     let apiModel = model;
-    if (model === 'gemini-2.5-pro-tts') {
+    if (model === 'gemini-3.1-flash-tts') {
+      apiModel = 'gemini-3.1-flash-tts-preview';
+    } else if (model === 'gemini-2.5-pro-tts') {
       apiModel = 'gemini-2.5-pro-preview-tts';
     } else if (model === 'gemini-2.5-flash-tts') {
       apiModel = 'gemini-2.5-flash-preview-tts';
+    } else if (model === 'gemini-3.1-flash') {
+      apiModel = 'gemini-3.1-flash-tts-preview';
     } else if (model === 'gemini-2.5-pro') {
-      // Fallback if user provided base model name but wants TTS
       apiModel = 'gemini-2.5-pro-preview-tts';
-    } else if (model === 'gemini-2.5-flash') {
-      apiModel = 'gemini-2.5-flash-preview-tts';
     }
 
     const systemPrompt = options?.systemPrompt;
@@ -196,13 +197,17 @@ export class GoogleGenAITTSService implements ITTSService {
       });
 
       // Build the content for the request
-      // Note: Gemini TTS does NOT support multi-turn chat, so we combine
-      // system prompt and text into a single message
       let contentText = '';
 
       // 1. Add System Prompt / Style Instructions
       if (systemPrompt) {
-        contentText += `### DIRECTOR'S NOTES\n${systemPrompt}\n`;
+        // Enhance system prompt for the new model's expressive capabilities
+        const enhancedSystemPrompt =
+          apiModel === 'gemini-3.1-flash-tts-preview'
+            ? `${systemPrompt}\n\nIMPORTANT: Use high emotional range. Honor all inline audio tags like [whispers], [laughs], [excited], and [long pause] to create a compelling performance.`
+            : systemPrompt;
+
+        contentText += `### DIRECTOR'S NOTES\n${enhancedSystemPrompt}\n`;
       }
 
       // 2. Add Speed Instruction if not 1.0 (Gemini TTS doesn't support speed param directly)

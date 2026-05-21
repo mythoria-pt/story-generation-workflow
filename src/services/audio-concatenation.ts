@@ -10,6 +10,7 @@ import { promises as fs } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
+import { execFile } from 'child_process';
 import { logger } from '@/config/logger.js';
 
 // Set ffmpeg path from installer
@@ -211,7 +212,9 @@ export function estimateAudioDuration(buffer: Buffer, bitrateKbps: number = 128)
  * Options for mixing narration with background music
  */
 export interface AudioMixOptions {
-  /** Volume of background music (0.0 to 1.0), default 0.2 (20%) */
+  /** Volume of narrator voice (1.0 = original, >1.0 = louder), default 1.0 */
+  narrationVolume?: number;
+  /** Volume of background music (0.0 to 1.0), default 0.1 (10%) */
   backgroundVolume?: number;
   /** Fade in duration in seconds for background music, default 1.5 */
   fadeInDuration?: number;
@@ -245,11 +248,17 @@ export async function mixAudioWithBackground(
   backgroundMusicPath: string,
   options: AudioMixOptions = {},
 ): Promise<AudioMixResult> {
-  const { backgroundVolume = 0.2, fadeInDuration = 1.5, fadeOutDuration = 1.5 } = options;
+  const {
+    narrationVolume = 1.0,
+    backgroundVolume = 0.1,
+    fadeInDuration = 1.5,
+    fadeOutDuration = 1.5,
+  } = options;
 
   logger.info('Starting audio mixing with background music', {
     narrationSize: narrationBuffer.length,
     backgroundMusicPath,
+    narrationVolume,
     backgroundVolume,
     fadeInDuration,
     fadeOutDuration,
@@ -266,12 +275,15 @@ export async function mixAudioWithBackground(
 
     // Write narration buffer to temp file
     await fs.writeFile(narrationPath, narrationBuffer);
+    const narrationDurationSeconds = await getAudioDurationSeconds(narrationPath);
 
     // Run FFmpeg mixing
     await runFFmpegMix(narrationPath, backgroundMusicPath, outputPath, {
+      narrationVolume,
       backgroundVolume,
       fadeInDuration,
       fadeOutDuration,
+      narrationDurationSeconds,
     });
 
     // Read the mixed output
@@ -313,29 +325,53 @@ function runFFmpegMix(
   narrationPath: string,
   backgroundMusicPath: string,
   outputPath: string,
-  options: Required<AudioMixOptions>,
+  options: Required<AudioMixOptions> & { narrationDurationSeconds: number },
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    const { backgroundVolume, fadeInDuration } = options;
+    const {
+      narrationVolume,
+      backgroundVolume,
+      fadeInDuration,
+      fadeOutDuration,
+      narrationDurationSeconds,
+    } = options;
+    const cappedFadeInDuration = Math.min(Math.max(fadeInDuration, 0), 2);
+    const cappedFadeOutDuration = Math.min(
+      Math.max(fadeOutDuration, 0),
+      2,
+      narrationDurationSeconds,
+    );
+    const fadeOutStart = Math.max(narrationDurationSeconds - cappedFadeOutDuration, 0);
+    const mixDuration = Math.max(narrationDurationSeconds + 0.1, 0.1);
+    const backgroundFilters = [
+      'aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo',
+      'aloop=loop=-1:size=2e+09',
+      `atrim=duration=${mixDuration}`,
+      'asetpts=N/SR/TB',
+      ...(cappedFadeInDuration > 0 ? [`afade=t=in:st=0:d=${cappedFadeInDuration}`] : []),
+      ...(cappedFadeOutDuration > 0
+        ? [`afade=t=out:st=${fadeOutStart}:d=${cappedFadeOutDuration}`]
+        : []),
+      `volume=${backgroundVolume}`,
+    ].join(',');
 
     // Build complex filter:
     // 1. [0:a] = narration (main audio, full volume)
-    // 2. [1:a] = background music (looped, volume reduced, faded in/out)
+    // 2. [1:a] = background music (looped, volume reduced, faded in/out only on music)
     // 3. amix = combine both streams
     //
     // The filter graph:
-    // - aloop loops the background music (-1 = infinite until shortest)
-    // - afade applies fade in at start
+    // - aloop loops the background music, atrim caps it to the narration duration
+    // - afade applies fade in at the beginning and fade out in the final two seconds at most
     // - volume reduces background level
     // - amix combines with shortest duration (narration)
-    // - dropout_transition provides smooth fade out when narration ends
     const simpleFilter = [
-      // Prepare narration
-      '[0:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[narration]',
-      // Loop background, apply fade in and volume reduction
-      `[1:a]aloop=loop=-1:size=2e+09,afade=t=in:st=0:d=${fadeInDuration},volume=${backgroundVolume}[bg]`,
-      // Mix with shortest duration; dropout_transition fades out background when narration ends
-      '[narration][bg]amix=inputs=2:duration=shortest:dropout_transition=2[mixed]',
+      // Prepare narration and apply volume boost
+      `[0:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,volume=${narrationVolume}[narration]`,
+      // Loop background, cap to narration duration, then apply fades and volume reduction to music only
+      `[1:a]${backgroundFilters}[bg]`,
+      // Mix with narration as the duration source; normalize=0 preserves input levels
+      '[narration][bg]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[mixed]',
     ].join(';');
 
     ffmpeg()
@@ -360,6 +396,33 @@ function runFFmpegMix(
         resolve();
       })
       .run();
+  });
+}
+
+function getAudioDurationSeconds(audioPath: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    execFile(ffmpegInstaller.path, ['-hide_banner', '-i', audioPath], (error, _stdout, stderr) => {
+      const output = stderr || String(error ?? '');
+      const durationMatch = output.match(/Duration:\s*(\d{2}):(\d{2}):(\d{2}(?:\.\d+)?)/);
+
+      if (!durationMatch) {
+        reject(new Error('Unable to determine narration duration for background music fade-out'));
+        return;
+      }
+
+      const [, hoursRaw, minutesRaw, secondsRaw] = durationMatch;
+      const hours = Number(hoursRaw);
+      const minutes = Number(minutesRaw);
+      const seconds = Number(secondsRaw);
+      const durationSeconds = hours * 3600 + minutes * 60 + seconds;
+
+      if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
+        reject(new Error('Invalid narration duration for background music fade-out'));
+        return;
+      }
+
+      resolve(durationSeconds);
+    });
   });
 }
 

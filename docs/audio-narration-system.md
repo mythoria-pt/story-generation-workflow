@@ -351,7 +351,7 @@ class GoogleGenAITTSService implements ITTSService {
   async synthesize(text: string, options?: TTSOptions): Promise<TTSResult> {
     // Gemini returns raw PCM audio
     const response = await this.client.models.generateContent({
-      model: 'gemini-2.5-pro-preview-tts',
+      model: 'gemini-3.1-flash-tts-preview',
       contents: text,
       config: {
         responseModalities: ['AUDIO'],
@@ -391,7 +391,23 @@ class GoogleGenAITTSService implements ITTSService {
 
 ---
 
-### Phase 4: Audio Concatenation (for chunked text)
+### Phase 4: Expressive Narration Features (Gemini 3.1+)
+
+The system leverages the expressive capabilities of **Gemini 3.1 Flash TTS Preview**, which supports over 200+ audio tags for fine-grained control over the performance.
+
+#### Audio Tags Integration
+The `processTextForTTS` and `enhanceTextForTTS` services automatically inject audio tags based on punctuation and context:
+
+- `...` -> `[long pause]`
+- `!` -> `[excited]` (when emotional delivery is requested)
+- `:` or `;` -> `[short pause]`
+
+#### Director's Notes
+The system passes a "DIRECTOR'S NOTES" block with every request, instructing the model to honor these tags and maintain a high emotional range suitable for storytelling.
+
+---
+
+### Phase 5: Audio Concatenation (for chunked text)
 
 **File:** `src/services/audio-concatenation.ts`
 
@@ -427,7 +443,7 @@ async function concatenateAudioBuffers(buffers: Buffer[]): Promise<Concatenation
 
 ---
 
-### Phase 5: Storage and Database Update
+### Phase 6: Storage and Database Update
 
 Back in `tts.ts`, after audio generation:
 
@@ -485,7 +501,7 @@ await tokenUsageTrackingService.recordUsage({
 
 ```
 TTS_PROVIDER=google-genai
-TTS_MODEL=gemini-2.5-pro-preview-tts
+TTS_MODEL=gemini-3.1-flash-tts-preview
 TTS_VOICE=Charon
 ```
 
@@ -603,7 +619,7 @@ const inputText = `${systemPrompt}\n\n---\n\nRead the following text:\n\n${text}
 
 ### Overview
 
-The background music feature adds ambient music to audiobook narration based on the story's target audience and novel style. Music is mixed at a low volume (default 20%) with fade-in/fade-out effects.
+The background music feature adds ambient music to audiobook narration based on the story's target audience and novel style. Music is mixed at a low volume (default 10%) with music-only fade-in/fade-out effects.
 
 ### Music Selection Logic
 
@@ -634,19 +650,19 @@ Music is automatically selected based on two story attributes:
 **File:** `src/services/audio-concatenation.ts` - `mixAudioWithBackground()`
 
 1. **Looping**: Background music is looped if shorter than narration
-2. **Fade In**: Music fades in over configurable duration (default 1.5s)
-3. **Volume Reduction**: Background music volume is reduced (default 20%)
-4. **Mixing**: FFmpeg `amix` filter combines narration (100%) with background
-5. **Dropout Transition**: Smooth 2-second dropout when narration ends
+2. **Fade In**: Music fades in from the beginning and reaches full configured music volume within 2s maximum
+3. **Volume Reduction**: Background music volume is reduced (default 10%)
+4. **Fade Out**: Music fade-out starts only in the final 2s maximum of the narration
+5. **Mixing**: FFmpeg `amix` filter combines narration (100%) with background without fading narration
 
 ### Configuration
 
 | Variable                    | Default | Description                                |
 | --------------------------- | ------- | ------------------------------------------ |
 | `BACKGROUND_MUSIC_ENABLED`  | `true`  | Global enable/disable for background music |
-| `BACKGROUND_MUSIC_VOLUME`   | `0.2`   | Volume level (0.0 to 1.0)                  |
-| `BACKGROUND_MUSIC_FADE_IN`  | `1.5`   | Fade in duration in seconds                |
-| `BACKGROUND_MUSIC_FADE_OUT` | `1.5`   | Fade out duration in seconds               |
+| `BACKGROUND_MUSIC_VOLUME`   | `0.1`   | Volume level (0.0 to 1.0)                  |
+| `BACKGROUND_MUSIC_FADE_IN`  | `1.5`   | Music fade-in duration in seconds, capped at 2s |
+| `BACKGROUND_MUSIC_FADE_OUT` | `1.5`   | Music fade-out duration in seconds, capped at 2s and anchored to the end |
 
 ### User Control
 

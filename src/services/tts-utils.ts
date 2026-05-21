@@ -81,7 +81,7 @@ export function getDefaultModel(provider: TTSProvider): string {
     case 'openai':
       return 'gpt-4o-mini-tts';
     case 'google-genai':
-      return 'gemini-2.5-pro-preview-tts';
+      return 'gemini-3.1-flash-tts-preview';
     default:
       return 'gpt-4o-mini-tts';
   }
@@ -105,47 +105,63 @@ export function getTTSConfig(): TTSConfig {
  * Process text to optimize for TTS pronunciation and flow
  */
 export function processTextForTTS(text: string): string {
+  const config = getTTSConfig();
+  const isGemini31 = config.model.includes('gemini-3.1');
+
   // Apply TTS best practices
-  return (
-    text
-      // Add natural pauses with commas for better breathing
-      .replace(/([.!?])\s+/g, '$1 ')
-      // Handle numbers - spell out small numbers
-      .replace(/\b(\d{1,2})\b/g, (match, num) => {
-        const number = parseInt(num);
-        const words = [
-          'zero',
-          'one',
-          'two',
-          'three',
-          'four',
-          'five',
-          'six',
-          'seven',
-          'eight',
-          'nine',
-          'ten',
-          'eleven',
-          'twelve',
-          'thirteen',
-          'fourteen',
-          'fifteen',
-          'sixteen',
-          'seventeen',
-          'eighteen',
-          'nineteen',
-          'twenty',
-        ];
-        return number <= 20 && words[number] ? words[number] : match;
-      })
-      // Add pauses for dramatic effect
-      .replace(/\.\.\./g, '... ')
-      // Ensure proper punctuation for pauses
-      .replace(/([,;:])\s*/g, '$1 ')
-      // Clean up extra spaces
-      .replace(/\s+/g, ' ')
-      .trim()
-  );
+  let processedText = text
+    // Add natural pauses with commas for better breathing
+    .replace(/([.!?])\s+/g, '$1 ')
+    // Handle numbers - spell out small numbers
+    .replace(/\b(\d{1,2})\b/g, (match, num) => {
+      const number = parseInt(num);
+      const words = [
+        'zero',
+        'one',
+        'two',
+        'three',
+        'four',
+        'five',
+        'six',
+        'seven',
+        'eight',
+        'nine',
+        'ten',
+        'eleven',
+        'twelve',
+        'thirteen',
+        'fourteen',
+        'fifteen',
+        'sixteen',
+        'seventeen',
+        'eighteen',
+        'nineteen',
+        'twenty',
+      ];
+      return number <= 20 && words[number] ? words[number] : match;
+    });
+
+  // Use expressive tags for Gemini 3.1
+  if (isGemini31) {
+    processedText = processedText
+      // Convert ellipses to long pauses
+      .replace(/\.\.\./g, ' [long pause] ')
+      // Add short pauses for certain punctuation if they don't already have one
+      .replace(/([:;])\s*/g, '$1 [short pause] ')
+      // Clean up multiple tags
+      .replace(/(\[short pause\]\s*)+/g, '[short pause] ')
+      .replace(/(\[long pause\]\s*)+/g, '[long pause] ');
+  } else {
+    // Legacy pause handling
+    processedText = processedText.replace(/\.\.\./g, '... ');
+  }
+
+  return processedText
+    // Ensure proper punctuation for pauses
+    .replace(/([,;:])\s*/g, '$1 ')
+    // Clean up extra spaces
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 /**

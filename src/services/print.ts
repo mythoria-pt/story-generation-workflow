@@ -282,7 +282,8 @@ export class PrintService {
       const page = await browser.newPage();
 
       logger.debug('Setting page content for PDF generation');
-      await page.setContent(html, { waitUntil: 'networkidle0' });
+      await page.setContent(html, { waitUntil: 'load' });
+      await page.waitForNetworkIdle({ concurrency: 0, idleTime: 500 });
 
       logger.debug('Generating PDF', { outputPath: options.outputPath });
       await page.pdf({

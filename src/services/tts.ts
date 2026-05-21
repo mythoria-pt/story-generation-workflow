@@ -23,10 +23,14 @@ import {
   buildChapterAudioText,
 } from './tts-utils.js';
 import { getTTSGateway } from '@/ai/tts-gateway.js';
-import { ITTSService, TTSProvider, TTSOptions } from '@/ai/interfaces.js';
+import { ITTSService, TTSProvider, TTSOptions, TTSResult } from '@/ai/interfaces.js';
 import { splitTextIntoChunks, needsChunking } from './text-chunking.js';
 import { concatenateAudioBuffers, mixAudioWithBackground } from './audio-concatenation.js';
 import { getBackgroundMusicForStory } from './background-music.js';
+import {
+  getProviderForVoice,
+  getDefaultVoiceForProvider,
+} from './voice-registry.js';
 
 export interface TTSChapterResult {
   chapterNumber: number;
@@ -196,11 +200,73 @@ export class TTSService {
         chapterNumber,
       };
 
-      const maxTextLength = this.ttsProvider.getMaxTextLength();
+      // Smart Provider Detection:
+      // If a voice is specified, check if it belongs to the current provider.
+      // If not, try to switch to the correct provider.
+      let effectiveProvider: TTSProvider = config.provider;
+      let effectiveTTSProvider: ITTSService = this.ttsProvider;
+
+      if (voice) {
+        const detectedProvider = getProviderForVoice(voice);
+        if (detectedProvider && detectedProvider !== config.provider) {
+          logger.info('Switching TTS provider based on requested voice', {
+            requestedVoice: voice,
+            configuredProvider: config.provider,
+            detectedProvider,
+          });
+          try {
+            effectiveTTSProvider = getTTSGateway().getService(detectedProvider);
+            effectiveProvider = detectedProvider;
+            // When switching providers, we should clear the model to let the new service use its default
+            delete ttsOptions.model;
+          } catch (switchError) {
+            logger.warn('Failed to switch TTS provider, falling back to default provider', {
+              error: switchError instanceof Error ? switchError.message : String(switchError),
+              requestedVoice: voice,
+              defaultProvider: config.provider,
+            });
+          }
+        }
+      }
+
+      const maxTextLength = effectiveTTSProvider.getMaxTextLength();
       let audioBuffer: Buffer;
       let actualVoice: string = config.voice;
       let actualModel: string = config.model;
-      let actualProvider: TTSProvider = config.provider;
+      let actualProvider: TTSProvider = effectiveProvider;
+
+      // Helper function for synthesis with fallback
+      const synthesizeWithFallback = async (text: string, options: TTSOptions): Promise<TTSResult> => {
+        try {
+          return await effectiveTTSProvider.synthesize(text, options);
+        } catch (synthError) {
+          // Check if it's a voice-related error (usually 404 or specific message)
+          const errorMsg = synthError instanceof Error ? synthError.message : String(synthError);
+          const isVoiceError =
+            errorMsg.includes('404') ||
+            errorMsg.toLowerCase().includes('not found') ||
+            errorMsg.toLowerCase().includes('invalid voice') ||
+            errorMsg.toLowerCase().includes('voice not available');
+
+          if (isVoiceError) {
+            const fallbackVoice = getDefaultVoiceForProvider(effectiveProvider);
+            logger.warn('TTS synthesis failed for requested voice, falling back to default voice', {
+              requestedVoice: options.voice,
+              fallbackVoice,
+              provider: effectiveProvider,
+              error: errorMsg,
+            });
+
+            // Retry with fallback voice
+            return await effectiveTTSProvider.synthesize(text, {
+              ...options,
+              voice: fallbackVoice,
+            });
+          }
+          // If not a voice error, rethrow
+          throw synthError;
+        }
+      };
 
       if (needsChunking(chapterText, maxTextLength)) {
         // Text exceeds provider limit - use chunking and concatenation
@@ -240,7 +306,7 @@ export class TTSService {
             chunkLength: chunk.text.length,
           });
 
-          const chunkResult = await this.ttsProvider.synthesize(chunk.text, ttsOptions);
+          const chunkResult = await synthesizeWithFallback(chunk.text, ttsOptions);
           audioBuffers.push(chunkResult.buffer);
 
           // Store first chunk's metadata as the canonical values
@@ -269,7 +335,7 @@ export class TTSService {
         });
       } else {
         // Text within limit - single synthesis call
-        const ttsResult = await this.ttsProvider.synthesize(chapterText, ttsOptions);
+        const ttsResult = await synthesizeWithFallback(chapterText, ttsOptions);
         audioBuffer = ttsResult.buffer;
         actualVoice = ttsResult.voice;
         actualModel = ttsResult.model;
@@ -289,10 +355,12 @@ export class TTSService {
             storyId,
             chapterNumber,
             musicCode: backgroundMusic.musicCode,
+            narrationVolume: env.NARRATOR_VOLUME,
             backgroundVolume: env.BACKGROUND_MUSIC_VOLUME,
           });
 
           const mixResult = await mixAudioWithBackground(audioBuffer, backgroundMusic.filePath, {
+            narrationVolume: env.NARRATOR_VOLUME,
             backgroundVolume: env.BACKGROUND_MUSIC_VOLUME,
             fadeInDuration: env.BACKGROUND_MUSIC_FADE_IN,
             fadeOutDuration: env.BACKGROUND_MUSIC_FADE_OUT,

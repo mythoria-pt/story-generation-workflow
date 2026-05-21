@@ -134,22 +134,36 @@ export class PromptService {
   }
 
   /**
-   * Build a complete prompt with system and user messages
+   * Build separate system and user prompt parts with variables replaced
    */
-  static buildPrompt(promptTemplate: PromptTemplate, variables: Record<string, unknown>): string {
-    const systemPrompt = promptTemplate.systemPrompt
+  static buildParts(
+    promptTemplate: PromptTemplate,
+    variables: Record<string, unknown>,
+  ): { systemInstruction?: string | undefined; userPrompt: string } {
+
+    const systemInstruction = promptTemplate.systemPrompt
       ? this.processPrompt(promptTemplate.systemPrompt, variables)
-      : '';
+      : undefined;
 
     const userPrompt = this.processPrompt(promptTemplate.userPrompt, variables);
 
+    return { systemInstruction, userPrompt };
+  }
+
+  /**
+   * Build a complete prompt with system and user messages
+   */
+  static buildPrompt(promptTemplate: PromptTemplate, variables: Record<string, unknown>): string {
+    const { systemInstruction, userPrompt } = this.buildParts(promptTemplate, variables);
+
     // Combine system and user prompts
-    if (systemPrompt) {
-      return `${systemPrompt}\n\n${userPrompt}`;
+    if (systemInstruction) {
+      return `${systemInstruction}\n\n${userPrompt}`;
     }
 
     return userPrompt;
   }
+
 
   /**
    * Load image styles configuration

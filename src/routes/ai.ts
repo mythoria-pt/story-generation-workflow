@@ -399,7 +399,10 @@ router.post('/text/outline', async (req, res) => {
       chapterSynopses: 'Chapter synopsis will be generated',
     };
 
-    const finalPrompt = PromptService.buildPrompt(promptTemplate, templateVars);
+    const { systemInstruction, userPrompt: finalPrompt } = PromptService.buildParts(
+      promptTemplate,
+      templateVars,
+    );
 
     // Load JSON schema for structured output
     const storyOutlineSchema = await SchemaService.loadSchema('story-outline'); // Generate outline using AI with specific outline model and JSON schema
@@ -410,7 +413,7 @@ router.post('/text/outline', async (req, res) => {
     if (textProvider === 'openai') {
       outlineModel = process.env.OPENAI_BASE_MODEL || process.env.OPENAI_TEXT_MODEL || 'gpt-5.5';
     } else if (textProvider === 'google-genai') {
-      outlineModel = process.env.GOOGLE_GENAI_MODEL || 'gemini-2.5-flash';
+      outlineModel = process.env.GOOGLE_GENAI_MODEL || 'gemini-3.5-flash';
     } else {
       outlineModel = 'gpt-5.5';
     }
@@ -418,6 +421,8 @@ router.post('/text/outline', async (req, res) => {
       temperature: 1,
       model: outlineModel,
       jsonSchema: storyOutlineSchema,
+      thinkingLevel: 'high' as const,
+      systemInstruction,
     }; // Create context for token tracking
     const aiContext = {
       authorId: storyContext.story.authorId,
@@ -433,6 +438,7 @@ router.post('/text/outline', async (req, res) => {
         ...requestOptions,
         contextId, // ensure the outline response (as first turn) is bound to a context
       });
+
 
       const parsedData = parseAIResponse(outline);
       const validation = OutlineSchema.safeParse(parsedData);
@@ -751,18 +757,28 @@ router.post('/text/structure', async (req, res) => {
           });
         }
       }
-      aiResponse = await aiGateway.getTextService(aiContext).complete(finalPrompt, {
-        temperature: 0.8,
-        model,
+      const { systemInstruction, userPrompt: structurePrompt } = PromptService.buildParts(
+        promptTemplate,
+        templateVars,
+      );
+
+      const structureModel = process.env.GOOGLE_GENAI_MODEL || 'gemini-3.5-flash';
+      aiResponse = await aiGateway.getTextService(aiContext).complete(structurePrompt, {
+        temperature: 1,
+        model: structureModel,
         jsonSchema: structSchema,
         mediaParts,
-      } as any);
+        thinkingLevel: 'high',
+        systemInstruction,
+      });
+
     } else {
       aiResponse = await aiGateway.getTextService(aiContext).complete(finalPrompt, {
         temperature: 0.8,
         model,
         jsonSchema: structSchema,
       });
+
     }
 
     const parsed = parseAIResponse(aiResponse) as any;
@@ -1263,15 +1279,18 @@ router.post('/text/chapter/:chapterNumber', async (req, res) => {
     };
 
     // Build dynamic memory (previous chapters) heuristic: fetch saved chapters < current
-    let memoryBlock = '';
+    // Build Full Story History (Dynamic Memory)
+    // We fetch all previous chapters and include their full text to ensure perfect continuity.
+    // Given Gemini 3.5 Flash's 1M context window, this is the most effective approach.
+    let fullHistory = '';
     try {
       if (chapterNumber > 1) {
         const { ChaptersService } = await import('@/services/chapters.js');
         const chaptersService = new ChaptersService();
         const existing = await chaptersService.getStoryChapters(storyId);
         const prior = existing.filter((c) => c.chapterNumber < chapterNumber);
-
         prior.sort((a, b) => a.chapterNumber - b.chapterNumber);
+
         if (prior.length > 0) {
           const toPlainText = (html: string) =>
             html
@@ -1279,145 +1298,18 @@ router.post('/text/chapter/:chapterNumber', async (req, res) => {
               .replace(/\s+/g, ' ')
               .trim();
 
-          const summarize = (html: string) => {
-            const plain = toPlainText(html);
-            // Prefer the last part of the chapter to maintain continuity
-            // If the text is short enough, return it all
-            if (plain.length <= 1500) {
-              return plain;
-            }
+          const historyEntries = prior.map((chapter) => {
+            return `### Chapter ${chapter.chapterNumber}: ${chapter.title}\n${toPlainText(
+              chapter.htmlContent,
+            )}`;
+          });
 
-            // Otherwise, try to get the last few sentences
-            const sentences = plain.split(/(?<=[.!?])\s+/).filter((segment) => segment.length > 0);
-            const lastSentences = sentences.slice(-10).join(' ');
 
-            if (lastSentences.length >= 300 && lastSentences.length <= 2000) {
-              return '...' + lastSentences;
-            }
-
-            // Fallback to simple slicing from the end
-            return '...' + plain.slice(-1500);
-          };
-
-          const earlier = prior.slice(0, Math.max(0, prior.length - 2));
-          const recent = prior.slice(-2);
-
-          const summaryEntries = earlier.map((chapter) => ({
-            chapterNumber: chapter.chapterNumber,
-            summary: summarize(chapter.htmlContent),
-          }));
-
-          const recentEntries = recent.map((chapter) => ({
-            chapterNumber: chapter.chapterNumber,
-            full: toPlainText(chapter.htmlContent),
-            summary: summarize(chapter.htmlContent),
-            mode: 'full' as 'full' | 'summary',
-          }));
-
-          let outlineOverview = req.body.outline?.chapters
-            ? req.body.outline.chapters
-                .map((c: any) => `${c.chapterNumber}. ${c.chapterTitle}`)
-                .join(' | ')
-            : '';
-
-          let continuityNote = `You are now writing Chapter ${chapterNumber}. Maintain continuity with prior chapters.`;
-          const maxChars = parseInt(process.env.STORY_CONTEXT_MAX_CHARS || '12000', 10);
-
-          const serializeSection = () => {
-            const sections: string[] = [];
-
-            if (outlineOverview) {
-              sections.push(`  <outline_overview>${outlineOverview}</outline_overview>`);
-            }
-
-            if (summaryEntries.length > 0) {
-              const summaries = summaryEntries
-                .map(
-                  (entry) =>
-                    `    <chapter_summary number="${entry.chapterNumber}">${entry.summary}</chapter_summary>`,
-                )
-                .join('\n');
-              sections.push(
-                [
-                  '  <previous_chapter_summaries>',
-                  summaries,
-                  '  </previous_chapter_summaries>',
-                ].join('\n'),
-              );
-            }
-
-            if (recentEntries.length > 0) {
-              const recents = recentEntries
-                .map((entry) => {
-                  const tag = entry.mode === 'full' ? 'chapter_full' : 'chapter_summary';
-                  const content = entry.mode === 'full' ? entry.full : entry.summary;
-                  return `    <${tag} number="${entry.chapterNumber}">${content}</${tag}>`;
-                })
-                .join('\n');
-              sections.push(['  <recent_chapters>', recents, '  </recent_chapters>'].join('\n'));
-            }
-
-            if (continuityNote) {
-              sections.push(`  <continuity_note>${continuityNote}</continuity_note>`);
-            }
-
-            if (sections.length === 0) {
-              return '';
-            }
-
-            return `<story_context>\n${sections.join('\n')}\n</story_context>`;
-          };
-
-          let serialized = serializeSection();
-          let iterations = 0;
-
-          while (serialized && serialized.length > maxChars && iterations < 20) {
-            iterations += 1;
-            let changed = false;
-
-            if (summaryEntries.length > 0) {
-              summaryEntries.shift();
-              changed = true;
-            } else {
-              const fullEntry = recentEntries.find((entry) => entry.mode === 'full');
-              if (fullEntry && fullEntry.summary.length > 0) {
-                fullEntry.mode = 'summary';
-                changed = true;
-              } else if (outlineOverview) {
-                outlineOverview = '';
-                changed = true;
-              } else if (continuityNote.length > 0) {
-                continuityNote = '';
-                changed = true;
-              }
-            }
-
-            if (!changed) {
-              break;
-            }
-
-            serialized = serializeSection();
-          }
-
-          if (serialized && serialized.length > 0) {
-            if (serialized.length > maxChars) {
-              const truncated = serialized.slice(serialized.length - maxChars);
-              memoryBlock = `<story_context_truncated>${truncated}</story_context_truncated>`;
-              logger.warn('Story context exceeded max characters, using truncated block', {
-                storyId,
-                runId,
-                chapterNumber,
-                maxChars,
-                serializedLength: serialized.length,
-              });
-            } else {
-              memoryBlock = serialized;
-            }
-          }
+          fullHistory = historyEntries.join('\n\n---\n\n');
         }
       }
     } catch (memErr) {
-      logger.warn('Failed building chapter memory', {
+      logger.warn('Failed building chapter memory history', {
         storyId,
         runId,
         chapterNumber,
@@ -1425,9 +1317,17 @@ router.post('/text/chapter/:chapterNumber', async (req, res) => {
       });
     }
 
-    // Build the complete prompt with memory block
-    const basePrompt = PromptService.buildPrompt(promptTemplate, templateVariables);
-    const chapterPrompt = memoryBlock ? `${memoryBlock}\n\n${basePrompt}` : basePrompt;
+    // Prepare template variables with full history
+    const finalTemplateVariables = {
+      ...templateVariables,
+      fullHistory: fullHistory || 'This is the first chapter of the story.',
+    };
+
+    // Build the complete prompt parts
+    const { systemInstruction, userPrompt: chapterPrompt } = PromptService.buildParts(
+      promptTemplate,
+      finalTemplateVariables,
+    );
 
     // Create context for token tracking
     const chapterContext = {
@@ -1440,7 +1340,10 @@ router.post('/text/chapter/:chapterNumber', async (req, res) => {
     const chapterText = await aiGateway.getTextService(chapterContext).complete(chapterPrompt, {
       temperature: 1,
       contextId,
+      thinkingLevel: 'high',
+      systemInstruction,
     });
+
 
     res.json({
       success: true,

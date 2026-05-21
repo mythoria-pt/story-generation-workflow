@@ -213,7 +213,15 @@ export class TokenUsageTrackingService {
     }
     // Google Models
     else if (estimation.provider === 'google-genai') {
-      if (estimation.model.includes('gemini-3.1-pro')) {
+      if (estimation.model.includes('gemini-3.5-flash')) {
+        // Gemini 3.5 Flash - Speed-optimized frontier model
+        // Input: $1.50 per 1M tokens
+        // Output: $9.00 per 1M tokens
+        // Cached input: $0.15 per 1M tokens (10% of input)
+        inputCostPer1KTokens = 0.0015; // $1.50 per 1M
+        outputCostPer1KTokens = 0.009; // $9.00 per 1M
+        cachedInputCostPer1KTokens = 0.00015; // $0.15 per 1M
+      } else if (estimation.model.includes('gemini-3.1-pro')) {
         // Gemini 3.1 Pro Preview - Latest Gemini 3 family model
         // Input: $2.00 per 1M tokens
         // Output (Text): $12.00 per 1M tokens

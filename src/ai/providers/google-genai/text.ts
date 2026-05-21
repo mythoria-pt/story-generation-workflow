@@ -134,7 +134,7 @@ export class GoogleGenAITextService implements ITextGenerationService {
 
   constructor(config: GoogleGenAITextConfig) {
     this.genAI = new GoogleGenAI({ apiKey: config.apiKey });
-    this.model = config.model || 'gemini-2.5-flash';
+    this.model = config.model || 'gemini-3.5-flash';
 
     // Backwards compatibility shim to mimic @google/generative-ai API used in rest of file
     const anyClient = this.genAI as any;
@@ -305,44 +305,66 @@ export class GoogleGenAITextService implements ITextGenerationService {
    * Creates a stateful chat instance using Google GenAI's ai.chats API
    * Also creates an explicit cached content object to reduce repeated input token costs.
    */
-  async initializeContext(contextId: string, systemPrompt: string): Promise<void> {
+  async initializeContext(
+    contextId: string,
+    systemPrompt: string,
+    previousContent?: string[],
+  ): Promise<void> {
     try {
       logger.info('Google GenAI Debug - Initializing context', {
         contextId,
         systemPromptLength: systemPrompt.length,
+        previousContentLength: previousContent?.length || 0,
         model: this.model,
         hasGetGenerativeModel: typeof this.genAI.getGenerativeModel === 'function',
       });
 
       // ── Explicit context caching ──────────────────────────────────────
-      // Cache the system prompt so subsequent calls avoid re-sending it as
-      // input tokens. The cache has a 30-minute TTL, matching a typical
-      // story-generation session lifetime.
+      // Cache the system prompt and previous content so subsequent calls
+      // avoid re-sending it as input tokens. The cache has a 30-minute
+      // TTL, matching a typical story-generation session lifetime.
       let cachedContentName: string | undefined;
-      try {
-        const cacheResult = await (this.genAI as any).caches.create({
-          model: this.model,
-          config: {
-            displayName: `story-ctx-${contextId.substring(0, 8)}`,
-            systemInstruction: systemPrompt,
-            contents: [],
-            ttl: '1800s', // 30 minutes
-          },
-        });
-        cachedContentName = cacheResult?.name;
-        if (cachedContentName) {
-          logger.info('Google GenAI - Explicit context cache created', {
-            contextId,
-            cacheName: cachedContentName,
+
+      // Only attempt explicit caching if we have contents to cache.
+      // The API requires a non-empty contents array even when systemInstruction is provided.
+      if (previousContent && previousContent.length > 0) {
+        try {
+          // Format previousContent (strings) into GenAI Content objects.
+          // We assume alternating user/model roles starting with user.
+          const contents = previousContent.map((text, i) => ({
+            role: i % 2 === 0 ? 'user' : 'model',
+            parts: [{ text }],
+          }));
+
+          const cacheResult = await (this.genAI as any).caches.create({
             model: this.model,
+            config: {
+              displayName: `story-ctx-${contextId.substring(0, 8)}`,
+              systemInstruction: systemPrompt,
+              contents,
+              ttl: '1800s', // 30 minutes
+            },
+          });
+          cachedContentName = cacheResult?.name;
+          if (cachedContentName) {
+            logger.info('Google GenAI - Explicit context cache created', {
+              contextId,
+              cacheName: cachedContentName,
+              model: this.model,
+              contentsCount: contents.length,
+            });
+          }
+        } catch (cacheError) {
+          // Context caching is an optimisation; if it fails we fall back to
+          // the normal flow without caching.
+          logger.warn('Google GenAI - Failed to create context cache, continuing without caching', {
+            contextId,
+            error: cacheError instanceof Error ? cacheError.message : String(cacheError),
           });
         }
-      } catch (cacheError) {
-        // Context caching is an optimisation; if it fails we fall back to
-        // the normal flow without caching.
-        logger.warn('Google GenAI - Failed to create context cache, continuing without caching', {
+      } else {
+        logger.info('Google GenAI - Skipping explicit context cache (no initial content)', {
           contextId,
-          error: cacheError instanceof Error ? cacheError.message : String(cacheError),
         });
       }
 
@@ -563,9 +585,10 @@ export class GoogleGenAITextService implements ITextGenerationService {
         const supportsThinkingLevel = targetModel.startsWith('gemini-3');
         if (supportsThinkingLevel && options?.thinkingLevel) {
           generationConfig.thinkingConfig = {
-            thinkingLevel: options.thinkingLevel.toUpperCase(), // 'LOW' or 'HIGH'
+            thinkingLevel: options.thinkingLevel.toUpperCase(), // 'MINIMAL', 'LOW', 'MEDIUM', or 'HIGH'
           };
         }
+
 
         // Gemini 3 media resolution - controls token allocation for images/video
         if (options?.mediaResolution) {
@@ -591,6 +614,7 @@ export class GoogleGenAITextService implements ITextGenerationService {
         const generativeModel = this.genAI.getGenerativeModel({
           model: options?.model || this.model,
           generationConfig,
+          ...(options?.systemInstruction && { systemInstruction: options.systemInstruction }),
         });
 
         logger.info('Google GenAI Debug - Using stateless generation', {
@@ -598,7 +622,9 @@ export class GoogleGenAITextService implements ITextGenerationService {
           contextId: options?.contextId || 'none',
           hasJsonSchema: !!options?.jsonSchema,
           hasMediaParts: !!options?.mediaParts && options.mediaParts.length > 0,
+          thinkingLevel: options?.thinkingLevel,
         });
+
 
         // If media parts are provided, send as inlineData parts alongside the prompt
         if (options?.mediaParts && options.mediaParts.length > 0) {

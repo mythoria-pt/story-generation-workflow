@@ -36,6 +36,7 @@ export default [
       '@typescript-eslint/explicit-function-return-type': 'off', // Too strict for development
       '@typescript-eslint/no-inferrable-types': 'off',
       '@typescript-eslint/no-non-null-assertion': 'warn',
+      'preserve-caught-error': 'off',
       'prefer-const': 'error',
       'no-var': 'error',
       'no-console': 'off', // Allow console statements for now (development placeholders)
@@ -78,6 +79,7 @@ export default [
     rules: {
       ...tseslint.configs.recommended.rules,
       '@typescript-eslint/no-explicit-any': 'off',
+      'preserve-caught-error': 'off',
       'no-console': 'off',
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
       '@typescript-eslint/explicit-function-return-type': 'off',

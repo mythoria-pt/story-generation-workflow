@@ -210,15 +210,27 @@ export class AudioPromptService {
     // Apply text processing based on instructions
     const instructionText = instructions.join(' ').toLowerCase();
 
+    // Check if we are using Gemini 3.1
+    const model = process.env.TTS_MODEL || '';
+    const isGemini31 = model.includes('gemini-3.1');
+
     // Add appropriate pauses for emotional delivery
     if (
       systemPrompt.toLowerCase().includes('emotion') ||
       systemPrompt.toLowerCase().includes('passion')
     ) {
-      // Add slight pauses after emotional moments
-      enhancedText = enhancedText
-        .replace(/(!|\.\.\.)/g, '$1 ') // Pause after exclamations and ellipses
-        .replace(/([.!?])\s*"/g, '$1" '); // Pause after quoted speech
+      if (isGemini31) {
+        // Use tags for Gemini 3.1
+        enhancedText = enhancedText
+          .replace(/!/g, '! [excited] ')
+          .replace(/\.\.\./g, ' [long pause] ')
+          .replace(/([.!?])\s*"/g, '$1" [short pause] ');
+      } else {
+        // Add slight pauses after emotional moments for other models
+        enhancedText = enhancedText
+          .replace(/(!|\.\.\.)/g, '$1 ') // Pause after exclamations and ellipses
+          .replace(/([.!?])\s*"/g, '$1" '); // Pause after quoted speech
+      }
     }
 
     // Enhance pronunciation for clear articulation
@@ -229,8 +241,11 @@ export class AudioPromptService {
         .replace(/(\w+)'(\w+)/g, '$1 $2'); // Separate contractions slightly
     }
 
-    // Clean up any extra whitespace
-    enhancedText = enhancedText.replace(/\s+/g, ' ').trim();
+    // Clean up any extra whitespace and tags
+    enhancedText = enhancedText
+      .replace(/\s+/g, ' ')
+      .replace(/(\[excited\]\s*)+/g, '[excited] ')
+      .trim();
 
     return enhancedText;
   }

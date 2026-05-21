@@ -312,6 +312,12 @@ export const envManifest: EnvVarDescriptor[] = [
     default: '0.2',
   },
   {
+    name: 'NARRATOR_VOLUME',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    default: '1.0',
+  },
+  {
     name: 'BACKGROUND_MUSIC_FADE_IN',
     required: false,
     scopes: ['dev', 'runtime', 'prod'],

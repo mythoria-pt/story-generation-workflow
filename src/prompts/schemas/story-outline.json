@@ -202,6 +202,10 @@
         ],
         "additionalProperties": false
       }
+    },
+    "thought_process": {
+      "type": "string",
+      "description": "Your internal reasoning and plan for this story. Outline character arcs, thematic goals, and stylistic decisions here before generating the structured data."
     }
   },
   "required": [
@@ -213,7 +217,9 @@
     "chapters",
     "synopses",
     "bookBackCoverPrompt",
-    "bookCoverPrompt"
+    "bookCoverPrompt",
+    "thought_process"
   ],
   "additionalProperties": false
 }
+

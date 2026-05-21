@@ -80,13 +80,13 @@ All commands run through `npm run` wrappers so they pick up the repo’s tsconfi
 - **Ephemeral stories**: Stories marked `status = 'temporary'` and older than 48 hours should be purged from the main DB to keep storage costs flat. Until an automated job exists, run manual SQL / scripts during on-call.
 - When implementing the scheduler endpoint, gate it behind API-key auth and add generous logging so we can reconcile deletions if needed.
 
-## Deferred dependency upgrades
+## Dependency upgrade notes
 
-The following major-version bumps were intentionally deferred during the 2026-04 dependency refresh. Revisit in a dedicated follow-up PR so the diff stays reviewable.
+The following package decisions are intentional after the 2026-05 dependency refresh:
 
-- **`eslint` / `@eslint/js` 9 → 10**: requires moving to the unified `typescript-eslint` v9 package (replacing `@typescript-eslint/eslint-plugin` + `@typescript-eslint/parser`) and validating flat-config rule changes. Run `npm run lint:fix` after the bump.
-- **`typescript` 5.9 → 6.0**: brand new; wait until `@typescript-eslint`, `ts-jest`, `drizzle-kit`, Express 5 types, OpenAI 6 types, and Puppeteer 24 types confirm TS6 support. Re-check in ~1 month.
-- **`@types/node`**: aligned to Node.js 24 LTS (`^24.12.2`) to match the runtime pinned in `Dockerfile`.
+- **`eslint` / `@eslint/js` 10**: applied and validated with the existing flat config. The new `preserve-caught-error` core rule is disabled to avoid forcing broad error-shape churn in unrelated catch blocks.
+- **`typescript` 6.0**: applied and validated. `tsconfig.json` uses `ignoreDeprecations: "6.0"` while the repo keeps its current path-alias and CommonJS compiler settings.
+- **`@types/node`**: aligned to Node.js 24 LTS (`^24.12.4`) to match the runtime pinned in `Dockerfile`.
 - **`@types/supertest` 7**: already applied.
 - **`bignumber.js`**: already removed (was unused).
 

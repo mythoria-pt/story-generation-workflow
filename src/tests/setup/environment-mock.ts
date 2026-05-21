@@ -25,6 +25,11 @@ jest.mock('@/config/environment.js', () => ({
     TTS_VOICE: 'nova',
     TTS_SPEED: '0.9',
     TTS_LANGUAGE: 'en-US',
+    BACKGROUND_MUSIC_ENABLED: true,
+    BACKGROUND_MUSIC_VOLUME: 0.2,
+    BACKGROUND_MUSIC_FADE_IN: 1.5,
+    BACKGROUND_MUSIC_FADE_OUT: 1.5,
+    NARRATOR_VOLUME: 1.0,
   }),
   validateEnvironment: jest.fn(),
 }));

@@ -71,6 +71,51 @@ export class TTSGateway {
   }
 
   /**
+   * Get a TTS service instance for a specific provider
+   */
+  public getService(provider: TTSProvider): ITTSService {
+    if (provider === this.config.provider) {
+      return this.ttsService;
+    }
+
+    // Create a temporary config for the alternate provider
+    const tempConfig: TTSGatewayConfig = {
+      ...this.config,
+      provider,
+      // Use defaults for model/voice as they might not be compatible across providers
+      model: undefined,
+      defaultVoice: undefined,
+    };
+
+    switch (provider) {
+      case 'openai':
+        if (!tempConfig.credentials.openaiApiKey) {
+          throw new Error('OpenAI API Key is required for OpenAI TTS service');
+        }
+        return new OpenAITTSService({
+          apiKey: tempConfig.credentials.openaiApiKey,
+          model: tempConfig.model,
+          defaultVoice: tempConfig.defaultVoice,
+          defaultSpeed: tempConfig.defaultSpeed,
+        });
+
+      case 'google-genai':
+        if (!tempConfig.credentials.googleGenAIApiKey) {
+          throw new Error('Google GenAI API Key is required for Gemini TTS service');
+        }
+        return new GoogleGenAITTSService({
+          apiKey: tempConfig.credentials.googleGenAIApiKey,
+          model: tempConfig.model,
+          defaultVoice: tempConfig.defaultVoice,
+          defaultSpeed: tempConfig.defaultSpeed,
+        });
+
+      default:
+        throw new Error(`Unsupported TTS provider: ${provider}`);
+    }
+  }
+
+  /**
    * Get the configured provider
    */
   public getProvider(): TTSProvider {

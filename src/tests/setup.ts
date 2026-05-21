@@ -1,4 +1,5 @@
 // Jest setup file for tests
+import { jest } from '@jest/globals';
 import { config } from 'dotenv';
 
 // Load test environment variables (local overrides optional files)
@@ -66,6 +67,10 @@ jest.mock('@google-cloud/workflows', () => ({
     createExecution: jest.fn(),
     getExecution: jest.fn(),
   })),
+}));
+
+jest.mock('puppeteer', () => ({
+  launch: jest.fn(),
 }));
 
 // Global test timeout
