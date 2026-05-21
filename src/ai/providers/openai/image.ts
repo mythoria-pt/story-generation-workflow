@@ -215,7 +215,6 @@ export class OpenAIImageService implements IImageGenerationService {
           toolConfig,
           temperature: 1,
           maxOutputTokens: 8192,
-          topP: 1,
           store: true,
         });
       }
@@ -278,7 +277,6 @@ export class OpenAIImageService implements IImageGenerationService {
         tools: [toolConfig],
         temperature: 1,
         max_output_tokens: 8192,
-        top_p: 1,
         store: true,
         // Chain sequential image generations for implicit style continuity
         ...(this.lastResponseId ? { previous_response_id: this.lastResponseId } : {}),
