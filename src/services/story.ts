@@ -11,6 +11,7 @@ import { authors } from '@/db/schema/authors.js';
 import { retry } from '@/shared/utils.js';
 import { logger } from '@/config/logger.js';
 import { serializeError } from '@/utils/errorHandling.js';
+import type { CustomWritingPersonaDefinition } from './literary-persona.js';
 
 export interface StoryContext {
   story: {
@@ -26,6 +27,7 @@ export interface StoryContext {
     novelStyle?: string | undefined;
     graphicalStyle?: string | undefined;
     literaryPersona?: string | undefined;
+    customWritingPersona?: CustomWritingPersonaDefinition | undefined;
     storyLanguage: string;
     chapterCount?: number | undefined;
   };
@@ -130,6 +132,7 @@ export class StoryService {
           novelStyle: story.novelStyle || undefined,
           graphicalStyle: story.graphicalStyle || undefined,
           literaryPersona: story.literaryPersona || undefined,
+          customWritingPersona: story.customWritingPersona || undefined,
           storyLanguage: story.storyLanguage,
           chapterCount: story.chapterCount || undefined,
         },
@@ -171,6 +174,7 @@ export class StoryService {
           novelStyle: stories.novelStyle,
           graphicalStyle: stories.graphicalStyle,
           literaryPersona: stories.literaryPersona,
+          customWritingPersona: stories.customWritingPersona,
           chapterCount: stories.chapterCount,
           status: stories.status,
           features: stories.features,

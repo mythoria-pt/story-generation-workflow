@@ -30,8 +30,23 @@ export interface LiteraryPersonaDefinition {
   example?: string;
 }
 
+export interface CustomWritingPersonaDefinition {
+  pov: '1st' | '2nd' | '3rd-limited' | '3rd-omniscient' | 'objective';
+  tone: number;
+  formality: number;
+  rhythm: number;
+  vocabulary: number;
+  fictionality: number;
+  dialogueDensity?: number;
+  sensoriality?: number;
+  subtextIrony?: number;
+  techniques?: string[];
+  specialRequirements?: string;
+}
+
 export class LiteraryPersonaService {
   private static readonly basePath = getPromptsPath();
+  private static readonly fallbackCodename = 'classic-novelist';
   private static cache: Record<string, LiteraryPersonaDefinition[]> = {};
 
   static async loadPersonas(locale = 'en-US'): Promise<LiteraryPersonaDefinition[]> {
@@ -124,5 +139,56 @@ export class LiteraryPersonaService {
     ].filter(Boolean) as string[];
 
     return lines.join('\n');
+  }
+
+  static formatCustomStyleBlock(persona: CustomWritingPersonaDefinition): string {
+    const optional = (label: string, value?: string | number) =>
+      value !== undefined && value !== null && value !== '' ? `${label}: ${value}` : null;
+
+    const lines = [
+      'Literary persona: Custom writing persona',
+      'Summary: Follow the author-defined narrator voice for this specific book.',
+      `Point of view: ${persona.pov}`,
+      optional('Tone (1-5)', persona.tone),
+      optional('Formality (1-5)', persona.formality),
+      optional('Rhythm (1-5)', persona.rhythm),
+      optional('Vocabulary (1-5)', persona.vocabulary),
+      optional('Fictionality (1-5)', persona.fictionality),
+      optional('Dialogue density (1-5)', persona.dialogueDensity),
+      optional('Sensoriality (1-5)', persona.sensoriality),
+      optional('Subtext/Irony (1-5)', persona.subtextIrony),
+      persona.techniques && persona.techniques.length
+        ? `Techniques: ${persona.techniques.join(', ')}`
+        : null,
+      persona.specialRequirements
+        ? `Author special requirements: ${persona.specialRequirements}`
+        : null,
+    ].filter(Boolean) as string[];
+
+    return lines.join('\n');
+  }
+
+  static async buildGuidance(
+    codename?: string | null,
+    customPersona?: CustomWritingPersonaDefinition | null,
+    locale = 'en-US',
+  ): Promise<string> {
+    if (customPersona) {
+      return this.formatCustomStyleBlock(customPersona);
+    }
+
+    const requestedCodename = codename || this.fallbackCodename;
+    const persona = await this.getPersona(requestedCodename, locale);
+
+    if (persona) {
+      return this.formatStyleBlock(persona);
+    }
+
+    if (requestedCodename !== this.fallbackCodename) {
+      const fallback = await this.getPersona(this.fallbackCodename, locale);
+      return fallback ? this.formatStyleBlock(fallback) : '';
+    }
+
+    return '';
   }
 }

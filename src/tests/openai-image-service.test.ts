@@ -75,6 +75,26 @@ describe('OpenAIImageService', () => {
     expect(request).not.toHaveProperty('top_p');
   });
 
+  it('does not send top_p for image edit responses requests', async () => {
+    const service = new OpenAIImageService({
+      apiKey: 'test-key',
+      model: 'gpt-5.5',
+      imageModel: 'gpt-image-2',
+    });
+
+    await service.edit('Make the moon brighter.', Buffer.from('original-image'), {
+      width: 1024,
+      height: 1536,
+    });
+
+    const request = mockResponsesCreate.mock.calls[0]?.[0] as any;
+    expect(request).not.toHaveProperty('top_p');
+    expect(request.tools[0]).toMatchObject({
+      type: 'image_generation',
+      model: 'gpt-image-2',
+    });
+  });
+
   it('keeps input_fidelity for gpt-image-1.5 image generation tool requests', async () => {
     const service = new OpenAIImageService({
       apiKey: 'test-key',

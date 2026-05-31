@@ -364,12 +364,14 @@ router.post('/text/outline', async (req, res) => {
     } // Load prompt template and prepare variables
     const promptTemplate = await PromptService.loadPrompt('en-US', 'text-outline'); // Use the chapterCount from the database, fallback to 6 if not available
 
-    // Build literary persona guidance (en-US only)
+    // Build literary persona guidance (custom story settings first, built-in persona fallback)
     const personaGuidance = await (async () => {
       const code = storyContext.story.literaryPersona;
-      if (!code) return '';
-      const persona = await LiteraryPersonaService.getPersona(code, 'en-US');
-      return persona ? LiteraryPersonaService.formatStyleBlock(persona) : '';
+      return LiteraryPersonaService.buildGuidance(
+        code,
+        storyContext.story.customWritingPersona,
+        'en-US',
+      );
     })();
     const chapterCount = storyContext.story.chapterCount || 6;
 
@@ -438,7 +440,6 @@ router.post('/text/outline', async (req, res) => {
         ...requestOptions,
         contextId, // ensure the outline response (as first turn) is bound to a context
       });
-
 
       const parsedData = parseAIResponse(outline);
       const validation = OutlineSchema.safeParse(parsedData);
@@ -771,14 +772,12 @@ router.post('/text/structure', async (req, res) => {
         thinkingLevel: 'high',
         systemInstruction,
       });
-
     } else {
       aiResponse = await aiGateway.getTextService(aiContext).complete(finalPrompt, {
         temperature: 0.8,
         model,
         jsonSchema: structSchema,
       });
-
     }
 
     const parsed = parseAIResponse(aiResponse) as any;
@@ -931,7 +930,8 @@ router.post('/media/character-photo', async (req, res) => {
 
     const base64Payload = match[1];
     const buffer = Buffer.from(base64Payload, 'base64');
-    const objectPath = `characters/${authorId}/${characterId}.jpg`;
+    const uploadVersion = `${Date.now()}-${randomUUID().replace(/-/g, '').slice(0, 12)}`;
+    const objectPath = `characters/${authorId}/${characterId}/${uploadVersion}.jpg`;
 
     const publicUrl = await storageService.uploadFile(objectPath, buffer, 'image/jpeg', {
       cacheControl: 'public, max-age=31536000',
@@ -1251,12 +1251,14 @@ router.post('/text/chapter/:chapterNumber', async (req, res) => {
     } // Load chapter prompt template and prepare variables
     const promptTemplate = await PromptService.loadPrompt('en-US', 'text-chapter');
 
-    // Build literary persona guidance (en-US only)
+    // Build literary persona guidance (custom story settings first, built-in persona fallback)
     const personaGuidance = await (async () => {
       const code = storyContext.story.literaryPersona;
-      if (!code) return '';
-      const persona = await LiteraryPersonaService.getPersona(code, 'en-US');
-      return persona ? LiteraryPersonaService.formatStyleBlock(persona) : '';
+      return LiteraryPersonaService.buildGuidance(
+        code,
+        storyContext.story.customWritingPersona,
+        'en-US',
+      );
     })();
 
     // Prepare template variables
@@ -1304,7 +1306,6 @@ router.post('/text/chapter/:chapterNumber', async (req, res) => {
             )}`;
           });
 
-
           fullHistory = historyEntries.join('\n\n---\n\n');
         }
       }
@@ -1343,7 +1344,6 @@ router.post('/text/chapter/:chapterNumber', async (req, res) => {
       thinkingLevel: 'high',
       systemInstruction,
     });
-
 
     res.json({
       success: true,

@@ -479,7 +479,6 @@ export class OpenAIImageService implements IImageGenerationService {
           },
         ],
         temperature: 1,
-        top_p: 1,
         max_output_tokens: 8192,
         store: true,
       });

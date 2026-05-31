@@ -17,19 +17,19 @@ Story Generation Workflow exposes a small, opinionated REST surface for Mythoria
 
 ### AI text + media (`src/routes/ai.ts`)
 
-| Endpoint                                 | Description                                                                                                                                  |
-| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /ai/text/outline`                  | Generates outline, cover prompts, and character briefs from `storyId`/`runId`. Returns refined prompts for downstream image generation.      |
-| `POST /ai/text/structure`                | Turns user description plus optional media (`imageObjectPath`, `audioObjectPath`, base64) into structured story metadata and characters.     |
-| `POST /ai/media/character-photo`         | Accepts a JPEG data URL and stores it at `characters/{authorId}/{characterId}.jpg` with long-lived cache headers; returns public URL + path. |
-| `DELETE /ai/media/character-photo`       | Deletes a character photo at the provided GCS path under `characters/`; idempotent if the file is missing.                                   |
-| `POST /ai/media/analyze-character-photo` | Analyzes a character photo using AI (multimodal) and returns a 2-sentence physical description in the user's locale.                         |
-| `POST /ai/media/upload`                  | Accepts base64 + content type, stores in `storyId/inputs`, returns public URL.                                                               |
-| `POST /ai/media/story-image-upload`      | Uploads user-supplied cover/back/chapter art, handling filename versioning (`*_v00n`).                                                       |
-| `POST /ai/text/chapter/{chapterNumber}`  | Generates chapter prose given outline context, prior chapters, and chapter synopsis.                                                         |
-| `POST /ai/text/translate`                | Translates slugs, titles, summaries, and Markdown/HTML content from `en-US` into one or more locales (`pt-PT`, `es-ES`, `fr-FR`, `de-DE`).   |
-| `POST /ai/text/context/clear`            | Clears the chat context for `<storyId>:<runId>` once workflows finish.                                                                       |
-| `POST /ai/image`                         | Creates cover/back/chapter illustrations. Automatically retries via safety rewrite logic; `422` signals `blocked`.                           |
+| Endpoint                                 | Description                                                                                                                                                                  |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /ai/text/outline`                  | Generates outline, cover prompts, and character briefs from `storyId`/`runId`. Returns refined prompts for downstream image generation.                                      |
+| `POST /ai/text/structure`                | Turns user description plus optional media (`imageObjectPath`, `audioObjectPath`, base64) into structured story metadata and characters.                                     |
+| `POST /ai/media/character-photo`         | Accepts a JPEG data URL and stores it as a versioned immutable object under `characters/{authorId}/{characterId}/` with long-lived cache headers; returns public URL + path. |
+| `DELETE /ai/media/character-photo`       | Deletes a character photo at the provided GCS path under `characters/`; idempotent if the file is missing.                                                                   |
+| `POST /ai/media/analyze-character-photo` | Analyzes a character photo using AI (multimodal) and returns a 2-sentence physical description in the user's locale.                                                         |
+| `POST /ai/media/upload`                  | Accepts base64 + content type, stores in `storyId/inputs`, returns public URL.                                                                                               |
+| `POST /ai/media/story-image-upload`      | Uploads user-supplied cover/back/chapter art, handling filename versioning (`*_v00n`).                                                                                       |
+| `POST /ai/text/chapter/{chapterNumber}`  | Generates chapter prose given outline context, prior chapters, and chapter synopsis.                                                                                         |
+| `POST /ai/text/translate`                | Translates slugs, titles, summaries, and Markdown/HTML content from `en-US` into one or more locales (`pt-PT`, `es-ES`, `fr-FR`, `de-DE`).                                   |
+| `POST /ai/text/context/clear`            | Clears the chat context for `<storyId>:<runId>` once workflows finish.                                                                                                       |
+| `POST /ai/image`                         | Creates cover/back/chapter illustrations. Automatically retries via safety rewrite logic; `422` signals `blocked`.                                                           |
 
 ### Character Photo Analysis
 

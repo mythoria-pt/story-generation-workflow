@@ -28,16 +28,13 @@ export class StoryContextService {
 
   private async buildPersonaGuidance(storyContext: StoryContext): Promise<string | null> {
     try {
-      const persona = await LiteraryPersonaService.getPersona(
+      const guidance = await LiteraryPersonaService.buildGuidance(
         storyContext.story.literaryPersona,
+        storyContext.story.customWritingPersona,
         storyContext.story.storyLanguage || 'en-US',
       );
 
-      if (!persona) {
-        return null;
-      }
-
-      return LiteraryPersonaService.formatStyleBlock(persona);
+      return guidance || null;
     } catch (error) {
       logger.warn('Failed to build literary persona guidance', {
         error: error instanceof Error ? error.message : String(error),
