@@ -6,7 +6,12 @@
 import { randomUUID } from 'crypto';
 import { logger } from '@/config/logger.js';
 
-export type JobType = 'text_edit' | 'image_edit' | 'text_translate' | 'email_asset_generation';
+export type JobType =
+  | 'text_edit'
+  | 'image_edit'
+  | 'text_translate'
+  | 'email_asset_generation'
+  | 'story_structure';
 export type JobStatus = 'pending' | 'processing' | 'completed' | 'failed';
 
 export interface Job {
@@ -193,9 +198,16 @@ export function getEstimatedDuration(
   params: {
     chapterCount?: number;
     operationType?: string;
+    imageCount?: number;
   },
 ): number {
   switch (type) {
+    case 'story_structure': {
+      // Base 45s + ~20s per image to analyse on demand, capped at 3 minutes
+      const images = params.imageCount ?? 0;
+      return Math.min(45 * 1000 + images * 20 * 1000, 180 * 1000);
+    }
+
     case 'text_edit':
       if (params.operationType === 'story' && params.chapterCount) {
         // Full story edit: 45 seconds per chapter

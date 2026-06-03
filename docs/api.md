@@ -20,11 +20,12 @@ Story Generation Workflow exposes a small, opinionated REST surface for Mythoria
 | Endpoint                                 | Description                                                                                                                                                                  |
 | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `POST /ai/text/outline`                  | Generates outline, cover prompts, and character briefs from `storyId`/`runId`. Returns refined prompts for downstream image generation.                                      |
-| `POST /ai/text/structure`                | Turns user description plus optional media (`imageObjectPath`, `audioObjectPath`, base64) into structured story metadata and characters.                                     |
+| `POST /ai/text/structure`                | Turns user description + audio + analysed image **metadata** (`imageObjectPaths[]`, `audioObjectPath`) into structured story metadata and characters. Crops character photos from source images and flags cover-relevant photos. Image bytes are not sent to the model. (Prefer the async `POST /api/jobs/story-structure`.) |
 | `POST /ai/media/character-photo`         | Accepts a JPEG data URL and stores it as a versioned immutable object under `characters/{authorId}/{characterId}/` with long-lived cache headers; returns public URL + path. |
 | `DELETE /ai/media/character-photo`       | Deletes a character photo at the provided GCS path under `characters/`; idempotent if the file is missing.                                                                   |
 | `POST /ai/media/analyze-character-photo` | Analyzes a character photo using AI (multimodal) and returns a 2-sentence physical description in the user's locale.                                                         |
-| `POST /ai/media/upload`                  | Accepts base64 + content type, stores in `storyId/inputs`, returns public URL.                                                                                               |
+| `POST /ai/media/analyze-image`           | Analyses an uploaded input image (`{ objectPath, locale? }`) and persists sibling `.json` metadata: `overallImageContent` (photo/drawing/text), `description`, OCR `text`, and detected `characters[]` (with `box_2d`). Provider from `IMAGE_ANALYZER_PROVIDER` → `IMAGE_PROVIDER`. Idempotent. |
+| `POST /ai/media/upload`                  | Accepts `{ authorId, kind, contentType, dataUrl }`. Images are normalised to JPEG (≤2048px, q95); stored at `{authorId}/inputs/{uuid}.{ext}`; returns `{ objectPath, publicUrl }`.                                                            |
 | `POST /ai/media/story-image-upload`      | Uploads user-supplied cover/back/chapter art, handling filename versioning (`*_v00n`).                                                                                       |
 | `POST /ai/text/chapter/{chapterNumber}`  | Generates chapter prose given outline context, prior chapters, and chapter synopsis.                                                                                         |
 | `POST /ai/text/translate`                | Translates slugs, titles, summaries, and Markdown/HTML content from `en-US` into one or more locales (`pt-PT`, `es-ES`, `fr-FR`, `de-DE`).                                   |
@@ -181,6 +182,7 @@ Even though two endpoints live under `/audio/internal/*`, they still require the
 | `POST /api/jobs/image-edit`            | Creates an async image edit/replacement job. Supports `userImageUri` conversions and styled replacements (`convertToStyle`). |
 | `POST /api/jobs/translate-text`        | Translates all chapters to `targetLocale`. Rejects if the locale matches the current story language.                         |
 | `POST /api/jobs/generate-email-assets` | Generates HTML email assets for all supported locales using AI, based on a reference template and content description.       |
+| `POST /api/jobs/story-structure`       | Async story structuring from `{ storyId, userDescription?, imageObjectPaths?[], audioObjectPath?, characterIds?[], locale? }`. Result (`story`, `characters`) is read via `GET /api/jobs/{jobId}`. |
 | `GET /api/jobs/{jobId}`                | Returns status, simulated progress, and optional result/error blob.                                                          |
 
 All job creation responses follow:

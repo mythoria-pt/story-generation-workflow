@@ -66,6 +66,7 @@ All commands run through `npm run` wrappers so they pick up the repo’s tsconfi
 - **Workflow state**: query `story_generation_runs` for `status`, `current_step`, and `error_message`. `token_usage_tracking` records every AI call, including `prompt_rewrite`.
 - **Safety blocks**: look for 422 responses with `promptRewriteAttempted: true`. The rewrite template lives at `src/prompts/en-US/image-prompt-safety-rewrite.json`.
 - **Storage debugging**: `getStorageService()` exposes `fileExists`, `getSignedUrl`, and `getPublicUrl`. Use the singleton to avoid exhausting sockets during debugging.
+- **Prompt capture**: set `DEBUG_PERSIST_PROMPTS=true` to persist the fully-rendered generation prompts to GCS under `{storyId}/prompts/` (`outline.{txt,json}`, `text_chapter_{n}.{txt,json}`, `image_{front_cover|back_cover|chapter_{n}}.{txt,json}`). The `.txt` holds the rendered system + user prompt; the `.json` sidecar records the interpolated variables and model. Off by default; best-effort (never blocks generation). Use it to confirm author details (e.g. `additionalRequests`) actually reach the model. Helper: `persistPromptDebug` in `src/services/prompt-debug.ts`.
 
 ## Coding conventions
 

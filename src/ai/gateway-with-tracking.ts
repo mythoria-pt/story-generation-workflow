@@ -88,6 +88,66 @@ export class AIGatewayWithTokenTracking {
     return withTokenTracking(service, context);
   }
 
+  /**
+   * Build a tracked text service for an explicitly requested provider
+   * ('google-genai' | 'openai'). Used by features (e.g. image analysis) that
+   * select their provider independently of TEXT_PROVIDER. Falls back to the
+   * default text service if the requested provider's credentials are missing.
+   */
+  getTextServiceForProvider(provider: string, context: AICallContext): ITextGenerationService {
+    const normalized = (provider || 'google-genai').toLowerCase();
+
+    if (normalized === 'openai') {
+      const openaiKey = process.env.OPENAI_API_KEY;
+      if (!openaiKey) {
+        console.warn(
+          `OpenAI API key missing; falling back to default text service for provider "${provider}".`,
+        );
+        return this.getTextService(context);
+      }
+      const model = process.env.OPENAI_BASE_MODEL || process.env.OPENAI_TEXT_MODEL || 'gpt-5.5';
+      return withTokenTracking(new OpenAITextService({ apiKey: openaiKey, model }), context);
+    }
+
+    // Default: google-genai
+    const googleKey = process.env.GOOGLE_GENAI_API_KEY;
+    if (!googleKey) {
+      console.warn(
+        `Google GenAI API key missing; falling back to default text service for provider "${provider}".`,
+      );
+      return this.getTextService(context);
+    }
+    const model = process.env.GOOGLE_GENAI_MODEL || 'gemini-3.5-flash';
+    return withTokenTracking(new GoogleGenAITextService({ apiKey: googleKey, model }), context);
+  }
+
+  /**
+   * Resolve the text (vision-language) service used for image analysis.
+   * Provider is chosen from IMAGE_ANALYZER_PROVIDER, then IMAGE_PROVIDER, then
+   * 'google-genai'. The OpenAI text service does not yet support multimodal
+   * input, so an 'openai' selection falls back to google-genai (when available).
+   */
+  getImageAnalysisTextService(context: AICallContext): {
+    service: ITextGenerationService;
+    provider: string;
+  } {
+    const requested = (
+      process.env.IMAGE_ANALYZER_PROVIDER ||
+      process.env.IMAGE_PROVIDER ||
+      'google-genai'
+    ).toLowerCase();
+
+    let provider = requested;
+    if (provider === 'openai' && process.env.GOOGLE_GENAI_API_KEY) {
+      console.warn(
+        'IMAGE_ANALYZER_PROVIDER=openai is not supported for image analysis (no multimodal support); falling back to google-genai.',
+      );
+      provider = 'google-genai';
+    }
+
+    return { service: this.getTextServiceForProvider(provider, context), provider };
+  }
+
   getImageService(context: AICallContext): IImageGenerationService {
     let service: IImageGenerationService = this.aiGateway.getImageService();
 

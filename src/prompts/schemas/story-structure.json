@@ -78,7 +78,21 @@
             "folklore-traditionalist"
           ]
         },
-        "storyLanguage": { "type": "string" }
+        "storyLanguage": {
+          "type": "string",
+          "maxLength": 5,
+          "description": "BCP-47 locale code of the story language (e.g. en-US, pt-PT, es-ES, fr-FR, de-DE). Max 5 chars. Never a language name."
+        },
+        "coverReferenceImages": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Paths (the `path` field from the provided input image metadata) of `photo`-type input images that are visually relevant to depict on the FRONT cover (e.g. the main subject/scenery). Empty array if none apply."
+        },
+        "backCoverReferenceImages": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Paths of `photo`-type input images relevant to the BACK cover. Empty array if none apply."
+        }
       },
       "required": ["title", "plotDescription"]
     },
@@ -176,6 +190,14 @@
           },
           "characteristics": { "type": "string" },
           "physicalDescription": { "type": "string" },
+          "sourceImagePath": {
+            "type": ["string", "null"],
+            "description": "If this character is derived from a person/animal detected in a user-uploaded input photo, set this to the exact `path` of that image (from the provided image metadata). Otherwise null."
+          },
+          "sourceCharacterIndex": {
+            "type": ["integer", "null"],
+            "description": "When sourceImagePath is set, the zero-based index of the matching entry in that image's `characters` array. Otherwise null."
+          },
           "role": {
             "type": "string",
             "enum": [

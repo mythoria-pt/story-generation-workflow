@@ -13,6 +13,7 @@ import { processTextEditJob } from '@/workers/text-edit-worker.js';
 import { processImageEditJob } from '@/workers/image-edit-worker.js';
 import { processTranslationJob } from '@/workers/translation-worker.js';
 import { processEmailAssetJob } from '@/workers/email-asset-worker.js';
+import { processStoryStructureJob } from '@/workers/structure-worker.js';
 import { StoryService } from '@/services/story.js';
 import { ChaptersService } from '@/services/chapters.js';
 
@@ -415,6 +416,79 @@ router.post('/generate-email-assets', async (req, res) => {
       });
     } else {
       sendErrorResponse(res, 500, 'Failed to create email asset generation job', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Story structure generation
+// ---------------------------------------------------------------------------
+
+const StoryStructureJobSchema = z.object({
+  storyId: z.string().uuid(),
+  userDescription: z.string().optional(),
+  imageObjectPaths: z.array(z.string()).optional(),
+  audioObjectPath: z.string().optional(),
+  characterIds: z.array(z.string().uuid()).optional(),
+  locale: z.string().min(2).max(10).optional(),
+});
+
+/**
+ * POST /jobs/story-structure
+ * Create an async job that turns author input (text + audio + analysed image
+ * metadata) into a structured story (story fields, characters, cropped photos,
+ * cover references). Poll GET /jobs/:jobId for the result.
+ */
+router.post('/story-structure', async (req, res) => {
+  try {
+    const params = StoryStructureJobSchema.parse(req.body);
+
+    const imageCount = params.imageObjectPaths?.length ?? 0;
+    const estimatedDuration = getEstimatedDuration('story_structure', { imageCount });
+
+    const metadata: any = {
+      storyId: params.storyId,
+      operationType: 'story_structure',
+    };
+
+    const jobId = jobManager.createJob('story_structure', metadata, estimatedDuration);
+
+    // Build worker params, omitting undefined keys
+    const jobParams: any = {
+      storyId: params.storyId,
+      imageObjectPaths: params.imageObjectPaths ?? [],
+    };
+    if (params.userDescription !== undefined) jobParams.userDescription = params.userDescription;
+    if (params.audioObjectPath !== undefined) jobParams.audioObjectPath = params.audioObjectPath;
+    if (params.characterIds !== undefined) jobParams.characterIds = params.characterIds;
+    if (params.locale !== undefined) jobParams.locale = params.locale;
+
+    processStoryStructureJob(jobId, jobParams).catch((error: any) => {
+      logger.error('Story structure job processing failed', {
+        jobId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      jobManager.updateJobStatus(
+        jobId,
+        'failed',
+        undefined,
+        error instanceof Error ? error.message : 'Processing failed',
+      );
+    });
+
+    res.json({
+      success: true,
+      jobId,
+      estimatedDuration,
+      message: 'Story structure job created successfully',
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      sendErrorResponse(res, 400, 'Invalid request parameters', { validationErrors: error.issues });
+    } else {
+      sendErrorResponse(res, 500, 'Failed to create story structure job', {
         error: error instanceof Error ? error.message : String(error),
       });
     }

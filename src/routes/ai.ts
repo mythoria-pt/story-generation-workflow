@@ -24,7 +24,6 @@ import {
   prepareCharactersForPrompt,
 } from '@/shared/utils.js';
 import { CharacterService } from '@/services/characters.js';
-import { eq } from 'drizzle-orm';
 import {
   SUPPORTED_TRANSLATION_LOCALES,
   buildTranslatePrompt,
@@ -40,6 +39,10 @@ import {
 import { RunsService } from '@/services/runs.js';
 import { logPromptRefinementFailure, refineImagePrompt } from '@/services/image-prompt-utils.js';
 import { ImageSafetyService } from '@/services/image-safety-service.js';
+import { analyzeInputImage } from '@/services/image-analysis.js';
+import { normalizeToJpeg } from '@/utils/imageProcessing.js';
+import { generateStoryStructure, StructureError } from '@/services/story-structure.js';
+import { persistPromptDebug } from '@/services/prompt-debug.js';
 
 // Initialize services
 const router = Router();
@@ -57,6 +60,16 @@ const CharacterAgeEnum = z.enum(CHARACTER_AGES);
 const CharacterTraitEnum = z.enum(CHARACTER_TRAITS);
 
 const CHARACTER_TRAIT_SET = new Set<string>(CHARACTER_TRAITS);
+
+/** Map an audio MIME type to a sensible file extension for stored input audio. */
+function audioExtFromMime(mime: string): string {
+  const s = (mime || '').toLowerCase();
+  if (s.includes('mpeg') || s.includes('mp3')) return 'mp3';
+  if (s.includes('m4a') || s.includes('mp4') || s.includes('aac')) return 'm4a';
+  if (s.includes('ogg')) return 'ogg';
+  if (s.includes('webm')) return 'webm';
+  return 'wav';
+}
 
 const CHARACTER_TRAIT_ALIASES: Record<string, string> = {
   // Portuguese and common localized variants
@@ -389,6 +402,8 @@ router.post('/text/outline', async (req, res) => {
         storyContext.story.synopsis ||
         'No description provided',
       description: storyContext.story.plotDescription || 'No specific plot description provided.',
+      synopsis: storyContext.story.synopsis || '',
+      additionalRequests: storyContext.story.additionalRequests || '',
       graphicalStyle: storyContext.story.graphicalStyle || 'colorful and vibrant illustration',
       literaryPersonaGuidance: personaGuidance,
       // Placeholder values for template completion
@@ -543,6 +558,17 @@ router.post('/text/outline', async (req, res) => {
         : new Error('Failed to generate outline after retry');
     }
 
+    // Debug: persist the rendered outline prompt to GCS (opt-in via DEBUG_PERSIST_PROMPTS)
+    await persistPromptDebug({
+      storyId,
+      runId,
+      kind: 'outline',
+      label: 'outline',
+      systemInstruction,
+      userPrompt: finalPrompt,
+      metadata: { model: outlineModel, variables: templateVars },
+    });
+
     // Initialize chat context after successful outline (system prompt = condensed outline summary)
     try {
       const condensedOutline =
@@ -612,292 +638,43 @@ router.post('/text/structure', async (req, res) => {
     const RequestSchema = z.object({
       storyId: z.string().uuid(),
       userDescription: z.string().optional(),
+      // New: list of already-uploaded + analysed input image object paths
+      imageObjectPaths: z.array(z.string()).optional(),
+      // Legacy single-image object path (still accepted for back-compat)
       imageObjectPath: z.string().optional(),
       audioObjectPath: z.string().optional(),
-      imageData: z.string().optional(),
-      audioData: z.string().optional(),
-      characterIds: z.array(z.string().uuid()).optional(), // optional array of character IDs to include
+      characterIds: z.array(z.string().uuid()).optional(),
+      locale: z.string().min(2).max(10).optional(),
     });
 
-    const {
-      storyId,
-      userDescription,
-      imageObjectPath,
-      audioObjectPath,
-      imageData,
-      audioData,
-      characterIds,
-    } = RequestSchema.parse(req.body);
+    const parsed = RequestSchema.parse(req.body);
 
-    // Get story and author
-    const storyContext = await storyService.getStoryContext(storyId);
-    if (!storyContext) {
-      logger.warn('AI Text Structure: story not found', { storyId });
-      res.status(404).json({ success: false, error: 'Story not found' });
-      return;
-    }
+    const imageObjectPaths = [
+      ...(parsed.imageObjectPaths ?? []),
+      ...(parsed.imageObjectPath ? [parsed.imageObjectPath] : []),
+    ];
 
-    // Load specified characters (if any)
-    let existingCharacters: any[] = [];
-    if (characterIds && characterIds.length > 0) {
-      // Load only the specified characters and verify they belong to the author
-      const requestedCharacters = await characterService.getCharactersByIds(characterIds);
-      existingCharacters = requestedCharacters.filter(
-        (char) => char.authorId === storyContext.story.authorId,
-      );
-
-      // Log if some characters were filtered out for security
-      if (existingCharacters.length !== characterIds.length) {
-        logger.warn("Some requested characters don't belong to the author", {
-          requestedCount: characterIds.length,
-          validCount: existingCharacters.length,
-          authorId: storyContext.story.authorId,
-        });
-      }
-    }
-
-    // Build prompt
-    const promptTemplate = await PromptService.loadPrompt('en-US', 'text-structure');
-    const defaultPersona = 'classic-novelist';
-    const templateVars = {
-      authorName: '',
-      userDescription: userDescription ?? '',
-      existingCharacters: JSON.stringify(
-        existingCharacters.map((c) => ({
-          characterId: c.characterId,
-          name: c.name,
-          type: c.type ?? undefined,
-          role: undefined,
-          characteristics: c.characteristics ?? undefined,
-          physicalDescription: c.physicalDescription ?? undefined,
-        })),
-      ),
-      literaryPersona: defaultPersona,
-    };
-    const finalPrompt = PromptService.buildPrompt(promptTemplate, templateVars);
-    const structSchema = await SchemaService.loadSchema('story-structure');
-
-    // Model selection
-    let model: string;
-    const textProvider = process.env.TEXT_PROVIDER || 'google-genai';
-    if (textProvider === 'openai') {
-      model = process.env.OPENAI_BASE_MODEL || process.env.OPENAI_TEXT_MODEL || 'gpt-5.5';
-    } else {
-      model = process.env.GOOGLE_GENAI_MODEL || 'gemini-2.5-flash';
-    }
-
-    // Token tracking context
-    const aiContext = {
-      authorId: storyContext.story.authorId,
-      storyId,
-      action: 'story_structure' as const,
-    };
-
-    // Build media parts if we can use Gemini multimodal
-    let aiResponse: string;
-    const canUseGemini =
-      textProvider === 'google-genai' &&
-      (imageObjectPath || audioObjectPath || imageData || audioData);
-    if (canUseGemini) {
-      const storage = getStorageService();
-      const mediaParts: Array<{ mimeType: string; data: Buffer | string }> = [];
-
-      const parseInlineDataUrl = (value?: string): { mimeType: string; data: Buffer } | null => {
-        if (!value || typeof value !== 'string') {
-          return null;
-        }
-
-        const match = /^data:([^;]+);base64,(.*)$/s.exec(value.trim());
-        if (!match || !match[1] || !match[2]) {
-          return null;
-        }
-
-        try {
-          return {
-            mimeType: match[1],
-            data: Buffer.from(match[2], 'base64'),
-          };
-        } catch {
-          return null;
-        }
-      };
-
-      if (imageObjectPath) {
-        const meta = await storage
-          .getFileMetadata(imageObjectPath)
-          .catch(() => ({ contentType: 'image/jpeg' }));
-        const buf = await storage.downloadFileAsBuffer(imageObjectPath);
-        mediaParts.push({
-          mimeType: meta.contentType || 'image/jpeg',
-          data: buf,
-        });
-      } else {
-        const inlineImage = parseInlineDataUrl(imageData);
-        if (inlineImage) {
-          mediaParts.push({
-            mimeType: inlineImage.mimeType,
-            data: inlineImage.data,
-          });
-        }
-      }
-      if (audioObjectPath) {
-        const meta = await storage
-          .getFileMetadata(audioObjectPath)
-          .catch(() => ({ contentType: 'audio/wav' }));
-        const buf = await storage.downloadFileAsBuffer(audioObjectPath);
-        mediaParts.push({
-          mimeType: meta.contentType || 'audio/wav',
-          data: buf,
-        });
-      } else {
-        const inlineAudio = parseInlineDataUrl(audioData);
-        if (inlineAudio) {
-          mediaParts.push({
-            mimeType: inlineAudio.mimeType,
-            data: inlineAudio.data,
-          });
-        }
-      }
-      const { systemInstruction, userPrompt: structurePrompt } = PromptService.buildParts(
-        promptTemplate,
-        templateVars,
-      );
-
-      const structureModel = process.env.GOOGLE_GENAI_MODEL || 'gemini-3.5-flash';
-      aiResponse = await aiGateway.getTextService(aiContext).complete(structurePrompt, {
-        temperature: 1,
-        model: structureModel,
-        jsonSchema: structSchema,
-        mediaParts,
-        thinkingLevel: 'high',
-        systemInstruction,
-      });
-    } else {
-      aiResponse = await aiGateway.getTextService(aiContext).complete(finalPrompt, {
-        temperature: 0.8,
-        model,
-        jsonSchema: structSchema,
-      });
-    }
-
-    const parsed = parseAIResponse(aiResponse) as any;
-
-    if (
-      !parsed ||
-      typeof parsed !== 'object' ||
-      !parsed.story ||
-      !Array.isArray(parsed.characters)
-    ) {
-      logger.error('Invalid structure response', {
-        receivedKeys: parsed ? Object.keys(parsed) : null,
-      });
-      res.status(500).json({ success: false, error: 'Invalid structured response from AI' });
-      return;
-    }
-
-    // Persist story fields (subset already used by app)
-    const updates: Record<string, unknown> = {};
-    parsed.story.literaryPersona = defaultPersona;
-
-    if (parsed.story.title) updates.title = parsed.story.title;
-    if (parsed.story.plotDescription) updates.plotDescription = parsed.story.plotDescription;
-    if (parsed.story.synopsis) updates.synopsis = parsed.story.synopsis;
-    if (parsed.story.place) updates.place = parsed.story.place;
-    if (parsed.story.additionalRequests)
-      updates.additionalRequests = parsed.story.additionalRequests;
-    if (parsed.story.targetAudience) updates.targetAudience = parsed.story.targetAudience;
-    if (parsed.story.novelStyle) updates.novelStyle = parsed.story.novelStyle;
-    if (parsed.story.graphicalStyle) updates.graphicalStyle = parsed.story.graphicalStyle;
-    updates.literaryPersona = defaultPersona;
-    if (parsed.story.storyLanguage) updates.storyLanguage = parsed.story.storyLanguage;
-
-    // Direct DB update via webapp schema synced to SGW
-    try {
-      const { getDatabase } = await import('@/db/connection.js');
-      const { stories } = await import('@/db/schema/index.js');
-      await getDatabase()
-        .update(stories)
-        .set({ ...updates, updatedAt: new Date() })
-        .where(eq(stories.storyId, storyId));
-    } catch (dbErr) {
-      logger.error('Failed updating story with structured fields', {
-        error: dbErr instanceof Error ? dbErr.message : String(dbErr),
-      });
-      // Continue; characters can still be created/linked
-    }
-
-    // Characters create/reuse + link
-    const processedCharacters: any[] = [];
-    for (const ch of parsed.characters as any[]) {
-      let record: any | null = null;
-      // Only accept UUIDs; models may emit placeholders like "character_1"
-      const isUuid =
-        typeof ch.characterId === 'string' &&
-        /^(?!00000000-0000-0000-0000-000000000000)[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/.test(
-          ch.characterId,
-        );
-      if (isUuid) {
-        try {
-          record = await characterService.getCharacterById(ch.characterId);
-        } catch (e) {
-          logger.warn('Invalid or not found characterId; creating new character', {
-            providedId: ch.characterId,
-            error: e instanceof Error ? e.message : String(e),
-          });
-        }
-      }
-      if (!record) {
-        // Keep photoUrl only if it points to our GCS bucket; drop external links (e.g., imgur)
-        let safePhotoUrl: string | undefined;
-        if (typeof ch.photoUrl === 'string') {
-          try {
-            const u = new URL(ch.photoUrl);
-            const isGcs = u.hostname === 'storage.googleapis.com';
-            const bucket = process.env.STORAGE_BUCKET_NAME;
-            if (isGcs && bucket && u.pathname.startsWith(`/${bucket}/`)) {
-              safePhotoUrl = ch.photoUrl;
-            }
-          } catch {
-            // ignore invalid URLs
-          }
-        }
-        const createPayload: any = {
-          name: ch.name,
-          authorId: storyContext.story.authorId,
-          type: ch.type,
-          role: ch.role,
-          age: ch.age,
-          traits: Array.isArray(ch.traits) ? ch.traits : undefined,
-          characteristics: ch.characteristics,
-          physicalDescription: ch.physicalDescription,
-        };
-        if (safePhotoUrl) createPayload.photoUrl = safePhotoUrl;
-        record = await characterService.createCharacter(createPayload);
-      }
-      if (record) {
-        try {
-          await characterService.addCharacterToStory(storyId, record.characterId, ch.role);
-        } catch (linkErr) {
-          logger.warn('Character may already be linked to story', {
-            storyId,
-            characterId: record.characterId,
-            error: linkErr instanceof Error ? linkErr.message : String(linkErr),
-          });
-        }
-        processedCharacters.push({ ...record, role: ch.role ?? undefined });
-      }
-    }
+    const result = await generateStoryStructure({
+      storyId: parsed.storyId,
+      ...(parsed.userDescription !== undefined && { userDescription: parsed.userDescription }),
+      imageObjectPaths,
+      ...(parsed.audioObjectPath !== undefined && { audioObjectPath: parsed.audioObjectPath }),
+      ...(parsed.characterIds !== undefined && { characterIds: parsed.characterIds }),
+      ...(parsed.locale !== undefined && { locale: parsed.locale }),
+    });
 
     res.json({
       success: true,
-      storyId,
-      story: { ...updates, storyId },
-      characters: processedCharacters,
-      originalInput: userDescription ?? '',
+      ...result,
       message: 'Story structure generated successfully.',
     });
   } catch (error) {
-    res.status(500).json({
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ success: false, error: error.message });
+      return;
+    }
+    const statusCode = error instanceof StructureError ? error.statusCode : 500;
+    res.status(statusCode).json({
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
     });
@@ -1089,27 +866,62 @@ router.post('/media/analyze-character-photo', async (req, res) => {
 });
 
 /**
+ * POST /ai/media/analyze-image
+ * Analyse a previously-uploaded input image (already stored in GCS) and persist
+ * sibling `.json` metadata next to it. Idempotent: re-calling overwrites the JSON.
+ * Body: { objectPath: string, locale?: string, authorId?: uuid }
+ */
+router.post('/media/analyze-image', async (req, res) => {
+  try {
+    const Schema = z.object({
+      objectPath: z.string().min(1),
+      locale: z.string().min(2).max(10).optional(),
+      authorId: z.string().uuid().optional(),
+    });
+    const { objectPath, locale, authorId } = Schema.parse(req.body);
+
+    const metadata = await analyzeInputImage(
+      objectPath,
+      locale || 'en-US',
+      authorId ? { authorId } : undefined,
+    );
+
+    res.json({ success: true, objectPath, metadata });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ success: false, error: error.message });
+      return;
+    }
+
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.error('Failed to analyze input image', { error: errorMessage });
+
+    if (errorMessage.includes('timed out')) {
+      res
+        .status(504)
+        .json({ success: false, error: 'Image analysis timed out. Please try again.' });
+      return;
+    }
+
+    res.status(500).json({ success: false, error: 'Failed to analyze image' });
+  }
+});
+
+/**
  * POST /ai/media/upload
- * Server-side upload: accepts base64 data and stores in GCS. No signed URLs.
- * Body: { storyId: uuid, kind: 'image'|'audio', contentType: string, filename?: string, dataUrl: string }
+ * Server-side upload: accepts base64 data and stores it in GCS under the author's
+ * inputs folder. Images are normalised to JPEG (<=2048px, q95) before storage.
+ * Body: { authorId: uuid, kind: 'image'|'audio', contentType: string, dataUrl: string }
  */
 router.post('/media/upload', async (req, res) => {
   try {
     const Schema = z.object({
-      storyId: z.string().uuid(),
+      authorId: z.string().uuid(),
       kind: z.enum(['image', 'audio']),
       contentType: z.string().min(3),
-      filename: z.string().optional(),
       dataUrl: z.string().min(10),
     });
-    const { storyId, kind, contentType, filename, dataUrl } = Schema.parse(req.body);
-
-    // Ensure story exists
-    const storyContext = await storyService.getStoryContext(storyId);
-    if (!storyContext) {
-      res.status(404).json({ success: false, error: 'Story not found' });
-      return;
-    }
+    const { authorId, kind, contentType, dataUrl } = Schema.parse(req.body);
 
     // Decode data URL or raw base64
     let mime = contentType;
@@ -1119,18 +931,32 @@ router.post('/media/upload', async (req, res) => {
       mime = (match[1] as string) || contentType;
       b64 = (match[2] as string) || dataUrl;
     }
-    const buffer = Buffer.from(b64, 'base64');
+    const rawBuffer = Buffer.from(b64, 'base64');
 
-    // Build object path and upload
-    const folder = `${storyId}/inputs`;
-    const defaultExt = kind === 'image' ? 'jpg' : 'wav';
-    const safeName =
-      filename && filename.trim().length > 0 ? filename : `${kind}-${Date.now()}.${defaultExt}`;
-    const objectPath = `${folder}/${safeName}`;
+    // Store under the author's inputs folder with a unique id
+    const id = randomUUID();
+    const folder = `${authorId}/inputs`;
 
-    const publicUrl = await storageService.uploadFile(objectPath, buffer, mime);
+    let objectPath: string;
+    let buffer: Buffer;
+    let storedMime: string;
 
-    res.json({ success: true, storyId, kind, objectPath, publicUrl });
+    if (kind === 'image') {
+      // Normalise to JPEG (<=2048px longest side, q95) before storing so the
+      // stored bytes are stable for analysis + cropping.
+      const normalized = await normalizeToJpeg(rawBuffer);
+      buffer = normalized.buffer;
+      storedMime = 'image/jpeg';
+      objectPath = `${folder}/${id}.jpg`;
+    } else {
+      buffer = rawBuffer;
+      storedMime = mime;
+      objectPath = `${folder}/${id}.${audioExtFromMime(mime)}`;
+    }
+
+    const publicUrl = await storageService.uploadFile(objectPath, buffer, storedMime);
+
+    res.json({ success: true, authorId, kind, objectPath, publicUrl });
   } catch (error) {
     res.status(400).json({
       success: false,
@@ -1273,6 +1099,7 @@ router.post('/text/chapter/:chapterNumber', async (req, res) => {
       novelStyle: storyContext.story.novelStyle || 'adventure',
       averageAge: formatTargetAudience(storyContext.story.targetAudience),
       description: storyContext.story.plotDescription || storyContext.story.synopsis || '',
+      additionalRequests: storyContext.story.additionalRequests || '',
       chapterSynopses: chapterSynopses,
       language: getLanguageName(storyContext.story.storyLanguage),
       chapterCount: chapterCount?.toString() || '10',
@@ -1329,6 +1156,20 @@ router.post('/text/chapter/:chapterNumber', async (req, res) => {
       promptTemplate,
       finalTemplateVariables,
     );
+
+    // Debug: persist the rendered chapter prompt to GCS (opt-in via DEBUG_PERSIST_PROMPTS).
+    // Record fullHistory length only — its full text already lives in the .txt artifact.
+    await persistPromptDebug({
+      storyId,
+      runId,
+      kind: 'chapter',
+      label: `text_chapter_${chapterNumber}`,
+      systemInstruction,
+      userPrompt: chapterPrompt,
+      metadata: {
+        variables: { ...templateVariables, fullHistoryLength: fullHistory.length },
+      },
+    });
 
     // Create context for token tracking
     const chapterContext = {
@@ -1717,6 +1558,20 @@ router.post('/image', async (req, res) => {
         });
       }
 
+      // Cover-relevant user photos: original input photos that the structure
+      // step flagged as relevant for the cover. Applied only to cover images;
+      // chapters rely on the cover + previous-chapter images for continuity.
+      if (storyRecord && (imageType === 'front_cover' || imageType === 'back_cover')) {
+        const coverRefs = (storyRecord as { coverReferenceUris?: string[] | null })
+          .coverReferenceUris;
+        if (Array.isArray(coverRefs)) {
+          for (const uri of coverRefs) {
+            if (referenceImages.length >= MAX_REFERENCE_IMAGES) break;
+            await addRef(uri, 'cover_reference');
+          }
+        }
+      }
+
       // Secondary preference: existing cover/back/previous chapter references
       if (storyRecord) {
         if (imageType === 'back_cover') {
@@ -1865,6 +1720,34 @@ router.post('/image', async (req, res) => {
       } else {
         throw effectiveError;
       }
+    }
+
+    // Debug: persist the image prompt actually sent to the model (opt-in via DEBUG_PERSIST_PROMPTS)
+    {
+      const imageLabel =
+        imageType === 'chapter' && typeof chapterNumber === 'number'
+          ? `image_chapter_${chapterNumber}`
+          : `image_${imageType ?? 'unknown'}`;
+      await persistPromptDebug({
+        storyId,
+        runId,
+        kind: 'image',
+        label: imageLabel,
+        userPrompt: finalPrompt,
+        metadata: {
+          imageType,
+          chapterNumber,
+          originalPrompt,
+          customInstructions,
+          graphicalStyle: storyContext.story.graphicalStyle,
+          style,
+          referenceImageSources: referenceImages.map((r) => r.source),
+          promptRewriteAttempted,
+          promptRewriteApplied,
+          fallbackPromptUsed,
+          promptRewriteError,
+        },
+      });
     }
 
     currentStep = 'preparing_upload';

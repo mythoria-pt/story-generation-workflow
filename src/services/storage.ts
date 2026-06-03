@@ -232,6 +232,48 @@ export class StorageService {
   }
 
   /**
+   * Copy a file within the bucket (server-side GCS copy, no download).
+   * Returns the public URL of the destination.
+   */
+  async copyFile(source: string, destination: string): Promise<string> {
+    try {
+      const bucket = this.storage.bucket(this.bucketName);
+      await bucket.file(source).copy(bucket.file(destination));
+      const publicUrl = `https://storage.googleapis.com/${this.bucketName}/${destination}`;
+      logger.info('File copied successfully', { source, destination });
+      return publicUrl;
+    } catch (error) {
+      const errorDetails = handleGCSError(error, {
+        source,
+        destination,
+        bucketName: this.bucketName,
+        operation: 'copyFile',
+      });
+      logger.error('Failed to copy file', errorDetails);
+      throw error;
+    }
+  }
+
+  /**
+   * Move a file within the bucket (copy then delete the source).
+   * Returns the public URL of the destination.
+   */
+  async moveFile(source: string, destination: string): Promise<string> {
+    const publicUrl = await this.copyFile(source, destination);
+    try {
+      await this.deleteFile(source);
+    } catch (error) {
+      // Destination is in place; a leftover source is non-fatal.
+      logger.warn('Moved file but failed to delete source', {
+        source,
+        destination,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    return publicUrl;
+  }
+
+  /**
    * Check if a file exists
    */
   async fileExists(filename: string): Promise<boolean> {

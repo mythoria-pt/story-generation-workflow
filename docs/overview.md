@@ -39,7 +39,8 @@ Key services:
 
 - **End-to-end story orchestration** — Outline, write, illustrate, assemble, narrate, and print from a single workflow run.
 - **Provider flexibility** — AI gateway swaps text/image providers per env while preserving token tracking and prompt history.
-- **Multi-modal jobs** — `/api/jobs/*` enables async edits, translations, and image fixes without blocking Cloud Run workers.
+- **Multi-modal jobs** — `/api/jobs/*` enables async edits, translations, image fixes, and **story structuring** without blocking Cloud Run workers.
+- **Image understanding** — User input photos are analysed up front (type, description, OCR, detected characters with bounding boxes) and stored as sibling `.json` in GCS; metadata personalises structuring, seeds **cropped character photos**, and flags **cover-relevant photos**. Analysis provider via `IMAGE_ANALYZER_PROVIDER` (fallback `IMAGE_PROVIDER`).
 - **Print-ready output** — Cover + interior PDFs plus CMYK conversions stored under each story’s folder.
 - **Audiobook pipeline** — Chapter-level TTS writes `audioUri` fields directly to chapters, enabling resumable narration.
 - **Editing + safety tooling** — Prompt rewrite templates, retry heuristics, and image-edit utilities keep runs compliant and recoverable.

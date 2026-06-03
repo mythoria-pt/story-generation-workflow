@@ -167,8 +167,8 @@ paths:
   /ai/media/upload:
     post:
       tags: [AI]
-      summary: Upload media to story inputs bucket
-      description: Accepts a base64-encoded asset and stores it in Google Cloud Storage under the story inputs folder.
+      summary: Upload media to the author inputs bucket
+      description: Accepts a base64-encoded asset and stores it under {authorId}/inputs/{uuid}. Images are normalised to JPEG (<=2048px longest side, q95) before storage.
       security:
         - ApiKeyAuth: []
       requestBody:
@@ -176,14 +176,19 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/MediaUploadRequest'
+              type: object
+              required: [authorId, kind, contentType, dataUrl]
+              properties:
+                authorId: { type: string, format: uuid }
+                kind: { type: string, enum: [image, audio] }
+                contentType: { type: string }
+                dataUrl: { type: string }
             examples:
               image:
                 value:
-                  storyId: f2b0c4e2-05d4-4f74-b0a1-7f6314b8f5f3
+                  authorId: f2b0c4e2-05d4-4f74-b0a1-7f6314b8f5f3
                   kind: image
                   contentType: image/jpeg
-                  filename: reference.jpg
                   dataUrl: data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD...
       responses:
         '200':
@@ -200,6 +205,70 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
           description: Story context missing for the provided story identifier.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /ai/media/analyze-image:
+    post:
+      tags: [AI]
+      summary: Analyse an uploaded input image
+      description: Runs Gen AI over a previously-uploaded input image and persists sibling .json metadata (type, description, OCR text, detected characters with bounding boxes). Idempotent. Provider via IMAGE_ANALYZER_PROVIDER (fallback IMAGE_PROVIDER).
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [objectPath]
+              properties:
+                objectPath:
+                  type: string
+                  description: GCS object path of the uploaded image (e.g. {authorId}/inputs/{uuid}.jpg).
+                locale:
+                  type: string
+                  description: Locale for the description language (default en-US).
+                authorId:
+                  type: string
+                  format: uuid
+      responses:
+        '200':
+          description: Metadata extracted and persisted.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  objectPath: { type: string }
+                  metadata:
+                    type: object
+                    properties:
+                      overallImageContent: { type: string, enum: [photo, drawing, text] }
+                      description: { type: string }
+                      text: { type: string }
+                      characters:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            label: { type: string }
+                            type: { type: string }
+                            age: { type: string }
+                            physicalDescription: { type: string }
+                            box_2d:
+                              type: array
+                              items: { type: integer }
+        '400':
+          description: Invalid payload.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '504':
+          description: Analysis timed out.
           content:
             application/json:
               schema:
@@ -552,6 +621,50 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/TextEditJobRequest'
+      responses:
+        '200':
+          description: Job created successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobCreationResponse'
+        '400':
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Job creation failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/jobs/story-structure:
+    post:
+      tags: [Jobs]
+      summary: Create a story-structure job
+      description: Asynchronously turns text + audio + analysed image metadata into structured story metadata and characters (crops character photos from source images, flags cover-relevant photos). Poll GET /api/jobs/{jobId} for the result. Image bytes are not sent to the model.
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [storyId]
+              properties:
+                storyId: { type: string, format: uuid }
+                userDescription: { type: string }
+                imageObjectPaths:
+                  type: array
+                  items: { type: string }
+                audioObjectPath: { type: string }
+                characterIds:
+                  type: array
+                  items: { type: string, format: uuid }
+                locale: { type: string }
       responses:
         '200':
           description: Job created successfully.

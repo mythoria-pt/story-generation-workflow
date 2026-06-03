@@ -1,5 +1,9 @@
-# Use official Node.js 24 LTS Alpine image for build stage (pinned version for stability)
-FROM node:24.15.0-alpine AS builder
+# Use Debian slim (glibc) for build stage to match runtime environment
+# and ensure native binaries (e.g. sharp) are compiled for the correct libc
+FROM node:24.15.0-slim AS builder
+
+# Skip Puppeteer browser download during npm ci — Chrome is installed in the runtime stage
+ENV PUPPETEER_SKIP_DOWNLOAD=true
 
 # Set working directory
 WORKDIR /app

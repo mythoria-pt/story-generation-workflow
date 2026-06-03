@@ -54,6 +54,7 @@ const envSchema = z.object({
   LOG_LEVEL: z.enum(['error', 'warn', 'info', 'debug']).optional().default('info'),
   DEBUG_AI_FULL_PROMPTS: z.string().optional().default('false'),
   DEBUG_AI_FULL_RESPONSES: z.string().optional().default('false'),
+  DEBUG_PERSIST_PROMPTS: z.string().optional().default('false'),
   /** Required in production; middleware reads process.env directly. Empty allowed for some test contexts. */
   STORY_GENERATION_WORKFLOW_API_KEY: z.string().default(''),
   TEXT_PROVIDER: z.enum(['openai', 'google-genai']).optional().default('google-genai'),

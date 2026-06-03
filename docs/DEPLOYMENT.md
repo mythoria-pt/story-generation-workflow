@@ -30,8 +30,10 @@ pwsh -NoProfile -Command "npm run deploy"   # container + workflow
 | Region            | `europe-west9`                                                                                                                                                     |
 | Min/Max instances | 0 / auto                                                                                                                                                           |
 | CPU/Memory        | 2 vCPU / 2 GiB (increase to 4 GiB when running heavy CMYK conversions)                                                                                             |
-| Env vars          | `NODE_ENV=production`, `PORT=8080`, `GOOGLE_CLOUD_PROJECT_ID`, `GOOGLE_CLOUD_REGION`, `TEXT_PROVIDER`, `IMAGE_PROVIDER`, `STORY_GENERATION_WORKFLOW_API_KEY`, etc. |
+| Env vars          | `NODE_ENV=production`, `PORT=8080`, `GOOGLE_CLOUD_PROJECT_ID`, `GOOGLE_CLOUD_REGION`, `TEXT_PROVIDER`, `IMAGE_PROVIDER`, `IMAGE_ANALYZER_PROVIDER` (optional — selects the vision model for input-image analysis; fallback `IMAGE_PROVIDER`), `STORY_GENERATION_WORKFLOW_API_KEY`, etc. |
 | Secrets           | Map DB creds, storage bucket, AI keys, Ghostscript path via Secret Manager; never bake secrets into the image.                                                     |
+| Native deps       | `sharp` (image resize/crop) ships prebuilt Linux binaries installed during the Docker build — no extra system packages required.                                  |
+| Migrations        | Apply `../mythoria-webapp/drizzle` (main DB — adds `stories.cover_reference_uris`) and `./drizzle-workflows` (adds `ai_action_type` value `image_analysis`) with the deploy. |
 
 Recommended secret bindings:
 

@@ -1,0 +1,52 @@
+{
+  "type": "object",
+  "properties": {
+    "overallImageContent": {
+      "type": "string",
+      "enum": ["photo", "drawing", "text"],
+      "description": "Dominant content type of the image. 'photo' = photograph of a person/object/scenery; 'drawing' = a hand drawing, sketch, schematic or poster; 'text' = a document/sheet whose main content is written text. If mixed, pick the most prominent."
+    },
+    "description": {
+      "type": "string",
+      "description": "Complete, detailed description of the image content (up to 4 paragraphs). Describe people, animals, objects, setting, mood, colours and any notable details that could inform a story."
+    },
+    "text": {
+      "type": "string",
+      "description": "Full OCR transcription of every piece of text visible in the image, preserving the original language. Reasonably estimate unreadable or partially obscured text. Empty string if there is no text."
+    },
+    "characters": {
+      "type": "array",
+      "description": "Every distinct person or animal visible in the image. Empty array if none.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "description": "Short stable identifier for this character within the image, e.g. 'person_1', 'dog_1'."
+          },
+          "type": {
+            "type": "string",
+            "description": "Kind of character, e.g. 'human', 'child', 'man', 'woman', 'boy', 'girl', 'dog', 'cat', 'bird', 'other_animal'."
+          },
+          "age": {
+            "type": "string",
+            "description": "Estimated age or age range, e.g. 'child (~6)', 'young adult (20s)', 'elderly'."
+          },
+          "physicalDescription": {
+            "type": "string",
+            "description": "Vivid physical description: build, hair colour/style, eye colour, skin tone, distinctive permanent features (e.g. glasses). For animals: breed, fur/colour, size. Do not describe transient pose."
+          },
+          "box_2d": {
+            "type": "array",
+            "description": "Bounding box around the character as exactly four integers [ymin, xmin, ymax, xmax], each normalised to a 0-1000 grid relative to the image.",
+            "items": { "type": "integer" },
+            "minItems": 4,
+            "maxItems": 4
+          }
+        },
+        "required": ["label", "type", "physicalDescription", "box_2d"]
+      }
+    }
+  },
+  "required": ["overallImageContent", "description", "text", "characters"]
+}

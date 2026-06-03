@@ -100,6 +100,23 @@ export class CharacterService {
     }
   }
 
+  async updateCharacterPhoto(characterId: string, photoUrl: string, photoGcsUri: string) {
+    try {
+      const [row] = await this.db
+        .update(characters)
+        .set({ photoUrl, photoGcsUri })
+        .where(eq(characters.characterId, characterId))
+        .returning();
+      return row || null;
+    } catch (error) {
+      logger.error('Failed to update character photo', {
+        error: error instanceof Error ? error.message : String(error),
+        characterId,
+      });
+      throw error;
+    }
+  }
+
   async addCharacterToStory(storyId: string, characterId: string, role?: string) {
     try {
       // Check if already linked

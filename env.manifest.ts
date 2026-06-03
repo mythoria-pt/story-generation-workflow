@@ -281,6 +281,14 @@ export const envManifest: EnvVarDescriptor[] = [
     scopes: ['dev', 'runtime', 'prod'],
     default: 'false',
   },
+  {
+    name: 'DEBUG_PERSIST_PROMPTS',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    default: 'false',
+    source: 'substitution',
+    note: 'If true, persist rendered generation prompts to GCS under {storyId}/prompts/ for debugging. Avoid true in production.',
+  },
 
   // TTS
   {

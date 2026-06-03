@@ -7,6 +7,7 @@ This guide consolidates how Story Generation Workflow talks to Google GenAI and 
 | Concern           | Implementation                                                                                                                                                                                                 |
 | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Runtime selection | `TEXT_PROVIDER` and `IMAGE_PROVIDER` environment variables toggle Google GenAI or OpenAI at runtime. The AI gateway (`src/ai/gateway.ts`) lazily instantiates providers and injects token tracking middleware. |
+| Image analysis    | The vision-language model used to analyse input images is selected by `IMAGE_ANALYZER_PROVIDER` (fallback `IMAGE_PROVIDER`, then `google-genai`) via `getImageAnalysisTextService` in `src/ai/gateway-with-tracking.ts`. OpenAI has no multimodal support yet, so an `openai` selection falls back to google-genai. |
 | Models in use     | Text defaults to Gemini 2.5 Flash or GPT‑4.1 depending on provider; images stream through Imagen 4.0 Ultra or DALL·E 3; TTS leverages OpenAI voices (e.g., `coral`).                                           |
 | Context + state   | Prompt sessions are keyed by `<storyId>:<runId>`; `/ai/text/context/clear` must be called when workflows finish to avoid stale context bleed.                                                                  |
 | Token telemetry   | Each AI call records an entry in `token_usage_tracking` with `action` (`outline`, `chapter`, `image`, `prompt_rewrite`, etc.) so we can budget costs or debug spikes.                                          |
@@ -31,6 +32,11 @@ All templates live under `src/prompts/` and are rendered via `PromptService`. Ke
 
 - `<character_consistency_rules>` mandates every illustration prompt include age, hair, eye color, clothing, and distinctive features for each visible character. Examples show acceptable phrasing.
 - `<prompt_structure_guidelines>` forces a four-part description (setting, characters, action, mood) to stabilize scene composition.
+
+### Image analysis + structuring (`src/prompts/image-analysis.json`, `src/prompts/en-US/text-structure.json`)
+
+- `image-analysis.json` (shared) instructs the model to return ONLY JSON matching `schemas/image-metadata.json`: `overallImageContent` (photo/drawing/text), a detailed `description`, full OCR `text`, and detected `characters[]` — each with a `box_2d` of `[ymin, xmin, ymax, xmax]` normalised to a 0–1000 grid. The result is persisted as `{input}.json` in GCS and reused on later runs.
+- `text-structure.json` consumes that metadata via `{{imageMetadata}}`: it personalises the story, links a character to its source photo through `sourceImagePath` + `sourceCharacterIndex` (used to crop the real photo with `sharp` into a character photo), and lists cover-relevant photos in `story.coverReferenceImages` / `backCoverReferenceImages`. Image bytes are never sent to the structuring model — only the extracted metadata text (plus audio, when present).
 
 ### Image editing prompts
 
