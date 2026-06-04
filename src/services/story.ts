@@ -40,6 +40,8 @@ export interface StoryContext {
     traits?: string[] | undefined;
     characteristics?: string | undefined;
     physicalDescription?: string | undefined;
+    photoUrl?: string | undefined;
+    photoGcsUri?: string | undefined;
   }>;
 }
 
@@ -106,6 +108,8 @@ export class StoryService {
           traits: characters.traits,
           characteristics: characters.characteristics,
           physicalDescription: characters.physicalDescription,
+          photoUrl: characters.photoUrl,
+          photoGcsUri: characters.photoGcsUri,
           role: storyCharacters.role,
         })
         .from(storyCharacters)
@@ -145,6 +149,8 @@ export class StoryService {
           ...(Array.isArray(char.traits) && char.traits.length ? { traits: char.traits } : {}),
           ...(char.characteristics ? { characteristics: char.characteristics } : {}),
           ...(char.physicalDescription ? { physicalDescription: char.physicalDescription } : {}),
+          ...(char.photoUrl ? { photoUrl: char.photoUrl } : {}),
+          ...(char.photoGcsUri ? { photoGcsUri: char.photoGcsUri } : {}),
         })),
       };
     } catch (error) {

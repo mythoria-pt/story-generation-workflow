@@ -708,7 +708,7 @@ router.post('/media/character-photo', async (req, res) => {
     const base64Payload = match[1];
     const buffer = Buffer.from(base64Payload, 'base64');
     const uploadVersion = `${Date.now()}-${randomUUID().replace(/-/g, '').slice(0, 12)}`;
-    const objectPath = `characters/${authorId}/${characterId}/${uploadVersion}.jpg`;
+    const objectPath = `${authorId}/characters/${characterId}/${uploadVersion}.jpg`;
 
     const publicUrl = await storageService.uploadFile(objectPath, buffer, 'image/jpeg', {
       cacheControl: 'public, max-age=31536000',
@@ -737,12 +737,15 @@ router.delete('/media/character-photo', async (req, res) => {
     const { gcsPath } = Schema.parse(req.body);
 
     const normalizedPath = gcsPath.trim();
-    const isCharactersPath = normalizedPath.startsWith('characters/');
+    const legacyCharactersPath = /^characters\/[^/]+\/[^/]+\/[^/]+\.jpe?g$/i;
+    const authorScopedCharactersPath = /^[^/]+\/characters\/[^/]+\/[^/]+\.jpe?g$/i;
+    const isCharactersPath =
+      legacyCharactersPath.test(normalizedPath) || authorScopedCharactersPath.test(normalizedPath);
     const hasTraversal = normalizedPath.includes('..');
     if (!isCharactersPath || hasTraversal) {
       res.status(400).json({
         success: false,
-        error: 'Invalid gcsPath; must start with characters/ and not contain ..',
+        error: 'Invalid gcsPath; must be a character photo path and not contain ..',
       });
       return;
     }
@@ -1461,27 +1464,43 @@ router.post('/image', async (req, res) => {
       const storage = getStorageService();
       const bucketName = process.env.STORAGE_BUCKET_NAME;
 
-      const isSupportedGcsUrl = (url: string): boolean => {
-        if (!bucketName) return false;
-        if (url.startsWith(`gs://${bucketName}/`)) return true;
+      const getSupportedGcsObjectPath = (uri: string): string | null => {
+        const value = uri.trim();
+        if (!value || value.includes('..')) return null;
+
+        if (bucketName && value.startsWith(`gs://${bucketName}/`)) {
+          return value.slice(`gs://${bucketName}/`.length);
+        }
+
         try {
-          const parsed = new URL(url);
-          return (
+          const parsed = new URL(value);
+          if (
+            bucketName &&
             parsed.hostname === 'storage.googleapis.com' &&
             parsed.pathname.startsWith(`/${bucketName}/`)
-          );
+          ) {
+            return parsed.pathname.slice(`/${bucketName}/`.length);
+          }
+
+          if (
+            bucketName &&
+            parsed.hostname === `${bucketName}.storage.googleapis.com` &&
+            parsed.pathname.length > 1
+          ) {
+            return parsed.pathname.slice(1);
+          }
+
+          return null;
         } catch {
-          return false;
+          if (value.startsWith('/') || value.includes('://')) return null;
+          return value;
         }
       };
 
       const addRef = async (uri: string | null | undefined, source: string) => {
         if (!uri) return;
         if (referenceImages.length >= MAX_REFERENCE_IMAGES) return;
-        if (!isSupportedGcsUrl(uri)) {
-          return;
-        }
-        const filename = extractFilenameFromUri(uri);
+        const filename = getSupportedGcsObjectPath(uri);
         if (!filename || seenReferenceFiles.has(filename)) return;
         const lower = filename.toLowerCase();
         if (!lower.endsWith('.jpg') && !lower.endsWith('.jpeg')) return;
@@ -1543,8 +1562,10 @@ router.post('/image', async (req, res) => {
           if (uniqueIds.length > 0) {
             const charactersWithPhotos = await characterService.getCharactersByIds(uniqueIds);
             for (const character of charactersWithPhotos) {
-              if (!character.photoUrl || !isSupportedGcsUrl(character.photoUrl)) continue;
-              await addRef(character.photoUrl, `character:${character.characterId}`);
+              await addRef(
+                character.photoGcsUri || character.photoUrl,
+                `character:${character.characterId}`,
+              );
               if (referenceImages.length >= MAX_REFERENCE_IMAGES) break;
             }
           }

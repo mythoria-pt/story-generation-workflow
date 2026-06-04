@@ -120,11 +120,11 @@ async function cropCharacterPhoto(
   const cropped = await cropToJpeg(original, detected.box_2d);
 
   const version = `${Date.now()}-${randomUUID().replace(/-/g, '').slice(0, 12)}`;
-  const objectPath = `characters/${authorId}/${characterId}/${version}.jpg`;
+  const objectPath = `${authorId}/characters/${characterId}/${version}.jpg`;
   const publicUrl = await storage.uploadFile(objectPath, cropped, 'image/jpeg', {
     cacheControl: 'public, max-age=31536000',
   });
-  await characterService.updateCharacterPhoto(characterId, publicUrl, objectPath);
+  await characterService.updateCharacterPhoto(characterId, objectPath, objectPath);
 
   logger.info('Cropped character photo from input image', {
     characterId,
@@ -367,7 +367,10 @@ export async function generateStoryStructure(
   const textProvider = process.env.TEXT_PROVIDER || 'google-genai';
   let aiResponse: string;
   if (textProvider === 'google-genai') {
-    const { systemInstruction, userPrompt } = PromptService.buildParts(promptTemplate, templateVars);
+    const { systemInstruction, userPrompt } = PromptService.buildParts(
+      promptTemplate,
+      templateVars,
+    );
     const structureModel = process.env.GOOGLE_GENAI_MODEL || 'gemini-3.5-flash';
     aiResponse = await aiGateway.getTextService(aiContext).complete(userPrompt, {
       temperature: 1,
@@ -414,16 +417,14 @@ export async function generateStoryStructure(
   const photoPaths = new Set(
     imageMetas.filter((m) => m.overallImageContent === 'photo').map((m) => m.path),
   );
-  const toUri = (p: string) =>
-    bucket ? `https://storage.googleapis.com/${bucket}/${p}` : p;
+  const toUri = (p: string) => (bucket ? `https://storage.googleapis.com/${bucket}/${p}` : p);
   const flaggedPaths = [
     ...(Array.isArray(parsed.story.coverReferenceImages) ? parsed.story.coverReferenceImages : []),
     ...(Array.isArray(parsed.story.backCoverReferenceImages)
       ? parsed.story.backCoverReferenceImages
       : []),
   ].filter(
-    (p: unknown): p is string =>
-      typeof p === 'string' && providedPaths.has(p) && photoPaths.has(p),
+    (p: unknown): p is string => typeof p === 'string' && providedPaths.has(p) && photoPaths.has(p),
   );
   const coverReferenceUris = Array.from(new Set(flaggedPaths)).map(toUri);
   updates.coverReferenceUris = coverReferenceUris.length ? coverReferenceUris : null;

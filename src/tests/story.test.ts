@@ -91,6 +91,8 @@ describe('StoryService', () => {
         traits: null,
         characteristics: null,
         physicalDescription: null,
+        photoUrl: 'a1/characters/c1/v1.jpg',
+        photoGcsUri: 'a1/characters/c1/v1.jpg',
         role: 'lead',
       },
     ];
@@ -112,6 +114,7 @@ describe('StoryService', () => {
     const result = await service.getStoryContext('s1');
     expect(result?.story.title).toBe('Title');
     expect(result?.characters).toHaveLength(1);
+    expect(result?.characters[0]?.photoGcsUri).toBe('a1/characters/c1/v1.jpg');
     expect(logger.info).toHaveBeenCalled();
   });
 

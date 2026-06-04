@@ -45,7 +45,7 @@ const app = express();
 app.use(express.json({ limit: '10mb' }));
 app.use('/ai', aiRouter);
 
-describe('POST /ai/media/character-photo', () => {
+describe('/ai/media/character-photo', () => {
   const authorId = '00000000-0000-4000-8000-000000000001';
   const characterId = '00000000-0000-4000-8000-000000000002';
   const dataUrl = `data:image/jpeg;base64,${Buffer.from('photo-bytes').toString('base64')}`;
@@ -77,7 +77,7 @@ describe('POST /ai/media/character-photo', () => {
 
     for (const body of [first.body, second.body]) {
       expect(body.gcsPath).toEqual(
-        expect.stringContaining(`characters/${authorId}/${characterId}/`),
+        expect.stringContaining(`${authorId}/characters/${characterId}/`),
       );
       expect(body.gcsPath).toEqual(expect.stringMatching(/\/\d+-[a-f0-9]{12}\.jpg$/));
       expect(body.publicUrl).toBe(`https://storage.googleapis.com/test-bucket/${body.gcsPath}`);
@@ -98,5 +98,32 @@ describe('POST /ai/media/character-photo', () => {
       'image/jpeg',
       { cacheControl: 'public, max-age=31536000' },
     );
+  });
+
+  it('deletes new and legacy character photo paths only', async () => {
+    fileExistsMock.mockResolvedValue(true);
+    deleteFileMock.mockResolvedValue(undefined);
+
+    const newPath = `${authorId}/characters/${characterId}/v1.jpg`;
+    const legacyPath = `characters/${authorId}/${characterId}/v1.jpg`;
+
+    const newResponse = await request(app).delete('/ai/media/character-photo').send({
+      gcsPath: newPath,
+    });
+    const legacyResponse = await request(app).delete('/ai/media/character-photo').send({
+      gcsPath: legacyPath,
+    });
+    const invalidResponse = await request(app)
+      .delete('/ai/media/character-photo')
+      .send({
+        gcsPath: `${authorId}/inputs/not-a-character.jpg`,
+      });
+
+    expect(newResponse.status).toBe(200);
+    expect(legacyResponse.status).toBe(200);
+    expect(invalidResponse.status).toBe(400);
+    expect(deleteFileMock).toHaveBeenCalledWith(newPath);
+    expect(deleteFileMock).toHaveBeenCalledWith(legacyPath);
+    expect(deleteFileMock).toHaveBeenCalledTimes(2);
   });
 });
