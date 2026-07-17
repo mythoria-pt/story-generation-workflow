@@ -463,9 +463,7 @@ export class ImageGenerationMiddleware implements IImageGenerationService {
     // Fallback to environment configuration
     const provider = process.env.IMAGE_PROVIDER || 'google-genai';
     if (provider === 'openai') {
-      return (
-        process.env.OPENAI_IMAGE_TOOL_MODEL || process.env.OPENAI_BASE_MODEL || 'gpt-image-2'
-      );
+      return process.env.OPENAI_IMAGE_TOOL_MODEL || process.env.OPENAI_BASE_MODEL || 'gpt-image-2';
     } else if (provider === 'google-genai') {
       return process.env.GOOGLE_GENAI_IMAGE_MODEL || 'gemini-3.1-flash-image-preview';
     }

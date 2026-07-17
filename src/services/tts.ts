@@ -27,10 +27,7 @@ import { ITTSService, TTSProvider, TTSOptions, TTSResult } from '@/ai/interfaces
 import { splitTextIntoChunks, needsChunking } from './text-chunking.js';
 import { concatenateAudioBuffers, mixAudioWithBackground } from './audio-concatenation.js';
 import { getBackgroundMusicForStory } from './background-music.js';
-import {
-  getProviderForVoice,
-  getDefaultVoiceForProvider,
-} from './voice-registry.js';
+import { getProviderForVoice, getDefaultVoiceForProvider } from './voice-registry.js';
 
 export interface TTSChapterResult {
   chapterNumber: number;
@@ -236,7 +233,10 @@ export class TTSService {
       let actualProvider: TTSProvider = effectiveProvider;
 
       // Helper function for synthesis with fallback
-      const synthesizeWithFallback = async (text: string, options: TTSOptions): Promise<TTSResult> => {
+      const synthesizeWithFallback = async (
+        text: string,
+        options: TTSOptions,
+      ): Promise<TTSResult> => {
         try {
           return await effectiveTTSProvider.synthesize(text, options);
         } catch (synthError) {

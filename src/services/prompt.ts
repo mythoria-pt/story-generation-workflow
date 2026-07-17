@@ -140,7 +140,6 @@ export class PromptService {
     promptTemplate: PromptTemplate,
     variables: Record<string, unknown>,
   ): { systemInstruction?: string | undefined; userPrompt: string } {
-
     const systemInstruction = promptTemplate.systemPrompt
       ? this.processPrompt(promptTemplate.systemPrompt, variables)
       : undefined;
@@ -163,7 +162,6 @@ export class PromptService {
 
     return userPrompt;
   }
-
 
   /**
    * Load image styles configuration

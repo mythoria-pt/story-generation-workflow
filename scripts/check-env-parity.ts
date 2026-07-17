@@ -161,15 +161,15 @@ function main() {
     .map((v) => v.name);
 
   const missingFromCloudbuild =
-    cloudNames.size > 0
-      ? requiredProd.filter((n) => !cloudNames.has(n))
-      : [];
+    cloudNames.size > 0 ? requiredProd.filter((n) => !cloudNames.has(n)) : [];
 
   console.log('=== Environment parity report ===\n');
   console.log(`Scanned ${files.length} source files for process.env usage.`);
   console.log(`Manifest entries: ${manifestNames.size}`);
   console.log(`Zod keys: ${zodNames.size}`);
-  console.log(`.env.local keys: ${localNames.size} (${fs.existsSync(localPath) ? localPath : 'file missing'})`);
+  console.log(
+    `.env.local keys: ${localNames.size} (${fs.existsSync(localPath) ? localPath : 'file missing'})`,
+  );
   console.log(
     cloudSource
       ? `Cloud Build file: ${cloudSource} (${cloudNames.size} inferred names)`
@@ -199,7 +199,12 @@ function main() {
 
   let exitCode = 0;
 
-  if (inCodeNotManifest.length || inCodeNotZod.length || inManifestNotZod.length || inZodNotManifest.length) {
+  if (
+    inCodeNotManifest.length ||
+    inCodeNotZod.length ||
+    inManifestNotZod.length ||
+    inZodNotManifest.length
+  ) {
     console.log('\n❌ Manifest / Zod / code mismatch. Resolve drift before shipping.');
     exitCode = 1;
   }
@@ -210,7 +215,9 @@ function main() {
   }
 
   if (strictCloudbuild && cloudNames.size > 0 && missingFromCloudbuild.length > 0) {
-    console.log('\n❌ --strict-cloudbuild: required prod vars missing from Cloud Build heuristic match.');
+    console.log(
+      '\n❌ --strict-cloudbuild: required prod vars missing from Cloud Build heuristic match.',
+    );
     exitCode = 1;
   } else if (cloudNames.size > 0 && missingFromCloudbuild.length > 0) {
     console.log(

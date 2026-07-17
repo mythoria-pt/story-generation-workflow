@@ -156,12 +156,14 @@ export function processTextForTTS(text: string): string {
     processedText = processedText.replace(/\.\.\./g, '... ');
   }
 
-  return processedText
-    // Ensure proper punctuation for pauses
-    .replace(/([,;:])\s*/g, '$1 ')
-    // Clean up extra spaces
-    .replace(/\s+/g, ' ')
-    .trim();
+  return (
+    processedText
+      // Ensure proper punctuation for pauses
+      .replace(/([,;:])\s*/g, '$1 ')
+      // Clean up extra spaces
+      .replace(/\s+/g, ' ')
+      .trim()
+  );
 }
 
 /**

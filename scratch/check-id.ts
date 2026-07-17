@@ -15,7 +15,7 @@ async function checkIdInRuns() {
 
   await client.connect();
   const id = '2967e0a4-07f9-4989-861a-90637b339fa4';
-  
+
   console.log('Checking in runs table...');
   const resRun = await client.query('SELECT * FROM runs WHERE run_id = $1', [id]);
   console.log('Run count:', resRun.rowCount);

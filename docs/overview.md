@@ -26,7 +26,7 @@ Key services:
 
 | Layer              | Details                                                                                                                              |
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
-| Runtime & Language | Node.js 24 LTS, TypeScript (ESM, path aliases via `tsconfig.json`)                                                                    |
+| Runtime & Language | Node.js 24 LTS, TypeScript (ESM, path aliases via `tsconfig.json`)                                                                   |
 | Web framework      | Express with API-key auth middleware, no session/JWT support                                                                         |
 | Databases          | PostgreSQL (story data via `drizzle/`), PostgreSQL workflows DB (`drizzle-workflows/`)                                               |
 | Orchestration      | Google Cloud Workflows triggered from Pub/Sub topics                                                                                 |

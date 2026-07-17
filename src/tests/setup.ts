@@ -26,6 +26,10 @@ function applyTestEnvDefaults() {
     GOOGLE_CLOUD_REGION: 'us-central1',
     STORAGE_BUCKET_NAME: 'test-bucket',
     STORY_GENERATION_WORKFLOW_API_KEY: 'test-api-key',
+    TEXT_PROVIDER: 'google-genai',
+    IMAGE_PROVIDER: 'google-genai',
+    GOOGLE_GENAI_API_KEY: 'test-key',
+    OPENAI_API_KEY: 'test-key',
   };
   for (const [key, value] of Object.entries(defaults)) {
     if (process.env[key] === undefined || process.env[key] === '') {

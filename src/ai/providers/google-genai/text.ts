@@ -589,7 +589,6 @@ export class GoogleGenAITextService implements ITextGenerationService {
           };
         }
 
-
         // Gemini 3 media resolution - controls token allocation for images/video
         if (options?.mediaResolution) {
           const resolutionMap: Record<string, string> = {
@@ -624,7 +623,6 @@ export class GoogleGenAITextService implements ITextGenerationService {
           hasMediaParts: !!options?.mediaParts && options.mediaParts.length > 0,
           thinkingLevel: options?.thinkingLevel,
         });
-
 
         // If media parts are provided, send as inlineData parts alongside the prompt
         if (options?.mediaParts && options.mediaParts.length > 0) {

@@ -13,6 +13,8 @@ import { StoryService } from '@/services/story.js';
 import { ChaptersService } from '@/services/chapters.js';
 import { serializeError } from '@/utils/errorHandling.js';
 import type { OutlineData } from '@/types/database.js';
+import { analyticsReconciliationService } from '@/services/analytics.js';
+import { schedulerAuth } from '@/middleware/schedulerAuth.js';
 
 const router = Router();
 
@@ -105,6 +107,17 @@ router.patch('/runs/:runId', async (req: Request, res: Response) => {
 
     const updatedRun = await runsService.updateRun(runId, updates);
 
+    if (updatedRun.status === 'completed' || updatedRun.status === 'failed') {
+      try {
+        await analyticsReconciliationService.recordTerminalRun(updatedRun);
+      } catch (analyticsError) {
+        logger.warn('Terminal analytics will be repaired by reconciliation', {
+          runId,
+          error: analyticsError instanceof Error ? analyticsError.message : String(analyticsError),
+        });
+      }
+    }
+
     // Update progress percentage whenever a run is updated
     try {
       // Only update progress for active runs to avoid unnecessary processing
@@ -140,6 +153,18 @@ router.patch('/runs/:runId', async (req: Request, res: Response) => {
       error: error instanceof Error ? error.message : 'Unknown error',
     });
     return;
+  }
+});
+
+router.post('/analytics/reconcile', schedulerAuth, async (_req, res) => {
+  try {
+    const result = await analyticsReconciliationService.reconcileRecentTerminalRuns();
+    res.json({ success: true, ...result });
+  } catch (error) {
+    logger.error('Analytics reconciliation failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    res.status(500).json({ success: false, error: 'Analytics reconciliation failed' });
   }
 });
 

@@ -101,7 +101,7 @@ export class RunsService {
       if (updates.status) {
         updateData.status = updates.status;
 
-        if (updates.status === 'running' && !updateData.startedAt) {
+        if (updates.status === 'running' && !existingRun.startedAt) {
           updateData.startedAt = new Date().toISOString();
         }
 

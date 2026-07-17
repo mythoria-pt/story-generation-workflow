@@ -108,6 +108,14 @@ export const envManifest: EnvVarDescriptor[] = [
     source: 'inline',
   },
   {
+    name: 'IMAGE_ANALYZER_PROVIDER',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    default: 'google-genai',
+    source: 'inline',
+    note: 'Optional provider override for multimodal image analysis.',
+  },
+  {
     name: 'GOOGLE_GENAI_API_KEY',
     required: false,
     scopes: ['dev', 'runtime', 'prod'],
@@ -349,6 +357,13 @@ export const envManifest: EnvVarDescriptor[] = [
     scopes: ['dev', 'runtime', 'prod'],
     secret: true,
     source: 'secret-manager',
+  },
+  {
+    name: 'ANALYTICS_SCHEDULER_SERVICE_ACCOUNT',
+    required: true,
+    scopes: ['prod', 'runtime'],
+    source: 'substitution',
+    note: 'OIDC identity allowed to invoke analytics reconciliation.',
   },
   {
     name: 'NOTIFICATION_ENGINE_URL',

@@ -68,5 +68,5 @@ export function isValidVoiceForProvider(voice: string, provider: TTSProvider): b
  */
 export function getDefaultVoiceForProvider(provider: TTSProvider): string {
   const found = ALL_VOICES.find((v) => v.provider === provider && v.isDefault);
-  return found ? found.name : (provider === 'google-genai' ? 'Charon' : 'coral');
+  return found ? found.name : provider === 'google-genai' ? 'Charon' : 'coral';
 }

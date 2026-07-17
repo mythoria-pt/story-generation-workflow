@@ -1,4 +1,3 @@
-
 import { GoogleGenAITextService } from '../src/ai/providers/google-genai/text.js';
 import { logger } from '../src/config/logger.js';
 import { jest } from '@jest/globals';
@@ -30,7 +29,7 @@ async function verifyCaching() {
 
   console.log('--- Test 1: No previous content ---');
   await service.initializeContext('ctx-1', 'system-prompt');
-  
+
   if (mockCachesCreate.mock.calls.length === 0) {
     console.log('✅ Correctly skipped caching for empty content');
   } else {
@@ -41,7 +40,7 @@ async function verifyCaching() {
 
   console.log('--- Test 2: With previous content ---');
   await service.initializeContext('ctx-2', 'system-prompt', ['Hello', 'World']);
-  
+
   if (mockCachesCreate.mock.calls.length === 1) {
     console.log('✅ Correctly attempted caching for present content');
     const callArgs = mockCachesCreate.mock.calls[0][0];

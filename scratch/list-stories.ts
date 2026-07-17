@@ -16,7 +16,7 @@ async function listStories() {
   await client.connect();
   const res = await client.query('SELECT story_id, author_id, title FROM stories LIMIT 10');
   console.log('Stories found:', res.rowCount);
-  res.rows.forEach(row => {
+  res.rows.forEach((row) => {
     console.log(`Story ID: ${row.story_id}, Author ID: ${row.author_id}, Title: ${row.title}`);
   });
   await client.end();

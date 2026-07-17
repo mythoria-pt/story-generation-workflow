@@ -9,4 +9,3 @@
     "imageMetadata": "JSON array of analysed metadata for each uploaded image (path, overallImageContent, description, OCR text, detected characters). Empty array when no images were provided."
   }
 }
-

@@ -57,8 +57,10 @@ const envSchema = z.object({
   DEBUG_PERSIST_PROMPTS: z.string().optional().default('false'),
   /** Required in production; middleware reads process.env directly. Empty allowed for some test contexts. */
   STORY_GENERATION_WORKFLOW_API_KEY: z.string().default(''),
+  ANALYTICS_SCHEDULER_SERVICE_ACCOUNT: z.string().email().optional(),
   TEXT_PROVIDER: z.enum(['openai', 'google-genai']).optional().default('google-genai'),
   IMAGE_PROVIDER: z.enum(['openai', 'google-genai']).optional().default('google-genai'),
+  IMAGE_ANALYZER_PROVIDER: z.enum(['openai', 'google-genai']).optional(),
 
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_BASE_MODEL: z.string().optional().default('gpt-5.5'),

@@ -15,7 +15,9 @@ async function checkStoryIdForRun() {
 
   await client.connect();
   const runId = '7818a3ac-4b35-40df-9e1c-3e14f8b8f6a5';
-  const res = await client.query('SELECT story_id FROM story_generation_runs WHERE run_id = $1', [runId]);
+  const res = await client.query('SELECT story_id FROM story_generation_runs WHERE run_id = $1', [
+    runId,
+  ]);
   if (res.rowCount > 0) {
     console.log('Story ID for run:', res.rows[0].story_id);
   } else {

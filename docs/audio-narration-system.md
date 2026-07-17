@@ -396,6 +396,7 @@ class GoogleGenAITTSService implements ITTSService {
 The system leverages the expressive capabilities of **Gemini 3.1 Flash TTS Preview**, which supports over 200+ audio tags for fine-grained control over the performance.
 
 #### Audio Tags Integration
+
 The `processTextForTTS` and `enhanceTextForTTS` services automatically inject audio tags based on punctuation and context:
 
 - `...` -> `[long pause]`
@@ -403,6 +404,7 @@ The `processTextForTTS` and `enhanceTextForTTS` services automatically inject au
 - `:` or `;` -> `[short pause]`
 
 #### Director's Notes
+
 The system passes a "DIRECTOR'S NOTES" block with every request, instructing the model to honor these tags and maintain a high emotional range suitable for storytelling.
 
 ---
@@ -657,11 +659,11 @@ Music is automatically selected based on two story attributes:
 
 ### Configuration
 
-| Variable                    | Default | Description                                |
-| --------------------------- | ------- | ------------------------------------------ |
-| `BACKGROUND_MUSIC_ENABLED`  | `true`  | Global enable/disable for background music |
-| `BACKGROUND_MUSIC_VOLUME`   | `0.1`   | Volume level (0.0 to 1.0)                  |
-| `BACKGROUND_MUSIC_FADE_IN`  | `1.5`   | Music fade-in duration in seconds, capped at 2s |
+| Variable                    | Default | Description                                                              |
+| --------------------------- | ------- | ------------------------------------------------------------------------ |
+| `BACKGROUND_MUSIC_ENABLED`  | `true`  | Global enable/disable for background music                               |
+| `BACKGROUND_MUSIC_VOLUME`   | `0.1`   | Volume level (0.0 to 1.0)                                                |
+| `BACKGROUND_MUSIC_FADE_IN`  | `1.5`   | Music fade-in duration in seconds, capped at 2s                          |
 | `BACKGROUND_MUSIC_FADE_OUT` | `1.5`   | Music fade-out duration in seconds, capped at 2s and anchored to the end |
 
 ### User Control

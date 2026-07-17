@@ -70,9 +70,7 @@ export interface TextGenerationOptions {
   thinkingLevel?: 'minimal' | 'low' | 'medium' | 'high'; // Controls Gemini 3's reasoning depth (default: medium for Flash)
   mediaResolution?: 'low' | 'medium' | 'high'; // Controls multimodal token allocation (Gemini 3)
   systemInstruction?: string | undefined; // Optional system instruction for the request (when not using stateful context)
-
 }
-
 
 export interface ImageGenerationOptions {
   width?: number;
