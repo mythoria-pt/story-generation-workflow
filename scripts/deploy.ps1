@@ -26,7 +26,10 @@ $SERVICE_NAME = if ($Staging) { "$BASE_SERVICE_NAME-staging" } else { $BASE_SERV
 $REGION = 'europe-west9'
 $IMAGE_NAME = "gcr.io/$PROJECT_ID/$SERVICE_NAME"
 $REPO_ROOT = Split-Path -Path $PSScriptRoot -Parent
-$GCLOUD_COMMAND = (Get-Command 'gcloud.cmd' -CommandType Application -ErrorAction Stop).Source
+$GCLOUD_COMMAND = (
+    Get-Command 'gcloud.cmd' -CommandType Application -ErrorAction Stop |
+        Select-Object -First 1
+).Source
 # -----------------------------------------------------------------------------
 
 function Show-Help {
