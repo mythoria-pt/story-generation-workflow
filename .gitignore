@@ -29,6 +29,7 @@ cloud-run-config*.yaml
 cloud-run-config*.yml
 cloudbuild*.yaml
 cloudbuild*.yml
+!cloudbuild.yaml
 docker-compose*.yaml
 docker-compose*.yml
 kubernetes/*.yaml

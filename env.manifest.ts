@@ -366,6 +366,20 @@ export const envManifest: EnvVarDescriptor[] = [
     note: 'OIDC identity allowed to invoke analytics reconciliation.',
   },
   {
+    name: 'DEPLOY_GIT_SHA',
+    required: false,
+    scopes: ['prod', 'runtime'],
+    source: 'substitution',
+    note: 'Immutable source commit recorded on the Cloud Run revision.',
+  },
+  {
+    name: 'DEPLOY_BUILD_ID',
+    required: false,
+    scopes: ['prod', 'runtime'],
+    source: 'substitution',
+    note: 'Cloud Build identifier recorded on the Cloud Run revision.',
+  },
+  {
     name: 'NOTIFICATION_ENGINE_URL',
     required: false,
     scopes: ['dev', 'runtime', 'prod'],

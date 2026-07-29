@@ -1,4 +1,4 @@
-import { desc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import { logger } from '@/config/logger.js';
 import { getDatabase } from '@/db/connection.js';
 import { analyticsOutbox, storyGenerationRequests } from '@/db/schema/index.js';
@@ -91,18 +91,40 @@ export class AnalyticsReconciliationService {
   }
 
   async reconcileRecentTerminalRuns(): Promise<{ inspected: number; recorded: number }> {
+    const requests = await this.sharedDb
+      .select({ runId: storyGenerationRequests.runId })
+      .from(storyGenerationRequests)
+      .where(
+        and(
+          eq(storyGenerationRequests.status, 'published'),
+          isNull(storyGenerationRequests.terminalAt),
+        ),
+      )
+      .orderBy(asc(storyGenerationRequests.createdAt))
+      .limit(100);
+
+    if (requests.length === 0) {
+      return { inspected: 0, recorded: 0 };
+    }
+
     const runs = await this.workflowsDb
       .select()
       .from(storyGenerationRuns)
-      .where(inArray(storyGenerationRuns.status, ['completed', 'failed']))
-      .orderBy(desc(storyGenerationRuns.endedAt))
-      .limit(100);
+      .where(
+        and(
+          inArray(
+            storyGenerationRuns.runId,
+            requests.map((request) => request.runId),
+          ),
+          inArray(storyGenerationRuns.status, ['completed', 'failed']),
+        ),
+      );
 
     let recorded = 0;
     for (const run of runs) {
       if (await this.recordTerminalRun(run)) recorded += 1;
     }
-    return { inspected: runs.length, recorded };
+    return { inspected: requests.length, recorded };
   }
 }
 

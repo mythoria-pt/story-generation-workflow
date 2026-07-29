@@ -1,0 +1,44 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '--tag'
+      - 'gcr.io/$PROJECT_ID/${_SERVICE_NAME}:${_GIT_SHA}'
+      - '.'
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/$PROJECT_ID/${_SERVICE_NAME}:${_GIT_SHA}'
+
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:latest'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - '${_SERVICE_NAME}'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/${_SERVICE_NAME}:${_GIT_SHA}'
+      - '--region'
+      - '${_REGION}'
+      - '--revision-suffix'
+      - '${_REVISION_SUFFIX}'
+      - '--update-labels'
+      - 'git-sha=${_GIT_SHA},cloud-build-id=$BUILD_ID'
+      - '--update-env-vars'
+      - 'DEPLOY_GIT_SHA=${_GIT_SHA},DEPLOY_BUILD_ID=$BUILD_ID'
+      - '--quiet'
+
+images:
+  - 'gcr.io/$PROJECT_ID/${_SERVICE_NAME}:${_GIT_SHA}'
+
+substitutions:
+  _SERVICE_NAME: 'story-generation-workflow'
+  _REGION: 'europe-west9'
+
+options:
+  machineType: 'E2_HIGHCPU_8'
+  diskSizeGb: '100'
+  logging: 'CLOUD_LOGGING_ONLY'
+
+timeout: '1200s'

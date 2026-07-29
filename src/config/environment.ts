@@ -58,6 +58,11 @@ const envSchema = z.object({
   /** Required in production; middleware reads process.env directly. Empty allowed for some test contexts. */
   STORY_GENERATION_WORKFLOW_API_KEY: z.string().default(''),
   ANALYTICS_SCHEDULER_SERVICE_ACCOUNT: z.string().email().optional(),
+  DEPLOY_GIT_SHA: z
+    .string()
+    .regex(/^[0-9a-f]{40}$/)
+    .optional(),
+  DEPLOY_BUILD_ID: z.string().uuid().optional(),
   TEXT_PROVIDER: z.enum(['openai', 'google-genai']).optional().default('google-genai'),
   IMAGE_PROVIDER: z.enum(['openai', 'google-genai']).optional().default('google-genai'),
   IMAGE_ANALYZER_PROVIDER: z.enum(['openai', 'google-genai']).optional(),
