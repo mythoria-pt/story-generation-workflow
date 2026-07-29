@@ -40,11 +40,18 @@ export class AnalyticsReconciliationService {
       .from(storyGenerationRequests)
       .where(eq(storyGenerationRequests.runId, run.runId));
     if (!request) {
-      logger.warn('Terminal analytics request is not present in the shared database', {
+      logger.info('Terminal run is not tracked for analytics', {
         runId: run.runId,
       });
       return false;
     }
+    const [requestedEvent] = await this.sharedDb
+      .select({
+        userId: analyticsOutbox.userId,
+        params: analyticsOutbox.params,
+      })
+      .from(analyticsOutbox)
+      .where(eq(analyticsOutbox.dedupeKey, `story:${run.runId}:requested`));
 
     const endedAt = run.endedAt ? new Date(run.endedAt) : new Date();
     const startedAt = run.startedAt ? new Date(run.startedAt) : new Date(run.createdAt);
@@ -60,9 +67,10 @@ export class AnalyticsReconciliationService {
         await tx
           .insert(analyticsOutbox)
           .values({
-            dedupeKey: `story:${run.runId}:${run.status}`,
+            dedupeKey: `${eventName}:${run.runId}`,
             eventName,
             clientId: request.clientId,
+            userId: requestedEvent?.userId,
             sessionId: request.sessionId,
             consent: request.consent,
             params: {
@@ -70,6 +78,9 @@ export class AnalyticsReconciliationService {
               run_id: run.runId,
               duration_seconds: durationSeconds,
               credits_spent: request.creditsSpent,
+              ...(typeof requestedEvent?.params?.primary_intent === 'string'
+                ? { primary_intent: requestedEvent.params.primary_intent }
+                : {}),
               ...(run.status === 'failed'
                 ? {
                     failure_stage: normalizeFailureStage(run.currentStep),

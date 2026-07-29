@@ -39,17 +39,24 @@ const trackedRequest = {
   },
 };
 
+const requestedEvent = {
+  userId: 'clerk-1',
+  params: { primary_intent: 'romance' },
+};
+
 describe('AnalyticsReconciliationService', () => {
   let sharedDb: any;
   let workflowsDb: any;
   let insertValues: jest.Mock;
   let updateSet: jest.Mock;
   let recordRequestRows: any[];
+  let requestedEventRows: any[];
   let reconciliationRequestRows: Array<{ runId: string }>;
   let workflowRows: any[];
 
   beforeEach(() => {
     recordRequestRows = [trackedRequest];
+    requestedEventRows = [requestedEvent];
     reconciliationRequestRows = [];
     workflowRows = [];
     insertValues = jest.fn(() => ({ onConflictDoNothing: jest.fn().mockResolvedValue(undefined) }));
@@ -60,7 +67,14 @@ describe('AnalyticsReconciliationService', () => {
     };
 
     sharedDb = {
-      select: jest.fn((selection?: unknown) => {
+      select: jest.fn((selection?: Record<string, unknown>) => {
+        if (selection && 'userId' in selection) {
+          return {
+            from: jest.fn(() => ({
+              where: jest.fn().mockImplementation(async () => requestedEventRows),
+            })),
+          };
+        }
         if (selection) {
           return {
             from: jest.fn(() => ({
@@ -100,10 +114,12 @@ describe('AnalyticsReconciliationService', () => {
     expect(result).toBe(true);
     expect(insertValues).toHaveBeenCalledWith(
       expect.objectContaining({
-        dedupeKey: 'story:run-1:failed',
+        dedupeKey: 'story_generation_failed:run-1',
         eventName: 'story_generation_failed',
+        userId: 'clerk-1',
         params: expect.objectContaining({
           duration_seconds: 90,
+          primary_intent: 'romance',
           failure_stage: 'generate_chapters',
           failure_code: 'auth_error',
         }),
@@ -115,16 +131,31 @@ describe('AnalyticsReconciliationService', () => {
     );
   });
 
-  it('warns once when a direct terminal update has no shared request', async () => {
+  it('records the canonical completion event with a stable idempotency key', async () => {
+    const service = new AnalyticsReconciliationService();
+
+    await expect(
+      service.recordTerminalRun({ ...terminalRun, status: 'completed', errorMessage: null }),
+    ).resolves.toBe(true);
+    expect(insertValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dedupeKey: 'story_generation_completed:run-1',
+        eventName: 'story_generation_completed',
+        userId: 'clerk-1',
+        params: expect.objectContaining({ primary_intent: 'romance' }),
+      }),
+    );
+  });
+
+  it('treats a direct terminal update with no shared request as untracked', async () => {
     recordRequestRows = [];
     const service = new AnalyticsReconciliationService();
 
     await expect(service.recordTerminalRun(terminalRun)).resolves.toBe(false);
-    expect(logger.warn).toHaveBeenCalledTimes(1);
-    expect(logger.warn).toHaveBeenCalledWith(
-      'Terminal analytics request is not present in the shared database',
-      { runId: 'run-1' },
-    );
+    expect(logger.warn).not.toHaveBeenCalled();
+    expect(logger.info).toHaveBeenCalledWith('Terminal run is not tracked for analytics', {
+      runId: 'run-1',
+    });
     expect(sharedDb.transaction).not.toHaveBeenCalled();
   });
 
