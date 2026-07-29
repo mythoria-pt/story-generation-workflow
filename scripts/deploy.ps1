@@ -26,6 +26,7 @@ $SERVICE_NAME = if ($Staging) { "$BASE_SERVICE_NAME-staging" } else { $BASE_SERV
 $REGION = 'europe-west9'
 $IMAGE_NAME = "gcr.io/$PROJECT_ID/$SERVICE_NAME"
 $REPO_ROOT = Split-Path -Path $PSScriptRoot -Parent
+$GCLOUD_COMMAND = (Get-Command 'gcloud.cmd' -CommandType Application -ErrorAction Stop).Source
 # -----------------------------------------------------------------------------
 
 function Show-Help {
@@ -90,7 +91,7 @@ function Test-Prerequisites {
     Write-Info "Checking prerequisites..."
 
     try {
-        & gcloud --version  | Out-Null
+        & $GCLOUD_COMMAND --version | Out-Null
         Write-Success "Google Cloud CLI is available"
     }
     catch {
@@ -99,7 +100,7 @@ function Test-Prerequisites {
     }
 
     try {
-        $account = (& gcloud auth list --filter=status:ACTIVE --format="value(account)") | Select-Object -First 1
+        $account = (& $GCLOUD_COMMAND auth list --filter=status:ACTIVE --format="value(account)") | Select-Object -First 1
         if (-not $account) {
             Write-Err "Not authenticated with Google Cloud — run 'gcloud auth login' first."
             throw "Unauthenticated"
@@ -110,7 +111,7 @@ function Test-Prerequisites {
         throw
     }
 
-    & gcloud config set project $PROJECT_ID | Out-Null
+    & $GCLOUD_COMMAND config set project $PROJECT_ID | Out-Null
     Write-Success "Using project $PROJECT_ID"
 }
 
@@ -160,7 +161,7 @@ function Deploy-With-CloudBuild {
     $cloudBuildPath = Join-Path $REPO_ROOT 'cloudbuild.yaml'
     Write-Info "Starting Cloud Build submission (beta)"
     Write-Info "Deploying immutable source commit $GitSha"
-    & gcloud beta builds submit $REPO_ROOT `
+    & $GCLOUD_COMMAND beta builds submit $REPO_ROOT `
         --config $cloudBuildPath `
         --project $PROJECT_ID `
         --substitutions "_SERVICE_NAME=$SERVICE_NAME,_REGION=$REGION,_GIT_SHA=$GitSha,_REVISION_SUFFIX=$revisionSuffix"
@@ -189,7 +190,7 @@ function Test-Deployment {
     )
 
     Write-Info "Fetching service URL"
-    $serviceJson = & gcloud run services describe $SERVICE_NAME `
+    $serviceJson = & $GCLOUD_COMMAND run services describe $SERVICE_NAME `
         --region $REGION `
         --project $PROJECT_ID `
         --format json | ConvertFrom-Json
@@ -197,7 +198,7 @@ function Test-Deployment {
 
     if ($serviceUrl) {
         $revisionName = $serviceJson.status.latestReadyRevisionName
-        $revisionJson = & gcloud run revisions describe $revisionName `
+        $revisionJson = & $GCLOUD_COMMAND run revisions describe $revisionName `
             --region $REGION `
             --project $PROJECT_ID `
             --format json | ConvertFrom-Json
