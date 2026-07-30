@@ -123,12 +123,12 @@ export class TokenUsageTrackingService {
   /**
    * Calculate estimated cost based on provider and model
    *
-   * Supported Models (all <6 months old as of May 2026):
+   * Supported Models (reviewed July 2026):
    * - OpenAI Text: gpt-5.5, gpt-5.5-pro, gpt-5.4, gpt-5.4-mini, gpt-5.4-nano
    * - OpenAI Image: gpt-image-2, gpt-image-1.5
    * - OpenAI TTS:   gpt-4o-mini-tts (kept for legacy callers; not advertised)
-   * - Google Text:  gemini-3.1-pro-preview, gemini-3-pro-preview, gemini-3-flash-preview, gemini-2.5-flash
-   * - Google Image: gemini-3-pro-image-preview, gemini-3.1-flash-image-preview, gemini-2.5-flash-image
+   * - Google Text:  gemini-3.6-flash, gemini-3.5-flash, gemini-3.1-pro-preview
+   * - Google Image: gemini-3.1-flash-image, gemini-3-pro-image, gemini-2.5-flash-image
    * - Google TTS:   gemini-2.5-pro-tts, gemini-2.5-flash-tts
    *
    * Sources:
@@ -141,7 +141,7 @@ export class TokenUsageTrackingService {
     let cachedInputCostPer1KTokens = 0;
 
     // Cost calculations in USD (converted to EUR later).
-    // Pricing verified May 2026.
+    // Pricing reviewed July 2026.
 
     // OpenAI Models
     if (estimation.provider === 'openai') {
@@ -214,7 +214,14 @@ export class TokenUsageTrackingService {
     }
     // Google Models
     else if (estimation.provider === 'google-genai') {
-      if (estimation.model.includes('gemini-3.5-flash')) {
+      if (estimation.model.includes('gemini-3.6-flash')) {
+        // Gemini 3.6 Flash standard pricing (July 2026)
+        // Input: $1.50 per 1M; output (including thinking): $7.50 per 1M
+        // Cached input: $0.15 per 1M
+        inputCostPer1KTokens = 0.0015;
+        outputCostPer1KTokens = 0.0075;
+        cachedInputCostPer1KTokens = 0.00015;
+      } else if (estimation.model.includes('gemini-3.5-flash')) {
         // Gemini 3.5 Flash - Speed-optimized frontier model
         // Input: $1.50 per 1M tokens
         // Output: $9.00 per 1M tokens

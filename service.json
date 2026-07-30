@@ -83,11 +83,11 @@
               },
               {
                 "name": "GOOGLE_GENAI_MODEL",
-                "value": "gemini-2.5-pro"
+                "value": "gemini-3.6-flash"
               },
               {
                 "name": "GOOGLE_GENAI_IMAGE_MODEL",
-                "value": "imagen-4.0-ultra-generate-001"
+                "value": "gemini-3.1-flash-image"
               },
               {
                 "name": "TTS_PROVIDER",

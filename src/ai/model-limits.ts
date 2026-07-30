@@ -11,7 +11,8 @@ interface ModelLimits {
 
 // Heuristic / documented limits (output token caps, not context window sizes)
 const LIMITS: Record<string, ModelLimits> = {
-  // Google Gemini 2.5 family (Flash / Pro) – typical output cap 8k tokens
+  // Google Gemini text output caps
+  'gemini-3.6-flash': { maxOutputTokens: 65536 },
   'gemini-3.5-flash': { maxOutputTokens: 64000 },
   'gemini-3.1-pro': { maxOutputTokens: 65535 },
   'gemini-3-pro': { maxOutputTokens: 65535 },
@@ -20,7 +21,7 @@ const LIMITS: Record<string, ModelLimits> = {
   'gemini-2.5-flash-lite': { maxOutputTokens: 65535 },
   // Image preview model still returns textual prompt refinements / JSON; use same cap
   'gemini-2.5-flash-image-preview': { maxOutputTokens: 32768 },
-  'gemini-3.1-flash-image-preview': { maxOutputTokens: 32768 },
+  'gemini-3.1-flash-image': { maxOutputTokens: 32768 },
   'gemini-3-pro-image-preview': { maxOutputTokens: 32768 },
   // OpenAI GPT‑5 family (assumed: base 16k, mini 8k, nano 4k output cap)
   'gpt-5': { maxOutputTokens: 128000 },

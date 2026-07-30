@@ -81,8 +81,8 @@ const envSchema = z.object({
 
   // Google GenAI Configuration
   GOOGLE_GENAI_API_KEY: z.string().optional(),
-  GOOGLE_GENAI_MODEL: z.string().optional().default('gemini-3.5-flash'),
-  GOOGLE_GENAI_IMAGE_MODEL: z.string().optional().default('gemini-3.1-flash-image-preview'),
+  GOOGLE_GENAI_MODEL: z.string().optional().default('gemini-3.6-flash'),
+  GOOGLE_GENAI_IMAGE_MODEL: z.string().optional().default('gemini-3.1-flash-image'),
   /** If set to "true", use Vertex instead of API key (advanced). */
   GOOGLE_GENAI_USE_VERTEX: z.string().optional(),
   /** Debug: force REST transport for GenAI image client. */

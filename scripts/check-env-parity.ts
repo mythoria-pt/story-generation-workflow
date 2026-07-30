@@ -5,6 +5,7 @@
  * - Zod schema (src/config/environment.ts)
  * - .env.local (active keys only)
  * - Optional cloudbuild.yaml (best-effort: --update-env-vars, --set-secrets, YAML env keys)
+ * - Explicit env-parity-preserved comments for bindings retained by incremental deploys
  *
  * Usage:
  *   npx tsx scripts/check-env-parity.ts [--strict-local] [--strict-cloudbuild] [--cloudbuild=path]
@@ -83,10 +84,25 @@ function extractCloudbuildEnvHints(content: string): Set<string> {
     }
   };
 
-  for (const m of content.matchAll(/--update-env-vars(?:=|\s+)([^\n\r\\]+)/g)) {
+  for (const m of content.matchAll(/--(?:update|set)-env-vars=([^\s'"]+)/g)) {
     addPairList(m[1]);
   }
-  for (const m of content.matchAll(/--set-secrets(?:=|\s+)([^\n\r\\]+)/g)) {
+  for (const m of content.matchAll(/--set-secrets=([^\s'"]+)/g)) {
+    addPairList(m[1]);
+  }
+  for (const m of content.matchAll(/^\s*#\s*env-parity-preserved:\s*([A-Z0-9_,\s]+)$/gim)) {
+    for (const name of m[1].split(',').map((entry) => entry.trim())) {
+      if (/^[A-Z][A-Z0-9_]*$/.test(name)) s.add(name);
+    }
+  }
+  for (const m of content.matchAll(
+    /-\s*['"]?--(?:update|set)-env-vars['"]?\s*\r?\n\s*-\s*['"]([^'"\r\n]+)['"]/g,
+  )) {
+    addPairList(m[1]);
+  }
+  for (const m of content.matchAll(
+    /-\s*['"]?--set-secrets['"]?\s*\r?\n\s*-\s*['"]([^'"\r\n]+)['"]/g,
+  )) {
     addPairList(m[1]);
   }
   for (const m of content.matchAll(/\bsecretEnv\s*:\s*\[([^\]]+)\]/g)) {

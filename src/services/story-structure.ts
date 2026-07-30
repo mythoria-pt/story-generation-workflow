@@ -371,9 +371,8 @@ export async function generateStoryStructure(
       promptTemplate,
       templateVars,
     );
-    const structureModel = process.env.GOOGLE_GENAI_MODEL || 'gemini-3.5-flash';
+    const structureModel = process.env.GOOGLE_GENAI_MODEL || 'gemini-3.6-flash';
     aiResponse = await aiGateway.getTextService(aiContext).complete(userPrompt, {
-      temperature: 1,
       model: structureModel,
       jsonSchema: structSchema,
       ...(mediaParts.length ? { mediaParts } : {}),

@@ -1,12 +1,15 @@
 /**
- * Google Imagen Image Generation Service
+ * Google Gemini Image Generation Service
  */
 
 import { IImageGenerationService, ImageGenerationOptions } from '../../interfaces.js';
 import { logger } from '@/config/logger.js';
-import { ImageGenerationBlockedError, ImageOtherError } from '@/ai/errors.js';
-// Dynamic import to avoid Jest resolver issues unless Gemini models actually used
-type GoogleGenAIType = any; // Minimal typing to avoid adding types
+import {
+  ImageGenerationBlockedError,
+  ImageOtherError,
+  type ProviderDiagnostic,
+} from '@/ai/errors.js';
+import type { GoogleGenAI } from '@google/genai';
 
 export interface GoogleGenAIImageConfig {
   apiKey: string;
@@ -25,7 +28,7 @@ export class GoogleGenAIImageService implements IImageGenerationService {
   private model: string;
   private projectId: string | undefined;
   private location: string | undefined;
-  private genAIClient?: GoogleGenAIType; // Only initialized for Gemini image models
+  private genAIClient?: GoogleGenAI; // Lazily initialized for Gemini image models
 
   /**
    * Normalise Gemini / Google API error surfaces for better logging.
@@ -53,7 +56,7 @@ export class GoogleGenAIImageService implements IImageGenerationService {
 
   constructor(config: GoogleGenAIImageConfig) {
     this.apiKey = config.apiKey;
-    this.model = config.model || 'gemini-3.1-flash-image-preview';
+    this.model = config.model || 'gemini-3.1-flash-image';
     // Only enable vertex mode if explicitly requested; API key + projectId without proper auth can cause 404
     const useVertex = process.env.GOOGLE_GENAI_USE_VERTEX === 'true';
     this.projectId = useVertex
@@ -62,22 +65,21 @@ export class GoogleGenAIImageService implements IImageGenerationService {
     // Use dedicated GENAI region var; default to global
     this.location = config.location || process.env.GOOGLE_GENAI_CLOUD_REGION || 'global';
 
-    // Map deprecated Imagen REST models (imagen-4.*-generate-001) to current Gemini image model.
-    // Google has removed the legacy /models/imagen-*/:generateImage endpoint (404 as of Aug 2025).
+    // Map deprecated Imagen REST models to the current stable Gemini image model.
+    // The REST branch remains only as an explicit compatibility fallback for legacy configurations.
     const disableMapping = process.env.GOOGLE_GENAI_DISABLE_IMAGEN_MAPPING === 'true';
     if (this.model.startsWith('imagen-') && !disableMapping) {
       const legacy = this.model;
-      this.model = 'gemini-3.1-flash-image-preview';
+      this.model = 'gemini-3.1-flash-image';
       logger.warn('Legacy Google Imagen model detected; mapping to Gemini image model', {
         legacyModel: legacy,
         mappedModel: this.model,
       });
     }
 
-    // Gemini image preview / multimodal generation models start with 'gemini-' and require the @google/genai client
-    // For Gemini image models we lazy-load the SDK in generate()
+    // Gemini image models use the current @google/genai Interactions API.
 
-    logger.info('Google Imagen/Gemini Image Service initialized', {
+    logger.info('Google Gemini Image Service initialized', {
       model: this.model,
       usingGeminiClient: !!this.genAIClient,
       projectId: this.projectId,
@@ -90,80 +92,63 @@ export class GoogleGenAIImageService implements IImageGenerationService {
       const model = options?.model || this.model;
       const aspectRatio = this.resolveAspectRatio(options);
 
-      // Gemini image (multimodal) path
+      // Current Gemini image path through the Interactions API.
       const forceRest = process.env.GOOGLE_GENAI_FORCE_REST === 'true';
       if (model.startsWith('gemini-') && !forceRest) {
         const client = await this.getGenAIClient();
-        logger.debug('Google Gemini Image Debug - using @google/genai client', {
+        logger.debug('Google Gemini Image Debug - using Interactions API', {
           model,
           projectId: this.projectId,
           location: this.location,
           promptPreview: prompt.slice(0, 120),
         });
 
-        // Build multimodal parts: optional reference images first, then instruction, then prompt text
-        const parts: any[] = [];
+        const input: Array<
+          { type: 'image'; data: string; mime_type: string } | { type: 'text'; text: string }
+        > = [];
         const referenceImages = options?.referenceImages ?? [];
         const refCount = referenceImages.length;
-        if (refCount) {
-          for (const ref of referenceImages) {
-            try {
-              parts.push({
-                inlineData: {
-                  data: ref.buffer.toString('base64'),
-                  mimeType: ref.mimeType || 'image/jpeg',
-                },
-              });
-            } catch (e) {
-              logger.warn('Failed to encode reference image for Gemini', {
-                error: e instanceof Error ? e.message : String(e),
-              });
-            }
+        for (const ref of referenceImages) {
+          try {
+            input.push({
+              type: 'image',
+              data: ref.buffer.toString('base64'),
+              mime_type: ref.mimeType || 'image/jpeg',
+            });
+          } catch (error) {
+            logger.warn('Failed to encode reference image for Gemini', {
+              error: error instanceof Error ? error.message : String(error),
+            });
           }
-          // Only add the hardcoded reference instruction if no system prompt is provided,
-          // or if we want to ensure it's always there.
-          // With Gemini 3, we can rely on the system prompt for this if passed.
-          // For now, we keep it but make it less "authoritative" if system prompt exists?
-          // Actually, the plan said "improve reference image logic".
-          // Let's keep it simple: if systemPrompt is passed, we assume it handles style instructions.
-          // But reference images still need context.
-          parts.push({
+        }
+        if (refCount) {
+          input.push({
+            type: 'text',
             text: 'The preceding images are reference material. Use them to maintain consistency in characters and style.',
           });
         }
-        parts.push({ text: prompt });
+        input.push({ type: 'text', text: prompt });
 
-        // Build imageConfig: aspectRatio always, imageSize only for Gemini 3+ models
-        const imageConfig: any = { aspectRatio };
-        if (this.supportsImageSize(model)) {
-          imageConfig.imageSize = '2K';
-        }
-
-        const generateRequest: any = {
+        const response = await client.interactions.create({
           model,
-          contents: [{ role: 'user', parts }],
-          config: {
-            imageConfig,
-            responseModalities: ['IMAGE'],
+          input,
+          ...(options?.systemPrompt && { system_instruction: options.systemPrompt }),
+          response_format: {
+            type: 'image',
+            mime_type: 'image/png',
+            aspect_ratio: aspectRatio,
+            ...(this.supportsImageSize(model) && { image_size: '2K' }),
           },
-        };
-
-        // Add system instruction if provided
-        if (options?.systemPrompt) {
-          generateRequest.config.systemInstruction = {
-            parts: [{ text: options.systemPrompt }],
-          };
-        }
-
-        // Non-streaming generate content per current docs for image generation
-        const response = await (client as any).models.generateContent(generateRequest);
-        logger.debug('Google Gemini Image Debug - raw response keys', {
-          model,
-          hasCandidates: !!response?.candidates,
-          keys: response ? Object.keys(response) : [],
         });
-        const imagePartBase64 = this.extractInlineImageBase64(response, model);
-        const buffer = Buffer.from(imagePartBase64, 'base64');
+
+        logger.debug('Google Gemini Image Debug - interaction completed', {
+          model,
+          status: response.status,
+          hasOutputImage: !!response.output_image?.data,
+          stepCount: response.steps.length,
+        });
+        const imageBase64 = this.extractInteractionImageBase64(response, model);
+        const buffer = Buffer.from(imageBase64, 'base64');
         logger.info('Google Gemini Image: image generated', {
           model,
           size: buffer.length,
@@ -171,7 +156,6 @@ export class GoogleGenAIImageService implements IImageGenerationService {
         });
         return buffer;
       }
-
       // Legacy Imagen REST path (imagen-* models)
       if (options?.referenceImages?.length) {
         logger.warn('Reference images provided but ignored for legacy Imagen REST model', {
@@ -272,7 +256,7 @@ export class GoogleGenAIImageService implements IImageGenerationService {
     const forceRest = process.env.GOOGLE_GENAI_FORCE_REST === 'true';
 
     try {
-      // Prefer true edit via Gemini image models; otherwise fall back to reference-guided generate.
+      // Prefer native multimodal editing through the current Interactions API.
       if (model.startsWith('gemini-') && !forceRest) {
         const client = await this.getGenAIClient();
         const primaryMime =
@@ -280,58 +264,45 @@ export class GoogleGenAIImageService implements IImageGenerationService {
           (options?.imageType === 'front_cover' || options?.imageType === 'back_cover'
             ? 'image/jpeg'
             : 'image/png');
-
-        const parts: any[] = [
+        const input: Array<
+          { type: 'image'; data: string; mime_type: string } | { type: 'text'; text: string }
+        > = [
           {
-            inlineData: {
-              data: originalImage.toString('base64'),
-              mimeType: primaryMime,
-            },
+            type: 'image',
+            data: originalImage.toString('base64'),
+            mime_type: primaryMime,
           },
         ];
 
         for (const ref of options?.referenceImages || []) {
           try {
-            parts.push({
-              inlineData: {
-                data: ref.buffer.toString('base64'),
-                mimeType: ref.mimeType || 'image/jpeg',
-              },
+            input.push({
+              type: 'image',
+              data: ref.buffer.toString('base64'),
+              mime_type: ref.mimeType || 'image/jpeg',
             });
-          } catch (e) {
+          } catch (error) {
             logger.warn('Failed to encode supplemental reference image for Gemini edit', {
-              error: e instanceof Error ? e.message : String(e),
+              error: error instanceof Error ? error.message : String(error),
               source: ref.source,
             });
           }
         }
+        input.push({ type: 'text', text: prompt });
 
-        parts.push({ text: prompt });
-
-        // Build imageConfig: aspectRatio always, imageSize only for Gemini 3+ models
-        const editImageConfig: any = { aspectRatio };
-        if (this.supportsImageSize(model)) {
-          editImageConfig.imageSize = '2K';
-        }
-
-        const generateRequest: any = {
+        const response = await client.interactions.create({
           model,
-          contents: [{ role: 'user', parts }],
-          config: {
-            imageConfig: editImageConfig,
-            responseModalities: ['IMAGE'],
+          input,
+          ...(options?.systemPrompt && { system_instruction: options.systemPrompt }),
+          response_format: {
+            type: 'image',
+            mime_type: 'image/png',
+            aspect_ratio: aspectRatio,
+            ...(this.supportsImageSize(model) && { image_size: '2K' }),
           },
-        };
-
-        if (options?.systemPrompt) {
-          generateRequest.config.systemInstruction = {
-            parts: [{ text: options.systemPrompt }],
-          };
-        }
-
-        const response = await (client as any).models.generateContent(generateRequest);
-        const imagePartBase64 = this.extractInlineImageBase64(response, model);
-        const buffer = Buffer.from(imagePartBase64, 'base64');
+        });
+        const imageBase64 = this.extractInteractionImageBase64(response, model);
+        const buffer = Buffer.from(imageBase64, 'base64');
         logger.info('Google Gemini Image: edit completed', {
           model,
           size: buffer.length,
@@ -340,7 +311,6 @@ export class GoogleGenAIImageService implements IImageGenerationService {
         });
         return buffer;
       }
-
       logger.info('Gemini edit path unavailable; using generate() with reference image', {
         model,
         useRestFallback: forceRest,
@@ -429,7 +399,7 @@ export class GoogleGenAIImageService implements IImageGenerationService {
     return m.includes('gemini-3');
   }
 
-  private async getGenAIClient(): Promise<GoogleGenAIType> {
+  private async getGenAIClient(): Promise<GoogleGenAI> {
     if (!this.genAIClient) {
       const { GoogleGenAI } = await import('@google/genai');
       this.genAIClient = this.projectId
@@ -441,92 +411,82 @@ export class GoogleGenAIImageService implements IImageGenerationService {
           } as any)
         : new GoogleGenAI({ apiKey: this.apiKey } as any);
     }
-    return this.genAIClient as GoogleGenAIType;
+    return this.genAIClient;
   }
 
-  private extractInlineImageBase64(response: any, model: string): string {
-    const candidates = response?.candidates || [];
-    let imagePartBase64: string | undefined;
-    for (const c of candidates) {
-      const parts = c?.content?.parts || [];
-      for (const p of parts) {
-        if (p.inlineData?.data) {
-          imagePartBase64 = p.inlineData.data;
-          break;
+  private extractInteractionImageBase64(
+    response: {
+      output_image?: { data?: string | undefined } | undefined;
+      steps?:
+        | Array<{
+            type?: string | undefined;
+            content?: Array<{ type?: string | undefined; data?: string | undefined }> | undefined;
+            error?:
+              | {
+                  code?: number | undefined;
+                  message?: string | undefined;
+                  status?: string | undefined;
+                  details?: unknown[] | undefined;
+                }
+              | undefined;
+          }>
+        | undefined;
+      status?: string | undefined;
+      usage?: unknown | undefined;
+    },
+    model: string,
+  ): string {
+    if (response.output_image?.data) {
+      return response.output_image.data;
+    }
+
+    const steps = response.steps ?? [];
+    for (const step of steps) {
+      if (step.type !== 'model_output') continue;
+      for (const content of step.content ?? []) {
+        if (content.type === 'image' && content.data) {
+          return content.data;
         }
       }
-      if (imagePartBase64) break;
-    }
-    if (imagePartBase64) {
-      return imagePartBase64;
     }
 
-    // Check for prompt feedback blocks
-    if (response?.promptFeedback?.blockReason) {
-      logger.error('Google Gemini Image Debug - blocked by prompt feedback', {
-        model,
-        promptFeedback: response.promptFeedback,
-      });
-      throw new ImageGenerationBlockedError({
-        provider: 'google-genai',
-        finishReasons: [response.promptFeedback.blockReason],
-        message: `Image generation blocked: ${response.promptFeedback.blockReason}`,
-        diagnostics: [response.promptFeedback],
-      });
-    }
+    const modelErrors: ProviderDiagnostic[] = steps.flatMap((step, idx) =>
+      step.type === 'model_output' && step.error ? [{ idx, ...step.error }] : [],
+    );
+    const diagnosticText = JSON.stringify({ status: response.status, modelErrors }).toUpperCase();
+    const safetyReasons = ['PROHIBITED_CONTENT', 'SAFETY', 'BLOCKLIST'].filter((reason) =>
+      diagnosticText.includes(reason),
+    );
 
-    const candidateDiagnostics = candidates.map((c: any, idx: number) => ({
-      idx,
-      finishReason: c.finishReason,
-      hasContent: !!c.content,
-      partCount: c.content?.parts?.length || 0,
-      partSummaries: (c.content?.parts || []).map((p: any) => ({
-        keys: Object.keys(p),
-        hasInline: !!p.inlineData,
-        hasText: !!p.text,
-      })),
-    }));
-    const finishReasons = Array.from(
-      new Set(candidateDiagnostics.map((d: any) => d.finishReason).filter(Boolean)),
-    ) as string[];
-
-    // Log rich diagnostics including token usage and safety ratings
-    const usageMetadata = response?.usageMetadata;
-    const promptFeedback = response?.promptFeedback;
-    logger.error('Google Gemini Image Debug - no inline image data in response', {
+    logger.error('Google Gemini Image Debug - no image content in interaction response', {
       model,
-      candidateCount: candidates.length,
-      candidateDiagnostics,
-      finishReasons,
-      usageMetadata: usageMetadata || null,
-      promptFeedback: promptFeedback || null,
-      rawResponse: JSON.stringify(response).slice(0, 1500),
+      status: response.status,
+      stepCount: steps.length,
+      modelErrors,
+      usage: response.usage ?? null,
     });
 
-    // Definite safety blocks: PROHIBITED_CONTENT, SAFETY, BLOCKLIST
-    const definiteSafetyReasons = ['PROHIBITED_CONTENT', 'SAFETY', 'BLOCKLIST'];
-    if (finishReasons.length && finishReasons.some((r) => definiteSafetyReasons.includes(r))) {
+    if (safetyReasons.length > 0) {
       throw new ImageGenerationBlockedError({
         provider: 'google-genai',
-        finishReasons,
-        diagnostics: candidateDiagnostics,
-        message: `Image generation blocked by Google safety filters (reason: ${finishReasons.join(',')}). Adjust prompt to comply with content policies.`,
+        finishReasons: safetyReasons,
+        diagnostics: modelErrors,
+        message: `Image generation blocked by Google safety filters (reason: ${safetyReasons.join(',')}). Adjust prompt to comply with content policies.`,
       });
     }
 
-    // Ambiguous IMAGE_OTHER: could be transient or soft safety block
-    if (finishReasons.includes('IMAGE_OTHER')) {
+    if (diagnosticText.includes('IMAGE_OTHER')) {
       throw new ImageOtherError({
         provider: 'google-genai',
-        finishReasons,
-        diagnostics: candidateDiagnostics,
-        message: `Image generation returned IMAGE_OTHER from Gemini (may be transient or soft safety block).`,
+        finishReasons: ['IMAGE_OTHER'],
+        diagnostics: modelErrors,
+        message:
+          'Image generation returned IMAGE_OTHER from Gemini (may be transient or a soft safety block).',
       });
     }
 
     throw new Error(
-      'No image data returned from Gemini image model' +
-        (finishReasons.length ? ` (finishReasons=${finishReasons.join(',')})` : ''),
+      `No image data returned from Gemini image interaction (status=${response.status || 'unknown'}).`,
     );
   }
 }

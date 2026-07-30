@@ -57,9 +57,8 @@ export interface IImageGenerationService {
 
 export interface TextGenerationOptions {
   maxTokens?: number;
+  /** Provider-specific sampling control. Used by OpenAI; never sent to Gemini 3.6+. */
   temperature?: number;
-  topP?: number;
-  topK?: number;
   stopSequences?: string[];
   model?: string;
   contextId?: string; // For context preservation across requests
@@ -70,6 +69,7 @@ export interface TextGenerationOptions {
   thinkingLevel?: 'minimal' | 'low' | 'medium' | 'high'; // Controls Gemini 3's reasoning depth (default: medium for Flash)
   mediaResolution?: 'low' | 'medium' | 'high'; // Controls multimodal token allocation (Gemini 3)
   systemInstruction?: string | undefined; // Optional system instruction for the request (when not using stateful context)
+  googleSearchGrounding?: boolean; // Enable Google Search grounding for real-time information
 }
 
 export interface ImageGenerationOptions {

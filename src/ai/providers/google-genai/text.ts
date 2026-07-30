@@ -2,8 +2,14 @@
  * Google GenAI Text Generation Service
  */
 
-// Switched to @google/genai package
-import { GoogleGenAI } from '@google/genai';
+import {
+  GoogleGenAI,
+  MediaResolution,
+  ThinkingLevel,
+  type Content,
+  type GenerateContentConfig,
+  type Part,
+} from '@google/genai';
 import { ITextGenerationService, TextGenerationOptions } from '../../interfaces.js';
 import { getMaxOutputTokens } from '@/ai/model-limits.js';
 import { contextManager } from '../../context-manager.js';
@@ -14,36 +20,8 @@ export interface GoogleGenAITextConfig {
   model?: string;
 }
 
-interface JsonSchemaType {
-  type: string;
-  description?: string;
-  properties?: Record<string, JsonSchemaType>;
-  items?: JsonSchemaType;
-  required?: string[];
-  enum?: unknown[];
-  maxItems?: number;
-  minItems?: number;
-  maxLength?: number;
-  minLength?: number;
-  [key: string]: unknown;
-}
-
-interface GenAISchemaType {
-  type: string;
-  description?: string;
-  properties?: Record<string, GenAISchemaType>;
-  items?: GenAISchemaType;
-  required?: string[];
-  enum?: unknown[];
-  propertyOrdering?: string[];
-  maxItems?: number;
-  minItems?: number;
-  maxLength?: number;
-  minLength?: number;
-}
-
 export class GoogleGenAITextService implements ITextGenerationService {
-  private genAI: any;
+  private genAI: GoogleGenAI;
   private model: string;
 
   private static sanitizeErrorPayload(
@@ -134,171 +112,84 @@ export class GoogleGenAITextService implements ITextGenerationService {
 
   constructor(config: GoogleGenAITextConfig) {
     this.genAI = new GoogleGenAI({ apiKey: config.apiKey });
-    this.model = config.model || 'gemini-3.5-flash';
-
-    // Backwards compatibility shim to mimic @google/generative-ai API used in rest of file
-    const anyClient = this.genAI as any;
-    if (typeof anyClient.getGenerativeModel !== 'function') {
-      anyClient.getGenerativeModel = ({
-        model,
-        generationConfig,
-        systemInstruction: _systemInstruction,
-      }: {
-        model: string;
-        generationConfig?: any;
-        systemInstruction?: string;
-      }) => {
-        // Note: systemInstruction is accepted but not used in this shim - could be passed to API call if needed
-        return {
-          generateContent: (input: any) => {
-            // Normalize to { model, contents, config }
-            if (typeof input === 'string') {
-              return anyClient.models.generateContent({
-                model,
-                contents: [{ role: 'user', parts: [{ text: input }] }],
-                config: generationConfig,
-              });
-            }
-            if (input && typeof input === 'object' && input.contents) {
-              return anyClient.models.generateContent({
-                model,
-                ...input,
-                config: generationConfig || input.config,
-              });
-            }
-            return anyClient.models.generateContent({
-              model,
-              contents: [{ role: 'user', parts: [{ text: String(input) }] }],
-              config: generationConfig,
-            });
-          },
-          startChat: ({ history: _history }: { history?: any[] }) => {
-            // Note: history is accepted but not used in this shim - stateless for now
-            return {
-              sendMessage: (prompt: string) =>
-                anyClient.models.generateContent({
-                  model,
-                  contents: [{ role: 'user', parts: [{ text: prompt }] }],
-                  config: generationConfig,
-                }),
-            };
-          },
-        };
-      };
-    }
-    if (typeof anyClient.startChat !== 'function') {
-      anyClient.startChat = ({
-        model,
-        generationConfig,
-      }: {
-        model: string;
-        generationConfig?: any;
-      }) => {
-        return {
-          sendMessage: (prompt: string) =>
-            anyClient.models.generateContent({
-              model,
-              contents: [{ role: 'user', parts: [{ text: prompt }] }],
-              config: generationConfig,
-            }),
-        };
-      };
-    }
+    this.model = config.model || 'gemini-3.6-flash';
 
     logger.info('Google GenAI Text Service initialized', {
       model: this.model,
     });
   }
 
-  /**
-   * Convert JSON Schema to Google GenAI Schema format
-   */
-  private convertJsonSchemaToGenAISchema(jsonSchema: unknown): GenAISchemaType {
-    // Type guard to ensure we have a valid schema object
-    if (!jsonSchema || typeof jsonSchema !== 'object') {
-      throw new Error('Invalid JSON schema provided');
+  private buildUserParts(prompt: string, mediaParts?: TextGenerationOptions['mediaParts']): Part[] {
+    const parts: Part[] = [{ text: prompt }];
+    for (const mediaPart of mediaParts ?? []) {
+      parts.push({
+        inlineData: {
+          data:
+            typeof mediaPart.data === 'string'
+              ? Buffer.from(mediaPart.data).toString('base64')
+              : mediaPart.data.toString('base64'),
+          mimeType: mediaPart.mimeType,
+        },
+      });
     }
+    return parts;
+  }
 
-    const schema = jsonSchema as JsonSchemaType;
-    if (!schema.type || typeof schema.type !== 'string') {
-      throw new Error('JSON schema must have a valid type property');
-    }
-    const convertType = (type: string) => {
-      switch (type) {
-        case 'string':
-          return 'STRING';
-        case 'integer':
-          return 'INTEGER';
-        case 'number':
-          return 'NUMBER';
-        case 'boolean':
-          return 'BOOLEAN';
-        case 'array':
-          return 'ARRAY';
-        case 'object':
-          return 'OBJECT';
-        default:
-          return 'STRING';
-      }
+  private buildUserContent(
+    prompt: string,
+    mediaParts?: TextGenerationOptions['mediaParts'],
+  ): Content {
+    return {
+      role: 'user',
+      parts: this.buildUserParts(prompt, mediaParts),
+    };
+  }
+
+  private buildGenerationConfig(
+    options?: TextGenerationOptions,
+    cachedContent?: string,
+    contextSystemInstruction?: string,
+  ): GenerateContentConfig {
+    const targetModel = (options?.model || this.model).toLowerCase();
+    const config: GenerateContentConfig = {
+      maxOutputTokens: options?.maxTokens || getMaxOutputTokens(targetModel),
+      ...(options?.stopSequences && { stopSequences: options.stopSequences }),
+      ...(cachedContent && { cachedContent }),
+      ...(options?.googleSearchGrounding && { tools: [{ googleSearch: {} }] }),
     };
 
-    const convertSchema = (schema: JsonSchemaType): GenAISchemaType => {
-      const result: GenAISchemaType = {
-        type: convertType(schema.type),
+    const systemInstruction = options?.systemInstruction || contextSystemInstruction;
+    if (systemInstruction && !cachedContent) {
+      config.systemInstruction = systemInstruction;
+    }
+
+    if (targetModel.startsWith('gemini-3') && options?.thinkingLevel) {
+      const thinkingLevels = {
+        minimal: ThinkingLevel.MINIMAL,
+        low: ThinkingLevel.LOW,
+        medium: ThinkingLevel.MEDIUM,
+        high: ThinkingLevel.HIGH,
+      } as const;
+      config.thinkingConfig = {
+        thinkingLevel: thinkingLevels[options.thinkingLevel],
       };
+    }
 
-      if (schema.description) {
-        result.description = schema.description;
-      }
+    if (options?.mediaResolution) {
+      const mediaResolutions = {
+        low: MediaResolution.MEDIA_RESOLUTION_LOW,
+        medium: MediaResolution.MEDIA_RESOLUTION_MEDIUM,
+        high: MediaResolution.MEDIA_RESOLUTION_HIGH,
+      } as const;
+      config.mediaResolution = mediaResolutions[options.mediaResolution];
+    }
 
-      if (schema.type === 'object' && schema.properties) {
-        result.properties = {};
-        for (const [key, value] of Object.entries(schema.properties)) {
-          result.properties[key] = convertSchema(value);
-        }
+    if (options?.jsonSchema) {
+      config.responseMimeType = 'application/json';
+      config.responseJsonSchema = options.jsonSchema;
+    }
 
-        if (schema.required && Array.isArray(schema.required)) {
-          result.required = schema.required;
-        }
-
-        // Add property ordering if available or create a default one
-        if (schema.required && Array.isArray(schema.required)) {
-          result.propertyOrdering = schema.required.concat(
-            Object.keys(schema.properties).filter(
-              (key) => schema.required && !schema.required.includes(key),
-            ),
-          );
-        } else {
-          result.propertyOrdering = Object.keys(schema.properties);
-        }
-      }
-
-      if (schema.type === 'array' && schema.items) {
-        result.items = convertSchema(schema.items);
-        if (schema.maxItems) {
-          result.maxItems = schema.maxItems;
-        }
-        if (schema.minItems) {
-          result.minItems = schema.minItems;
-        }
-      }
-
-      if (schema.enum && Array.isArray(schema.enum)) {
-        result.enum = schema.enum;
-      }
-
-      if (schema.maxLength) {
-        result.maxLength = schema.maxLength;
-      }
-
-      if (schema.minLength) {
-        result.minLength = schema.minLength;
-      }
-
-      return result;
-    };
-
-    return convertSchema(schema);
+    return config;
   }
   /**
    * Initialize context for a story generation session
@@ -316,7 +207,7 @@ export class GoogleGenAITextService implements ITextGenerationService {
         systemPromptLength: systemPrompt.length,
         previousContentLength: previousContent?.length || 0,
         model: this.model,
-        hasGetGenerativeModel: typeof this.genAI.getGenerativeModel === 'function',
+        hasNativeChatsApi: typeof this.genAI.chats.create === 'function',
       });
 
       // ── Explicit context caching ──────────────────────────────────────
@@ -329,14 +220,16 @@ export class GoogleGenAITextService implements ITextGenerationService {
       // The API requires a non-empty contents array even when systemInstruction is provided.
       if (previousContent && previousContent.length > 0) {
         try {
-          // Format previousContent (strings) into GenAI Content objects.
-          // We assume alternating user/model roles starting with user.
-          const contents = previousContent.map((text, i) => ({
-            role: i % 2 === 0 ? 'user' : 'model',
-            parts: [{ text }],
-          }));
+          // Cached content is a user-authored prefix. Never end a request prefix
+          // with a prefilled model turn, which Gemini 3.6 rejects.
+          const contents: Content[] = [
+            {
+              role: 'user',
+              parts: [{ text: previousContent.join('\n\n') }],
+            },
+          ];
 
-          const cacheResult = await (this.genAI as any).caches.create({
+          const cacheResult = await this.genAI.caches.create({
             model: this.model,
             config: {
               displayName: `story-ctx-${contextId.substring(0, 8)}`,
@@ -368,24 +261,23 @@ export class GoogleGenAITextService implements ITextGenerationService {
         });
       }
 
-      // ── Chat instance (existing behaviour) ───────────────────────────
-      // Create a chat instance for stateful conversations
-      const generativeModel = this.genAI.getGenerativeModel({
+      // Create a native SDK chat with no prefilled model turn.
+      const chatConfig: GenerateContentConfig = {
+        maxOutputTokens: getMaxOutputTokens(this.model),
+        ...(cachedContentName
+          ? { cachedContent: cachedContentName }
+          : { systemInstruction: systemPrompt }),
+      };
+      const chat = this.genAI.chats.create({
         model: this.model,
-        systemInstruction: systemPrompt,
+        config: chatConfig,
+        history: [],
       });
 
-      logger.info('Google GenAI Debug - Created generative model', {
+      logger.info('Google GenAI Debug - Created native chat', {
         contextId,
-        hasStartChat: typeof generativeModel.startChat === 'function',
-        modelMethods: Object.getOwnPropertyNames(generativeModel),
-      });
-
-      const chat = generativeModel.startChat({
-        history: [], // Start with empty history, system prompt is handled by systemInstruction
-        generationConfig: {
-          maxOutputTokens: getMaxOutputTokens(this.model),
-        },
+        model: this.model,
+        hasCachedContent: !!cachedContentName,
       });
 
       // Store the chat instance and cache name in context manager
@@ -425,7 +317,7 @@ export class GoogleGenAITextService implements ITextGenerationService {
       const cacheName = context?.providerSpecificData.googleGenAI?.cachedContentName;
       if (cacheName) {
         try {
-          await (this.genAI as any).caches.delete(cacheName);
+          await this.genAI.caches.delete({ name: cacheName });
           logger.info('Google GenAI - Explicit context cache deleted', {
             contextId,
             cacheName,
@@ -463,82 +355,55 @@ export class GoogleGenAITextService implements ITextGenerationService {
   }
   async complete(prompt: string, options?: TextGenerationOptions): Promise<string> {
     try {
-      let response;
-      // Resolve explicit context cache name (if one was created via initializeContext)
+      let response: unknown;
       let cachedContentForRequest: string | undefined;
+      let contextSystemInstruction: string | undefined;
 
-      // Try to get existing chat instance for stateful conversation
       if (options?.contextId) {
         const context = await contextManager.getContext(options.contextId);
         cachedContentForRequest = context?.providerSpecificData.googleGenAI?.cachedContentName;
+        contextSystemInstruction = context?.systemPrompt;
         const chat = context?.providerSpecificData.googleGenAI?.chatInstance;
 
         if (chat) {
-          // For stateful conversation with JSON schema, we need to create a new model
-          // since chat instances don't support changing responseSchema on the fly
-          if (options?.jsonSchema) {
-            const generationConfig: any = {
-              // Use caller override OR model maximum
-              maxOutputTokens:
-                options?.maxTokens || getMaxOutputTokens(options?.model || this.model),
-              temperature: options?.temperature || 0.7,
-              topP: options?.topP || 0.9,
-              topK: options?.topK || 40,
-              ...(options?.stopSequences && { stopSequences: options.stopSequences }),
-              responseMimeType: 'application/json',
-              responseSchema: this.convertJsonSchemaToGenAISchema(options.jsonSchema),
-              ...(cachedContentForRequest && { cachedContent: cachedContentForRequest }),
-            };
-
-            const generativeModel = this.genAI.getGenerativeModel({
-              model: options?.model || this.model,
-              generationConfig,
-            });
+          if (options.jsonSchema) {
+            const generationConfig = this.buildGenerationConfig(
+              options,
+              cachedContentForRequest,
+              contextSystemInstruction,
+            );
 
             logger.info('Google GenAI Debug - Using structured output with context', {
               contextId: options.contextId,
-              model: this.model,
+              model: options.model || this.model,
               hasJsonSchema: true,
             });
 
-            if (options?.mediaParts && options.mediaParts.length > 0) {
-              // Build content parts with media attachments
-              const parts: any[] = [{ text: prompt }];
-              for (const mp of options.mediaParts) {
-                if (typeof mp.data === 'string') {
-                  parts.push({
-                    inlineData: {
-                      data: Buffer.from(mp.data).toString('base64'),
-                      mimeType: mp.mimeType,
-                    },
-                  });
-                } else {
-                  parts.push({
-                    inlineData: { data: mp.data.toString('base64'), mimeType: mp.mimeType },
-                  });
-                }
-              }
-              response = await generativeModel.generateContent({
-                contents: [{ role: 'user', parts }],
-              });
-            } else {
-              response = await generativeModel.generateContent(prompt);
-            }
+            response = await this.genAI.models.generateContent({
+              model: options.model || this.model,
+              contents: this.buildUserContent(prompt, options.mediaParts),
+              config: generationConfig,
+            });
           } else {
-            // Use existing chat instance for stateful conversation without JSON schema
             logger.info('Google GenAI Debug - Using stateful chat', {
               contextId: options.contextId,
-              model: this.model,
+              model: options.model || this.model,
             });
 
-            response = await chat.sendMessage(prompt);
+            response = await chat.sendMessage({
+              message: this.buildUserParts(prompt, options.mediaParts),
+              config: this.buildGenerationConfig(
+                options,
+                cachedContentForRequest,
+                contextSystemInstruction,
+              ),
+            });
 
-            // Check if response is empty and retry once with stateless generation as fallback
             const rawCheck = response as any;
             const candidatesCheck = rawCheck?.response?.candidates || rawCheck?.candidates;
             const firstCandCheck = Array.isArray(candidatesCheck) ? candidatesCheck[0] : undefined;
             const hasContent = firstCandCheck?.content?.parts?.some(
-              (p: any) => p?.text?.length > 0,
+              (part: any) => part?.text?.length > 0,
             );
 
             if (!hasContent) {
@@ -546,75 +411,27 @@ export class GoogleGenAITextService implements ITextGenerationService {
                 'Google GenAI Debug - Empty chat response, falling back to stateless generation',
                 {
                   contextId: options.contextId,
-                  model: this.model,
+                  model: options.model || this.model,
                   finishReason: firstCandCheck?.finishReason,
                 },
               );
 
-              // Fallback to stateless generation
-              const fallbackConfig: any = {
-                maxOutputTokens:
-                  options?.maxTokens || getMaxOutputTokens(options?.model || this.model),
-                temperature: options?.temperature || 0.7,
-                topP: options?.topP || 0.9,
-                topK: options?.topK || 40,
-                ...(cachedContentForRequest && { cachedContent: cachedContentForRequest }),
-              };
-              const fallbackModel = this.genAI.getGenerativeModel({
-                model: options?.model || this.model,
-                generationConfig: fallbackConfig,
+              response = await this.genAI.models.generateContent({
+                model: options.model || this.model,
+                contents: this.buildUserContent(prompt, options.mediaParts),
+                config: this.buildGenerationConfig(
+                  options,
+                  cachedContentForRequest,
+                  contextSystemInstruction,
+                ),
               });
-              response = await fallbackModel.generateContent(prompt);
             }
           }
         }
       }
-      // If no chat instance exists, create a new one for stateless generation
+
       if (!response) {
-        const generationConfig: any = {
-          maxOutputTokens: options?.maxTokens || getMaxOutputTokens(options?.model || this.model),
-          temperature: options?.temperature ?? 0.7,
-          topP: options?.topP || 0.9,
-          topK: options?.topK || 40,
-          ...(options?.stopSequences && { stopSequences: options.stopSequences }),
-          ...(cachedContentForRequest && { cachedContent: cachedContentForRequest }),
-        };
-
-        // Gemini 3 thinking config - only supported on Gemini 3 models
-        const targetModel = (options?.model || this.model).toLowerCase();
-        const supportsThinkingLevel = targetModel.startsWith('gemini-3');
-        if (supportsThinkingLevel && options?.thinkingLevel) {
-          generationConfig.thinkingConfig = {
-            thinkingLevel: options.thinkingLevel.toUpperCase(), // 'MINIMAL', 'LOW', 'MEDIUM', or 'HIGH'
-          };
-        }
-
-        // Gemini 3 media resolution - controls token allocation for images/video
-        if (options?.mediaResolution) {
-          const resolutionMap: Record<string, string> = {
-            low: 'MEDIA_RESOLUTION_LOW',
-            medium: 'MEDIA_RESOLUTION_MEDIUM',
-            high: 'MEDIA_RESOLUTION_HIGH',
-          };
-          generationConfig.mediaResolution = resolutionMap[options.mediaResolution];
-        }
-
-        // Handle JSON schema for structured output
-        if (options?.jsonSchema) {
-          generationConfig.responseMimeType = 'application/json';
-          generationConfig.responseSchema = this.convertJsonSchemaToGenAISchema(options.jsonSchema);
-
-          logger.info('Google GenAI Debug - Using structured output', {
-            hasSchema: true,
-            contextId: options?.contextId,
-          });
-        }
-
-        const generativeModel = this.genAI.getGenerativeModel({
-          model: options?.model || this.model,
-          generationConfig,
-          ...(options?.systemInstruction && { systemInstruction: options.systemInstruction }),
-        });
+        const generationConfig = this.buildGenerationConfig(options);
 
         logger.info('Google GenAI Debug - Using stateless generation', {
           model: options?.model || this.model,
@@ -624,27 +441,11 @@ export class GoogleGenAITextService implements ITextGenerationService {
           thinkingLevel: options?.thinkingLevel,
         });
 
-        // If media parts are provided, send as inlineData parts alongside the prompt
-        if (options?.mediaParts && options.mediaParts.length > 0) {
-          const parts: any[] = [{ text: prompt }];
-          for (const mp of options.mediaParts) {
-            if (typeof mp.data === 'string') {
-              parts.push({
-                inlineData: {
-                  data: Buffer.from(mp.data).toString('base64'),
-                  mimeType: mp.mimeType,
-                },
-              });
-            } else {
-              parts.push({
-                inlineData: { data: mp.data.toString('base64'), mimeType: mp.mimeType },
-              });
-            }
-          }
-          response = await generativeModel.generateContent({ contents: [{ role: 'user', parts }] });
-        } else {
-          response = await generativeModel.generateContent(prompt);
-        }
+        response = await this.genAI.models.generateContent({
+          model: options?.model || this.model,
+          contents: this.buildUserContent(prompt, options?.mediaParts),
+          config: generationConfig,
+        });
       }
 
       // Extract the text response

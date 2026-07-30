@@ -113,7 +113,6 @@ export async function analyzeInputImage(
   const analysisPromise = service.complete(userPrompt, {
     mediaParts: [{ mimeType, data: buffer }],
     jsonSchema: schema,
-    temperature: 1, // Gemini 3 recommended default
     maxTokens: 4096,
     // Object localisation / bounding boxes are a reasoning task: 'low' thinking
     // yields sloppy, overlapping boxes. 'high' markedly tightens them.

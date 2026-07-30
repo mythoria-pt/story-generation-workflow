@@ -113,7 +113,7 @@ export const envManifest: EnvVarDescriptor[] = [
     scopes: ['dev', 'runtime', 'prod'],
     default: 'google-genai',
     source: 'inline',
-    note: 'Optional provider override for multimodal image analysis.',
+    note: 'Optional vision provider override; falls back to IMAGE_PROVIDER.',
   },
   {
     name: 'GOOGLE_GENAI_API_KEY',
@@ -126,14 +126,14 @@ export const envManifest: EnvVarDescriptor[] = [
     name: 'GOOGLE_GENAI_MODEL',
     required: false,
     scopes: ['dev', 'runtime', 'prod'],
-    default: 'gemini-2.5-flash',
+    default: 'gemini-3.6-flash',
     source: 'substitution',
   },
   {
     name: 'GOOGLE_GENAI_IMAGE_MODEL',
     required: false,
     scopes: ['dev', 'runtime', 'prod'],
-    default: 'gemini-3.1-flash-image-preview',
+    default: 'gemini-3.1-flash-image',
     source: 'substitution',
   },
   {

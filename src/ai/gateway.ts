@@ -45,7 +45,7 @@ export class AIGateway {
         }
         return new GoogleGenAITextService({
           apiKey: this.config.credentials.googleGenAIApiKey,
-          model: this.config.credentials.googleGenAIModel || 'gemini-3.5-flash',
+          model: this.config.credentials.googleGenAIModel || 'gemini-3.6-flash',
         });
 
       default:
@@ -73,7 +73,7 @@ export class AIGateway {
           throw new Error('Google GenAI API Key is required for Google Imagen service');
         }
         const selectedModel =
-          this.config.credentials.googleGenAIImageModel || 'gemini-3.1-flash-image-preview';
+          this.config.credentials.googleGenAIImageModel || 'gemini-3.1-flash-image';
         const service = new GoogleGenAIImageService({
           apiKey: this.config.credentials.googleGenAIApiKey,
           model: selectedModel,

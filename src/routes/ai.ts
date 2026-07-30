@@ -430,7 +430,7 @@ router.post('/text/outline', async (req, res) => {
     if (textProvider === 'openai') {
       outlineModel = process.env.OPENAI_BASE_MODEL || process.env.OPENAI_TEXT_MODEL || 'gpt-5.5';
     } else if (textProvider === 'google-genai') {
-      outlineModel = process.env.GOOGLE_GENAI_MODEL || 'gemini-3.5-flash';
+      outlineModel = process.env.GOOGLE_GENAI_MODEL || 'gemini-3.6-flash';
     } else {
       outlineModel = 'gpt-5.5';
     }
@@ -823,14 +823,12 @@ router.post('/media/analyze-character-photo', async (req, res) => {
     });
 
     // Gemini 3 specific configuration:
-    // - temperature: 1.0 is strongly recommended for Gemini 3 (lower values can cause looping/degraded performance)
     // - thinkingLevel: 'low' to minimize latency for this simple descriptive task
     // - mediaResolution: 'medium' is sufficient for character description (saves tokens vs 'high' default)
     // - maxTokens: 2048 to accommodate any thinking overhead plus output
     const fullPrompt = systemPrompt ? `${systemPrompt}\n\n${userPrompt}` : userPrompt;
     const analysisPromise = textService.complete(fullPrompt, {
       mediaParts: [{ mimeType: 'image/jpeg', data: buffer }],
-      temperature: 1.0, // Gemini 3 recommended default (lower values can cause issues)
       maxTokens: 2048, // Accommodate thinking overhead + output
       thinkingLevel: 'low', // Minimize latency for simple descriptive task
       mediaResolution: 'medium', // Sufficient for character description, saves tokens
@@ -1113,7 +1111,7 @@ router.post('/text/chapter/:chapterNumber', async (req, res) => {
     // Build dynamic memory (previous chapters) heuristic: fetch saved chapters < current
     // Build Full Story History (Dynamic Memory)
     // We fetch all previous chapters and include their full text to ensure perfect continuity.
-    // Given Gemini 3.5 Flash's 1M context window, this is the most effective approach.
+    // Given Gemini 3.6 Flash's 1M context window, this is the most effective approach.
     let fullHistory = '';
     try {
       if (chapterNumber > 1) {

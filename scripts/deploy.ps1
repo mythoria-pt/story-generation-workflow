@@ -50,6 +50,19 @@ function Write-Info { param([string]$Msg) Write-Host "[INFO] $Msg" -ForegroundCo
 function Write-Success { param([string]$Msg) Write-Host "[SUCCESS] $Msg" -ForegroundColor Green }
 function Write-Warn { param([string]$Msg) Write-Host "[WARN] $Msg" -ForegroundColor Yellow }
 function Write-Err { param([string]$Msg) Write-Host "[ERROR] $Msg" -ForegroundColor Red }
+
+function Assert-CommandSucceeded {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Operation,
+        [Parameter(Mandatory = $true)]
+        [int]$ExitCode
+    )
+
+    if ($ExitCode -ne 0) {
+        throw "$Operation failed with exit code $ExitCode."
+    }
+}
 # -----------------------------------------------------------------------------
 
 # --- Policy Guards -----------------------------------------------------------
@@ -115,6 +128,7 @@ function Test-Prerequisites {
     }
 
     & $GCLOUD_COMMAND config set project $PROJECT_ID | Out-Null
+    Assert-CommandSucceeded -Operation 'gcloud config set project' -ExitCode $LASTEXITCODE
     Write-Success "Using project $PROJECT_ID"
 }
 
@@ -124,33 +138,51 @@ function Build-Application {
     )
     Write-Info "Installing dependencies (npm ci)"
     & npm ci
+    Assert-CommandSucceeded -Operation 'npm ci' -ExitCode $LASTEXITCODE
+
     Write-Info "Checking formatting (npm run format)"
     & npm run format
+    Assert-CommandSucceeded -Operation 'npm run format' -ExitCode $LASTEXITCODE
+
     if (-not $SkipLint) {
         Write-Info "Linting (npm run lint)"
         # Ensure dev dependencies (eslint) available even if caller exported NODE_ENV=production
         $originalNodeEnv = $env:NODE_ENV
         $env:NODE_ENV = 'development'
+        $lintExitCode = 1
         try {
             & npm run lint
+            $lintExitCode = $LASTEXITCODE
         }
         finally {
             if ($null -ne $originalNodeEnv) { $env:NODE_ENV = $originalNodeEnv } else { Remove-Item Env:NODE_ENV -ErrorAction SilentlyContinue }
         }
+        Assert-CommandSucceeded -Operation 'npm run lint' -ExitCode $lintExitCode
     }
     else {
         Write-Warn "Skipping lint (SkipLint flag provided)"
     }
+
     Write-Info "Typecheck (npm run typecheck)"
     & npm run typecheck
+    Assert-CommandSucceeded -Operation 'npm run typecheck' -ExitCode $LASTEXITCODE
+
     Write-Info "Building production bundle (npm run build)"
     & npm run build
+    Assert-CommandSucceeded -Operation 'npm run build' -ExitCode $LASTEXITCODE
+
     Write-Info "Running tests serially (npm test -- --runInBand)"
     & npm test -- --runInBand
+    Assert-CommandSucceeded -Operation 'npm test -- --runInBand' -ExitCode $LASTEXITCODE
+
     Write-Info "Checking environment parity (npm run env:parity)"
-    & npm run env:parity
+    & npm run env:parity -- --strict-cloudbuild
+    Assert-CommandSucceeded -Operation 'npm run env:parity -- --strict-cloudbuild' -ExitCode $LASTEXITCODE
+
     Write-Info "Checking whitespace errors (git diff --check)"
     & git -C $REPO_ROOT diff --check
+    Assert-CommandSucceeded -Operation 'git diff --check' -ExitCode $LASTEXITCODE
+
     Write-Success "Build completed"
 }
 

@@ -1,3 +1,5 @@
+import type { Chat } from '@google/genai';
+
 /**
  * AI Context Manager - Simplified for Stateful Conversation APIs
  * Manages session identifiers and provider-specific data for story generation
@@ -29,7 +31,7 @@ export interface ProviderContextData {
 
   // Google GenAI - stores chat instance for stateful conversations
   googleGenAI?: {
-    chatInstance?: { sendMessage: (message: string) => Promise<unknown> } | undefined; // Chat instance from genAI
+    chatInstance?: Chat;
     /** Explicit cached content name for context caching (reduces repeated input token costs) */
     cachedContentName?: string;
   };

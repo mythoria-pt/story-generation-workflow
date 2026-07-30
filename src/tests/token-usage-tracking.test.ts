@@ -172,6 +172,18 @@ describe('TokenUsageTrackingService', () => {
     expect(estimation.estimatedCostInEuros).toBeCloseTo(0.110952, 4);
   });
 
+  it('calculates cost for Gemini 3.6 Flash model', () => {
+    const estimation = (service as any).calculateCost({
+      provider: 'google-genai',
+      model: 'gemini-3.6-flash',
+      inputTokens: 2000,
+      outputTokens: 1000,
+      estimatedCostInEuros: 0,
+    });
+    // Input: $0.003; output: $0.0075; total: $0.0105 * 0.92 = €0.00966
+    expect(estimation.estimatedCostInEuros).toBeCloseTo(0.00966, 5);
+  });
+
   it('calculates cost for Gemini 3.5 Flash model', () => {
     const estimation = (service as any).calculateCost({
       provider: 'google-genai',
@@ -214,10 +226,10 @@ describe('TokenUsageTrackingService', () => {
     expect(estimation.estimatedCostInEuros).toBeCloseTo(0.12512, 4);
   });
 
-  it('calculates cost for Gemini 3.1 Flash Image Preview model', () => {
+  it('calculates cost for Gemini 3.1 Flash Image model', () => {
     const estimation = (service as any).calculateCost({
       provider: 'google-genai',
-      model: 'gemini-3.1-flash-image-preview',
+      model: 'gemini-3.1-flash-image',
       inputTokens: 1000,
       outputTokens: 1120,
       estimatedCostInEuros: 0,

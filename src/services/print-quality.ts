@@ -1122,7 +1122,6 @@ export class PrintQualityService {
 
       const responseText = await textService.complete(prompt, {
         model: env.GOOGLE_GENAI_MODEL,
-        temperature: 0.1,
         jsonSchema: VISUAL_REVIEW_SCHEMA,
         mediaParts,
       });
