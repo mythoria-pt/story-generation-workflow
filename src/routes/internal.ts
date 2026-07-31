@@ -6,7 +6,7 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { logger } from '@/config/logger.js';
-import { RunsService } from '@/services/runs.js';
+import { RunStoryConflictError, RunsService } from '@/services/runs.js';
 import { TTSService } from '@/services/tts.js';
 import { ProgressTrackerService } from '@/services/progress-tracker.js';
 import { StoryService } from '@/services/story.js';
@@ -33,6 +33,11 @@ const UpdateRunRequestSchema = z.object({
   metadata: z.record(z.string(), z.unknown()).optional(),
   storyId: z.string().uuid().optional(), // Added to support creating missing runs
   startedAt: z.string().optional(),
+});
+
+const ClaimRunRequestSchema = z.object({
+  storyId: z.string().uuid(),
+  gcpWorkflowExecution: z.string().max(255).optional(),
 });
 
 const StoreOutlineRequestSchema = z.object({
@@ -68,6 +73,39 @@ router.get('/auth/status', async (_req, res) => {
   });
 });
 
+/** POST /internal/runs/:runId/claim - atomically claim a workflow run. */
+router.post('/runs/:runId/claim', async (req: Request, res: Response) => {
+  try {
+    const runId = z.string().uuid().parse(req.params.runId);
+    const input = ClaimRunRequestSchema.parse(req.body);
+    const result = await runsService.claimRun(input.storyId, runId, input.gcpWorkflowExecution);
+    res.json({
+      claimed: result.claimed,
+      status: result.run.status,
+      runId: result.run.runId,
+      storyId: result.run.storyId,
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ error: 'Invalid claim request', details: error.issues });
+      return;
+    }
+    if (error instanceof RunStoryConflictError) {
+      res.status(409).json({
+        error: 'Run belongs to a different story',
+        runId: error.runId,
+        storyId: error.existingStoryId,
+      });
+      return;
+    }
+    logger.error('Internal API: Failed to claim run', {
+      runId: req.params.runId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    res.status(500).json({ error: 'Failed to claim run' });
+  }
+});
+
 /**
  * PATCH /internal/runs/:runId
  * Update run status and metadata
@@ -95,7 +133,7 @@ router.patch('/runs/:runId', async (req: Request, res: Response) => {
         storyId: updates.storyId,
       });
 
-      run = await runsService.createRun(updates.storyId, runId);
+      run = await runsService.createOrGetRun(updates.storyId, runId);
     } else if (!run) {
       logger.error('Run not found and no storyId provided', { runId });
       res.status(404).json({

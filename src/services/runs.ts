@@ -21,6 +21,17 @@ export interface StepResult {
   error?: string;
 }
 
+export class RunStoryConflictError extends Error {
+  constructor(
+    readonly runId: string,
+    readonly existingStoryId: string,
+    readonly requestedStoryId: string,
+  ) {
+    super(`Run ${runId} already belongs to story ${existingStoryId}`);
+    this.name = 'RunStoryConflictError';
+  }
+}
+
 export class RunsService {
   private db = getWorkflowsDatabase();
 
@@ -61,6 +72,43 @@ export class RunsService {
     }
   }
 
+  /** Atomically allow only the first workflow execution to start a run. */
+  async claimRun(storyId: string, runId: string, gcpWorkflowExecution?: string) {
+    const now = new Date().toISOString();
+    const [createdRun] = await this.db
+      .insert(storyGenerationRuns)
+      .values({
+        runId,
+        storyId,
+        gcpWorkflowExecution,
+        status: 'running',
+        currentStep: 'generate_outline',
+        startedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoNothing({ target: storyGenerationRuns.runId })
+      .returning();
+
+    if (createdRun) {
+      logger.info('Run claimed', { runId, storyId });
+      return { claimed: true as const, run: createdRun };
+    }
+
+    const existingRun = await this.getRun(runId);
+    if (!existingRun) throw new Error(`Failed to read run after claim conflict: ${runId}`);
+    if (existingRun.storyId !== storyId) {
+      throw new RunStoryConflictError(runId, existingRun.storyId, storyId);
+    }
+
+    logger.info('Duplicate workflow did not claim run', {
+      runId,
+      storyId,
+      status: existingRun.status,
+    });
+    return { claimed: false as const, run: existingRun };
+  }
+
   /**
    * Create run if it doesn't exist, otherwise return existing run
    */
@@ -74,7 +122,26 @@ export class RunsService {
       }
 
       // Create new run if it doesn't exist
-      return await this.createRun(storyId, runId, gcpWorkflowExecution);
+      const [createdRun] = await this.db
+        .insert(storyGenerationRuns)
+        .values({
+          runId,
+          storyId,
+          gcpWorkflowExecution,
+          status: 'queued' as const,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        })
+        .onConflictDoNothing({ target: storyGenerationRuns.runId })
+        .returning();
+      if (createdRun) return createdRun;
+
+      const concurrentRun = await this.getRun(runId);
+      if (!concurrentRun) throw new Error(`Failed to create or get run: ${runId}`);
+      if (concurrentRun.storyId !== storyId) {
+        throw new RunStoryConflictError(runId, concurrentRun.storyId, storyId);
+      }
+      return concurrentRun;
     } catch (error) {
       logger.error('Failed to create or get run', {
         error: error instanceof Error ? error.message : String(error),

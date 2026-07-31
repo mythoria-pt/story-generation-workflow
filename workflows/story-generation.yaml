@@ -40,18 +40,21 @@ main:
     - runPipeline:
         try:
           steps:
-            # 1. Mark run → running / generate_outline
-            - markRunStarted:
+            # 1. Atomically claim the run before any AI work.
+            - claimRun:
                 call: http.request
                 args:
-                  url: ${baseUrl + "/internal/runs/" + runId}
-                  method: PATCH
+                  url: ${baseUrl + "/internal/runs/" + runId + "/claim"}
+                  method: POST
                   auth: { type: OIDC }
                   body:
                     storyId: ${storyId}
-                    status: 'running'
-                    currentStep: 'generate_outline'
-                    startedAt: ${time.format(sys.now())}
+                result: claimResp
+
+            - stopDuplicateRun:
+                switch:
+                  - condition: ${not(claimResp.body.claimed)}
+                    return: ${claimResp.body}
 
             # 2. Generate outline (AI-Gateway)
             - genOutline:

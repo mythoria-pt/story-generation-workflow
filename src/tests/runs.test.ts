@@ -14,7 +14,7 @@ jest.mock('@/db/workflows-db', () => ({
   storyGenerationSteps: {},
 }));
 
-import { RunsService } from '../services/runs';
+import { RunStoryConflictError, RunsService } from '../services/runs';
 import { getWorkflowsDatabase } from '@/db/workflows-db';
 import { logger } from '@/config/logger';
 
@@ -57,6 +57,38 @@ describe('RunsService', () => {
     expect(result).toBe(existing);
     expect(spy).toHaveBeenCalled();
     expect(mockDb.insert).not.toHaveBeenCalled();
+  });
+
+  it('allows only the first workflow to claim a run', async () => {
+    const returning = jest
+      .fn()
+      .mockResolvedValueOnce([{ runId: 'r1', storyId: 's1', status: 'running' }])
+      .mockResolvedValueOnce([]);
+    const onConflictDoNothing = jest.fn().mockReturnValue({ returning });
+    mockDb.insert.mockReturnValue({
+      values: jest.fn().mockReturnValue({ onConflictDoNothing }),
+    });
+    jest
+      .spyOn(service, 'getRun')
+      .mockResolvedValue({ runId: 'r1', storyId: 's1', status: 'running' } as any);
+
+    await expect(service.claimRun('s1', 'r1')).resolves.toMatchObject({ claimed: true });
+    await expect(service.claimRun('s1', 'r1')).resolves.toMatchObject({ claimed: false });
+  });
+
+  it('rejects a run id already associated with another story', async () => {
+    mockDb.insert.mockReturnValue({
+      values: jest.fn().mockReturnValue({
+        onConflictDoNothing: jest
+          .fn()
+          .mockReturnValue({ returning: jest.fn().mockResolvedValue([]) }),
+      }),
+    });
+    jest
+      .spyOn(service, 'getRun')
+      .mockResolvedValue({ runId: 'r1', storyId: 'different', status: 'running' } as any);
+
+    await expect(service.claimRun('s1', 'r1')).rejects.toBeInstanceOf(RunStoryConflictError);
   });
 
   it('updates run status transitions', async () => {
