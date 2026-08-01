@@ -1,4 +1,4 @@
-// -----------------------------------------------------------------------------
+﻿// -----------------------------------------------------------------------------
 // Shared database schema - imports from mythoria-webapp
 // This allows both applications to share the same database schema
 //
@@ -18,3 +18,4 @@ export * from './credits.js';
 export * from './pricing.js';
 export * from './relations.js';
 export * from './analytics.js';
+export * from './writing-personas.js';

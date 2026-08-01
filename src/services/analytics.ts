@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import { logger } from '@/config/logger.js';
 import { getDatabase } from '@/db/connection.js';
@@ -6,6 +7,25 @@ import { getWorkflowsDatabase } from '@/db/workflows-db.js';
 import { storyGenerationRuns } from '@/db/workflows-schema/index.js';
 
 type TerminalRun = typeof storyGenerationRuns.$inferSelect;
+export type TerminalAnalyticsOutcome =
+  | 'ignored'
+  | 'recorded'
+  | 'deferred_context'
+  | 'duplicate'
+  | 'not_eligible'
+  | 'untracked';
+
+export interface AnalyticsReconciliationResult {
+  inspected: number;
+  recorded: number;
+  deferredContext: number;
+  duplicates: number;
+  notEligible: number;
+  untracked: number;
+}
+
+const analyticsReference = (runId: string): string =>
+  createHash('sha256').update(runId).digest('hex').slice(0, 12);
 
 const normalizeFailureCode = (message: string | null): string => {
   const normalized = message?.toLowerCase() || '';
@@ -32,8 +52,8 @@ export class AnalyticsReconciliationService {
   private sharedDb = getDatabase();
   private workflowsDb = getWorkflowsDatabase();
 
-  async recordTerminalRun(run: TerminalRun): Promise<boolean> {
-    if (run.status !== 'completed' && run.status !== 'failed') return false;
+  async recordTerminalRun(run: TerminalRun): Promise<TerminalAnalyticsOutcome> {
+    if (run.status !== 'completed' && run.status !== 'failed') return 'ignored';
 
     const [request] = await this.sharedDb
       .select()
@@ -41,9 +61,9 @@ export class AnalyticsReconciliationService {
       .where(eq(storyGenerationRequests.runId, run.runId));
     if (!request) {
       logger.info('Terminal run is not tracked for analytics', {
-        runId: run.runId,
+        runRef: analyticsReference(run.runId),
       });
-      return false;
+      return 'untracked';
     }
     const [requestedEvent] = await this.sharedDb
       .select({
@@ -62,13 +82,15 @@ export class AnalyticsReconciliationService {
     const eventName =
       run.status === 'completed' ? 'story_generation_completed' : 'story_generation_failed';
 
+    let outcome: TerminalAnalyticsOutcome = 'not_eligible';
     await this.sharedDb.transaction(async (tx) => {
-      if (request.clientId && request.consent?.analyticsStorage === 'granted') {
-        await tx
+      if (request.consent?.analyticsStorage === 'granted') {
+        const [inserted] = await tx
           .insert(analyticsOutbox)
           .values({
             dedupeKey: `${eventName}:${run.runId}`,
             eventName,
+            authorId: request.authorId,
             clientId: request.clientId,
             userId: requestedEvent?.userId,
             sessionId: request.sessionId,
@@ -90,7 +112,9 @@ export class AnalyticsReconciliationService {
             },
             occurredAt: endedAt,
           })
-          .onConflictDoNothing({ target: analyticsOutbox.dedupeKey });
+          .onConflictDoNothing({ target: analyticsOutbox.dedupeKey })
+          .returning({ outboxId: analyticsOutbox.outboxId });
+        outcome = inserted ? (request.clientId ? 'recorded' : 'deferred_context') : 'duplicate';
       }
 
       await tx
@@ -98,10 +122,15 @@ export class AnalyticsReconciliationService {
         .set({ status: run.status, terminalAt: endedAt, updatedAt: new Date() })
         .where(eq(storyGenerationRequests.runId, run.runId));
     });
-    return true;
+    logger.info('Terminal analytics reconciliation outcome', {
+      runRef: analyticsReference(run.runId),
+      eventName,
+      outcome,
+    });
+    return outcome;
   }
 
-  async reconcileRecentTerminalRuns(): Promise<{ inspected: number; recorded: number }> {
+  async reconcileRecentTerminalRuns(): Promise<AnalyticsReconciliationResult> {
     const requests = await this.sharedDb
       .select({ runId: storyGenerationRequests.runId })
       .from(storyGenerationRequests)
@@ -115,7 +144,14 @@ export class AnalyticsReconciliationService {
       .limit(100);
 
     if (requests.length === 0) {
-      return { inspected: 0, recorded: 0 };
+      return {
+        inspected: 0,
+        recorded: 0,
+        deferredContext: 0,
+        duplicates: 0,
+        notEligible: 0,
+        untracked: 0,
+      };
     }
 
     const runs = await this.workflowsDb
@@ -131,11 +167,23 @@ export class AnalyticsReconciliationService {
         ),
       );
 
-    let recorded = 0;
+    const result: AnalyticsReconciliationResult = {
+      inspected: requests.length,
+      recorded: 0,
+      deferredContext: 0,
+      duplicates: 0,
+      notEligible: 0,
+      untracked: 0,
+    };
     for (const run of runs) {
-      if (await this.recordTerminalRun(run)) recorded += 1;
+      const outcome = await this.recordTerminalRun(run);
+      if (outcome === 'recorded') result.recorded += 1;
+      if (outcome === 'deferred_context') result.deferredContext += 1;
+      if (outcome === 'duplicate') result.duplicates += 1;
+      if (outcome === 'not_eligible') result.notEligible += 1;
+      if (outcome === 'untracked') result.untracked += 1;
     }
-    return { inspected: requests.length, recorded };
+    return result;
   }
 }
 

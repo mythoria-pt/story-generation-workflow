@@ -197,6 +197,7 @@ router.patch('/runs/:runId', async (req: Request, res: Response) => {
 router.post('/analytics/reconcile', schedulerAuth, async (_req, res) => {
   try {
     const result = await analyticsReconciliationService.reconcileRecentTerminalRuns();
+    logger.info('Analytics reconciliation completed', result);
     res.json({ success: true, ...result });
   } catch (error) {
     logger.error('Analytics reconciliation failed', {

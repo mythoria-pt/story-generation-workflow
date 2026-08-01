@@ -190,6 +190,24 @@ export const paymentStatusEnum = pgEnum('payment_status', [
 
 export const transactionTypeEnum = pgEnum('transaction_type', ['purchase', 'bonus', 'refund']);
 
+export const fiscalDocumentProviderEnum = pgEnum('fiscal_document_provider', ['keyinvoice']);
+
+export const fiscalDocumentStatusEnum = pgEnum('fiscal_document_status', [
+  'draft',
+  'pending',
+  'issuing',
+  'issued',
+  'failed',
+  'voided',
+  'credit_note_required',
+  'credit_note_issued',
+]);
+
+export const fiscalDocumentCustomerModeEnum = pgEnum('fiscal_document_customer_mode', [
+  'keyinvoice_client',
+  'final_consumer',
+]);
+
 // Onboarding / profile enums
 export const genderEnum = pgEnum('gender', ['female', 'male', 'prefer_not_to_say']);
 
@@ -227,3 +245,14 @@ export const notificationPreferenceEnum = pgEnum('notification_preference', [
   'inspiration', // Tips & ideas (default)
   'news', // Product news & special promos
 ]);
+
+// Partner directory enums
+export const partnerTypeEnum = pgEnum('partner_type', ['printer', 'attraction', 'retail', 'other']);
+
+export const partnerServiceScopeEnum = pgEnum('partner_service_scope', [
+  'local',
+  'national',
+  'international',
+]);
+
+export const partnerStatusEnum = pgEnum('partner_status', ['active', 'draft', 'hidden']);

@@ -29,6 +29,7 @@ const terminalRun = {
 const trackedRequest = {
   runId: 'run-1',
   storyId: 'story-1',
+  authorId: 'author-1',
   creditsSpent: 3,
   clientId: '123.456',
   sessionId: 123,
@@ -53,13 +54,19 @@ describe('AnalyticsReconciliationService', () => {
   let requestedEventRows: any[];
   let reconciliationRequestRows: Array<{ runId: string }>;
   let workflowRows: any[];
+  let insertedOutboxRows: any[];
 
   beforeEach(() => {
     recordRequestRows = [trackedRequest];
     requestedEventRows = [requestedEvent];
     reconciliationRequestRows = [];
     workflowRows = [];
-    insertValues = jest.fn(() => ({ onConflictDoNothing: jest.fn().mockResolvedValue(undefined) }));
+    insertedOutboxRows = [{ outboxId: 'outbox-1' }];
+    insertValues = jest.fn(() => ({
+      onConflictDoNothing: jest.fn(() => ({
+        returning: jest.fn().mockImplementation(async () => insertedOutboxRows),
+      })),
+    }));
     updateSet = jest.fn(() => ({ where: jest.fn().mockResolvedValue(undefined) }));
     const tx = {
       insert: jest.fn(() => ({ values: insertValues })),
@@ -111,11 +118,12 @@ describe('AnalyticsReconciliationService', () => {
     const service = new AnalyticsReconciliationService();
     const result = await service.recordTerminalRun(terminalRun);
 
-    expect(result).toBe(true);
+    expect(result).toBe('recorded');
     expect(insertValues).toHaveBeenCalledWith(
       expect.objectContaining({
         dedupeKey: 'story_generation_failed:run-1',
         eventName: 'story_generation_failed',
+        authorId: 'author-1',
         userId: 'clerk-1',
         params: expect.objectContaining({
           duration_seconds: 90,
@@ -136,7 +144,7 @@ describe('AnalyticsReconciliationService', () => {
 
     await expect(
       service.recordTerminalRun({ ...terminalRun, status: 'completed', errorMessage: null }),
-    ).resolves.toBe(true);
+    ).resolves.toBe('recorded');
     expect(insertValues).toHaveBeenCalledWith(
       expect.objectContaining({
         dedupeKey: 'story_generation_completed:run-1',
@@ -151,11 +159,12 @@ describe('AnalyticsReconciliationService', () => {
     recordRequestRows = [];
     const service = new AnalyticsReconciliationService();
 
-    await expect(service.recordTerminalRun(terminalRun)).resolves.toBe(false);
+    await expect(service.recordTerminalRun(terminalRun)).resolves.toBe('untracked');
     expect(logger.warn).not.toHaveBeenCalled();
-    expect(logger.info).toHaveBeenCalledWith('Terminal run is not tracked for analytics', {
-      runId: 'run-1',
-    });
+    expect(logger.info).toHaveBeenCalledWith(
+      'Terminal run is not tracked for analytics',
+      expect.objectContaining({ runRef: expect.any(String) }),
+    );
     expect(sharedDb.transaction).not.toHaveBeenCalled();
   });
 
@@ -167,6 +176,10 @@ describe('AnalyticsReconciliationService', () => {
     await expect(service.reconcileRecentTerminalRuns()).resolves.toEqual({
       inspected: 2,
       recorded: 1,
+      deferredContext: 0,
+      duplicates: 0,
+      notEligible: 0,
+      untracked: 0,
     });
     expect(workflowsDb.select).toHaveBeenCalledTimes(1);
     expect(sharedDb.transaction).toHaveBeenCalledTimes(1);
@@ -181,6 +194,10 @@ describe('AnalyticsReconciliationService', () => {
     await expect(service.reconcileRecentTerminalRuns()).resolves.toEqual({
       inspected: 1,
       recorded: 0,
+      deferredContext: 0,
+      duplicates: 0,
+      notEligible: 0,
+      untracked: 0,
     });
     expect(sharedDb.transaction).not.toHaveBeenCalled();
     expect(logger.warn).not.toHaveBeenCalled();
@@ -192,8 +209,47 @@ describe('AnalyticsReconciliationService', () => {
     await expect(service.reconcileRecentTerminalRuns()).resolves.toEqual({
       inspected: 0,
       recorded: 0,
+      deferredContext: 0,
+      duplicates: 0,
+      notEligible: 0,
+      untracked: 0,
     });
     expect(workflowsDb.select).not.toHaveBeenCalled();
     expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it('creates a recoverable terminal event when consent exists without a client id', async () => {
+    recordRequestRows = [{ ...trackedRequest, clientId: null, sessionId: null }];
+    const service = new AnalyticsReconciliationService();
+
+    await expect(service.recordTerminalRun(terminalRun)).resolves.toBe('deferred_context');
+    expect(insertValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        authorId: 'author-1',
+        clientId: null,
+        consent: trackedRequest.consent,
+      }),
+    );
+    expect(updateSet).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'failed', terminalAt: expect.any(Date) }),
+    );
+  });
+
+  it('marks an explicitly non-consented terminal run as not eligible without an outbox row', async () => {
+    recordRequestRows = [{ ...trackedRequest, clientId: null, consent: null }];
+    const service = new AnalyticsReconciliationService();
+
+    await expect(service.recordTerminalRun(terminalRun)).resolves.toBe('not_eligible');
+    expect(insertValues).not.toHaveBeenCalled();
+    expect(updateSet).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'failed', terminalAt: expect.any(Date) }),
+    );
+  });
+
+  it('reports an idempotent terminal event conflict as a duplicate', async () => {
+    insertedOutboxRows = [];
+    const service = new AnalyticsReconciliationService();
+
+    await expect(service.recordTerminalRun(terminalRun)).resolves.toBe('duplicate');
   });
 });

@@ -12,7 +12,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import { eq, isNotNull } from 'drizzle-orm';
 import { authors } from './authors';
-import type { CustomWritingPersonaDefinition } from '@/services/literary-persona.js';
+import type { WritingPersonaSettings } from '@/types/writing-persona';
 import {
   storyStatusEnum,
   runStatusEnum,
@@ -48,9 +48,7 @@ export const stories = pgTable(
     novelStyle: novelStyleEnum('novel_style'),
     graphicalStyle: graphicalStyleEnum('graphical_style'),
     literaryPersona: literaryPersonaEnum('literary_persona'),
-    customWritingPersona: jsonb(
-      'custom_writing_persona',
-    ).$type<CustomWritingPersonaDefinition | null>(),
+    customWritingPersona: jsonb('custom_writing_persona').$type<WritingPersonaSettings | null>(),
     status: storyStatusEnum('status').default('draft'),
     features: jsonb('features'), // {"ebook":true,"printed":false,"audiobook":true}
     deliveryAddress: jsonb('delivery_address'), // Delivery address for printed books

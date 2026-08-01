@@ -26,7 +26,8 @@ $RequiredSchemas = @(
     "print.ts",
     "ratings.ts",
     "relations.ts",
-    "analytics.ts"
+    "analytics.ts",
+    "writing-personas.ts"
 )
 
 if ($Schemas -and $Schemas.Count -gt 0) {
@@ -106,6 +107,52 @@ foreach ($Schema in $RequiredSchemas) {
     }
 }
 
+# Sync shared TypeScript contracts imported by the mirrored schemas.
+$SourceTypesPath = Join-Path $WorkspaceRoot "mythoria-webapp\src\types"
+$TargetTypesPath = Join-Path $RepositoryRoot "src\types"
+$RequiredTypes = @("writing-persona.ts")
+
+foreach ($TypeFile in $RequiredTypes) {
+    $SourceFile = Join-Path $SourceTypesPath $TypeFile
+    $TargetFile = Join-Path $TargetTypesPath $TypeFile
+
+    Write-Host "Processing shared type: $TypeFile" -ForegroundColor White
+    if (-not (Test-Path $SourceFile)) {
+        Write-Host "  ERROR: Source file not found: $SourceFile" -ForegroundColor Red
+        $ErrorCount++
+        continue
+    }
+
+    $ShouldSync = $true
+    if (Test-Path $TargetFile) {
+        $SourceInfo = Get-Item $SourceFile
+        $TargetInfo = Get-Item $TargetFile
+        if ($SourceInfo.Length -eq $TargetInfo.Length -and
+            $SourceInfo.LastWriteTime -eq $TargetInfo.LastWriteTime) {
+            Write-Host "  SKIP: Files appear identical (same size and timestamp)" -ForegroundColor Gray
+            $ShouldSync = $false
+        }
+    } else {
+        Write-Host "  NEW: Target file does not exist" -ForegroundColor Green
+    }
+
+    if ($ShouldSync) {
+        if ($DryRun) {
+            Write-Host "  WOULD SYNC: $SourceFile -> $TargetFile" -ForegroundColor Cyan
+            $SyncCount++
+        } else {
+            try {
+                Copy-Item $SourceFile $TargetFile -Force
+                Write-Host "  SUCCESS: Synced successfully" -ForegroundColor Green
+                $SyncCount++
+            } catch {
+                Write-Host "  ERROR: Failed to sync - $($_.Exception.Message)" -ForegroundColor Red
+                $ErrorCount++
+            }
+        }
+    }
+}
+
 # Update index.ts if any files were synced
 if ($SyncCount -gt 0 -and -not $DryRun) {
     $IndexPath = Join-Path $TargetPath "index.ts"
@@ -130,6 +177,7 @@ export * from './credits.js';
 export * from './pricing.js';
 export * from './relations.js';
 export * from './analytics.js';
+export * from './writing-personas.js';
 
 "@
     
