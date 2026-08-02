@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, jest } from '@jest/globals';
+import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals';
 
 jest.mock('@/config/logger', () => ({
   logger: {
@@ -23,6 +23,10 @@ import { logger } from '@/config/logger';
 describe('PromptService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
   it('loads prompt template', async () => {
@@ -121,5 +125,56 @@ describe('PromptService', () => {
 
     const styles = await PromptService.getAvailableImageStyles();
     expect(styles).toEqual(['fantasy', 'noir']);
+  });
+
+  it('builds a provider-neutral image prompt with the selected style', async () => {
+    jest.spyOn(PromptService, 'loadImagePrompt').mockResolvedValue({
+      systemPrompt:
+        'Cover for {{bookTitle}}. Scene: {{promptText}}. {{#customInstructions}}Notes: {{customInstructions}}{{/customInstructions}}',
+      userPrompt: 'Generate the illustration.',
+    });
+    jest.spyOn(PromptService, 'getImageStylePrompt').mockResolvedValue({
+      systemPrompt: '<art_style>handcrafted clay stop-motion illustration</art_style>',
+      style: 'handcrafted clay stop-motion illustration',
+    });
+
+    const result = await PromptService.buildImageGenerationPrompt(
+      'front_cover',
+      {
+        bookTitle: 'The Lantern Path',
+        promptText: 'A traveller entering a moonlit forest',
+        customInstructions: '  Use warm amber highlights.  ',
+      },
+      'claymation',
+    );
+
+    expect(result.systemPrompt).toContain('Cover for The Lantern Path');
+    expect(result.systemPrompt).toContain('A traveller entering a moonlit forest');
+    expect(result.systemPrompt).toContain('Notes: Use warm amber highlights.');
+    expect(result.systemPrompt).toContain(
+      '<art_style>handcrafted clay stop-motion illustration</art_style>',
+    );
+    expect(result.userPrompt).toBe('Generate the illustration.');
+    expect(PromptService.getImageStylePrompt).toHaveBeenCalledWith('claymation');
+  });
+
+  it('builds an image prompt without style guidance when no style is selected', async () => {
+    jest.spyOn(PromptService, 'loadImagePrompt').mockResolvedValue({
+      systemPrompt: 'Scene: {{promptText}}',
+      userPrompt: 'Generate it.',
+    });
+    const styleSpy = jest.spyOn(PromptService, 'getImageStylePrompt');
+
+    const result = await PromptService.buildImageGenerationPrompt(
+      'chapter',
+      { bookTitle: 'Untitled', promptText: 'A quiet library' },
+      null,
+    );
+
+    expect(result).toEqual({
+      systemPrompt: 'Scene: A quiet library',
+      userPrompt: 'Generate it.',
+    });
+    expect(styleSpy).not.toHaveBeenCalled();
   });
 });

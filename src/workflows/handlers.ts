@@ -275,13 +275,8 @@ export class ImageGenerationHandler implements WorkflowStepHandler<
         imageType = 'chapter';
       }
 
-      // Load the image prompt template via PromptService
-      const promptTemplate = await PromptService.loadImagePrompt(imageType);
-
-      // Load art style configuration
-      // @ts-expect-error - style property exists on story object
-      const artStyle = storyContext.story.style || 'realistic';
-      const styleConfig = await PromptService.getImageStylePrompt(artStyle);
+      // Load the canonical graphical style stored on the story.
+      const artStyle = storyContext.story.graphicalStyle || 'realistic';
 
       const variables = {
         bookTitle: storyContext.story.title,
@@ -289,17 +284,11 @@ export class ImageGenerationHandler implements WorkflowStepHandler<
         customInstructions: customInstructions || '',
       };
 
-      // Construct System Prompt: Template System Prompt + Style System Prompt
-      let systemPrompt = '';
-      if (promptTemplate.systemPrompt) {
-        systemPrompt += PromptService.processPrompt(promptTemplate.systemPrompt, variables);
-      }
-      if (styleConfig.systemPrompt) {
-        systemPrompt += `\n\n${styleConfig.systemPrompt}`;
-      }
-
-      // Construct User Prompt
-      const userPrompt = PromptService.processPrompt(promptTemplate.userPrompt, variables);
+      const { systemPrompt, userPrompt } = await PromptService.buildImageGenerationPrompt(
+        imageType,
+        variables,
+        artStyle,
+      );
 
       // Generate image using AI
       const imageService = aiGateway.getImageService();

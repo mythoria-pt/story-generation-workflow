@@ -51,6 +51,13 @@ All templates live under `src/prompts/` and are rendered via `PromptService`. Ke
 - `buildImageEditPrompt()` (in `src/utils/imageUtils.ts`) rewrites user edit requests into "Generate a new image, taking as basis the image in attach, but..." instructions, appending style data from `imageStyles.json`.
 - Routes now download the existing asset from GCS (`downloadFileAsBuffer`) and call the provider `edit()` API so style + composition carry over.
 
+### Graphical-style contract
+
+- `src/prompts/imageStyles.json` is the canonical prompt catalogue for graphical media. It contains the complete medium, material, lighting, consistency, and print-legibility guidance for every supported style, including `claymation` and `papercut`.
+- `PromptService.buildImageGenerationPrompt()` combines the cover/chapter template with the selected style before the request reaches a provider. Google GenAI and OpenAI therefore receive the same system instruction.
+- `/ai/image` reads `graphicalStyle` from the persisted story. Every normal, rewritten, fallback, and transient-retry prompt is rebuilt through the same composer so safety handling cannot silently lose the selected style.
+- The allowed values in `imageStyles.json`, `src/prompts/schemas/story-structure.json`, and the read-only Drizzle enum mirror must remain in exact parity; `src/tests/image-style-contract.test.ts` enforces this contract.
+
 ### Dimensions + environment controls
 
 ```
@@ -88,6 +95,6 @@ IMAGE_COVER_HEIGHT=1536
 
 ## Backlog signals
 
-- Art-style negative prompts live only in base templates; extending `imageStyles.json` with per-style `negativePrompt` entries would reduce manual prompt hacking.
+- Style-specific exclusions currently live inside each style's `systemPrompt`. Introduce a separate `negativePrompt` field only if a future provider requires negative prompts as a distinct API parameter.
 - Provider fallback (auto-switch OpenAI ↔ Google for blocked prompts) is not implemented—document manual playbooks before attempting.
 - Prompt analytics dashboard could be layered on top of `token_usage_tracking` plus Cloud Logging to visualize block rates per story genre.

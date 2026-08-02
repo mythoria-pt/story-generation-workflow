@@ -163,8 +163,14 @@ function main() {
     cloudNames = extractCloudbuildEnvHints(fs.readFileSync(cloudbuildPath, 'utf8'));
   }
 
+  const manifestRuntimeNames = new Set(
+    envManifest
+      .filter((descriptor) => descriptor.scopes.some((scope) => scope !== 'build'))
+      .map((descriptor) => descriptor.name),
+  );
+
   const inCodeNotManifest = sorted([...codeNames].filter((n) => !manifestNames.has(n)));
-  const inManifestNotZod = sorted([...manifestNames].filter((n) => !zodNames.has(n)));
+  const inManifestNotZod = sorted([...manifestRuntimeNames].filter((n) => !zodNames.has(n)));
   const inZodNotManifest = sorted([...zodNames].filter((n) => !manifestNames.has(n)));
   const inCodeNotZod = sorted([...codeNames].filter((n) => !zodNames.has(n)));
 

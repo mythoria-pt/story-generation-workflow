@@ -140,10 +140,11 @@ Sample image request:
   "runId": "f41b...",
   "imageType": "chapter",
   "chapterNumber": 3,
-  "prompt": "Moonlit river with two siblings on a raft",
-  "graphicalStyle": "storybook"
+  "prompt": "Moonlit river with two siblings on a raft"
 }
 ```
+
+The endpoint reads the canonical `graphicalStyle` from the persisted story and combines it with the image-type prompt before calling the configured provider. Supported values include `claymation` and `papercut`.
 
 Safety metadata surfaced on response:
 

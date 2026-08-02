@@ -24,6 +24,17 @@ export interface ImageStylesCollection {
   [styleName: string]: ImageStyleTemplate;
 }
 
+export interface ImageGenerationPromptParts {
+  systemPrompt: string;
+  userPrompt: string;
+}
+
+export interface ImageGenerationPromptVariables {
+  bookTitle: string;
+  promptText: string;
+  customInstructions?: string;
+}
+
 export class PromptService {
   private static readonly PROMPTS_BASE_PATH = getPromptsPath();
 
@@ -209,5 +220,35 @@ export class PromptService {
   static async getAvailableImageStyles(): Promise<string[]> {
     const imageStyles = await this.loadImageStyles();
     return Object.keys(imageStyles);
+  }
+
+  /**
+   * Build the provider-neutral prompt used for new story illustrations.
+   * Keeping template and style assembly here ensures every image provider and
+   * every safety retry receives the same complete art direction.
+   */
+  static async buildImageGenerationPrompt(
+    imageType: 'front_cover' | 'back_cover' | 'chapter',
+    variables: ImageGenerationPromptVariables,
+    graphicalStyle?: string | null,
+  ): Promise<ImageGenerationPromptParts> {
+    const promptTemplate = await this.loadImagePrompt(imageType);
+    const { systemInstruction, userPrompt } = this.buildParts(promptTemplate, {
+      ...variables,
+      customInstructions: variables.customInstructions?.trim() ?? '',
+    });
+
+    const systemPromptParts = systemInstruction ? [systemInstruction] : [];
+    if (graphicalStyle) {
+      const styleConfig = await this.getImageStylePrompt(graphicalStyle);
+      if (styleConfig.systemPrompt) {
+        systemPromptParts.push(styleConfig.systemPrompt);
+      }
+    }
+
+    return {
+      systemPrompt: systemPromptParts.join('\n\n'),
+      userPrompt,
+    };
   }
 }

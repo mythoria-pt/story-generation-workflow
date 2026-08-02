@@ -1601,6 +1601,24 @@ components:
           type: string
         graphicalStyle:
           type: string
+          enum:
+            - cartoon
+            - realistic
+            - watercolor
+            - digital_art
+            - hand_drawn
+            - minimalist
+            - vintage
+            - comic_book
+            - euro_comic_book
+            - anime
+            - pixar_style
+            - disney_style
+            - sketch
+            - oil_painting
+            - colored_pencil
+            - claymation
+            - papercut
         storyLanguage:
           type: string
     StoryStructureResponse:
@@ -2100,6 +2118,24 @@ components:
           minimum: 1
         graphicalStyle:
           type: string
+          enum:
+            - cartoon
+            - realistic
+            - watercolor
+            - digital_art
+            - hand_drawn
+            - minimalist
+            - vintage
+            - comic_book
+            - euro_comic_book
+            - anime
+            - pixar_style
+            - disney_style
+            - sketch
+            - oil_painting
+            - colored_pencil
+            - claymation
+            - papercut
         userImageUri:
           type: string
         convertToStyle:

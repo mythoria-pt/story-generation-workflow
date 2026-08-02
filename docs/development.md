@@ -4,7 +4,7 @@ type WorkflowStep = 'outline' | 'chapters' | 'images';
 
 ## Prerequisites
 
-- Node.js **24 LTS** (ESM, top-level await). Use the `engines.node` version in `package.json` to avoid subtle build issues.
+- Node.js **24.18.1 LTS** (ESM, top-level await). Use `.nvmrc`, `.node-version`, and the exact `engines.node` version in `package.json` to avoid subtle build issues.
 - PowerShell **pwsh** – every helper script in `scripts/*.ps1` assumes PowerShell semantics; avoid `&&`, prefer `;` or multiple commands.
 - PostgreSQL – share the same story + workflow databases as `mythoria-webapp`. Keep that repo checked out next to this one for schema sync scripts.
 - Google Cloud credentials – local runs need a service-account JSON or `gcloud auth application-default login` for Storage + Workflows.

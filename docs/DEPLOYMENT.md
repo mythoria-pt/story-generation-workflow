@@ -10,7 +10,7 @@ Use this guide when promoting Story Generation Workflow to Google Cloud Run and 
 | Service account      | `wf-story-gen-sa@oceanic-beach-460916-n5.iam.gserviceaccount.com` with `roles/run.admin`, `roles/workflows.invoker`, `roles/aiplatform.user`, `roles/storage.objectAdmin`, `roles/secretmanager.secretAccessor` |
 | Artifact Registry    | `europe-west9-docker.pkg.dev/oceanic-beach-460916-n5/mythoria/story-generation-workflow`                                                                                                                        |
 | Required APIs        | `run`, `workflows`, `cloudbuild`, `aiplatform`, `secretmanager`, `pubsub`, `eventarc`, `storage`                                                                                                                |
-| Deployment machine   | Docker, gcloud CLI, and PowerShell installed                                                                                                                                                                    |
+| Deployment machine   | Node.js 24.18.1 LTS, Docker, gcloud CLI, and PowerShell installed                                                                                                                                               |
 
 ## Release workflow
 

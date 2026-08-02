@@ -1636,17 +1636,27 @@ router.post('/image', async (req, res) => {
     // (timeouts, 5xx, network issues, IMAGE_OTHER). Safety blocks short-circuit immediately.
     const attemptImageGeneration = async (promptToUse: string): Promise<Buffer> => {
       const { withRetry } = await import('@/shared/retry-utils.js');
+      const graphicalStyle = storyContext.story.graphicalStyle;
+      const promptParts = await PromptService.buildImageGenerationPrompt(
+        imageType ?? 'chapter',
+        {
+          bookTitle: storyContext.story.title,
+          promptText: promptToUse,
+          customInstructions,
+        },
+        graphicalStyle,
+      );
+
       return await withRetry(
         async () => {
-          return await aiGateway.getImageService(imageContext).generate(promptToUse, {
+          return await aiGateway.getImageService(imageContext).generate(promptParts.userPrompt, {
             ...(imageWidth && { width: imageWidth }),
             ...(imageHeight && { height: imageHeight }),
             ...(style && { style }),
             customInstructions,
+            systemPrompt: promptParts.systemPrompt,
             bookTitle: storyContext.story.title,
-            ...(storyContext.story.graphicalStyle && {
-              graphicalStyle: storyContext.story.graphicalStyle,
-            }),
+            ...(graphicalStyle && { graphicalStyle }),
             ...(imageType && { imageType }),
             ...(referenceImages.length > 0 && { referenceImages }),
           });

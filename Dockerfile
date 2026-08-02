@@ -1,6 +1,7 @@
 # Use Debian slim (glibc) for build stage to match runtime environment
 # and ensure native binaries (e.g. sharp) are compiled for the correct libc
-FROM node:24.15.0-slim AS builder
+ARG NODE_VERSION=24.18.1
+FROM node:${NODE_VERSION}-slim AS builder
 
 # Skip Puppeteer browser download during npm ci — Chrome is installed in the runtime stage
 ENV PUPPETEER_SKIP_DOWNLOAD=true
@@ -24,7 +25,7 @@ RUN npm run build
 RUN npm prune --omit=dev
 
 # Production stage with Debian-based image for Ghostscript support
-FROM node:24.15.0-slim
+FROM node:${NODE_VERSION}-slim
 
 # Install system dependencies for PDF processing
 RUN apt-get update && apt-get install -y \

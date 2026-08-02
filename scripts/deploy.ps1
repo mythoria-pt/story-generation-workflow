@@ -26,6 +26,7 @@ $SERVICE_NAME = if ($Staging) { "$BASE_SERVICE_NAME-staging" } else { $BASE_SERV
 $REGION = 'europe-west9'
 $IMAGE_NAME = "gcr.io/$PROJECT_ID/$SERVICE_NAME"
 $REPO_ROOT = Split-Path -Path $PSScriptRoot -Parent
+$NODE_VERSION = (Get-Content -Raw (Join-Path $REPO_ROOT '.node-version')).Trim()
 $GCLOUD_COMMAND = (
     Get-Command 'gcloud.cmd' -CommandType Application -ErrorAction Stop |
         Select-Object -First 1
@@ -62,6 +63,20 @@ function Assert-CommandSucceeded {
     if ($ExitCode -ne 0) {
         throw "$Operation failed with exit code $ExitCode."
     }
+}
+
+function Assert-PinnedNodeVersion {
+    $nodeCommand = Get-Command node -ErrorAction SilentlyContinue
+    if (-not $nodeCommand) {
+        throw "Node.js $NODE_VERSION is required. Install it and run 'nvm use $NODE_VERSION'."
+    }
+
+    $actualNodeVersion = (& node --version).Trim().TrimStart('v')
+    if ($actualNodeVersion -ne $NODE_VERSION) {
+        throw "Node.js $NODE_VERSION is required; found $actualNodeVersion. Run 'nvm use $NODE_VERSION' before deploying."
+    }
+
+    Write-Success "Using Node.js $NODE_VERSION"
 }
 # -----------------------------------------------------------------------------
 
@@ -105,6 +120,8 @@ function Get-DeploymentGitSha {
 
 function Test-Prerequisites {
     Write-Info "Checking prerequisites..."
+
+    Assert-PinnedNodeVersion
 
     try {
         & $GCLOUD_COMMAND --version | Out-Null

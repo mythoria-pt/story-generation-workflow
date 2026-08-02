@@ -15,6 +15,14 @@ export interface EnvVarDescriptor {
 export const envManifest: EnvVarDescriptor[] = [
   { name: 'NODE_ENV', required: true, scopes: ['dev', 'runtime', 'prod'], default: 'development' },
   {
+    name: 'NODE_VERSION',
+    required: false,
+    scopes: ['build'],
+    default: '24.18.1',
+    source: 'substitution',
+    note: 'Pinned Docker build argument; not exposed to the application runtime.',
+  },
+  {
     name: 'PORT',
     required: true,
     scopes: ['dev', 'runtime'],
