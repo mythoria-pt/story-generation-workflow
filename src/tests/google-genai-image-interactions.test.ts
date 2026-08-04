@@ -26,10 +26,10 @@ function buildImageInteraction(data: string) {
     steps: [
       {
         type: 'model_output',
-        content: [{ type: 'image', data, mime_type: 'image/png' }],
+        content: [{ type: 'image', data, mime_type: 'image/jpeg' }],
       },
     ],
-    output_image: { type: 'image', data, mime_type: 'image/png' },
+    output_image: { type: 'image', data, mime_type: 'image/jpeg' },
   };
 }
 
@@ -81,7 +81,7 @@ describe('GoogleGenAIImageService Interactions API', () => {
       system_instruction: 'Keep the visual style consistent.',
       response_format: {
         type: 'image',
-        mime_type: 'image/png',
+        mime_type: 'image/jpeg',
         aspect_ratio: '16:9',
         image_size: '2K',
       },
@@ -113,7 +113,7 @@ describe('GoogleGenAIImageService Interactions API', () => {
         ],
         response_format: {
           type: 'image',
-          mime_type: 'image/png',
+          mime_type: 'image/jpeg',
           aspect_ratio: '2:3',
           image_size: '2K',
         },

@@ -135,7 +135,7 @@ export class GoogleGenAIImageService implements IImageGenerationService {
           ...(options?.systemPrompt && { system_instruction: options.systemPrompt }),
           response_format: {
             type: 'image',
-            mime_type: 'image/png',
+            mime_type: 'image/jpeg',
             aspect_ratio: aspectRatio,
             ...(this.supportsImageSize(model) && { image_size: '2K' }),
           },
@@ -296,7 +296,7 @@ export class GoogleGenAIImageService implements IImageGenerationService {
           ...(options?.systemPrompt && { system_instruction: options.systemPrompt }),
           response_format: {
             type: 'image',
-            mime_type: 'image/png',
+            mime_type: 'image/jpeg',
             aspect_ratio: aspectRatio,
             ...(this.supportsImageSize(model) && { image_size: '2K' }),
           },
