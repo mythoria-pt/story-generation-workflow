@@ -329,13 +329,7 @@ export class ProgressTrackerService {
             await this.storyService.updateStoryStatus(run.storyId, 'published');
 
             if (this.shouldDispatchStoryCreatedEmail(run.metadata)) {
-              // Fire-and-forget story-created email (non-blocking)
-              void this.dispatchStoryCreatedEmail(run.storyId).catch((err) => {
-                logger.error('Failed dispatching story-created email', {
-                  storyId: run.storyId,
-                  error: err instanceof Error ? err.message : String(err),
-                });
-              });
+              await this.dispatchStoryCreatedEmail(run.runId, run.storyId);
             } else {
               logger.info('Skipping story-created email for non-story-generation run', {
                 runId,
@@ -368,9 +362,9 @@ export class ProgressTrackerService {
     }
   }
 
-  private async dispatchStoryCreatedEmail(storyId: string): Promise<void> {
-    logger.info('Starting story-created email dispatch process (no event guard)', { storyId });
-    logger.info('Fetching story details for email dispatch', { storyId });
+  private async dispatchStoryCreatedEmail(runId: string, storyId: string): Promise<void> {
+    logger.info('Starting story-created email dispatch process', { runId, storyId });
+    logger.info('Fetching story details for email dispatch', { runId, storyId });
     const story = await this.storyService.getStory(storyId);
     if (!story) {
       logger.warn('Cannot send story-created email; story not found', { storyId });
@@ -410,11 +404,12 @@ export class ProgressTrackerService {
 
     const sent = await sendStoryCreatedEmail({
       storyId,
+      entityId: runId,
       templateId: 'story-created',
       recipients: [{ email: story.authorEmail, name: story.author, language }],
       variables,
       priority: 'normal',
-      metadata: { storyId },
+      metadata: { storyId, runId },
     });
 
     if (!sent) {

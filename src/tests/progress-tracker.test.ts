@@ -162,12 +162,12 @@ describe('ProgressTrackerService', () => {
     });
 
     await service.updateStoryProgress(runId);
-    await Promise.resolve();
 
     expect(mockedSendStoryCreatedEmail).toHaveBeenCalledTimes(1);
     expect(mockedSendStoryCreatedEmail).toHaveBeenCalledWith(
       expect.objectContaining({
         storyId,
+        entityId: runId,
         templateId: 'story-created',
         recipients: [
           {
@@ -181,7 +181,50 @@ describe('ProgressTrackerService', () => {
           orderPrintURL: expect.stringContaining(`/stories/print/${storyId}`),
           shareStoryURL: expect.stringContaining(`/stories/read/${storyId}`),
         }),
+        metadata: { storyId, runId },
       }),
+    );
+  });
+
+  it('uses a new email idempotency key for each regeneration run', async () => {
+    const storyId = 's-regenerated';
+    mockRunsService.getRun.mockImplementation(async (runId: string) => ({
+      runId,
+      storyId,
+      status: 'completed',
+      currentStep: 'done',
+      metadata: { serviceCode: 'storyGeneration' },
+    }));
+    jest.spyOn(service, 'calculateProgress').mockResolvedValue({
+      completedPercentage: 100,
+      totalEstimatedTime: 0,
+      elapsedTime: 0,
+      remainingTime: 0,
+      currentStep: 'done',
+      completedSteps: [],
+      totalSteps: 0,
+    });
+    mockStoryService.getStory.mockResolvedValue({
+      storyId,
+      title: 'A corrected story',
+      synopsis: 'Updated after a generation error.',
+      coverUri: 'https://example.com/new-cover.png',
+      author: 'A. Author',
+      authorEmail: 'author@example.com',
+      authorPreferredLocale: 'en-US',
+      authorId: 'author-123',
+    });
+
+    await service.updateStoryProgress('run-original');
+    await service.updateStoryProgress('run-regenerated');
+
+    expect(mockedSendStoryCreatedEmail).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ entityId: 'run-original' }),
+    );
+    expect(mockedSendStoryCreatedEmail).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ entityId: 'run-regenerated' }),
     );
   });
 });

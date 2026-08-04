@@ -64,9 +64,9 @@ describe('RunsService', () => {
       .fn()
       .mockResolvedValueOnce([{ runId: 'r1', storyId: 's1', status: 'running' }])
       .mockResolvedValueOnce([]);
-    const onConflictDoNothing = jest.fn().mockReturnValue({ returning });
+    const onConflictDoUpdate = jest.fn().mockReturnValue({ returning });
     mockDb.insert.mockReturnValue({
-      values: jest.fn().mockReturnValue({ onConflictDoNothing }),
+      values: jest.fn().mockReturnValue({ onConflictDoUpdate }),
     });
     jest
       .spyOn(service, 'getRun')
@@ -74,12 +74,21 @@ describe('RunsService', () => {
 
     await expect(service.claimRun('s1', 'r1')).resolves.toMatchObject({ claimed: true });
     await expect(service.claimRun('s1', 'r1')).resolves.toMatchObject({ claimed: false });
+    expect(onConflictDoUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        set: expect.objectContaining({
+          status: 'running',
+          currentStep: 'generate_outline',
+        }),
+        setWhere: expect.anything(),
+      }),
+    );
   });
 
   it('rejects a run id already associated with another story', async () => {
     mockDb.insert.mockReturnValue({
       values: jest.fn().mockReturnValue({
-        onConflictDoNothing: jest
+        onConflictDoUpdate: jest
           .fn()
           .mockReturnValue({ returning: jest.fn().mockResolvedValue([]) }),
       }),

@@ -47,12 +47,14 @@ Key services:
 
 ## Workflow Lifecycle
 
-1. **Request queued** – WebApp/Admin writes `stories` + `story_generation_runs` rows and publishes a Pub/Sub event.
+1. **Request queued** – WebApp/Admin writes the durable `mythoria_db.story_generation_requests` row; its outbox dispatcher publishes `{ storyId, runId }` to Pub/Sub. Admin correction runs spend zero credits.
 2. **Workflow executes** – Cloud Workflow loads story metadata, calls `/internal/runs/:id` to mark `running`, and steps through phases (`generate_outline`, `write_chapters`, `generate_images`, `assemble`, etc.).
 3. **AI gateway calls** – `/ai/*` endpoints proxy to Google GenAI or OpenAI, applying safety filters, prompt rewrites, and token tracking. Images retry up to three times, with 422 safety blocks routed through rewrite templates.
 4. **Persistence + storage** – Internal routes save outlines, chapters, prompts, translation diffs, and asset URIs. Generated binaries land in Google Cloud Storage under `{storyId}/...`.
 5. **Packaging** – `/internal/print/generate` renders HTML templates via Puppeteer, injects soft hyphen opportunities for large-font child-reader print layouts, converts RGB PDFs to CMYK through Ghostscript, and stores both versions. Audiobook workflows stream TTS per chapter and persist URLs on chapter rows.
-6. **Completion** – Workflow updates run status to `completed` / `blocked` / `failed`, triggers notification hooks, and emits telemetry.
+6. **Completion** – Workflow updates run status to `completed` / `blocked` / `failed`, triggers notification hooks, and emits telemetry. `story-created` is keyed by `runId`, so a successful regeneration sends a fresh customer email without duplicating one run's callback.
+
+SGW owns `workflows_db.story_generation_runs`. Claiming uses a conditional upsert: a missing run is inserted as `running`, an existing `queued` run for the same story is promoted atomically, and running/terminal rows are treated as duplicate deliveries.
 
 ## Data & Integrations
 

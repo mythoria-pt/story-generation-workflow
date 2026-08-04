@@ -3,6 +3,7 @@ import { getEnvironment } from '@/config/environment.js';
 
 export interface StoryCreatedEmailPayload {
   storyId: string;
+  entityId: string;
   templateId: 'story-created';
   recipients: Array<{ email: string; name?: string; language?: string }>;
   variables: Record<string, unknown>;

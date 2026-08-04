@@ -3,7 +3,7 @@
  * Handles database operations for story generation runs and steps
  */
 
-import { eq, and } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import { getWorkflowsDatabase } from '@/db/workflows-db.js';
 import { storyGenerationRuns, storyGenerationSteps } from '@/db/workflows-db.js';
 import { logger } from '@/config/logger.js';
@@ -75,7 +75,7 @@ export class RunsService {
   /** Atomically allow only the first workflow execution to start a run. */
   async claimRun(storyId: string, runId: string, gcpWorkflowExecution?: string) {
     const now = new Date().toISOString();
-    const [createdRun] = await this.db
+    const [claimedRun] = await this.db
       .insert(storyGenerationRuns)
       .values({
         runId,
@@ -87,12 +87,24 @@ export class RunsService {
         createdAt: now,
         updatedAt: now,
       })
-      .onConflictDoNothing({ target: storyGenerationRuns.runId })
+      .onConflictDoUpdate({
+        target: storyGenerationRuns.runId,
+        set: {
+          ...(gcpWorkflowExecution ? { gcpWorkflowExecution } : {}),
+          status: 'running',
+          currentStep: 'generate_outline',
+          errorMessage: null,
+          startedAt: now,
+          endedAt: null,
+          updatedAt: now,
+        },
+        setWhere: sql`${storyGenerationRuns.storyId} = ${storyId} and ${storyGenerationRuns.status} = ${'queued'}`,
+      })
       .returning();
 
-    if (createdRun) {
+    if (claimedRun) {
       logger.info('Run claimed', { runId, storyId });
-      return { claimed: true as const, run: createdRun };
+      return { claimed: true as const, run: claimedRun };
     }
 
     const existingRun = await this.getRun(runId);
