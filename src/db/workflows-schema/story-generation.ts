@@ -23,6 +23,8 @@ export const storyGenerationRuns = pgTable(
     gcpWorkflowExecution: text('gcp_workflow_execution'),
     status: runStatus().default('queued').notNull(),
     currentStep: varchar('current_step', { length: 120 }),
+    failureStage: varchar('failure_stage', { length: 120 }),
+    failureCode: varchar('failure_code', { length: 120 }),
     errorMessage: text('error_message'),
     startedAt: timestamp('started_at', { withTimezone: true, mode: 'string' }),
     endedAt: timestamp('ended_at', { withTimezone: true, mode: 'string' }),

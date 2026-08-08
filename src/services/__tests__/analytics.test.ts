@@ -139,6 +139,47 @@ describe('AnalyticsReconciliationService', () => {
     );
   });
 
+  it('uses the structured failure stage and code instead of parsing free text', async () => {
+    const service = new AnalyticsReconciliationService();
+
+    await service.recordTerminalRun({
+      ...terminalRun,
+      currentStep: 'Generate Chapters',
+      errorMessage: 'unclassified provider detail',
+      failureStage: 'persist_chapter_image',
+      failureCode: 'chapter_persistence_race',
+    });
+
+    expect(insertValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        params: expect.objectContaining({
+          failure_stage: 'persist_chapter_image',
+          failure_code: 'chapter_persistence_race',
+        }),
+      }),
+    );
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it('emits a structured operational alert for an unknown failure classification', async () => {
+    const service = new AnalyticsReconciliationService();
+
+    await service.recordTerminalRun({
+      ...terminalRun,
+      currentStep: null,
+      errorMessage: 'unexpected terminal condition',
+      failureStage: null,
+      failureCode: null,
+    });
+
+    expect(logger.error).toHaveBeenCalledWith('Unknown terminal analytics failure classification', {
+      operationalAlert: true,
+      runRef: expect.stringMatching(/^[a-f0-9]{12}$/),
+      failureStage: 'unknown',
+      failureCode: 'unknown_failure',
+    });
+  });
+
   it('records the canonical completion event with a stable idempotency key', async () => {
     const service = new AnalyticsReconciliationService();
 

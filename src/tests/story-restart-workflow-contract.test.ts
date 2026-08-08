@@ -1,26 +1,105 @@
-import { readFileSync } from 'fs';
-import { resolve } from 'path';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { parse } from 'yaml';
 
-describe('story restart workflow contract', () => {
-  const workflow = readFileSync(resolve(process.cwd(), 'workflows/story-generation.yaml'), 'utf8');
+type WorkflowNode = Record<string, unknown> | unknown[] | string | number | boolean | null;
 
+const parsedWorkflow = parse(
+  readFileSync(resolve(process.cwd(), 'workflows/story-generation.yaml'), 'utf8'),
+) as Record<string, unknown>;
+
+function findNamedStep(node: WorkflowNode, stepName: string): Record<string, unknown> | undefined {
+  if (Array.isArray(node)) {
+    for (const item of node) {
+      const found = findNamedStep(item as WorkflowNode, stepName);
+      if (found) return found;
+    }
+    return undefined;
+  }
+  if (!node || typeof node !== 'object') return undefined;
+  const record = node as Record<string, unknown>;
+  if (stepName in record) return record[stepName] as Record<string, unknown>;
+  for (const value of Object.values(record)) {
+    const found = findNamedStep(value as WorkflowNode, stepName);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+function namedStepIndex(steps: unknown[], stepName: string): number {
+  return steps.findIndex(
+    (step) => Boolean(step) && typeof step === 'object' && stepName in (step as object),
+  );
+}
+
+describe('story generation workflow contract', () => {
   it('claims the stable run id before starting generation', () => {
-    const claim = workflow.indexOf('/internal/runs/" + runId + "/claim');
-    const duplicateStop = workflow.indexOf('stopDuplicateRun:');
-    const outline = workflow.indexOf('/ai/text/outline');
+    const runPipeline = findNamedStep(parsedWorkflow as WorkflowNode, 'runPipeline') as {
+      try: { steps: unknown[] };
+    };
+    const claimIndex = namedStepIndex(runPipeline.try.steps, 'claimRun');
+    const duplicateStopIndex = namedStepIndex(runPipeline.try.steps, 'stopDuplicateRun');
+    const outlineIndex = namedStepIndex(runPipeline.try.steps, 'genOutline');
 
-    expect(claim).toBeGreaterThan(-1);
-    expect(duplicateStop).toBeGreaterThan(claim);
-    expect(outline).toBeGreaterThan(duplicateStop);
+    expect(claimIndex).toBeGreaterThan(-1);
+    expect(duplicateStopIndex).toBeGreaterThan(claimIndex);
+    expect(outlineIndex).toBeGreaterThan(duplicateStopIndex);
+    expect(findNamedStep(parsedWorkflow as WorkflowNode, 'outlineRequest')).toMatchObject({
+      call: 'http.request',
+    });
   });
 
-  it('persists narrative and image assets before marking the run completed', () => {
-    const chapterPersistence = workflow.indexOf('/chapter/" + string(chapterNum)');
-    const imagePersistence = workflow.indexOf('/internal/runs/" + runId + "/image');
-    const completion = workflow.indexOf("status: 'completed'");
+  it('keeps each chapter persistence and image lifecycle in the same sequential branch', () => {
+    const chaptersAndCovers = findNamedStep(
+      parsedWorkflow as WorkflowNode,
+      'chaptersAndCovers',
+    ) as {
+      parallel: { branches: Array<Record<string, { steps: unknown[] }>> };
+    };
+    const chapterBranch = chaptersAndCovers.parallel.branches.find(
+      (branch) => branch.chapterPipelineBranch,
+    )?.chapterPipelineBranch;
+    const coverBranch = chaptersAndCovers.parallel.branches.find(
+      (branch) => branch.coverBranch,
+    )?.coverBranch;
 
-    expect(chapterPersistence).toBeGreaterThan(-1);
-    expect(imagePersistence).toBeGreaterThan(chapterPersistence);
-    expect(completion).toBeGreaterThan(imagePersistence);
+    expect(chapterBranch).toBeDefined();
+    expect(coverBranch).toBeDefined();
+    expect(findNamedStep(chapterBranch as WorkflowNode, 'saveChapter')).toMatchObject({
+      result: 'savedChapterResp',
+    });
+    expect(findNamedStep(chapterBranch as WorkflowNode, 'chapterImageRequest')).toMatchObject({
+      args: {
+        body: expect.objectContaining({
+          chapterId: '${savedChapterResp.body.chapterId}',
+          chapterVersion: '${savedChapterResp.body.version}',
+        }),
+      },
+    });
+    expect(findNamedStep(chapterBranch as WorkflowNode, 'storeChapterImageResult')).toMatchObject({
+      args: {
+        body: expect.objectContaining({
+          chapterId: '${savedChapterResp.body.chapterId}',
+          chapterVersion: '${savedChapterResp.body.version}',
+        }),
+      },
+    });
+    expect(findNamedStep(coverBranch as WorkflowNode, 'chapterImageRequest')).toBeUndefined();
+  });
+
+  it('treats chapter persistence conflicts as terminal and completes only after asset branches', () => {
+    const terminalSwitch = findNamedStep(
+      parsedWorkflow as WorkflowNode,
+      'rethrowNonRetryableChapterImage',
+    ) as { switch: Array<{ condition: string }> };
+    expect(terminalSwitch.switch[0]?.condition).toContain('terminalChapterImageErrorCode == 409');
+
+    const runPipeline = findNamedStep(parsedWorkflow as WorkflowNode, 'runPipeline') as {
+      try: { steps: unknown[] };
+    };
+    const branchIndex = namedStepIndex(runPipeline.try.steps, 'handleOutlineOutcome');
+    const completionIndex = namedStepIndex(runPipeline.try.steps, 'markCompleted');
+    expect(branchIndex).toBeGreaterThan(-1);
+    expect(completionIndex).toBeGreaterThan(branchIndex);
   });
 });

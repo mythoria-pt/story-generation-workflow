@@ -161,11 +161,11 @@ main:
                           assign:
                             - chapters: ${len(outlineResp.body.outline.chapters)}
 
-                      # 3. Parallel Narrative and Visuals
-                      - narrativeAndVisuals:
+                      # 3. Generate covers in parallel with the ordered chapter pipeline.
+                      - chaptersAndCovers:
                           parallel:
                             branches:
-                              - narrativeBranch:
+                              - chapterPipelineBranch:
                                   steps:
                                     - setChaptersStep:
                                         call: http.request
@@ -256,6 +256,151 @@ main:
                                                             body:
                                                               chapter: ${chapterResp.body.chapter}
                                                               chapterTitle: ${chapterTitle}
+                                                          result: savedChapterResp
+
+                                                      - getChapterImagePrompt:
+                                                          call: http.request
+                                                          args:
+                                                            url: ${baseUrl + "/internal/prompts/" + runId + "/" + string(chapterNum)}
+                                                            method: GET
+                                                            auth: { type: OIDC }
+                                                          result: promptResp
+
+                                                      - setChapterImageStep:
+                                                          call: http.request
+                                                          args:
+                                                            url: ${baseUrl + "/internal/runs/" + runId}
+                                                            method: PATCH
+                                                            auth: { type: OIDC }
+                                                            body:
+                                                              currentStep: 'generate_images'
+
+                                                      - generateChapterImage:
+                                                          try:
+                                                            steps:
+                                                              - initChapterImageRetry:
+                                                                  assign:
+                                                                    - chapterImageMaxAttempts: 2
+                                                                    - chapterImageRetryDelay: 60
+                                                                    - chapterImageSuccess: false
+                                                                    - chapterImageLastError: null
+                                                                    - imageResp: null
+
+                                                              - chapterImageRetryLoop:
+                                                                  for:
+                                                                    value: attempt
+                                                                    range: ${[1, chapterImageMaxAttempts]}
+                                                                    steps:
+                                                                      - checkChapterImageAlreadySuccessful:
+                                                                          switch:
+                                                                            - condition: ${chapterImageSuccess}
+                                                                              next: continue
+                                                                      - tryChapterImageGeneration:
+                                                                          try:
+                                                                            steps:
+                                                                              - chapterImageRequest:
+                                                                                  call: http.request
+                                                                                  args:
+                                                                                    url: ${baseUrl + "/ai/image"}
+                                                                                    method: POST
+                                                                                    auth:
+                                                                                      { type: OIDC }
+                                                                                    headers:
+                                                                                      x-api-key: ${apiKey}
+                                                                                    body:
+                                                                                      storyId: ${storyId}
+                                                                                      runId: ${runId}
+                                                                                      chapterNumber: ${chapterNum}
+                                                                                      chapterId: ${savedChapterResp.body.chapterId}
+                                                                                      chapterVersion: ${savedChapterResp.body.version}
+                                                                                      imageType: 'chapter'
+                                                                                      prompt: ${promptResp.body}
+                                                                                  result: imageRespTemp
+                                                                              - saveChapterImageResponse:
+                                                                                  assign:
+                                                                                    - imageResp: ${imageRespTemp}
+                                                                                    - chapterImageSuccess: true
+                                                                          except:
+                                                                            as: chapterImageAttemptError
+                                                                            steps:
+                                                                              - saveChapterImageError:
+                                                                                  assign:
+                                                                                    - chapterImageLastError: ${chapterImageAttemptError}
+                                                                              - extractChapterImageErrorCode:
+                                                                                  assign:
+                                                                                    - chapterImageErrorCode: ${default(map.get(chapterImageAttemptError, "code"), 0)}
+                                                                              - stopNonRetryableChapterImage:
+                                                                                  switch:
+                                                                                    - condition: ${chapterImageErrorCode == 400 or chapterImageErrorCode == 404 or chapterImageErrorCode == 409}
+                                                                                      steps:
+                                                                                        - raiseNonRetryableChapterImage:
+                                                                                            raise: ${chapterImageAttemptError}
+                                                                              - logChapterImageRetry:
+                                                                                  call: sys.log
+                                                                                  args:
+                                                                                    severity: WARNING
+                                                                                    text: '${"Chapter " + string(chapterNum) + " image attempt " + string(attempt) + " failed, retrying after " + string(chapterImageRetryDelay) + "s: " + chapterImageAttemptError.message}'
+                                                                              - maybeDelayChapterImageRetry:
+                                                                                  switch:
+                                                                                    - condition: ${attempt < chapterImageMaxAttempts}
+                                                                                      steps:
+                                                                                        - delayChapterImageRetry:
+                                                                                            call: sys.sleep
+                                                                                            args:
+                                                                                              seconds: ${chapterImageRetryDelay}
+                                                          except:
+                                                            as: chapterImageError
+                                                            steps:
+                                                              - extractTerminalChapterImageErrorCode:
+                                                                  assign:
+                                                                    - terminalChapterImageErrorCode: ${default(map.get(chapterImageError, "code"), 0)}
+                                                              - logChapterImageFailure:
+                                                                  call: sys.log
+                                                                  args:
+                                                                    severity: WARNING
+                                                                    text: '${"Chapter " + string(chapterNum) + " image failed: " + chapterImageError.message}'
+                                                              - rethrowNonRetryableChapterImage:
+                                                                  switch:
+                                                                    - condition: ${terminalChapterImageErrorCode == 400 or terminalChapterImageErrorCode == 404 or terminalChapterImageErrorCode == 409}
+                                                                      steps:
+                                                                        - raiseTerminalChapterImageError:
+                                                                            raise: ${chapterImageError}
+
+                                                      - handleChapterImageOutcome:
+                                                          switch:
+                                                            - condition: ${chapterImageSuccess}
+                                                              steps:
+                                                                - setChapterImagePersistenceStep:
+                                                                    call: http.request
+                                                                    args:
+                                                                      url: ${baseUrl + "/internal/runs/" + runId}
+                                                                      method: PATCH
+                                                                      auth: { type: OIDC }
+                                                                      body:
+                                                                        currentStep: 'persist_chapter_image'
+                                                                - storeChapterImageResult:
+                                                                    call: http.request
+                                                                    args:
+                                                                      url: ${baseUrl + "/internal/runs/" + runId + "/image"}
+                                                                      method: POST
+                                                                      auth: { type: OIDC }
+                                                                      body:
+                                                                        chapterNumber: ${chapterNum}
+                                                                        chapterId: ${savedChapterResp.body.chapterId}
+                                                                        chapterVersion: ${savedChapterResp.body.version}
+                                                                        imageType: 'chapter'
+                                                                        imageUrl: ${imageResp.body.image.url}
+                                                                        filename: ${imageResp.body.image.filename}
+                                                                        metadata:
+                                                                          format: ${imageResp.body.image.format}
+                                                                          size: ${imageResp.body.image.size}
+                                                            - condition: ${not(chapterImageSuccess)}
+                                                              steps:
+                                                                - logChapterImageSkip:
+                                                                    call: sys.log
+                                                                    args:
+                                                                      severity: WARNING
+                                                                      text: '${"Skipping chapter " + string(chapterNum) + " image; last error: " + if(chapterImageLastError != null, chapterImageLastError.message, "unknown")}'
                                                   - condition: ${not(chapterTextSuccess)}
                                                     steps:
                                                       - logChapterTextFailure:
@@ -266,7 +411,7 @@ main:
                                                       - raiseChapterTextFailure:
                                                           raise: ${"Chapter text generation failed after retries for chapter " + string(chapterNum)}
 
-                              - visualBranch:
+                              - coverBranch:
                                   steps:
                                     - parallelCovers:
                                         parallel:
@@ -472,124 +617,6 @@ main:
                                                                   severity: WARNING
                                                                   text: '${"Back cover image unavailable after retries; continuing. Last error: " + if(backCoverLastError != null, backCoverLastError.message, "unknown")}'
 
-                                    - setImagesStep:
-                                        call: http.request
-                                        args:
-                                          url: ${baseUrl + "/internal/runs/" + runId}
-                                          method: PATCH
-                                          auth: { type: OIDC }
-                                          body:
-                                            currentStep: 'generate_images'
-
-                                    - generateImagesSequential:
-                                        for:
-                                          range: ${[1, chapters]}
-                                          value: chapterNum
-                                          steps:
-                                            - getPrompt:
-                                                call: http.request
-                                                args:
-                                                  url: ${baseUrl + "/internal/prompts/" + runId + "/" + string(chapterNum)}
-                                                  method: GET
-                                                  auth: { type: OIDC }
-                                                result: promptResp
-                                            - genImage:
-                                                try:
-                                                  steps:
-                                                    - initChapterImageRetry:
-                                                        assign:
-                                                          - chapterImageMaxAttempts: 2
-                                                          - chapterImageRetryDelay: 60
-                                                          - chapterImageSuccess: false
-                                                          - chapterImageLastError: null
-                                                          - imageResp: null
-
-                                                    - chapterImageRetryLoop:
-                                                        for:
-                                                          value: attempt
-                                                          range: ${[1, chapterImageMaxAttempts]}
-                                                          steps:
-                                                            - checkChapterImageAlreadySuccessful:
-                                                                switch:
-                                                                  - condition: ${chapterImageSuccess}
-                                                                    next: continue
-                                                            - tryChapterImageGeneration:
-                                                                try:
-                                                                  steps:
-                                                                    - chapterImageRequest:
-                                                                        call: http.request
-                                                                        args:
-                                                                          url: ${baseUrl + "/ai/image"}
-                                                                          method: POST
-                                                                          auth: { type: OIDC }
-                                                                          headers:
-                                                                            x-api-key: ${apiKey}
-                                                                          body:
-                                                                            storyId: ${storyId}
-                                                                            runId: ${runId}
-                                                                            chapterNumber: ${chapterNum}
-                                                                            imageType: 'chapter'
-                                                                            prompt: ${promptResp.body}
-                                                                        result: imageRespTemp
-                                                                    - saveChapterImageResponse:
-                                                                        assign:
-                                                                          - imageResp: ${imageRespTemp}
-                                                                          - chapterImageSuccess: true
-                                                                except:
-                                                                  as: chapterImageAttemptError
-                                                                  steps:
-                                                                    - saveChapterImageError:
-                                                                        assign:
-                                                                          - chapterImageLastError: ${chapterImageAttemptError}
-                                                                    - logChapterImageRetry:
-                                                                        call: sys.log
-                                                                        args:
-                                                                          severity: WARNING
-                                                                          text: '${"Chapter " + string(chapterNum) + " image attempt " + string(attempt) + " failed, retrying after " + string(chapterImageRetryDelay) + "s: " + chapterImageAttemptError.message}'
-                                                                    - maybeDelayChapterImageRetry:
-                                                                        switch:
-                                                                          - condition: ${attempt < chapterImageMaxAttempts}
-                                                                            steps:
-                                                                              - delayChapterImageRetry:
-                                                                                  call: sys.sleep
-                                                                                  args:
-                                                                                    seconds: ${chapterImageRetryDelay}
-
-                                                except:
-                                                  as: chapterImageError
-                                                  steps:
-                                                    - logChapterImageFailure:
-                                                        call: sys.log
-                                                        args:
-                                                          severity: WARNING
-                                                          text: '${"Chapter " + string(chapterNum) + " image failed: " + chapterImageError.message}'
-
-                                            - handleChapterImageOutcome:
-                                                switch:
-                                                  - condition: ${chapterImageSuccess}
-                                                    steps:
-                                                      - storeImageResult:
-                                                          call: http.request
-                                                          args:
-                                                            url: ${baseUrl + "/internal/runs/" + runId + "/image"}
-                                                            method: POST
-                                                            auth: { type: OIDC }
-                                                            body:
-                                                              chapterNumber: ${chapterNum}
-                                                              imageType: 'chapter'
-                                                              imageUrl: ${imageResp.body.image.url}
-                                                              filename: ${imageResp.body.image.filename}
-                                                              metadata:
-                                                                format: ${imageResp.body.image.format}
-                                                                size: ${imageResp.body.image.size}
-                                                  - condition: ${not(chapterImageSuccess)}
-                                                    steps:
-                                                      - logChapterImageSkip:
-                                                          call: sys.log
-                                                          args:
-                                                            severity: WARNING
-                                                            text: '${"Skipping chapter " + string(chapterNum) + " image; last error: " + if(chapterImageLastError != null, chapterImageLastError.message, "unknown")}'
-
                   - condition: ${not(outlineSuccess)}
                     steps:
                       - logOutlineUnavailable:
@@ -652,7 +679,6 @@ main:
                   auth: { type: OIDC }
                   body:
                     status: 'failed'
-                    currentStep: 'unknown'
                     errorMessage: ${wfError.message}
                     endedAt: ${time.format(sys.now())}
 

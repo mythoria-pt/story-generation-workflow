@@ -10,7 +10,7 @@ import { RunStoryConflictError, RunsService } from '@/services/runs.js';
 import { TTSService } from '@/services/tts.js';
 import { ProgressTrackerService } from '@/services/progress-tracker.js';
 import { StoryService } from '@/services/story.js';
-import { ChaptersService } from '@/services/chapters.js';
+import { ChapterNotPersistedError, ChaptersService } from '@/services/chapters.js';
 import { serializeError } from '@/utils/errorHandling.js';
 import type { OutlineData } from '@/types/database.js';
 import { analyticsReconciliationService } from '@/services/analytics.js';
@@ -29,6 +29,8 @@ const chaptersService = new ChaptersService();
 const UpdateRunRequestSchema = z.object({
   status: z.enum(['queued', 'running', 'completed', 'failed', 'cancelled', 'blocked']).optional(),
   currentStep: z.string().optional(),
+  failureStage: z.string().trim().max(120).optional(),
+  failureCode: z.string().trim().max(120).optional(),
   errorMessage: z.string().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
   storyId: z.string().uuid().optional(), // Added to support creating missing runs
@@ -53,6 +55,8 @@ const StoreChapterRequestSchema = z.object({
 
 const StoreImageRequestSchema = z.object({
   chapterNumber: z.number().int().positive().optional(),
+  chapterId: z.string().uuid().optional(),
+  chapterVersion: z.number().int().positive().optional(),
   imageType: z.enum(['front_cover', 'back_cover', 'chapter']),
   imageUrl: z.string().url(),
   filename: z.string(),
@@ -543,12 +547,14 @@ router.get('/prompts/:runId/book-cover/:coverType', async (req, res) => {
 router.post('/runs/:runId/image', async (req, res) => {
   try {
     const runId = req.params.runId;
-    const { chapterNumber, imageType, imageUrl, filename, metadata } =
+    const { chapterNumber, chapterId, chapterVersion, imageType, imageUrl, filename, metadata } =
       StoreImageRequestSchema.parse(req.body);
 
     logger.info('Internal API: Storing image result', {
       runId,
       chapterNumber,
+      chapterId,
+      chapterVersion,
       imageType,
       filename,
     });
@@ -577,10 +583,13 @@ router.post('/runs/:runId/image', async (req, res) => {
       await storyService.updateStoryCoverUris(run.storyId, {
         backcoverUri: imageUrl,
       });
-    } else if (imageType === 'chapter' && chapterNumber) {
+    } else if (imageType === 'chapter' && chapterNumber && chapterId && chapterVersion) {
       stepName = `generate_image_chapter_${chapterNumber}`;
       // Update chapter image URI
-      await chaptersService.updateChapterImage(run.storyId, chapterNumber, imageUrl);
+      await chaptersService.updateChapterImage(run.storyId, chapterNumber, imageUrl, {
+        id: chapterId,
+        version: chapterVersion,
+      });
     } else {
       res.status(400).json({
         success: false,
@@ -594,6 +603,8 @@ router.post('/runs/:runId/image', async (req, res) => {
       status: 'completed',
       result: {
         chapterNumber,
+        chapterId,
+        chapterVersion,
         imageType,
         imageUrl,
         filename,
@@ -620,6 +631,49 @@ router.post('/runs/:runId/image', async (req, res) => {
       chapterNumber,
     });
   } catch (error) {
+    if (error instanceof ChapterNotPersistedError) {
+      const failureRunId = req.params.runId;
+      if (!failureRunId) {
+        res.status(400).json({ success: false, error: 'Missing runId parameter' });
+        return;
+      }
+      const telemetryResults = await Promise.allSettled([
+        runsService.updateRun(failureRunId, {
+          failureStage: 'persist_chapter_image',
+          failureCode: 'chapter_persistence_race',
+          errorMessage: error.message,
+        }),
+        runsService.storeStepResult(failureRunId, `generate_image_chapter_${error.chapterNumber}`, {
+          status: 'failed',
+          error: error.message,
+          result: {
+            storyId: error.storyId,
+            chapterNumber: error.chapterNumber,
+            chapterId: error.chapterId,
+            chapterVersion: error.chapterVersion,
+            imageUrl: req.body?.imageUrl,
+            filename: req.body?.filename,
+            failureStage: 'persist_chapter_image',
+            failureCode: 'chapter_persistence_race',
+          },
+        }),
+      ]);
+      if (telemetryResults.some((result) => result.status === 'rejected')) {
+        logger.error('Internal API: Failed to persist chapter image failure telemetry', {
+          runId: req.params.runId,
+          chapterNumber: error.chapterNumber,
+        });
+      }
+      res.status(409).json({
+        success: false,
+        code: error.code,
+        retryable: error.retryable,
+        error: error.message,
+        storyId: error.storyId,
+        chapterNumber: error.chapterNumber,
+      });
+      return;
+    }
     logger.error('Internal API: Failed to store image result', {
       error: error instanceof Error ? error.message : String(error),
       runId: req.params.runId,

@@ -122,6 +122,39 @@ describe('RunsService', () => {
     getRunSpy.mockRestore();
   });
 
+  it('persists a deterministic failure classification for terminal failures', async () => {
+    jest.spyOn(service, 'getRun').mockResolvedValue({
+      runId: 'r1',
+      storyId: 's1',
+      currentStep: 'persist_chapter_image',
+      metadata: {},
+    } as any);
+    const returningMock = jest.fn().mockResolvedValue([
+      {
+        runId: 'r1',
+        status: 'failed',
+        failureStage: 'persist_chapter_image',
+        failureCode: 'chapter_persistence_race',
+      },
+    ]);
+    const setMock = jest.fn().mockReturnValue({
+      where: jest.fn().mockReturnValue({ returning: returningMock }),
+    });
+    mockDb.update.mockReturnValue({ set: setMock });
+
+    await service.updateRun('r1', {
+      status: 'failed',
+      errorMessage: 'CHAPTER_NOT_PERSISTED',
+    });
+
+    expect(setMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        failureStage: 'persist_chapter_image',
+        failureCode: 'chapter_persistence_race',
+      }),
+    );
+  });
+
   it('retrieves run and steps', async () => {
     mockDb.select
       .mockReturnValueOnce({

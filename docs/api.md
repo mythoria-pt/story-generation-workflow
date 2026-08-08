@@ -30,7 +30,7 @@ Story Generation Workflow exposes a small, opinionated REST surface for Mythoria
 | `POST /ai/text/chapter/{chapterNumber}`  | Generates chapter prose given outline context, prior chapters, and chapter synopsis.                                                                                                                                                                                                                                         |
 | `POST /ai/text/translate`                | Translates slugs, titles, summaries, and Markdown/HTML content from `en-US` into one or more locales (`pt-PT`, `es-ES`, `fr-FR`, `de-DE`).                                                                                                                                                                                   |
 | `POST /ai/text/context/clear`            | Clears the chat context for `<storyId>:<runId>` once workflows finish.                                                                                                                                                                                                                                                       |
-| `POST /ai/image`                         | Creates cover/back/chapter illustrations. Automatically retries via safety rewrite logic; `422` signals `blocked`.                                                                                                                                                                                                           |
+| `POST /ai/image`                         | Creates cover/back/chapter illustrations. Chapter requests require the persisted `chapterId` and `chapterVersion`; a missing exact chapter returns non-retryable `409 CHAPTER_NOT_PERSISTED`. Automatically retries via safety rewrite logic; `422` signals `blocked`.                                                       |
 
 ### Character Photo Analysis
 
@@ -285,20 +285,20 @@ Sample `/ping` output:
 
 Mounted via `/internal` without the API key middleware. Restrict ingress at the network layer.
 
-| Endpoint                                           | Method    | Purpose                                                                            |
-| -------------------------------------------------- | --------- | ---------------------------------------------------------------------------------- |
-| `/internal/auth/status`                            | GET       | Returns `apiKeyConfigured` metadata without leaking the secret.                    |
-| `/internal/runs/{runId}`                           | GET/PATCH | Fetch or update workflow run state (creates run on PATCH when `storyId` provided). |
-| `/internal/prompts/{runId}/{chapterNumber}`        | GET       | Retrieves stored chapter illustration prompt from outline step.                    |
-| `/internal/runs/{runId}/outline`                   | POST      | Stores outline JSON and refreshes progress tracking.                               |
-| `/internal/runs/{runId}/chapter/{chapterNumber}`   | POST      | Persists generated chapter HTML and metadata.                                      |
-| `/internal/prompts/{runId}/book-cover/{coverType}` | GET       | Returns front/back cover prompt from outline.                                      |
-| `/internal/runs/{runId}/image`                     | POST      | Records generated image metadata and updates story/chapter URIs.                   |
-| `/internal/stories/{storyId}`                      | GET       | Story metadata snapshot (title, language, feature flags).                          |
-| `/internal/stories/{storyId}/html`                 | GET       | Raw chapter text (HTML stripped) for audiobook workflows.                          |
-| `/internal/audiobook/chapter`                      | POST      | TTS generation without API key (used by Workflows).                                |
-| `/internal/audiobook/finalize`                     | POST      | Marks audiobook completion and updates URIs.                                       |
-| `/internal/stories/{storyId}/audiobook-status`     | PATCH     | Updates audiobook status (`generating`, `completed`, `failed`).                    |
+| Endpoint                                           | Method    | Purpose                                                                                                                                                                                                                                                |
+| -------------------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `/internal/auth/status`                            | GET       | Returns `apiKeyConfigured` metadata without leaking the secret.                                                                                                                                                                                        |
+| `/internal/runs/{runId}`                           | GET/PATCH | Fetch or update workflow run state (creates run on PATCH when `storyId` provided).                                                                                                                                                                     |
+| `/internal/prompts/{runId}/{chapterNumber}`        | GET       | Retrieves stored chapter illustration prompt from outline step.                                                                                                                                                                                        |
+| `/internal/runs/{runId}/outline`                   | POST      | Stores outline JSON and refreshes progress tracking.                                                                                                                                                                                                   |
+| `/internal/runs/{runId}/chapter/{chapterNumber}`   | POST      | Persists generated chapter HTML and metadata.                                                                                                                                                                                                          |
+| `/internal/prompts/{runId}/book-cover/{coverType}` | GET       | Returns front/back cover prompt from outline.                                                                                                                                                                                                          |
+| `/internal/runs/{runId}/image`                     | POST      | Records generated image metadata and updates story/chapter URIs. Chapter callbacks require the exact persisted `chapterId`/`chapterVersion`; exhausted visibility retries return `409 CHAPTER_NOT_PERSISTED` and persist structured failure telemetry. |
+| `/internal/stories/{storyId}`                      | GET       | Story metadata snapshot (title, language, feature flags).                                                                                                                                                                                              |
+| `/internal/stories/{storyId}/html`                 | GET       | Raw chapter text (HTML stripped) for audiobook workflows.                                                                                                                                                                                              |
+| `/internal/audiobook/chapter`                      | POST      | TTS generation without API key (used by Workflows).                                                                                                                                                                                                    |
+| `/internal/audiobook/finalize`                     | POST      | Marks audiobook completion and updates URIs.                                                                                                                                                                                                           |
+| `/internal/stories/{storyId}/audiobook-status`     | PATCH     | Updates audiobook status (`generating`, `completed`, `failed`).                                                                                                                                                                                        |
 
 ### Print pipeline (`src/routes/print.ts`)
 

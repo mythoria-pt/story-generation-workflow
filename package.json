@@ -87,7 +87,8 @@
     "ts-jest": "^29.4.11",
     "tsc-alias": "^1.8.17",
     "tsx": "^4.22.4",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "yaml": "^2.9.0"
   },
   "optionalDependencies": {
     "@img/sharp-linux-arm64": "0.34.5",

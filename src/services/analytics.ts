@@ -29,6 +29,9 @@ const analyticsReference = (runId: string): string =>
 
 const normalizeFailureCode = (message: string | null): string => {
   const normalized = message?.toLowerCase() || '';
+  if (/chapter not found|chapter_not_persisted/.test(normalized)) {
+    return 'chapter_persistence_race';
+  }
   if (/timeout|timed out|deadline/.test(normalized)) return 'timeout';
   if (/rate.?limit|too many requests/.test(normalized)) return 'rate_limited';
   if (/quota|resource exhausted/.test(normalized)) return 'quota_exhausted';
@@ -69,6 +72,10 @@ export class AnalyticsReconciliationService {
       .select({
         userId: analyticsOutbox.userId,
         params: analyticsOutbox.params,
+        attributionId: analyticsOutbox.attributionId,
+        pageLocation: analyticsOutbox.pageLocation,
+        pageReferrer: analyticsOutbox.pageReferrer,
+        engagementTimeMsec: analyticsOutbox.engagementTimeMsec,
       })
       .from(analyticsOutbox)
       .where(eq(analyticsOutbox.dedupeKey, `story:${run.runId}:requested`));
@@ -81,6 +88,18 @@ export class AnalyticsReconciliationService {
     );
     const eventName =
       run.status === 'completed' ? 'story_generation_completed' : 'story_generation_failed';
+    const failureStage = run.failureStage || normalizeFailureStage(run.currentStep);
+    const failureCode = run.failureCode || normalizeFailureCode(run.errorMessage);
+    const runRef = analyticsReference(run.runId);
+
+    if (run.status === 'failed' && failureCode === 'unknown_failure') {
+      logger.error('Unknown terminal analytics failure classification', {
+        operationalAlert: true,
+        runRef,
+        failureStage,
+        failureCode,
+      });
+    }
 
     let outcome: TerminalAnalyticsOutcome = 'not_eligible';
     await this.sharedDb.transaction(async (tx) => {
@@ -91,13 +110,17 @@ export class AnalyticsReconciliationService {
             dedupeKey: `${eventName}:${run.runId}`,
             eventName,
             authorId: request.authorId,
+            attributionId: request.attributionId || requestedEvent?.attributionId,
             clientId: request.clientId,
             userId: requestedEvent?.userId,
             sessionId: request.sessionId,
             consent: request.consent,
+            pageLocation: requestedEvent?.pageLocation,
+            pageReferrer: requestedEvent?.pageReferrer,
+            engagementTimeMsec: requestedEvent?.engagementTimeMsec || 100,
             params: {
               story_id: run.storyId,
-              run_id: run.runId,
+              run_ref: runRef,
               duration_seconds: durationSeconds,
               credits_spent: request.creditsSpent,
               ...(typeof requestedEvent?.params?.primary_intent === 'string'
@@ -105,8 +128,8 @@ export class AnalyticsReconciliationService {
                 : {}),
               ...(run.status === 'failed'
                 ? {
-                    failure_stage: normalizeFailureStage(run.currentStep),
-                    failure_code: normalizeFailureCode(run.errorMessage),
+                    failure_stage: failureStage,
+                    failure_code: failureCode,
                   }
                 : {}),
             },
@@ -123,7 +146,7 @@ export class AnalyticsReconciliationService {
         .where(eq(storyGenerationRequests.runId, run.runId));
     });
     logger.info('Terminal analytics reconciliation outcome', {
-      runRef: analyticsReference(run.runId),
+      runRef,
       eventName,
       outcome,
     });

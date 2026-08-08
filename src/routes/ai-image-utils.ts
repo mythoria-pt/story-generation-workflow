@@ -3,16 +3,30 @@ import { ImageGenerationBlockedError } from '@/ai/errors.js';
 import { isSafetyBlockError, isTransientError } from '@/shared/retry-utils.js';
 
 // Schema for image generation requests
-export const ImageRequestSchema = z.object({
-  prompt: z.string().min(1),
-  storyId: z.string().uuid(),
-  runId: z.string().uuid(),
-  chapterNumber: z.number().int().positive().optional(),
-  imageType: z.enum(['front_cover', 'back_cover', 'chapter']).optional(),
-  width: z.number().int().positive().optional(),
-  height: z.number().int().positive().optional(),
-  style: z.enum(['vivid', 'natural']).optional(),
-});
+export const ImageRequestSchema = z
+  .object({
+    prompt: z.string().min(1),
+    storyId: z.string().uuid(),
+    runId: z.string().uuid(),
+    chapterNumber: z.number().int().positive().optional(),
+    chapterId: z.string().uuid().optional(),
+    chapterVersion: z.number().int().positive().optional(),
+    imageType: z.enum(['front_cover', 'back_cover', 'chapter']).optional(),
+    width: z.number().int().positive().optional(),
+    height: z.number().int().positive().optional(),
+    style: z.enum(['vivid', 'natural']).optional(),
+  })
+  .superRefine((value, context) => {
+    if (
+      value.imageType === 'chapter' &&
+      (!value.chapterNumber || !value.chapterId || !value.chapterVersion)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Chapter images require chapterNumber, chapterId, and chapterVersion',
+      });
+    }
+  });
 
 export type ImageRequest = z.infer<typeof ImageRequestSchema>;
 

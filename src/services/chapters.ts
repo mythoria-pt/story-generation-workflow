@@ -19,6 +19,26 @@ export interface ChapterData {
   audioUri?: string;
 }
 
+export interface ChapterIdentity {
+  id: string;
+  version: number;
+}
+
+export class ChapterNotPersistedError extends Error {
+  readonly code = 'CHAPTER_NOT_PERSISTED';
+  readonly retryable = false;
+
+  constructor(
+    readonly storyId: string,
+    readonly chapterNumber: number,
+    readonly chapterId?: string,
+    readonly chapterVersion?: number,
+  ) {
+    super(`Chapter not found: story ${storyId}, chapter ${chapterNumber}`);
+    this.name = 'ChapterNotPersistedError';
+  }
+}
+
 export class ChaptersService {
   private db = getDatabase();
 
@@ -86,41 +106,53 @@ export class ChaptersService {
     storyId: string,
     chapterNumber: number,
     imageUri: string,
-  ): Promise<void> {
+    expected?: ChapterIdentity,
+  ): Promise<ChapterIdentity> {
     try {
-      // Get the latest version of this chapter
-      const [latestChapter] = await this.db
-        .select({ id: chapters.id, version: chapters.version })
-        .from(chapters)
-        .where(and(eq(chapters.storyId, storyId), eq(chapters.chapterNumber, chapterNumber)))
-        .orderBy(desc(chapters.version))
-        .limit(1);
-
-      if (!latestChapter) {
-        throw new Error(`Chapter not found: story ${storyId}, chapter ${chapterNumber}`);
-      }
-
-      // Update the image URI
-      await retry(
+      const updatedChapter = await retry(
         async () => {
-          await this.db
+          const chapter = await this.getPersistedChapter(storyId, chapterNumber, expected);
+          if (!chapter) {
+            throw new ChapterNotPersistedError(
+              storyId,
+              chapterNumber,
+              expected?.id,
+              expected?.version,
+            );
+          }
+
+          const [updated] = await this.db
             .update(chapters)
             .set({
               imageUri,
               updatedAt: new Date(),
             })
-            .where(eq(chapters.id, latestChapter.id));
+            .where(
+              and(
+                eq(chapters.id, chapter.id),
+                eq(chapters.storyId, storyId),
+                eq(chapters.chapterNumber, chapterNumber),
+                eq(chapters.version, chapter.version),
+              ),
+            )
+            .returning({ id: chapters.id, version: chapters.version });
+          if (!updated) {
+            throw new ChapterNotPersistedError(storyId, chapterNumber, chapter.id, chapter.version);
+          }
+          return updated;
         },
-        3,
+        2,
         1000,
       );
 
       logger.info('Chapter image updated successfully', {
         storyId,
         chapterNumber,
-        version: latestChapter.version,
+        chapterId: updatedChapter.id,
+        version: updatedChapter.version,
         imageUri,
       });
+      return updatedChapter;
     } catch (error) {
       logger.error('Failed to update chapter image', {
         error: error instanceof Error ? error.message : String(error),
@@ -130,6 +162,25 @@ export class ChaptersService {
       });
       throw error;
     }
+  }
+
+  async getPersistedChapter(
+    storyId: string,
+    chapterNumber: number,
+    expected?: ChapterIdentity,
+  ): Promise<ChapterIdentity | null> {
+    const conditions = [
+      eq(chapters.storyId, storyId),
+      eq(chapters.chapterNumber, chapterNumber),
+      ...(expected ? [eq(chapters.id, expected.id), eq(chapters.version, expected.version)] : []),
+    ];
+    const [chapter] = await this.db
+      .select({ id: chapters.id, version: chapters.version })
+      .from(chapters)
+      .where(and(...conditions))
+      .orderBy(desc(chapters.version))
+      .limit(1);
+    return chapter ?? null;
   }
 
   /**

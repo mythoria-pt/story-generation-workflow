@@ -49,8 +49,8 @@ Key services:
 
 1. **Request queued** – WebApp/Admin writes the durable `mythoria_db.story_generation_requests` row; its outbox dispatcher publishes `{ storyId, runId }` to Pub/Sub. Admin correction runs spend zero credits.
 2. **Workflow executes** – Cloud Workflow loads story metadata, calls `/internal/runs/:id` to mark `running`, and steps through phases (`generate_outline`, `write_chapters`, `generate_images`, `assemble`, etc.).
-3. **AI gateway calls** – `/ai/*` endpoints proxy to Google GenAI or OpenAI, applying safety filters, prompt rewrites, and token tracking. Images retry up to three times, with 422 safety blocks routed through rewrite templates.
-4. **Persistence + storage** – Internal routes save outlines, chapters, prompts, translation diffs, and asset URIs. Generated binaries land in Google Cloud Storage under `{storyId}/...`.
+3. **AI gateway calls** – `/ai/*` endpoints proxy to Google GenAI or OpenAI, applying safety filters, prompt rewrites, and token tracking. Each chapter is persisted before its illustration starts, while cover generation may continue in parallel.
+4. **Persistence + storage** – Internal routes save outlines, chapters, prompts, translation diffs, and asset URIs. Chapter image writes use the exact persisted chapter ID and version with a bounded visibility retry; exhaustion is a terminal `CHAPTER_NOT_PERSISTED` conflict. Generated binaries land in Google Cloud Storage under `{storyId}/...`.
 5. **Packaging** – `/internal/print/generate` renders HTML templates via Puppeteer, injects soft hyphen opportunities for large-font child-reader print layouts, converts RGB PDFs to CMYK through Ghostscript, and stores both versions. Audiobook workflows stream TTS per chapter and persist URLs on chapter rows.
 6. **Completion** – Workflow updates run status to `completed` / `blocked` / `failed`, triggers notification hooks, and emits telemetry. `story-created` is keyed by `runId`, so a successful regeneration sends a fresh customer email without duplicating one run's callback.
 
@@ -70,6 +70,7 @@ SGW owns `workflows_db.story_generation_runs`. Claiming uses a conditional upser
 ## Resiliency Highlights
 
 - **Retry matrix** — Workflows retry transient image failures (HTTP 500/503/429/timeouts) three times with a 60-second delay. `src/shared/retry-utils.ts` classifies errors for routers/services.
+- **Persistence barrier** — Chapter prose and its database identity are committed before image generation. HTTP 400/404/409 chapter-image failures are non-retryable at the workflow layer; failure stage/code are stored structurally for analytics and structured-log alerting.
 - **Safety rewrite** — Image 422s trigger prompt rewrites via Google GenAI (`src/prompts/en-US/image-prompt-safety-rewrite.json`) and a final retry before marking run `blocked`.
 - **Graceful degradation** — CMYK conversion falls back to RGB-only output on failure; audio workflow marks run `completed` even if individual chapters fail, recording issues in logs.
 - **Singleton adapters** — `getAIGateway()` and `getStorageService()` prevent repeated initialization to keep Cloud Run cold starts small.

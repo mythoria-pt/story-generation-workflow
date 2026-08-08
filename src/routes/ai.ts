@@ -37,6 +37,7 @@ import {
   CHARACTER_TRAITS,
 } from '@/shared/character-constants.js';
 import { RunsService } from '@/services/runs.js';
+import { ChapterNotPersistedError, ChaptersService } from '@/services/chapters.js';
 import { logPromptRefinementFailure, refineImagePrompt } from '@/services/image-prompt-utils.js';
 import { ImageSafetyService } from '@/services/image-safety-service.js';
 import { analyzeInputImage } from '@/services/image-analysis.js';
@@ -51,6 +52,7 @@ const storyService = new StoryService();
 const storageService = getStorageService();
 const characterService = new CharacterService();
 const runsService = new RunsService();
+const chaptersService = new ChaptersService();
 const imageSafetyService = new ImageSafetyService({ aiGateway });
 
 // Shared outline + character schema definitions
@@ -1415,12 +1417,35 @@ router.post('/image', async (req, res) => {
   let promptRewriteError: string | undefined;
   let originalPrompt: string | undefined;
   let fallbackPromptUsed = false;
+  let reconciliationStep: string | undefined;
+  let reconciliationFilename: string | undefined;
 
   try {
-    const { prompt, storyId, runId, chapterNumber, imageType, width, height, style } =
-      validateImageRequest(req.body);
+    const {
+      prompt,
+      storyId,
+      runId,
+      chapterNumber,
+      chapterId,
+      chapterVersion,
+      imageType,
+      width,
+      height,
+      style,
+    } = validateImageRequest(req.body);
 
     originalPrompt = prompt;
+
+    if (imageType === 'chapter' && chapterNumber && chapterId && chapterVersion) {
+      currentStep = 'validating_persisted_chapter';
+      const chapter = await chaptersService.getPersistedChapter(storyId, chapterNumber, {
+        id: chapterId,
+        version: chapterVersion,
+      });
+      if (!chapter) {
+        throw new ChapterNotPersistedError(storyId, chapterNumber, chapterId, chapterVersion);
+      }
+    }
 
     // Get story context to extract authorId for token tracking
     const storyContext = await storyService.getStoryContext(storyId);
@@ -1785,14 +1810,62 @@ router.post('/image', async (req, res) => {
       ...(imageType ? { imageType } : {}),
       ...(chapterNumber !== undefined ? { chapterNumber } : {}),
     });
+    reconciliationStep =
+      imageType === 'chapter' && chapterNumber
+        ? `generate_image_chapter_${chapterNumber}`
+        : imageType === 'front_cover'
+          ? 'generate_front_cover'
+          : imageType === 'back_cover'
+            ? 'generate_back_cover'
+            : 'generate_image';
+    reconciliationFilename = filename;
+    await runsService.storeStepResult(runId, reconciliationStep, {
+      status: 'running',
+      result: {
+        storyId,
+        imageType,
+        chapterNumber,
+        chapterId,
+        chapterVersion,
+        filename,
+        reconciliationStatus: 'expected',
+      },
+    });
+
+    if (imageType === 'chapter' && chapterNumber && chapterId && chapterVersion) {
+      currentStep = 'revalidating_persisted_chapter';
+      const chapter = await chaptersService.getPersistedChapter(storyId, chapterNumber, {
+        id: chapterId,
+        version: chapterVersion,
+      });
+      if (!chapter) {
+        throw new ChapterNotPersistedError(storyId, chapterNumber, chapterId, chapterVersion);
+      }
+    }
+
     currentStep = 'uploading_to_storage';
     const imageUrl = await storageService.uploadFile(filename, imageBuffer, 'image/jpeg');
+    await runsService.storeStepResult(runId, reconciliationStep, {
+      status: 'running',
+      result: {
+        storyId,
+        imageType,
+        chapterNumber,
+        chapterId,
+        chapterVersion,
+        imageUrl,
+        filename,
+        reconciliationStatus: 'uploaded',
+      },
+    });
 
     res.json({
       success: true,
       storyId,
       runId,
       chapterNumber,
+      chapterId,
+      chapterVersion,
       image: {
         url: imageUrl,
         filename,
@@ -1810,13 +1883,54 @@ router.post('/image', async (req, res) => {
       }),
     });
   } catch (error) {
+    if (error instanceof ChapterNotPersistedError && req.body?.runId) {
+      try {
+        await runsService.updateRun(req.body.runId, {
+          failureStage: 'persist_chapter_image',
+          failureCode: 'chapter_persistence_race',
+          errorMessage: error.message,
+        });
+      } catch (telemetryError) {
+        logger.error('Failed to record chapter persistence failure telemetry', {
+          runId: req.body.runId,
+          chapterNumber: error.chapterNumber,
+          error: telemetryError instanceof Error ? telemetryError.message : String(telemetryError),
+        });
+      }
+    }
+    if (reconciliationStep && req.body?.runId) {
+      try {
+        await runsService.storeStepResult(req.body.runId, reconciliationStep, {
+          status: 'failed',
+          error: error instanceof Error ? error.message : String(error),
+          result: {
+            storyId: req.body?.storyId,
+            imageType: req.body?.imageType,
+            chapterNumber: req.body?.chapterNumber,
+            chapterId: req.body?.chapterId,
+            chapterVersion: req.body?.chapterVersion,
+            filename: reconciliationFilename,
+            reconciliationStatus: 'failed',
+          },
+        });
+      } catch (reconciliationError) {
+        logger.error('Failed to record image reconciliation failure', {
+          runId: req.body.runId,
+          stepName: reconciliationStep,
+          error:
+            reconciliationError instanceof Error
+              ? reconciliationError.message
+              : String(reconciliationError),
+        });
+      }
+    }
     const errorDetails = formatImageError(error, req.body, currentStep);
 
     // Check if it's a safety block to return 422 instead of 500
     const { isSafetyBlockError } = await import('@/shared/retry-utils.js');
     const isSafetyBlock = isSafetyBlockError(error);
 
-    const statusCode = isSafetyBlock ? 422 : 500;
+    const statusCode = error instanceof ChapterNotPersistedError ? 409 : isSafetyBlock ? 422 : 500;
     const resp: any = {
       success: false,
       error: errorDetails.message,
@@ -1825,6 +1939,12 @@ router.post('/image', async (req, res) => {
       requestId: req.body.runId || 'unknown',
     };
     if (errorDetails.code) resp.code = errorDetails.code;
+    if (error instanceof ChapterNotPersistedError) {
+      resp.code = error.code;
+      resp.retryable = error.retryable;
+      resp.storyId = error.storyId;
+      resp.chapterNumber = error.chapterNumber;
+    }
     if (errorDetails.category) resp.category = errorDetails.category;
     if (errorDetails.provider) resp.provider = errorDetails.provider;
     if (errorDetails.providerFinishReasons)

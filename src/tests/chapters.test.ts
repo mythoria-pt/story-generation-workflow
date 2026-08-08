@@ -13,10 +13,20 @@ jest.mock('@/db/connection', () => ({
 }));
 
 jest.mock('@/shared/utils', () => ({
-  retry: jest.fn((fn: () => Promise<unknown>) => fn()),
+  retry: jest.fn(async (fn: () => Promise<unknown>, maxRetries = 3) => {
+    let lastError: unknown;
+    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+      try {
+        return await fn();
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError;
+  }),
 }));
 
-import { ChaptersService } from '../services/chapters';
+import { ChapterNotPersistedError, ChaptersService } from '../services/chapters';
 import { getDatabase } from '@/db/connection';
 import { logger } from '@/config/logger';
 
@@ -65,7 +75,7 @@ describe('ChaptersService', () => {
     expect(logger.info).toHaveBeenCalled();
   });
 
-  it('updates chapter image for latest version', async () => {
+  it('updates the exact persisted chapter identity and returns it', async () => {
     mockDb.select.mockReturnValue({
       from: jest.fn().mockReturnValue({
         where: jest.fn().mockReturnValue({
@@ -76,15 +86,65 @@ describe('ChaptersService', () => {
       }),
     });
 
-    const whereMock = jest.fn().mockResolvedValue(undefined);
+    const returningMock = jest.fn().mockResolvedValue([{ id: 'id1', version: 2 }]);
+    const whereMock = jest.fn().mockReturnValue({ returning: returningMock });
     mockDb.update.mockReturnValue({
       set: jest.fn().mockReturnValue({ where: whereMock }),
     });
 
-    await service.updateChapterImage('s1', 1, 'img');
+    const result = await service.updateChapterImage('s1', 1, 'img', {
+      id: 'id1',
+      version: 2,
+    });
 
+    expect(result).toEqual({ id: 'id1', version: 2 });
     expect(whereMock).toHaveBeenCalled();
     expect(logger.info).toHaveBeenCalled();
+  });
+
+  it('retries a transient chapter visibility race before persisting the image', async () => {
+    const limitMock = jest
+      .fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: 'id1', version: 2 }]);
+    mockDb.select.mockReturnValue({
+      from: jest.fn().mockReturnValue({
+        where: jest.fn().mockReturnValue({
+          orderBy: jest.fn().mockReturnValue({ limit: limitMock }),
+        }),
+      }),
+    });
+    mockDb.update.mockReturnValue({
+      set: jest.fn().mockReturnValue({
+        where: jest.fn().mockReturnValue({
+          returning: jest.fn().mockResolvedValue([{ id: 'id1', version: 2 }]),
+        }),
+      }),
+    });
+
+    await expect(
+      service.updateChapterImage('s1', 1, 'img', { id: 'id1', version: 2 }),
+    ).resolves.toEqual({ id: 'id1', version: 2 });
+    expect(limitMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('fails deterministically after the chapter persistence retry budget is exhausted', async () => {
+    mockDb.select.mockReturnValue({
+      from: jest.fn().mockReturnValue({
+        where: jest.fn().mockReturnValue({
+          orderBy: jest.fn().mockReturnValue({
+            limit: jest.fn().mockResolvedValue([]),
+          }),
+        }),
+      }),
+    });
+
+    await expect(
+      service.updateChapterImage('s1', 1, 'img', { id: 'id1', version: 2 }),
+    ).rejects.toMatchObject<Partial<ChapterNotPersistedError>>({
+      code: 'CHAPTER_NOT_PERSISTED',
+      retryable: false,
+    });
   });
 
   it('updates chapter audio for latest version', async () => {

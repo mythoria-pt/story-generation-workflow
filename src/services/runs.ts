@@ -11,6 +11,8 @@ import { logger } from '@/config/logger.js';
 export interface RunUpdate {
   status?: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'blocked' | undefined;
   currentStep?: string | undefined;
+  failureStage?: string | undefined;
+  failureCode?: string | undefined;
   errorMessage?: string | undefined;
   metadata?: Record<string, unknown> | undefined;
 }
@@ -20,6 +22,28 @@ export interface StepResult {
   result?: unknown;
   error?: string;
 }
+
+const normalizeFailureStage = (value?: string | null): string =>
+  value
+    ?.toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 120) || 'unknown';
+
+const normalizeFailureCode = (value?: string | null): string => {
+  const normalized = value?.toLowerCase() || '';
+  if (/chapter not found|chapter_not_persisted/.test(normalized)) {
+    return 'chapter_persistence_race';
+  }
+  if (/timeout|timed out|deadline/.test(normalized)) return 'timeout';
+  if (/rate.?limit|too many requests/.test(normalized)) return 'rate_limited';
+  if (/quota|resource exhausted/.test(normalized)) return 'quota_exhausted';
+  if (/safety|content policy|moderation/.test(normalized)) return 'safety_blocked';
+  if (/auth|credential|permission|forbidden|unauthorized/.test(normalized)) return 'auth_error';
+  if (/invalid|validation|schema/.test(normalized)) return 'invalid_input';
+  if (/provider|upstream|service unavailable/.test(normalized)) return 'provider_error';
+  return 'unknown_failure';
+};
 
 export class RunStoryConflictError extends Error {
   constructor(
@@ -93,6 +117,8 @@ export class RunsService {
           ...(gcpWorkflowExecution ? { gcpWorkflowExecution } : {}),
           status: 'running',
           currentStep: 'generate_outline',
+          failureStage: null,
+          failureCode: null,
           errorMessage: null,
           startedAt: now,
           endedAt: null,
@@ -187,10 +213,29 @@ export class RunsService {
         if (['completed', 'failed', 'cancelled', 'blocked'].includes(updates.status)) {
           updateData.endedAt = new Date().toISOString();
         }
+
+        if (updates.status === 'failed') {
+          updateData.failureStage =
+            updates.failureStage ||
+            existingRun.failureStage ||
+            normalizeFailureStage(updates.currentStep || existingRun.currentStep);
+          updateData.failureCode =
+            updates.failureCode ||
+            existingRun.failureCode ||
+            normalizeFailureCode(updates.errorMessage || existingRun.errorMessage);
+        }
       }
 
       if (updates.currentStep) {
         updateData.currentStep = updates.currentStep;
+      }
+
+      if (updates.failureStage) {
+        updateData.failureStage = updates.failureStage;
+      }
+
+      if (updates.failureCode) {
+        updateData.failureCode = updates.failureCode;
       }
 
       if (updates.errorMessage) {
