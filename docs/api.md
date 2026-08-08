@@ -164,7 +164,7 @@ If both rewrite and fallback fail, the error payload includes `promptRewriteAtte
 
 | Endpoint                                  | Notes                                                                                                                 |
 | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `POST /audio/create-audiobook`            | Triggers the `audiobook-generation` Cloud Workflow for a story (`voice` defaults to `coral`).                         |
+| `POST /audio/create-audiobook`            | Triggers the `audiobook-generation` Cloud Workflow for a story (`voice` defaults to the configured TTS voice).        |
 | `POST /audio/internal/audiobook/chapter`  | Workflow callback for per-chapter TTS generation. Requires chapter HTML plus metadata flags (e.g., `isFirstChapter`). |
 | `POST /audio/internal/audiobook/finalize` | Aggregates stored chapter audio in GCS, updates story record with URLs.                                               |
 

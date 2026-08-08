@@ -43,7 +43,6 @@
     "i18n:parity": "tsx scripts/check-i18n.ts parity de-DE"
   },
   "dependencies": {
-    "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@google-cloud/storage": "^7.19.0",
     "@google-cloud/workflows": "^5.1.1",
     "@google/genai": "^2.13.0",

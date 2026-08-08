@@ -1,21 +1,111 @@
 /**
  * Google Gemini TTS (Text-to-Speech) Provider
- * Implements ITTSService for Google's Gemini TTS API (gemini-2.5-pro-preview-tts)
+ * Implements ITTSService for Google's Gemini TTS API.
  *
  * Note: Gemini TTS outputs raw PCM audio at 24kHz, 16-bit, mono.
  * This provider converts PCM to MP3 using fluent-ffmpeg.
  */
 
-import { GoogleGenAI } from '@google/genai';
+import { FinishReason, GenerateContentResponse, GoogleGenAI } from '@google/genai';
 import { ITTSService, TTSOptions, TTSResult, TTSProvider } from '../../interfaces.js';
 import { logger } from '@/config/logger.js';
-import { withRetry } from '@/shared/retry-utils.js';
+import { isTransientError, withRetry } from '@/shared/retry-utils.js';
+import { FFMPEG_BINARY } from '@/config/ffmpeg.js';
+import { TTSGenerationError, isTTSGenerationError } from '@/services/tts-errors.js';
 import ffmpeg from 'fluent-ffmpeg';
-import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 import { Readable, PassThrough } from 'stream';
 
-// Set ffmpeg path from installer
-ffmpeg.setFfmpegPath(ffmpegInstaller.path);
+ffmpeg.setFfmpegPath(FFMPEG_BINARY);
+
+const NON_RETRYABLE_FINISH_REASONS = new Set<FinishReason>([
+  FinishReason.SAFETY,
+  FinishReason.RECITATION,
+  FinishReason.LANGUAGE,
+  FinishReason.BLOCKLIST,
+  FinishReason.PROHIBITED_CONTENT,
+  FinishReason.SPII,
+]);
+
+interface GeminiAudioResponse {
+  pcmBuffer: Buffer;
+  metadata: Record<string, unknown>;
+}
+
+function summarizeGeminiResponse(response: GenerateContentResponse): Record<string, unknown> {
+  const candidates = response.candidates ?? [];
+  const parts = candidates.flatMap((candidate) => candidate.content?.parts ?? []);
+
+  return {
+    responseId: response.responseId,
+    modelVersion: response.modelVersion,
+    promptBlockReason: response.promptFeedback?.blockReason,
+    promptBlockReasonMessage: response.promptFeedback?.blockReasonMessage,
+    candidateCount: candidates.length,
+    finishReasons: candidates.map((candidate) => candidate.finishReason).filter(Boolean),
+    finishMessages: candidates.map((candidate) => candidate.finishMessage).filter(Boolean),
+    partTypes: parts.map((part) => {
+      if (part.inlineData) return 'inlineData';
+      if (typeof part.text === 'string') return 'text';
+      return 'other';
+    }),
+    inlineMimeTypes: parts.map((part) => part.inlineData?.mimeType).filter(Boolean),
+    usageMetadata: response.usageMetadata,
+  };
+}
+
+function extractGeminiAudio(response: GenerateContentResponse): GeminiAudioResponse {
+  const metadata = summarizeGeminiResponse(response);
+  const candidates = response.candidates ?? [];
+  const finishReasons = candidates
+    .map((candidate) => candidate.finishReason)
+    .filter((reason): reason is NonNullable<typeof reason> => reason !== undefined);
+  const blockReason = response.promptFeedback?.blockReason;
+
+  if (blockReason || finishReasons.some((reason) => NON_RETRYABLE_FINISH_REASONS.has(reason))) {
+    throw new TTSGenerationError('Gemini TTS rejected the speech generation request', {
+      code: 'GEMINI_TTS_BLOCKED',
+      statusCode: 422,
+      retryable: false,
+      details: metadata,
+    });
+  }
+
+  if (finishReasons.includes(FinishReason.MAX_TOKENS)) {
+    throw new TTSGenerationError('Gemini TTS reached the output token limit', {
+      code: 'GEMINI_TTS_MAX_TOKENS',
+      statusCode: 422,
+      retryable: false,
+      details: metadata,
+    });
+  }
+
+  const audioBuffers = candidates
+    .map((candidate) =>
+      (candidate.content?.parts ?? []).flatMap((part) => {
+        const data = part.inlineData?.data;
+        const mimeType = part.inlineData?.mimeType;
+        if (!data || (mimeType && !mimeType.startsWith('audio/'))) {
+          return [];
+        }
+        return [Buffer.from(data, 'base64')];
+      }),
+    )
+    .find((buffers) => buffers.length > 0);
+
+  if (!audioBuffers) {
+    throw new TTSGenerationError('Gemini TTS returned no audio data', {
+      code: 'GEMINI_TTS_EMPTY_AUDIO',
+      statusCode: 502,
+      retryable: true,
+      details: metadata,
+    });
+  }
+
+  return {
+    pcmBuffer: Buffer.concat(audioBuffers),
+    metadata,
+  };
+}
 
 function extractGeminiErrorDetails(error: unknown): Record<string, unknown> {
   const details: Record<string, unknown> = {
@@ -196,8 +286,14 @@ export class GoogleGenAITTSService implements ITTSService {
         language,
       });
 
-      // Build the content for the request
-      let contentText = '';
+      // Use an explicit speech-synthesis preamble so the Gemini TTS classifier
+      // does not mistake the request for ordinary text generation.
+      let contentText = [
+        'Generate single-speaker speech from the transcript below.',
+        'Speak only the transcript. Do not read the instructions or section labels.',
+        'Return audio only; do not return text.',
+        '',
+      ].join('\n');
 
       // 1. Add System Prompt / Style Instructions
       if (systemPrompt) {
@@ -235,14 +331,10 @@ export class GoogleGenAITTSService implements ITTSService {
       }
 
       // 4. Add Transcript
-      if (contentText) {
-        contentText += `\n### TRANSCRIPT\n${text}`;
-      } else {
-        contentText = text;
-      }
+      contentText += `\n### TRANSCRIPT\n${text}`;
 
       // Gemini TTS uses the generate_content API with audio response modality
-      const response = await withRetry(
+      const synthesis = await withRetry(
         async (context) => {
           if (context.attempt > 1) {
             logger.warn('Retrying Gemini TTS request', {
@@ -255,7 +347,7 @@ export class GoogleGenAITTSService implements ITTSService {
             });
           }
 
-          return this.client.models.generateContent({
+          const response = await this.client.models.generateContent({
             model: apiModel,
             contents: contentText,
             config: {
@@ -269,33 +361,28 @@ export class GoogleGenAITTSService implements ITTSService {
               },
             },
           });
+
+          // Validate within the retry boundary. Gemini 3.1 TTS Preview can
+          // occasionally return text or an empty candidate instead of audio.
+          return extractGeminiAudio(response);
         },
         {
           maxAttempts: 3,
           baseDelayMs: 2000,
           maxDelayMs: 5000,
           jitterMs: 500,
+          retryableErrors: (error) =>
+            isTTSGenerationError(error) ? error.retryable : isTransientError(error),
         },
       );
 
-      // Extract audio data from response
-      const candidate = response.candidates?.[0];
-      if (!candidate?.content?.parts?.[0]) {
-        throw new Error('No audio data in Gemini TTS response');
-      }
-
-      const audioPart = candidate.content.parts[0];
-      if (!audioPart.inlineData?.data) {
-        throw new Error('No inline audio data in Gemini TTS response');
-      }
-
-      // Gemini returns base64-encoded PCM audio
-      const pcmBuffer = Buffer.from(audioPart.inlineData.data, 'base64');
+      const pcmBuffer = synthesis.pcmBuffer;
 
       logger.debug('Gemini TTS synthesis successful, converting PCM to MP3', {
         model,
         voice,
         pcmBufferSize: pcmBuffer.length,
+        response: synthesis.metadata,
       });
 
       // Convert PCM to MP3
@@ -329,11 +416,12 @@ export class GoogleGenAITTSService implements ITTSService {
 
   /**
    * Get the maximum text length supported by Gemini TTS
-   * Gemini TTS has a context window of ~32k tokens for TTS
-   * Being conservative with character limit
+   * Gemini 3.1 TTS quality can drift for outputs longer than a few minutes.
+   * Keep each request around 400 words so chapters are synthesized in stable,
+   * retryable segments and concatenated afterward.
    */
   getMaxTextLength(): number {
-    return 8000; // Conservative limit, actual is much higher
+    return 2500;
   }
 
   /**

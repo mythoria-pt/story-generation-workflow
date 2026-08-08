@@ -15,6 +15,7 @@ import { serializeError } from '@/utils/errorHandling.js';
 import type { OutlineData } from '@/types/database.js';
 import { analyticsReconciliationService } from '@/services/analytics.js';
 import { schedulerAuth } from '@/middleware/schedulerAuth.js';
+import { getTTSHttpError, isTTSGenerationError } from '@/services/tts-errors.js';
 
 const router = Router();
 
@@ -887,17 +888,17 @@ router.post('/audiobook/chapter', async (req: Request, res: Response): Promise<v
       ...result,
     });
   } catch (error) {
+    const httpError = getTTSHttpError(error);
     logger.error('Internal API: Failed to generate chapter audio', {
       error: error instanceof Error ? error.message : String(error),
+      code: isTTSGenerationError(error) ? error.code : undefined,
+      retryable: isTTSGenerationError(error) ? error.retryable : undefined,
       storyId: req.body.storyId,
       chapterNumber: req.body.chapterNumber,
       stack: error instanceof Error ? error.stack : undefined,
     });
 
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
-    });
+    res.status(httpError.statusCode).json(httpError.body);
   }
 });
 

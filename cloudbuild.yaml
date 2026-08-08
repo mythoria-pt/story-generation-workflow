@@ -30,7 +30,7 @@ steps:
       # Existing production bindings verified on 2026-07-30 are retained by this incremental deploy.
       # env-parity-preserved: NODE_ENV,DB_HOST,DB_PORT,DB_USER,DB_PASSWORD,DB_NAME,WORKFLOWS_DB,GOOGLE_CLOUD_PROJECT_ID,GOOGLE_CLOUD_REGION,STORAGE_BUCKET_NAME,STORY_GENERATION_WORKFLOW_API_KEY,ANALYTICS_SCHEDULER_SERVICE_ACCOUNT
       - '--update-env-vars'
-      - 'DEPLOY_GIT_SHA=${_GIT_SHA},DEPLOY_BUILD_ID=$BUILD_ID,TEXT_PROVIDER=google-genai,IMAGE_PROVIDER=google-genai,IMAGE_ANALYZER_PROVIDER=google-genai,GOOGLE_GENAI_MODEL=gemini-3.6-flash,GOOGLE_GENAI_IMAGE_MODEL=gemini-3.1-flash-image'
+      - 'DEPLOY_GIT_SHA=${_GIT_SHA},DEPLOY_BUILD_ID=$BUILD_ID,TEXT_PROVIDER=google-genai,IMAGE_PROVIDER=openai,IMAGE_ANALYZER_PROVIDER=google-genai,OPENAI_IMAGE_TOOL_MODEL=gpt-image-2,GOOGLE_GENAI_MODEL=gemini-3.6-flash,GOOGLE_GENAI_IMAGE_MODEL=gemini-3.1-flash-image'
       - '--quiet'
 
 images:

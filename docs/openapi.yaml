@@ -449,7 +449,7 @@ paths:
               default:
                 value:
                   storyId: f2b0c4e2-05d4-4f74-b0a1-7f6314b8f5f3
-                  voice: nova
+                  voice: Charon
       responses:
         '200':
           description: Workflow started.

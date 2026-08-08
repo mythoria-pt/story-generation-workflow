@@ -28,6 +28,7 @@ import { splitTextIntoChunks, needsChunking } from './text-chunking.js';
 import { concatenateAudioBuffers, mixAudioWithBackground } from './audio-concatenation.js';
 import { getBackgroundMusicForStory } from './background-music.js';
 import { getProviderForVoice, getDefaultVoiceForProvider } from './voice-registry.js';
+import { TTSGenerationError } from './tts-errors.js';
 
 export interface TTSChapterResult {
   chapterNumber: number;
@@ -377,11 +378,16 @@ export class TTSService {
             });
           }
         } else {
-          logger.info('Skipping background music - file not available', {
+          logger.error('Background music requested but file is not available', {
             storyId,
             chapterNumber,
             targetAudience: story.targetAudience,
             novelStyle: story.novelStyle,
+          });
+          throw new TTSGenerationError('Requested background music is unavailable', {
+            code: 'BACKGROUND_MUSIC_UNAVAILABLE',
+            statusCode: 424,
+            retryable: false,
           });
         }
       } else {

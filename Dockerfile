@@ -1,7 +1,7 @@
 # Use Debian slim (glibc) for build stage to match runtime environment
 # and ensure native binaries (e.g. sharp) are compiled for the correct libc
 ARG NODE_VERSION=24.18.1
-FROM node:${NODE_VERSION}-slim AS builder
+FROM node:${NODE_VERSION}-bookworm-slim AS builder
 
 # Skip Puppeteer browser download during npm ci — Chrome is installed in the runtime stage
 ENV PUPPETEER_SKIP_DOWNLOAD=true
@@ -25,10 +25,11 @@ RUN npm run build
 RUN npm prune --omit=dev
 
 # Production stage with Debian-based image for Ghostscript support
-FROM node:${NODE_VERSION}-slim
+FROM node:${NODE_VERSION}-bookworm-slim
 
 # Install system dependencies for PDF processing
 RUN apt-get update && apt-get install -y \
+    ffmpeg \
     ghostscript \
     wget \
     gnupg \
@@ -38,6 +39,9 @@ RUN apt-get update && apt-get install -y \
     && apt-get install -y google-chrome-stable fonts-ipafont-gothic fonts-wqy-zenhei fonts-thai-tlwg fonts-kacst fonts-freefont-ttf libxss1 \
     --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
+
+# Gemini TTS conversion and audiobook mixing require a modern amix filter.
+RUN ffmpeg -hide_banner -h filter=amix 2>&1 | grep -q 'normalize'
 
 # Set working directory
 WORKDIR /app
@@ -64,6 +68,7 @@ COPY --from=builder /app/dist/backgroundMusics ./dist/backgroundMusics
 
 # Set environment variables for PDF processing
 ENV GHOSTSCRIPT_BINARY=gs
+ENV FFMPEG_BINARY=/usr/bin/ffmpeg
 ENV TEMP_DIR=/tmp/mythoria-print
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable

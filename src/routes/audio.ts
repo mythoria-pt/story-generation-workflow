@@ -4,6 +4,8 @@ import { StoryService } from '@/services/story.js';
 import { getStorageService } from '@/services/storage-singleton.js';
 import { TTSService } from '@/services/tts.js';
 import { GoogleCloudWorkflowsAdapter } from '@/adapters/google-cloud/workflows-adapter.js';
+import { getTTSHttpError, isTTSGenerationError } from '@/services/tts-errors.js';
+import { getTTSConfig } from '@/services/tts-utils.js';
 
 const router = express.Router();
 const storyService = new StoryService();
@@ -27,12 +29,15 @@ router.post(
         });
         return;
       }
-      logger.info('Audio API: Creating audiobook', { storyId, voice });
+      const requestedVoice = typeof voice === 'string' ? voice.trim() : '';
+      const selectedVoice = requestedVoice || getTTSConfig().voice;
+
+      logger.info('Audio API: Creating audiobook', { storyId, voice: selectedVoice });
 
       // Trigger the audiobook generation workflow via Cloud Workflows
       const workflowParameters = {
         storyId,
-        voice: voice || 'coral',
+        voice: selectedVoice,
       };
 
       try {
@@ -43,7 +48,7 @@ router.post(
 
         logger.info('Audio API: Audiobook generation workflow executed successfully', {
           storyId,
-          voice,
+          voice: selectedVoice,
           executionId,
         });
 
@@ -51,14 +56,14 @@ router.post(
           success: true,
           message: 'Audiobook generation started',
           storyId,
-          voice: voice || 'nova',
+          voice: selectedVoice,
           status: 'processing',
           executionId,
         });
       } catch (workflowError) {
         logger.error('Audio API: Failed to execute audiobook workflow', {
           storyId,
-          voice,
+          voice: selectedVoice,
           error: workflowError instanceof Error ? workflowError.message : String(workflowError),
         });
 
@@ -169,16 +174,16 @@ router.post(
         metadata: result.metadata,
       });
     } catch (error) {
+      const httpError = getTTSHttpError(error);
       logger.error('Failed to generate chapter audio', {
         error: error instanceof Error ? error.message : String(error),
+        code: isTTSGenerationError(error) ? error.code : undefined,
+        retryable: isTTSGenerationError(error) ? error.retryable : undefined,
         storyId: req.body.storyId,
         chapterNumber: req.body.chapterNumber,
       });
 
-      res.status(500).json({
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      });
+      res.status(httpError.statusCode).json(httpError.body);
     }
   },
 );

@@ -78,6 +78,7 @@ const envSchema = z.object({
   // Temp directory configuration
   TEMP_DIR: z.string().optional(),
   GHOSTSCRIPT_BINARY: z.string().optional(),
+  FFMPEG_BINARY: z.string().optional().default('ffmpeg'),
 
   // Google GenAI Configuration
   GOOGLE_GENAI_API_KEY: z.string().optional(),

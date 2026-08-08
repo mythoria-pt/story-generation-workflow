@@ -7,8 +7,13 @@ const mockComplexFilter = jest.fn().mockReturnThis();
 const mockInput = jest.fn().mockReturnThis();
 const mockMap = jest.fn().mockReturnThis();
 const mockOutput = jest.fn().mockReturnThis();
+const mockAudioCodec = jest.fn().mockReturnThis();
+const mockAudioBitrate = jest.fn().mockReturnThis();
+let ffmpegError: Error | null = null;
 const mockOn = jest.fn().mockImplementation(function (this: any, event: string, callback: any) {
-  if (event === 'end') {
+  if (event === 'error' && ffmpegError) {
+    process.nextTick(() => callback(ffmpegError, '', 'unsupported filter'));
+  } else if (event === 'end' && !ffmpegError) {
     process.nextTick(() => callback());
   }
   return this;
@@ -20,6 +25,8 @@ jest.mock('fluent-ffmpeg', () => {
     complexFilter: mockComplexFilter,
     map: mockMap,
     output: mockOutput,
+    audioCodec: mockAudioCodec,
+    audioBitrate: mockAudioBitrate,
     on: mockOn,
     run: mockRun,
   }));
@@ -45,6 +52,7 @@ jest.mock('fs/promises', () => ({
 describe('Audio Mixing Service', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    ffmpegError = null;
   });
 
   test('should mix narration and background music with correct default volume parameters', async () => {
@@ -61,6 +69,7 @@ describe('Audio Mixing Service', () => {
     expect(filterString).toContain('volume=1'); // Narration volume defaults to 1.0
     expect(filterString).toContain('volume=0.1'); // Background volume defaults to 0.1
     expect(filterString).toContain('normalize=0'); // Normalize set to 0 to prevent volume halving
+    expect(filterString).toContain('alimiter=limit=0.95');
     expect(filterString).toContain('amix=inputs=2');
   });
 
@@ -98,5 +107,17 @@ describe('Audio Mixing Service', () => {
     expect(backgroundFilter).toContain('afade=t=in:st=0:d=2');
     expect(backgroundFilter).toContain('afade=t=out:st=98:d=2');
     expect(filterString).toContain('amix=inputs=2:duration=first');
+  });
+
+  test('should fail explicitly when requested background music cannot be mixed', async () => {
+    ffmpegError = new Error("Option 'normalize' not found");
+
+    await expect(
+      mixAudioWithBackground(Buffer.from('mock-narration'), 'path/to/music.mp3'),
+    ).rejects.toMatchObject({
+      code: 'FFMPEG_MIX_FAILED',
+      statusCode: 424,
+      retryable: false,
+    });
   });
 });

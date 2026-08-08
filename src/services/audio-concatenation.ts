@@ -5,16 +5,16 @@
  */
 
 import ffmpeg from 'fluent-ffmpeg';
-import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
-import { promises as fs } from 'fs';
+import * as fs from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { execFile } from 'child_process';
 import { logger } from '@/config/logger.js';
+import { FFMPEG_BINARY } from '@/config/ffmpeg.js';
+import { TTSGenerationError } from './tts-errors.js';
 
-// Set ffmpeg path from installer
-ffmpeg.setFfmpegPath(ffmpegInstaller.path);
+ffmpeg.setFfmpegPath(FFMPEG_BINARY);
 
 /**
  * Result of audio concatenation
@@ -301,16 +301,18 @@ export async function mixAudioWithBackground(
       backgroundMusicFile: backgroundMusicPath,
     };
   } catch (error) {
-    logger.error('Audio mixing failed, returning original narration', {
+    logger.error('Audio mixing failed', {
       error: error instanceof Error ? error.message : String(error),
       backgroundMusicPath,
     });
 
-    // Return original narration if mixing fails
-    return {
-      buffer: narrationBuffer,
-      hasMixedBackground: false,
-    };
+    throw new TTSGenerationError('Background music mixing failed', {
+      code: 'FFMPEG_MIX_FAILED',
+      statusCode: 424,
+      retryable: false,
+      details: { backgroundMusicPath },
+      cause: error,
+    });
   } finally {
     // Cleanup temp files
     await cleanupMixTempFiles(tempDir, narrationPath, outputPath);
@@ -371,7 +373,7 @@ function runFFmpegMix(
       // Loop background, cap to narration duration, then apply fades and volume reduction to music only
       `[1:a]${backgroundFilters}[bg]`,
       // Mix with narration as the duration source; normalize=0 preserves input levels
-      '[narration][bg]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[mixed]',
+      '[narration][bg]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.95[mixed]',
     ].join(';');
 
     ffmpeg()
@@ -401,7 +403,7 @@ function runFFmpegMix(
 
 function getAudioDurationSeconds(audioPath: string): Promise<number> {
   return new Promise((resolve, reject) => {
-    execFile(ffmpegInstaller.path, ['-hide_banner', '-i', audioPath], (error, _stdout, stderr) => {
+    execFile(FFMPEG_BINARY, ['-hide_banner', '-i', audioPath], (error, _stdout, stderr) => {
       const output = stderr || String(error ?? '');
       const durationMatch = output.match(/Duration:\s*(\d{2}):(\d{2}):(\d{2}(?:\.\d+)?)/);
 

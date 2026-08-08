@@ -282,6 +282,14 @@ export const envManifest: EnvVarDescriptor[] = [
     source: 'substitution',
     note: 'Path to Ghostscript binary (CMYK/print); optional on Unix.',
   },
+  {
+    name: 'FFMPEG_BINARY',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    default: 'ffmpeg',
+    source: 'inline',
+    note: 'System FFmpeg executable; the production container sets /usr/bin/ffmpeg.',
+  },
 
   // Logging
   { name: 'LOG_LEVEL', required: false, scopes: ['dev', 'runtime', 'prod'], default: 'info' },
@@ -317,7 +325,7 @@ export const envManifest: EnvVarDescriptor[] = [
     name: 'TTS_MODEL',
     required: false,
     scopes: ['dev', 'runtime', 'prod'],
-    default: 'gemini-2.5-pro-preview-tts',
+    default: 'gemini-3.1-flash-tts-preview',
   },
   { name: 'TTS_VOICE', required: false, scopes: ['dev', 'runtime', 'prod'], default: 'Charon' },
   { name: 'TTS_SPEED', required: false, scopes: ['dev', 'runtime', 'prod'], default: '1' },

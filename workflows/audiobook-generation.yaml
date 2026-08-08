@@ -20,11 +20,11 @@ main:
           - payload: ${json.decode(base64.decode(event.data.message.data))}
           - storyId: ${payload.storyId}
           - runId: ${payload.runId}
-          - voice: ${default(payload.voice, "coral")}
+          - voice: ${default(payload.voice, "Charon")}
           - includeBackgroundMusic: ${default(payload.includeBackgroundMusic, true)}
           - baseUrl: 'https://story-generation-workflow-803421888801.europe-west9.run.app'
           - chapterGenerationConcurrency: 4
-          - chapterAudioMaxAttempts: 3
+          - chapterAudioMaxAttempts: 2
           - chapterAudioRetryDelaySeconds: 10
           - now: ${time.format(sys.now())}
 
@@ -129,15 +129,36 @@ main:
                                       - saveChapterAudioError:
                                           assign:
                                             - chapterAudioLastError: ${chapterAudioAttemptError}
+                                      - extractChapterAudioErrorCode:
+                                          assign:
+                                            - chapterAudioErrorCode: ${default(map.get(chapterAudioAttemptError, "code"), 0)}
+                                      - classifyChapterAudioRetryability:
+                                          assign:
+                                            - chapterAudioIsRetryable: ${chapterAudioErrorCode == 0 or chapterAudioErrorCode == 408 or chapterAudioErrorCode == 429 or chapterAudioErrorCode >= 500}
+                                      - stopNonRetryableChapterAudio:
+                                          switch:
+                                            - condition: ${not(chapterAudioIsRetryable)}
+                                              steps:
+                                                - logChapterAudioNonRetryable:
+                                                    call: sys.log
+                                                    args:
+                                                      severity: ERROR
+                                                      text: '${"Chapter " + string(chapterNum) + " audio failed with non-retryable HTTP code " + string(chapterAudioErrorCode) + ": " + if(type(chapterAudioAttemptError) == "map", chapterAudioAttemptError.message, chapterAudioAttemptError)}'
+                                                - raiseChapterAudioNonRetryable:
+                                                    raise: ${chapterAudioAttemptError}
                                       - logChapterAudioRetry:
                                           call: sys.log
                                           args:
                                             severity: WARNING
                                             text: '${"Chapter " + string(chapterNum) + " audio attempt " + string(attempt) + " failed, retrying after " + string(chapterAudioRetryDelaySeconds) + "s: " + if(type(chapterAudioAttemptError) == "map", chapterAudioAttemptError.message, chapterAudioAttemptError)}'
-                                      - delayChapterAudioRetry:
-                                          call: sys.sleep
-                                          args:
-                                            seconds: ${chapterAudioRetryDelaySeconds}
+                                      - maybeDelayChapterAudioRetry:
+                                          switch:
+                                            - condition: ${attempt < chapterAudioMaxAttempts}
+                                              steps:
+                                                - delayChapterAudioRetry:
+                                                    call: sys.sleep
+                                                    args:
+                                                      seconds: ${chapterAudioRetryDelaySeconds}
 
                       - handleChapterAudioOutcome:
                           switch:
@@ -146,8 +167,10 @@ main:
                                 - logChapterAudioFailure:
                                     call: sys.log
                                     args:
-                                      severity: WARNING
-                                      text: '${"Chapter audio not confirmed after retries for chapter " + string(chapterNum) + "; last error: " + if(chapterAudioLastError != null, if(type(chapterAudioLastError) == "map", chapterAudioLastError.message, chapterAudioLastError), "unknown") + ". Continuing to finalize check."}'
+                                      severity: ERROR
+                                      text: '${"Chapter audio failed after retries for chapter " + string(chapterNum) + "; last error: " + if(chapterAudioLastError != null, if(type(chapterAudioLastError) == "map", chapterAudioLastError.message, chapterAudioLastError), "unknown")}'
+                                - raiseChapterAudioFailure:
+                                    raise: ${chapterAudioLastError}
 
             # 4. Finalize audiobook and mark as completed
             - finalizeAudiobook:
@@ -208,9 +231,5 @@ main:
                     failedAt: ${time.format(sys.now())}
                     error: ${string(audioError)}
 
-            - returnAudioError:
-                return:
-                  success: false
-                  error: ${string(audioError)}
-                  storyId: ${storyId}
-                  runId: ${runId}
+            - rethrowAudioError:
+                raise: ${audioError}

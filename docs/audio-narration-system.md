@@ -349,23 +349,30 @@ class OpenAITTSService implements ITTSService {
 ```typescript
 class GoogleGenAITTSService implements ITTSService {
   async synthesize(text: string, options?: TTSOptions): Promise<TTSResult> {
-    // Gemini returns raw PCM audio
-    const response = await this.client.models.generateContent({
-      model: 'gemini-3.1-flash-tts-preview',
-      contents: text,
-      config: {
-        responseModalities: ['AUDIO'],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: voice },
+    const synthesis = await withRetry(
+      async () => {
+        const response = await this.client.models.generateContent({
+          model: 'gemini-3.1-flash-tts-preview',
+          contents: buildSpeechOnlyPrompt(text, options),
+          config: {
+            responseModalities: ['AUDIO'],
+            speechConfig: {
+              voiceConfig: {
+                prebuiltVoiceConfig: { voiceName: voice },
+              },
+            },
           },
-        },
+        });
+
+        // Audio validation is inside the retry boundary because the Preview
+        // model can occasionally return an empty or text-only response.
+        return extractGeminiAudio(response);
       },
-    });
+      { maxAttempts: 3 },
+    );
 
     // Extract PCM data and convert to MP3
-    const pcmBuffer = Buffer.from(audioPart.inlineData.data, 'base64');
-    const mp3Buffer = await this.convertPcmToMp3(pcmBuffer);
+    const mp3Buffer = await this.convertPcmToMp3(synthesis.pcmBuffer);
 
     return { buffer: mp3Buffer, format: 'mp3', ... };
   }
@@ -384,10 +391,17 @@ class GoogleGenAITTSService implements ITTSService {
   }
 
   getMaxTextLength(): number {
-    return 8000;
+    return 2500;
   }
 }
 ```
+
+Gemini chapter transcripts are split at paragraph or sentence boundaries before they exceed
+2,500 characters. This keeps each generated segment near a few minutes, as recommended by the
+Gemini 3.1 TTS Preview limitations. Empty or text-only responses are retried inside the provider.
+Safety blocks and output-token exhaustion are reported as structured, non-retryable errors. Logs
+capture response IDs, finish reasons, part types, and MIME types without recording transcript or
+audio content.
 
 ---
 
@@ -603,10 +617,15 @@ The accent enforcement system ensures that TTS models produce consistent, region
 **Google Gemini TTS:**
 
 ```typescript
-const contents = [
-  { role: 'user', parts: [{ text: systemPrompt }] },
-  { role: 'user', parts: [{ text: `Read the following text:\n\n${text}` }] },
-];
+const contents = `Generate single-speaker speech from the transcript below.
+Speak only the transcript. Do not read the instructions or section labels.
+Return audio only; do not return text.
+
+### DIRECTOR'S NOTES
+${systemPrompt}
+
+### TRANSCRIPT
+${text}`;
 ```
 
 **OpenAI TTS:**
@@ -656,15 +675,23 @@ Music is automatically selected based on two story attributes:
 3. **Volume Reduction**: Background music volume is reduced (default 10%)
 4. **Fade Out**: Music fade-out starts only in the final 2s maximum of the narration
 5. **Mixing**: FFmpeg `amix` filter combines narration (100%) with background without fading narration
+6. **Peak Protection**: `alimiter` prevents clipping after the non-normalized mix
+
+The production image installs the Debian FFmpeg package and validates at build time that the
+`amix` filter supports `normalize`. Application modules use `FFMPEG_BINARY` rather than a bundled,
+platform-specific npm binary. A requested music mix that fails is returned as the non-retryable
+`FFMPEG_MIX_FAILED` dependency error; the service does not silently publish narration-only audio as
+a fully successful mixed audiobook.
 
 ### Configuration
 
-| Variable                    | Default | Description                                                              |
-| --------------------------- | ------- | ------------------------------------------------------------------------ |
-| `BACKGROUND_MUSIC_ENABLED`  | `true`  | Global enable/disable for background music                               |
-| `BACKGROUND_MUSIC_VOLUME`   | `0.1`   | Volume level (0.0 to 1.0)                                                |
-| `BACKGROUND_MUSIC_FADE_IN`  | `1.5`   | Music fade-in duration in seconds, capped at 2s                          |
-| `BACKGROUND_MUSIC_FADE_OUT` | `1.5`   | Music fade-out duration in seconds, capped at 2s and anchored to the end |
+| Variable                    | Default  | Description                                                              |
+| --------------------------- | -------- | ------------------------------------------------------------------------ |
+| `BACKGROUND_MUSIC_ENABLED`  | `true`   | Global enable/disable for background music                               |
+| `BACKGROUND_MUSIC_VOLUME`   | `0.1`    | Volume level (0.0 to 1.0)                                                |
+| `BACKGROUND_MUSIC_FADE_IN`  | `1.5`    | Music fade-in duration in seconds, capped at 2s                          |
+| `BACKGROUND_MUSIC_FADE_OUT` | `1.5`    | Music fade-out duration in seconds, capped at 2s and anchored to the end |
+| `FFMPEG_BINARY`             | `ffmpeg` | System FFmpeg executable; `/usr/bin/ffmpeg` in the production container  |
 
 ### User Control
 
