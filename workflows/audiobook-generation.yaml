@@ -143,14 +143,14 @@ main:
                                                     call: sys.log
                                                     args:
                                                       severity: ERROR
-                                                      text: '${"Chapter " + string(chapterNum) + " audio failed with non-retryable HTTP code " + string(chapterAudioErrorCode) + ": " + if(type(chapterAudioAttemptError) == "map", chapterAudioAttemptError.message, chapterAudioAttemptError)}'
+                                                      text: '${"Chapter " + string(chapterNum) + " audio failed with non-retryable HTTP code " + string(chapterAudioErrorCode) + ": " + chapterAudioAttemptError.message}'
                                                 - raiseChapterAudioNonRetryable:
                                                     raise: ${chapterAudioAttemptError}
                                       - logChapterAudioRetry:
                                           call: sys.log
                                           args:
                                             severity: WARNING
-                                            text: '${"Chapter " + string(chapterNum) + " audio attempt " + string(attempt) + " failed, retrying after " + string(chapterAudioRetryDelaySeconds) + "s: " + if(type(chapterAudioAttemptError) == "map", chapterAudioAttemptError.message, chapterAudioAttemptError)}'
+                                            text: '${"Chapter " + string(chapterNum) + " audio attempt " + string(attempt) + " failed, retrying after " + string(chapterAudioRetryDelaySeconds) + "s: " + chapterAudioAttemptError.message}'
                                       - maybeDelayChapterAudioRetry:
                                           switch:
                                             - condition: ${attempt < chapterAudioMaxAttempts}
@@ -168,7 +168,7 @@ main:
                                     call: sys.log
                                     args:
                                       severity: ERROR
-                                      text: '${"Chapter audio failed after retries for chapter " + string(chapterNum) + "; last error: " + if(chapterAudioLastError != null, if(type(chapterAudioLastError) == "map", chapterAudioLastError.message, chapterAudioLastError), "unknown")}'
+                                      text: '${"Chapter audio failed after retries for chapter " + string(chapterNum) + "; last error: " + chapterAudioLastError.message}'
                                 - raiseChapterAudioFailure:
                                     raise: ${chapterAudioLastError}
 

@@ -21,6 +21,9 @@ describe('Audiobook workflow retry contract', () => {
     expect(workflow).toContain('raiseChapterAudioNonRetryable');
     expect(workflow).toContain('raiseChapterAudioFailure');
     expect(workflow).toContain('rethrowAudioError');
+    expect(workflow).not.toContain('if(type(');
+    expect(workflow).not.toContain('get_type(');
+    expect(workflow).toContain('chapterAudioAttemptError.message');
     expect(workflow).not.toContain('returnAudioError');
   });
 });
