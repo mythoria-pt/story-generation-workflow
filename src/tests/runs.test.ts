@@ -59,6 +59,24 @@ describe('RunsService', () => {
     expect(mockDb.insert).not.toHaveBeenCalled();
   });
 
+  it('reserves a self-print run only once before workflow execution', async () => {
+    const returning = jest
+      .fn()
+      .mockResolvedValueOnce([{ runId: 'r1', storyId: 's1', status: 'queued' }])
+      .mockResolvedValueOnce([]);
+    mockDb.insert.mockReturnValue({
+      values: jest.fn().mockReturnValue({
+        onConflictDoNothing: jest.fn().mockReturnValue({ returning }),
+      }),
+    });
+    jest
+      .spyOn(service, 'getRun')
+      .mockResolvedValue({ runId: 'r1', storyId: 's1', status: 'queued' } as any);
+
+    await expect(service.reserveRun('s1', 'r1')).resolves.toMatchObject({ reserved: true });
+    await expect(service.reserveRun('s1', 'r1')).resolves.toMatchObject({ reserved: false });
+  });
+
   it('allows only the first workflow to claim a run', async () => {
     const returning = jest
       .fn()

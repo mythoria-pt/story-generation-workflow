@@ -2,7 +2,12 @@ import { createHash } from 'node:crypto';
 import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import { logger } from '@/config/logger.js';
 import { getDatabase } from '@/db/connection.js';
-import { analyticsOutbox, storyGenerationRequests } from '@/db/schema/index.js';
+import {
+  analyticsOutbox,
+  productGenerationRequests,
+  storyGenerationRequests,
+  type ProductGenerationRequest,
+} from '@/db/schema/index.js';
 import { getWorkflowsDatabase } from '@/db/workflows-db.js';
 import { storyGenerationRuns } from '@/db/workflows-schema/index.js';
 
@@ -32,6 +37,15 @@ const normalizeFailureCode = (message: string | null): string => {
   if (/chapter not found|chapter_not_persisted/.test(normalized)) {
     return 'chapter_persistence_race';
   }
+  if (/audiobook incomplete|expected chapters|generated chapters/.test(normalized)) {
+    return 'incomplete_output';
+  }
+  if (/ghostscript|puppeteer|pdf generation|render.*pdf/.test(normalized)) {
+    return 'pdf_generation_failed';
+  }
+  if (/quality.?check|print qa|qa route/.test(normalized)) return 'qa_failed';
+  if (/storage|gcs|upload/.test(normalized)) return 'storage_failed';
+  if (/email|notification|delivery/.test(normalized)) return 'delivery_failed';
   if (/timeout|timed out|deadline/.test(normalized)) return 'timeout';
   if (/rate.?limit|too many requests/.test(normalized)) return 'rate_limited';
   if (/quota|resource exhausted/.test(normalized)) return 'quota_exhausted';
@@ -55,6 +69,62 @@ export class AnalyticsReconciliationService {
   private sharedDb = getDatabase();
   private workflowsDb = getWorkflowsDatabase();
 
+  async markProductRunRunning(runId: string): Promise<void> {
+    const [request] = await this.sharedDb
+      .select()
+      .from(productGenerationRequests)
+      .where(eq(productGenerationRequests.runId, runId));
+    if (!request) return;
+
+    const requestedAt = request.queuedAt || new Date();
+    const eventName =
+      request.actionType === 'self_print'
+        ? 'self_print_requested'
+        : 'audiobook_generation_requested';
+    const runRef = analyticsReference(runId);
+
+    await this.sharedDb.transaction(async (tx) => {
+      await tx
+        .update(productGenerationRequests)
+        .set({
+          status: 'running',
+          queuedAt: request.queuedAt || requestedAt,
+          updatedAt: new Date(),
+        })
+        .where(eq(productGenerationRequests.runId, runId));
+
+      if (request.consent?.analyticsStorage === 'granted') {
+        await tx
+          .insert(analyticsOutbox)
+          .values({
+            dedupeKey: `${eventName}:${runId}`,
+            eventName,
+            authorId: request.authorId,
+            attributionId: request.attributionId,
+            clientId: request.clientId,
+            userId: request.userId,
+            sessionId: request.sessionId,
+            consent: request.consent,
+            pageLocation: request.pageLocation,
+            pageReferrer: request.pageReferrer,
+            engagementTimeMsec: request.engagementTimeMsec || 100,
+            params: {
+              story_id: request.storyId,
+              action_type: request.actionType,
+              credits_spent: request.creditsSpent,
+              ...(request.actionType === 'self_print'
+                ? { workflow_ref: runRef }
+                : { run_ref: runRef }),
+              ...(request.primaryIntent ? { primary_intent: request.primaryIntent } : {}),
+              ...(request.landingSlug ? { landing_slug: request.landingSlug } : {}),
+            },
+            occurredAt: requestedAt,
+          })
+          .onConflictDoNothing({ target: analyticsOutbox.dedupeKey });
+      }
+    });
+  }
+
   async recordTerminalRun(run: TerminalRun): Promise<TerminalAnalyticsOutcome> {
     if (run.status !== 'completed' && run.status !== 'failed') return 'ignored';
 
@@ -63,6 +133,8 @@ export class AnalyticsReconciliationService {
       .from(storyGenerationRequests)
       .where(eq(storyGenerationRequests.runId, run.runId));
     if (!request) {
+      const productOutcome = await this.recordTerminalProductRun(run);
+      if (productOutcome !== 'untracked') return productOutcome;
       logger.info('Terminal run is not tracked for analytics', {
         runRef: analyticsReference(run.runId),
       });
@@ -153,6 +225,107 @@ export class AnalyticsReconciliationService {
     return outcome;
   }
 
+  private productEventName(request: ProductGenerationRequest, status: 'completed' | 'failed') {
+    if (request.actionType === 'self_print') {
+      return status === 'completed' ? 'self_print_completed' : 'self_print_failed';
+    }
+    return status === 'completed'
+      ? 'audiobook_generation_completed'
+      : 'audiobook_generation_failed';
+  }
+
+  async recordTerminalProductRun(run: TerminalRun): Promise<TerminalAnalyticsOutcome> {
+    if (run.status !== 'completed' && run.status !== 'failed') return 'ignored';
+    const terminalStatus: 'completed' | 'failed' =
+      run.status === 'completed' ? 'completed' : 'failed';
+
+    const [request] = await this.sharedDb
+      .select()
+      .from(productGenerationRequests)
+      .where(eq(productGenerationRequests.runId, run.runId));
+    if (!request) return 'untracked';
+
+    const eventName = this.productEventName(request, terminalStatus);
+    const endedAt = run.endedAt ? new Date(run.endedAt) : new Date();
+    const startedAt = run.startedAt
+      ? new Date(run.startedAt)
+      : request.queuedAt || new Date(request.createdAt);
+    const durationSeconds = Math.max(
+      0,
+      Math.round((endedAt.getTime() - startedAt.getTime()) / 1000),
+    );
+    const failureStage = run.failureStage || normalizeFailureStage(run.currentStep);
+    const failureCode = run.failureCode || normalizeFailureCode(run.errorMessage);
+    const runRef = analyticsReference(run.runId);
+
+    if (run.status === 'failed' && failureCode === 'unknown_failure') {
+      logger.error('Unknown product generation failure classification', {
+        operationalAlert: true,
+        runRef,
+        actionType: request.actionType,
+        failureStage,
+      });
+    }
+
+    let outcome: TerminalAnalyticsOutcome = 'not_eligible';
+    await this.sharedDb.transaction(async (tx) => {
+      if (request.consent?.analyticsStorage === 'granted') {
+        const [inserted] = await tx
+          .insert(analyticsOutbox)
+          .values({
+            dedupeKey: `${eventName}:${run.runId}`,
+            eventName,
+            authorId: request.authorId,
+            attributionId: request.attributionId,
+            clientId: request.clientId,
+            userId: request.userId,
+            sessionId: request.sessionId,
+            consent: request.consent,
+            pageLocation: request.pageLocation,
+            pageReferrer: request.pageReferrer,
+            engagementTimeMsec: request.engagementTimeMsec || 100,
+            params: {
+              story_id: request.storyId,
+              action_type: request.actionType,
+              credits_spent: request.creditsSpent,
+              duration_seconds: durationSeconds,
+              ...(request.actionType === 'self_print'
+                ? { workflow_ref: runRef }
+                : { run_ref: runRef }),
+              ...(request.primaryIntent ? { primary_intent: request.primaryIntent } : {}),
+              ...(request.landingSlug ? { landing_slug: request.landingSlug } : {}),
+              ...(run.status === 'failed'
+                ? { failure_stage: failureStage, failure_code: failureCode }
+                : {}),
+            },
+            occurredAt: endedAt,
+          })
+          .onConflictDoNothing({ target: analyticsOutbox.dedupeKey })
+          .returning({ outboxId: analyticsOutbox.outboxId });
+        outcome = inserted ? (request.clientId ? 'recorded' : 'deferred_context') : 'duplicate';
+      }
+
+      await tx
+        .update(productGenerationRequests)
+        .set({
+          status: terminalStatus,
+          terminalAt: endedAt,
+          failureStage: run.status === 'failed' ? failureStage : null,
+          failureCode: run.status === 'failed' ? failureCode : null,
+          updatedAt: new Date(),
+        })
+        .where(eq(productGenerationRequests.runId, run.runId));
+    });
+
+    logger.info('Terminal product analytics reconciliation outcome', {
+      runRef,
+      eventName,
+      actionType: request.actionType,
+      outcome,
+    });
+    return outcome;
+  }
+
   async reconcileRecentTerminalRuns(): Promise<AnalyticsReconciliationResult> {
     const requests = await this.sharedDb
       .select({ runId: storyGenerationRequests.runId })
@@ -200,6 +373,52 @@ export class AnalyticsReconciliationService {
     };
     for (const run of runs) {
       const outcome = await this.recordTerminalRun(run);
+      if (outcome === 'recorded') result.recorded += 1;
+      if (outcome === 'deferred_context') result.deferredContext += 1;
+      if (outcome === 'duplicate') result.duplicates += 1;
+      if (outcome === 'not_eligible') result.notEligible += 1;
+      if (outcome === 'untracked') result.untracked += 1;
+    }
+    return result;
+  }
+
+  async reconcileRecentProductRuns(): Promise<AnalyticsReconciliationResult> {
+    const requests = await this.sharedDb
+      .select({ runId: productGenerationRequests.runId })
+      .from(productGenerationRequests)
+      .where(
+        and(
+          inArray(productGenerationRequests.status, ['queued', 'running']),
+          isNull(productGenerationRequests.terminalAt),
+        ),
+      )
+      .orderBy(asc(productGenerationRequests.createdAt))
+      .limit(100);
+
+    const result: AnalyticsReconciliationResult = {
+      inspected: requests.length,
+      recorded: 0,
+      deferredContext: 0,
+      duplicates: 0,
+      notEligible: 0,
+      untracked: 0,
+    };
+    if (requests.length === 0) return result;
+
+    const runs = await this.workflowsDb
+      .select()
+      .from(storyGenerationRuns)
+      .where(
+        and(
+          inArray(
+            storyGenerationRuns.runId,
+            requests.map((request) => request.runId),
+          ),
+          inArray(storyGenerationRuns.status, ['completed', 'failed']),
+        ),
+      );
+    for (const run of runs) {
+      const outcome = await this.recordTerminalProductRun(run);
       if (outcome === 'recorded') result.recorded += 1;
       if (outcome === 'deferred_context') result.deferredContext += 1;
       if (outcome === 'duplicate') result.duplicates += 1;

@@ -26,9 +26,9 @@ When `skipQA` is `true`, `print-generation.yaml` skips the `qualityCheckPDF` and
 
 ### Self-print workflow hooks
 
-- `POST /print/self-service` receives requests from the web app, dedupes recipients (author auto-added when possible), and launches `print-generation`. Every accepted request logs `Self-print workflow enqueued` with `storyId`, `workflowId`, `executionId`, and the number of recipients to simplify refunds.
+- `POST /print/self-service` receives requests from the web app, dedupes recipients (author auto-added when possible), reserves the supplied workflow ID, and launches `print-generation` only once.
 - The workflow payload contains `delivery` metadata (locale, requestedBy, etc.) so `print-generation.yaml` can call `/internal/print/self-service/notify` only after QA finishes. Customer emails therefore always reference the post-QA assets, including any accepted interior reflow fix.
-- Self-print delivery is never blocked by internal QA-critical findings. If QA can safely improve the interior but still leaves unresolved critical issues, SGW still promotes the best safe PDF set, sends the normal customer self-print email unchanged, and keeps the QA-critical messaging internal/admin-only.
+- Self-print delivery is never blocked by a completed QA report with critical findings. SGW promotes the best safe PDF set, keeps the findings internal/admin-only, and records an operational alert. A technical QA failure that cannot produce a trustworthy report fails the run.
 - `RunsService` persists `gcpWorkflowExecution` (Cloud Workflows execution id) allowing Notification Engine to echo the identifier back inside `metadata.workflowExecutionId` for observability dashboards.
 
 ### QA checks and auto-fix scope
@@ -38,7 +38,7 @@ When `skipQA` is `true`, `print-generation.yaml` skips the `qualityCheckPDF` and
 - Intermediate QA attempts render only the RGB interior PDF needed for deterministic checks. Cover PDFs are reused unchanged, and CMYK work is deferred until the final accepted interior so the search does not waste time regenerating cover or CMYK assets for rejected candidates.
 - If the bounded search removes every sparse-ending critical, QA returns `passed_with_fixes`. If the search safely improves some chapters but leaves others unresolved, QA still promotes the best safe partial baseline, returns `critical_issues_remaining`, keeps `fixesApplied` populated, and includes the promoted PDF URLs in `printResult`. When the original run requested CMYK output, SGW regenerates the interior CMYK file once for the final accepted interior only.
 - Visual review is layered on top of the deterministic checks. QA uploads cover and chapter-opening preview PNGs, then asks Google GenAI for a JSON-only pre-press review focused on title visibility, logo/QR placement, bleed/composition, and obvious interior visual issues.
-- If critical issues remain after QA, the workflow still finishes as `completed`, but run metadata is enriched with `printQaStatus`, `printQaReportUrl`, counts, applied fixes, and whether an admin alert email was sent. Customer self-print delivery still uses the promoted `qaResult.body.printResult`; the QA alert and report remain internal signals for operators.
+- If critical issues remain after QA, the workflow still finishes as `completed`, but run metadata is enriched with `printQaStatus`, `printQaReportUrl`, counts, applied fixes, and whether an admin alert email was sent. PDF storage plus QA is the `self_print_completed` boundary; customer delivery runs afterwards and records delivery status without changing the completed product state.
 
 ## Configuration checklist
 

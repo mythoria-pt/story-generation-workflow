@@ -17,5 +17,10 @@ describe('print-generation workflow', () => {
     );
     expect(workflow).toContain('${origin == "self-service" and delivery != null}');
     expect(workflow).toContain('printResult: ${qaResult.body.printResult}');
+    expect(workflow).toContain('/internal/runs/" + runId + "/claim');
+    expect(workflow.indexOf('- markRunCompleted:')).toBeLessThan(
+      workflow.indexOf('- notifySelfPrintCustomers:'),
+    );
+    expect(workflow).toContain('failureStage: ${currentStage}');
   });
 });

@@ -10,6 +10,7 @@ jest.mock('@/db/workflows-db', () => ({ getWorkflowsDatabase: jest.fn() }));
 import { logger } from '@/config/logger';
 import { getDatabase } from '@/db/connection';
 import { getWorkflowsDatabase } from '@/db/workflows-db';
+import { analyticsOutbox, productGenerationRequests } from '@/db/schema';
 import { AnalyticsReconciliationService } from '../analytics';
 
 const terminalRun = {
@@ -51,6 +52,7 @@ describe('AnalyticsReconciliationService', () => {
   let insertValues: jest.Mock;
   let updateSet: jest.Mock;
   let recordRequestRows: any[];
+  let productRequestRows: any[];
   let requestedEventRows: any[];
   let reconciliationRequestRows: Array<{ runId: string }>;
   let workflowRows: any[];
@@ -58,6 +60,7 @@ describe('AnalyticsReconciliationService', () => {
 
   beforeEach(() => {
     recordRequestRows = [trackedRequest];
+    productRequestRows = [];
     requestedEventRows = [requestedEvent];
     reconciliationRequestRows = [];
     workflowRows = [];
@@ -74,31 +77,29 @@ describe('AnalyticsReconciliationService', () => {
     };
 
     sharedDb = {
-      select: jest.fn((selection?: Record<string, unknown>) => {
-        if (selection && 'userId' in selection) {
-          return {
-            from: jest.fn(() => ({
-              where: jest.fn().mockImplementation(async () => requestedEventRows),
-            })),
-          };
-        }
-        if (selection) {
-          return {
-            from: jest.fn(() => ({
+      select: jest.fn((selection?: Record<string, unknown>) => ({
+        from: jest.fn((table: unknown) => {
+          if (table === analyticsOutbox) {
+            return { where: jest.fn().mockImplementation(async () => requestedEventRows) };
+          }
+          if (selection) {
+            return {
               where: jest.fn(() => ({
                 orderBy: jest.fn(() => ({
                   limit: jest.fn().mockImplementation(async () => reconciliationRequestRows),
                 })),
               })),
-            })),
+            };
+          }
+          return {
+            where: jest
+              .fn()
+              .mockImplementation(async () =>
+                table === productGenerationRequests ? productRequestRows : recordRequestRows,
+              ),
           };
-        }
-        return {
-          from: jest.fn(() => ({
-            where: jest.fn().mockImplementation(async () => recordRequestRows),
-          })),
-        };
-      }),
+        }),
+      })),
       transaction: jest.fn(async (callback: (transaction: typeof tx) => unknown) => callback(tx)),
     };
     workflowsDb = {
@@ -292,5 +293,130 @@ describe('AnalyticsReconciliationService', () => {
     const service = new AnalyticsReconciliationService();
 
     await expect(service.recordTerminalRun(terminalRun)).resolves.toBe('duplicate');
+  });
+
+  it('records one self-print completion from the durable product request', async () => {
+    recordRequestRows = [];
+    productRequestRows = [
+      {
+        ...trackedRequest,
+        actionType: 'self_print',
+        userId: 'clerk-1',
+        primaryIntent: 'romance',
+        landingSlug: '/pt-PT/lp/romance',
+        queuedAt: new Date('2026-07-17T00:00:00Z'),
+        createdAt: new Date('2026-07-17T00:00:00Z'),
+        attributionId: 'attribution-1',
+        pageLocation: 'https://mythoria.pt/pt-PT/lp/romance',
+        pageReferrer: null,
+        engagementTimeMsec: 100,
+      },
+    ];
+    requestedEventRows = [{ params: {} }];
+    const service = new AnalyticsReconciliationService();
+
+    await expect(
+      service.recordTerminalRun({ ...terminalRun, status: 'completed', errorMessage: null }),
+    ).resolves.toBe('recorded');
+    expect(insertValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dedupeKey: 'self_print_completed:run-1',
+        eventName: 'self_print_completed',
+        params: expect.objectContaining({
+          action_type: 'self_print',
+          workflow_ref: expect.stringMatching(/^[a-f0-9]{12}$/),
+          duration_seconds: 90,
+        }),
+      }),
+    );
+  });
+
+  it('repairs a missing requested event when the workflow claims the durable product request', async () => {
+    recordRequestRows = [];
+    productRequestRows = [
+      {
+        ...trackedRequest,
+        actionType: 'audiobook_generation',
+        userId: 'clerk-1',
+        primaryIntent: 'romance',
+        landingSlug: '/pt-PT/lp/romance',
+        queuedAt: null,
+        attributionId: 'attribution-1',
+        pageLocation: 'https://mythoria.pt/pt-PT/lp/romance',
+        pageReferrer: null,
+        engagementTimeMsec: 100,
+      },
+    ];
+    const service = new AnalyticsReconciliationService();
+
+    await service.markProductRunRunning('run-1');
+
+    expect(updateSet).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'running', queuedAt: expect.any(Date) }),
+    );
+    expect(insertValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dedupeKey: 'audiobook_generation_requested:run-1',
+        eventName: 'audiobook_generation_requested',
+        params: expect.objectContaining({
+          action_type: 'audiobook_generation',
+          run_ref: expect.stringMatching(/^[a-f0-9]{12}$/),
+        }),
+      }),
+    );
+    expect(JSON.stringify(insertValues.mock.calls)).not.toContain('run_id');
+  });
+
+  it('keeps a non-consented audiobook completion as a business fact without GA4 outbox', async () => {
+    recordRequestRows = [];
+    productRequestRows = [
+      {
+        ...trackedRequest,
+        actionType: 'audiobook_generation',
+        consent: null,
+        queuedAt: new Date('2026-07-17T00:00:00Z'),
+        createdAt: new Date('2026-07-17T00:00:00Z'),
+      },
+    ];
+    const service = new AnalyticsReconciliationService();
+
+    await expect(
+      service.recordTerminalRun({ ...terminalRun, status: 'completed', errorMessage: null }),
+    ).resolves.toBe('not_eligible');
+    expect(insertValues).not.toHaveBeenCalled();
+    expect(updateSet).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'completed', terminalAt: expect.any(Date) }),
+    );
+  });
+
+  it('classifies an incomplete audiobook finalization without leaking the raw error', async () => {
+    recordRequestRows = [];
+    productRequestRows = [
+      {
+        ...trackedRequest,
+        actionType: 'audiobook_generation',
+        userId: 'clerk-1',
+        queuedAt: new Date('2026-07-17T00:00:00Z'),
+        createdAt: new Date('2026-07-17T00:00:00Z'),
+      },
+    ];
+    const service = new AnalyticsReconciliationService();
+
+    await service.recordTerminalRun({
+      ...terminalRun,
+      currentStep: 'audiobook_generation',
+      errorMessage: 'Audiobook incomplete. Expected chapters: 8, generated chapters: 7',
+    });
+
+    expect(insertValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: 'audiobook_generation_failed',
+        params: expect.objectContaining({
+          failure_stage: 'audiobook_generation',
+          failure_code: 'incomplete_output',
+        }),
+      }),
+    );
+    expect(JSON.stringify(insertValues.mock.calls)).not.toContain('Expected chapters');
   });
 });

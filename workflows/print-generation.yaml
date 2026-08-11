@@ -32,6 +32,7 @@ main:
           - qaCriticalCount: 0
           - qaWarningCount: 0
           - qaFixesApplied: []
+          - currentStage: 'authorization'
 
     # Resolve origin in a separate step to avoid YAML/ternary parsing issues
     - setOriginFromInitiatedBy:
@@ -61,6 +62,21 @@ main:
     - runPrintPipeline:
         try:
           steps:
+            - claimRun:
+                call: http.request
+                args:
+                  url: ${baseUrl + "/internal/runs/" + runId + "/claim"}
+                  method: POST
+                  auth: { type: OIDC }
+                  body:
+                    storyId: ${storyId}
+                result: claimResp
+
+            - stopDuplicateRun:
+                switch:
+                  - condition: ${not(claimResp.body.claimed)}
+                    return: ${claimResp.body}
+
             # 1. Mark run → running / generate_print_pdfs
             - markRunStarted:
                 call: http.request
@@ -75,6 +91,10 @@ main:
                     startedAt: ${time.format(sys.now())}
 
             # 2. Generate print PDFs
+            - setPdfGenerationStage:
+                assign:
+                  - currentStage: 'pdf_generation'
+
             - generatePrintPDFs:
                 call: http.request
                 args:
@@ -93,12 +113,16 @@ main:
                 switch:
                   - condition: ${qaSkip == true}
                     next: skipQualityCheck
-                next: qualityCheckPDF
+                next: setQaStage
 
             - skipQualityCheck:
                 assign:
                   - activePrintResult: ${printGenerationResult.body}
-                next: checkShouldNotify
+                next: markRunCompleted
+
+            - setQaStage:
+                assign:
+                  - currentStage: 'qa'
 
             - qualityCheckPDF:
                 call: http.request
@@ -126,7 +150,7 @@ main:
                 switch:
                   - condition: ${qaResult.body.alertNeeded == true}
                     next: notifyPrintQaAdmins
-                next: checkShouldNotify
+                next: markRunCompleted
 
             - notifyPrintQaAdmins:
                 call: http.request
@@ -146,30 +170,9 @@ main:
             - setQaAlertSent:
                 assign:
                   - qaAlertSent: ${default(qaAlertResult.body.sent, false)}
-
-            # 5. Notify self-print customers (only for selfService with delivery info)
-            - checkShouldNotify:
-                switch:
-                  - condition: ${origin == "self-service" and delivery != null}
-                    next: notifySelfPrintCustomers
                 next: markRunCompleted
 
-            - notifySelfPrintCustomers:
-                call: http.request
-                args:
-                  url: ${baseUrl + "/internal/print/self-service/notify"}
-                  method: POST
-                  auth: { type: OIDC }
-                  body:
-                    storyId: ${storyId}
-                    runId: ${runId}
-                    delivery: ${delivery}
-                    initiatedBy: ${initiatedBy}
-                    origin: ${origin}
-                    printResult: ${activePrintResult}
-                result: notificationResult
-
-            # 6. Mark run → completed
+            # 5. PDFs and QA are the product completion boundary.
             - markRunCompleted:
                 call: http.request
                 args:
@@ -194,6 +197,44 @@ main:
                       printQaFixesApplied: ${qaFixesApplied}
                       printQaAlertSent: ${qaAlertSent}
 
+            # 6. Delivery is best-effort and never changes the completed product state.
+            - checkShouldNotify:
+                switch:
+                  - condition: ${origin == "self-service" and delivery != null}
+                    next: notifySelfPrintCustomers
+                next: returnSuccess
+
+            - notifySelfPrintCustomers:
+                try:
+                  call: http.request
+                  args:
+                    url: ${baseUrl + "/internal/print/self-service/notify"}
+                    method: POST
+                    auth: { type: OIDC }
+                    body:
+                      storyId: ${storyId}
+                      runId: ${runId}
+                      delivery: ${delivery}
+                      initiatedBy: ${initiatedBy}
+                      origin: ${origin}
+                      printResult: ${activePrintResult}
+                  result: notificationResult
+                except:
+                  as: deliveryError
+                  steps:
+                    - logDeliveryFailure:
+                        call: sys.log
+                        args:
+                          severity: ERROR
+                          text: '${"Self-print delivery failed after PDF completion: " + deliveryError.message}'
+
+            - returnSuccess:
+                return:
+                  success: true
+                  storyId: ${storyId}
+                  runId: ${runId}
+                  qaStatus: ${qaStatus}
+
         except:
           as: e
           steps:
@@ -207,7 +248,8 @@ main:
                   body:
                     storyId: ${storyId}
                     status: 'failed'
-                    currentStep: 'failed'
+                    currentStep: ${currentStage}
+                    failureStage: ${currentStage}
                     endedAt: ${time.format(sys.now())}
                     errorMessage: ${e.message}
 

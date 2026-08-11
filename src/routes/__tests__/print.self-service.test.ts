@@ -7,7 +7,7 @@ const storyServiceMock = {
 };
 
 const runsServiceMock = {
-  createOrGetRun: jest.fn(),
+  reserveRun: jest.fn(),
   updateRun: jest.fn(),
   getRun: jest.fn(),
 };
@@ -19,7 +19,7 @@ const workflowsAdapterMock = {
 const sendStoryPrintInstructionsEmailMock = jest.fn();
 
 const storyGetStoryMock = storyServiceMock.getStory as jest.Mock;
-const runsCreateOrGetRunMock = runsServiceMock.createOrGetRun as jest.Mock;
+const runsReserveRunMock = runsServiceMock.reserveRun as jest.Mock;
 const runsUpdateRunMock = runsServiceMock.updateRun as jest.Mock;
 const runsGetRunMock = runsServiceMock.getRun as jest.Mock;
 const workflowsExecuteMock = workflowsAdapterMock.executeWorkflow as jest.Mock;
@@ -46,6 +46,14 @@ jest.mock('@/services/notification-client.js', () => ({
   sendStoryPrintInstructionsEmail: sendStoryPrintInstructionsEmailMock,
 }));
 
+jest.mock('@/db/connection.js', () => ({
+  getDatabase: jest.fn(() => ({
+    update: jest.fn(() => ({
+      set: jest.fn(() => ({ where: jest.fn().mockResolvedValue(undefined) })),
+    })),
+  })),
+}));
+
 import { printRouter, internalPrintRouter } from '../print';
 
 const app = express();
@@ -57,7 +65,7 @@ describe('print routers', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     storyServiceMock.getStory.mockReset();
-    runsServiceMock.createOrGetRun.mockReset();
+    runsServiceMock.reserveRun.mockReset();
     runsServiceMock.updateRun.mockReset();
     runsServiceMock.getRun.mockReset();
     workflowsAdapterMock.executeWorkflow.mockReset();
@@ -73,7 +81,10 @@ describe('print routers', () => {
       authorPreferredLocale: 'en-US',
       storyLanguage: 'en-US',
     });
-    resolveMock(runsCreateOrGetRunMock, { metadata: null });
+    resolveMock(runsReserveRunMock, {
+      reserved: true,
+      run: { status: 'queued', metadata: null },
+    });
     resolveMock(workflowsExecuteMock, 'exec-123');
 
     const response = await request(app).post('/print/self-service').send({
@@ -101,6 +112,58 @@ describe('print routers', () => {
       '00000000-0000-4000-8000-000000000999',
       expect.any(Object),
     );
+  });
+
+  it('does not start a second workflow for the same reserved workflowId', async () => {
+    resolveMock(storyGetStoryMock, {
+      storyId: '00000000-0000-4000-8000-000000000123',
+      authorId: 'author-123',
+      title: 'Test Story',
+      authorEmail: 'owner@example.com',
+      authorPreferredLocale: 'en-US',
+      storyLanguage: 'en-US',
+    });
+    resolveMock(runsReserveRunMock, {
+      reserved: false,
+      run: { status: 'queued', gcpWorkflowExecution: 'exec-existing' },
+    });
+
+    const response = await request(app).post('/print/self-service').send({
+      storyId: '00000000-0000-4000-8000-000000000123',
+      workflowId: '00000000-0000-4000-8000-000000000999',
+      recipientEmail: 'reader@example.com',
+    });
+
+    expect(response.status).toBe(202);
+    expect(response.body.executionId).toBe('exec-existing');
+    expect(workflowsExecuteMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps the request accepted when the workflow started but its execution reference cannot be saved', async () => {
+    resolveMock(storyGetStoryMock, {
+      storyId: '00000000-0000-4000-8000-000000000123',
+      authorId: 'author-123',
+      title: 'Test Story',
+      authorEmail: 'owner@example.com',
+      authorPreferredLocale: 'en-US',
+      storyLanguage: 'en-US',
+    });
+    resolveMock(runsReserveRunMock, {
+      reserved: true,
+      run: { status: 'queued', metadata: null },
+    });
+    resolveMock(workflowsExecuteMock, 'exec-123');
+    runsUpdateRunMock.mockRejectedValueOnce(new Error('database unavailable') as never);
+
+    const response = await request(app).post('/print/self-service').send({
+      storyId: '00000000-0000-4000-8000-000000000123',
+      workflowId: '00000000-0000-4000-8000-000000000999',
+      recipientEmail: 'reader@example.com',
+    });
+
+    expect(response.status).toBe(202);
+    expect(response.body.executionId).toBe('exec-123');
+    expect(workflowsExecuteMock).toHaveBeenCalledTimes(1);
   });
 
   it('rejects requests without resolvable recipients', async () => {

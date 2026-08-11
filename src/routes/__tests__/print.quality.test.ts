@@ -62,6 +62,14 @@ jest.mock('@/services/notification-client.js', () => ({
   sendPrintQaCriticalEmail: sendPrintQaCriticalEmailMock,
 }));
 
+jest.mock('@/db/connection.js', () => ({
+  getDatabase: jest.fn(() => ({
+    update: jest.fn(() => ({
+      set: jest.fn(() => ({ where: jest.fn().mockResolvedValue(undefined) })),
+    })),
+  })),
+}));
+
 import { internalPrintRouter } from '../print';
 
 const app = express();
@@ -197,6 +205,24 @@ describe('print quality routes', () => {
     expect(response.status).toBe(200);
     expect(response.body.alertNeeded).toBe(true);
     expect(response.body.criticalCount).toBe(2);
+  });
+
+  it('fails the workflow contract when QA cannot produce a report', async () => {
+    printQualityServiceMock.execute.mockRejectedValue(new Error('qa storage unavailable'));
+
+    const response = await request(app)
+      .post('/internal/print/quality-check')
+      .send({
+        storyId: '00000000-0000-4000-8000-000000000311',
+        runId: '00000000-0000-4000-8000-000000000312',
+        printResult: {
+          interiorPdfUrl: 'https://storage.googleapis.com/bucket/interior.pdf',
+          coverPdfUrl: 'https://storage.googleapis.com/bucket/cover.pdf',
+        },
+      });
+
+    expect(response.status).toBe(500);
+    expect(response.body.qaStatus).toBe('review_failed');
   });
 
   it('returns sent false when no admin recipients are available', async () => {

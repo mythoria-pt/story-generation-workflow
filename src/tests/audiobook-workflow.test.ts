@@ -26,4 +26,15 @@ describe('Audiobook workflow retry contract', () => {
     expect(workflow).toContain('chapterAudioAttemptError.message');
     expect(workflow).not.toContain('returnAudioError');
   });
+
+  it('claims one run and reports the complete terminal lifecycle with the same runId', () => {
+    expect(workflow).toContain('/internal/runs/" + runId + "/claim');
+    expect(workflow.indexOf('- claimRun:')).toBeLessThan(
+      workflow.indexOf('- generateChapterAudios:'),
+    );
+    expect(workflow).toContain('runId: ${runId}');
+    expect(workflow).toContain('expectedChapters: ${len(chapters)}');
+    expect(workflow).toContain('generatedChapters: ${finalizeResp.body.chaptersProcessed}');
+    expect(workflow).toContain('validateAudiobookCompleteness');
+  });
 });

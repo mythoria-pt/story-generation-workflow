@@ -15,6 +15,9 @@ export interface RunUpdate {
   failureCode?: string | undefined;
   errorMessage?: string | undefined;
   metadata?: Record<string, unknown> | undefined;
+  startedAt?: string | undefined;
+  endedAt?: string | undefined;
+  gcpWorkflowExecution?: string | undefined;
 }
 
 export interface StepResult {
@@ -35,6 +38,15 @@ const normalizeFailureCode = (value?: string | null): string => {
   if (/chapter not found|chapter_not_persisted/.test(normalized)) {
     return 'chapter_persistence_race';
   }
+  if (/audiobook incomplete|expected chapters|generated chapters/.test(normalized)) {
+    return 'incomplete_output';
+  }
+  if (/ghostscript|puppeteer|pdf generation|render.*pdf/.test(normalized)) {
+    return 'pdf_generation_failed';
+  }
+  if (/quality.?check|print qa|qa route/.test(normalized)) return 'qa_failed';
+  if (/storage|gcs|upload/.test(normalized)) return 'storage_failed';
+  if (/email|notification|delivery/.test(normalized)) return 'delivery_failed';
   if (/timeout|timed out|deadline/.test(normalized)) return 'timeout';
   if (/rate.?limit|too many requests/.test(normalized)) return 'rate_limited';
   if (/quota|resource exhausted/.test(normalized)) return 'quota_exhausted';
@@ -94,6 +106,30 @@ export class RunsService {
       });
       throw error;
     }
+  }
+
+  /** Reserve a queued run before starting an external workflow execution. */
+  async reserveRun(storyId: string, runId: string) {
+    const now = new Date().toISOString();
+    const [created] = await this.db
+      .insert(storyGenerationRuns)
+      .values({
+        runId,
+        storyId,
+        status: 'queued',
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoNothing({ target: storyGenerationRuns.runId })
+      .returning();
+    if (created) return { reserved: true as const, run: created };
+
+    const existing = await this.getRun(runId);
+    if (!existing) throw new Error(`Failed to read run after reservation conflict: ${runId}`);
+    if (existing.storyId !== storyId) {
+      throw new RunStoryConflictError(runId, existing.storyId, storyId);
+    }
+    return { reserved: false as const, run: existing };
   }
 
   /** Atomically allow only the first workflow execution to start a run. */
@@ -207,11 +243,11 @@ export class RunsService {
         updateData.status = updates.status;
 
         if (updates.status === 'running' && !existingRun.startedAt) {
-          updateData.startedAt = new Date().toISOString();
+          updateData.startedAt = updates.startedAt || new Date().toISOString();
         }
 
         if (['completed', 'failed', 'cancelled', 'blocked'].includes(updates.status)) {
-          updateData.endedAt = new Date().toISOString();
+          updateData.endedAt = updates.endedAt || new Date().toISOString();
         }
 
         if (updates.status === 'failed') {
@@ -224,6 +260,14 @@ export class RunsService {
             existingRun.failureCode ||
             normalizeFailureCode(updates.errorMessage || existingRun.errorMessage);
         }
+      }
+
+      if (updates.startedAt && !existingRun.startedAt) {
+        updateData.startedAt = updates.startedAt;
+      }
+
+      if (updates.gcpWorkflowExecution) {
+        updateData.gcpWorkflowExecution = updates.gcpWorkflowExecution;
       }
 
       if (updates.currentStep) {

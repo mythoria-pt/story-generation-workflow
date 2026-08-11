@@ -4,6 +4,7 @@
  */
 
 import { Router, Request, Response } from 'express';
+import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { logger } from '@/config/logger.js';
 import { RunStoryConflictError, RunsService } from '@/services/runs.js';
@@ -18,6 +19,8 @@ import { schedulerAuth } from '@/middleware/schedulerAuth.js';
 import { getTTSHttpError, isTTSGenerationError } from '@/services/tts-errors.js';
 
 const router = Router();
+const analyticsReference = (value: string) =>
+  createHash('sha256').update(value).digest('hex').slice(0, 12);
 
 // Initialize services
 const runsService = new RunsService();
@@ -36,6 +39,7 @@ const UpdateRunRequestSchema = z.object({
   metadata: z.record(z.string(), z.unknown()).optional(),
   storyId: z.string().uuid().optional(), // Added to support creating missing runs
   startedAt: z.string().optional(),
+  endedAt: z.string().optional(),
 });
 
 const ClaimRunRequestSchema = z.object({
@@ -84,6 +88,9 @@ router.post('/runs/:runId/claim', async (req: Request, res: Response) => {
     const runId = z.string().uuid().parse(req.params.runId);
     const input = ClaimRunRequestSchema.parse(req.body);
     const result = await runsService.claimRun(input.storyId, runId, input.gcpWorkflowExecution);
+    if (result.claimed) {
+      await analyticsReconciliationService.markProductRunRunning(runId);
+    }
     res.json({
       claimed: result.claimed,
       status: result.run.status,
@@ -201,9 +208,12 @@ router.patch('/runs/:runId', async (req: Request, res: Response) => {
 
 router.post('/analytics/reconcile', schedulerAuth, async (_req, res) => {
   try {
-    const result = await analyticsReconciliationService.reconcileRecentTerminalRuns();
-    logger.info('Analytics reconciliation completed', result);
-    res.json({ success: true, ...result });
+    const [stories, products] = await Promise.all([
+      analyticsReconciliationService.reconcileRecentTerminalRuns(),
+      analyticsReconciliationService.reconcileRecentProductRuns(),
+    ]);
+    logger.info('Analytics reconciliation completed', { stories, products });
+    res.json({ success: true, stories, products });
   } catch (error) {
     logger.error('Analytics reconciliation failed', {
       error: error instanceof Error ? error.message : String(error),
@@ -1022,7 +1032,19 @@ router.post('/audiobook/finalize', async (req: Request, res: Response): Promise<
 router.patch('/stories/:storyId/audiobook-status', async (req: Request, res: Response) => {
   try {
     const { storyId } = req.params;
-    const { status, completedAt, failedAt, audioUrls, totalDuration, chapters } = req.body;
+    const {
+      status,
+      runId,
+      completedAt,
+      failedAt,
+      audioUrls,
+      totalDuration,
+      chapters,
+      expectedChapters,
+      generatedChapters,
+      failureStage,
+      error: workflowError,
+    } = req.body;
 
     // Validate storyId
     if (!storyId) {
@@ -1040,6 +1062,10 @@ router.patch('/stories/:storyId/audiobook-status', async (req: Request, res: Res
         success: false,
         error: `Invalid status. Must be one of: ${validStatuses.join(', ')}`,
       });
+      return;
+    }
+    if (status && !z.string().uuid().safeParse(runId).success) {
+      res.status(400).json({ success: false, error: 'A valid runId is required' });
       return;
     }
 
@@ -1104,6 +1130,46 @@ router.patch('/stories/:storyId/audiobook-status', async (req: Request, res: Res
 
     // Update the story in the database
     await storyService.updateAudiobookStatus(storyId, updateData);
+
+    if (status && runId) {
+      const terminalTimestamp = status === 'completed' ? completedAt : failedAt;
+      const updatedRun = await runsService.updateRun(runId, {
+        status: status === 'generating' ? 'running' : status,
+        currentStep:
+          status === 'generating'
+            ? 'audiobook_generation'
+            : status === 'completed'
+              ? 'audiobook_completed'
+              : failureStage || 'audiobook_generation',
+        ...(status === 'generating' && req.body.startedAt
+          ? { startedAt: String(req.body.startedAt) }
+          : {}),
+        ...(terminalTimestamp ? { endedAt: String(terminalTimestamp) } : {}),
+        ...(status === 'failed'
+          ? {
+              failureStage: String(failureStage || 'audiobook_generation'),
+              errorMessage: String(workflowError || 'Audiobook generation failed'),
+            }
+          : {}),
+        metadata: {
+          actionType: 'audiobook_generation',
+          ...(typeof expectedChapters === 'number' ? { expectedChapters } : {}),
+          ...(typeof generatedChapters === 'number' ? { generatedChapters } : {}),
+          ...(typeof totalDuration === 'number' ? { totalDuration } : {}),
+        },
+      });
+      if (updatedRun.status === 'completed' || updatedRun.status === 'failed') {
+        try {
+          await analyticsReconciliationService.recordTerminalRun(updatedRun);
+        } catch (analyticsError) {
+          logger.warn('Audiobook terminal analytics will be repaired by reconciliation', {
+            runRef: analyticsReference(runId),
+            error:
+              analyticsError instanceof Error ? analyticsError.message : String(analyticsError),
+          });
+        }
+      }
+    }
 
     logger.info('Internal API: Audiobook status updated successfully', {
       storyId,

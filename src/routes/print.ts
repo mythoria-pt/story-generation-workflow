@@ -18,6 +18,9 @@ import {
   sendStoryPrintInstructionsEmail,
 } from '@/services/notification-client.js';
 import type { PrintQaAssetUrls } from '@/types/print-quality.js';
+import { eq } from 'drizzle-orm';
+import { getDatabase } from '@/db/connection.js';
+import { productGenerationRequests } from '@/db/schema/index.js';
 
 export const printRouter = express.Router();
 export const internalPrintRouter = express.Router();
@@ -28,6 +31,14 @@ const workflowsAdapter = new GoogleCloudWorkflowsAdapter();
 const printGenerationHandler = new PrintGenerationHandler();
 const printQualityService = new PrintQualityService();
 const mythoriaAdminClient = new MythoriaAdminClient();
+const sharedDb = getDatabase();
+
+const updateSelfPrintDeliveryStatus = async (runId: string, deliveryStatus: string) => {
+  await sharedDb
+    .update(productGenerationRequests)
+    .set({ deliveryStatus, updatedAt: new Date() })
+    .where(eq(productGenerationRequests.runId, runId));
+};
 
 const RecipientSchema = z.object({
   email: z.string().email(),
@@ -218,29 +229,62 @@ printRouter.post('/self-service', async (req, res) => {
       },
     };
 
-    const executionId = await workflowsAdapter.executeWorkflow('print-generation', workflowEvent);
+    const reservation = await runsService.reserveRun(storyId, workflowId);
+    if (!reservation.reserved) {
+      if (reservation.run.status === 'failed') {
+        res.status(409).json({ success: false, error: 'Print workflow already failed' });
+        return;
+      }
+      res.status(202).json({
+        success: true,
+        message: 'Self-print workflow already started',
+        storyId,
+        workflowId,
+        executionId: reservation.run.gcpWorkflowExecution || '',
+        recipients: dedupedRecipients.map((recipient) => recipient.email),
+      });
+      return;
+    }
 
-    const existingRun = await runsService.createOrGetRun(storyId, workflowId, executionId);
+    let executionId: string;
+    try {
+      executionId = await workflowsAdapter.executeWorkflow('print-generation', workflowEvent);
+    } catch (error) {
+      await runsService
+        .updateRun(workflowId, {
+          status: 'failed',
+          currentStep: 'queue',
+          failureStage: 'queue',
+          failureCode: 'workflow_enqueue_failed',
+          errorMessage: error instanceof Error ? error.message : String(error),
+        })
+        .catch(() => undefined);
+      throw error;
+    }
+
     const mergedMetadata: Record<string, unknown> = {
-      ...(existingRun?.metadata && typeof existingRun.metadata === 'object'
-        ? (existingRun.metadata as Record<string, unknown>)
-        : {}),
       delivery,
       serviceCode: 'selfPrinting',
       origin: 'self-service',
       workflowExecutionId: executionId,
     };
 
-    await runsService.updateRun(workflowId, {
-      status: 'queued',
-      currentStep: 'self_print_requested',
-      metadata: mergedMetadata,
-    });
+    try {
+      await runsService.updateRun(workflowId, {
+        status: 'queued',
+        currentStep: 'self_print_requested',
+        gcpWorkflowExecution: executionId,
+        metadata: mergedMetadata,
+      });
+    } catch (error) {
+      logger.warn('Self-print workflow started but its execution reference was not persisted', {
+        workflowRef: workflowId.slice(0, 8),
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
 
     logger.info('Self-print workflow enqueued', {
-      storyId,
-      workflowId,
-      executionId,
+      workflowRef: workflowId.slice(0, 8),
       recipientCount: dedupedRecipients.length,
     });
 
@@ -254,8 +298,7 @@ printRouter.post('/self-service', async (req, res) => {
     });
   } catch (error) {
     logger.error('Failed to start self-print workflow', {
-      storyId,
-      workflowId,
+      workflowRef: workflowId.slice(0, 8),
       error: error instanceof Error ? error.message : String(error),
     });
     res.status(500).json({ success: false, error: 'Failed to start print workflow' });
@@ -343,7 +386,7 @@ internalPrintRouter.post('/quality-check', async (req, res) => {
     logger.error('Unexpected error in print quality-check route', {
       error: error instanceof Error ? error.message : String(error),
     });
-    res.json({
+    res.status(500).json({
       qaStatus: 'review_failed',
       reportUrl: null,
       passCount: 0,
@@ -486,6 +529,7 @@ internalPrintRouter.post('/self-service/notify', async (req, res) => {
     const story = await storyService.getStory(storyId);
     if (!story) {
       logger.error('Story not found for self-print notification', { storyId, runId });
+      await updateSelfPrintDeliveryStatus(runId, 'failed');
       res.json({ success: false, reason: 'story_not_found' });
       return;
     }
@@ -499,6 +543,7 @@ internalPrintRouter.post('/self-service/notify', async (req, res) => {
     });
 
     if (!shouldSendInstructions) {
+      await updateSelfPrintDeliveryStatus(runId, 'not_required');
       logger.info('Self-print notification suppressed', {
         storyId,
         runId,
@@ -517,6 +562,7 @@ internalPrintRouter.post('/self-service/notify', async (req, res) => {
     const [primaryRecipient, ...extraRecipients] = recipients;
     if (!primaryRecipient) {
       logger.error('No primary recipient found for self-print notification', { storyId, runId });
+      await updateSelfPrintDeliveryStatus(runId, 'failed');
       res.json({ success: false, reason: 'no_recipients' });
       return;
     }
@@ -596,8 +642,11 @@ internalPrintRouter.post('/self-service/notify', async (req, res) => {
       ccCount: ccRecipients.length,
     });
 
+    await updateSelfPrintDeliveryStatus(runId, sendResult ? 'delivered' : 'failed');
+
     res.json({ success: sendResult, recipients: recipients.length });
   } catch (error) {
+    await updateSelfPrintDeliveryStatus(runId, 'failed').catch(() => undefined);
     logger.error('Failed to send self-print notification', {
       storyId,
       runId,

@@ -34,6 +34,22 @@ main:
     - runAudiobookPipeline:
         try:
           steps:
+            # 0. Atomically claim this run so Pub/Sub redelivery cannot duplicate work.
+            - claimRun:
+                call: http.request
+                args:
+                  url: ${baseUrl + "/internal/runs/" + runId + "/claim"}
+                  method: POST
+                  auth: { type: OIDC }
+                  body:
+                    storyId: ${storyId}
+                result: claimResp
+
+            - stopDuplicateRun:
+                switch:
+                  - condition: ${not(claimResp.body.claimed)}
+                    return: ${claimResp.body}
+
             # 1. Mark audiobook generation as started
             - markAudiobookStarted:
                 call: http.request
@@ -181,6 +197,7 @@ main:
                   auth: { type: OIDC }
                   body:
                     storyId: ${storyId}
+                    runId: ${runId}
                 result: finalizeResp
 
             - validateAudiobookCompleteness:
@@ -201,10 +218,13 @@ main:
                   auth: { type: OIDC }
                   body:
                     status: 'completed'
+                    runId: ${runId}
                     completedAt: ${time.format(sys.now())}
                     audioUrls: ${finalizeResp.body.audioUrls}
                     chapters: ${finalizeResp.body.audiobookChapters}
                     totalDuration: ${finalizeResp.body.totalDuration}
+                    expectedChapters: ${len(chapters)}
+                    generatedChapters: ${finalizeResp.body.chaptersProcessed}
 
             - returnSuccess:
                 return:
@@ -228,7 +248,9 @@ main:
                   auth: { type: OIDC }
                   body:
                     status: 'failed'
+                    runId: ${runId}
                     failedAt: ${time.format(sys.now())}
+                    failureStage: 'audiobook_generation'
                     error: ${string(audioError)}
 
             - rethrowAudioError:
