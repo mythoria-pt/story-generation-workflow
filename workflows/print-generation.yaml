@@ -46,10 +46,12 @@ main:
     - setOriginSelfService:
         assign:
           - originGuess: 'self-service'
+        next: setOriginDefault
 
     - setOriginAdmin:
         assign:
           - originGuess: 'admin'
+        next: setOriginDefault
 
     - setOriginDefault:
         assign:

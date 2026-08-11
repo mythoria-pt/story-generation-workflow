@@ -16,6 +16,12 @@ describe('print-generation workflow', () => {
       workflow.indexOf('/internal/print/self-service/notify'),
     );
     expect(workflow).toContain('${origin == "self-service" and delivery != null}');
+    expect(workflow).toMatch(
+      /- setOriginSelfService:[\s\S]*?- originGuess: 'self-service'\s+next: setOriginDefault/,
+    );
+    expect(workflow).toMatch(
+      /- setOriginAdmin:[\s\S]*?- originGuess: 'admin'\s+next: setOriginDefault/,
+    );
     expect(workflow).toContain('printResult: ${qaResult.body.printResult}');
     expect(workflow).toContain('/internal/runs/" + runId + "/claim');
     expect(workflow.indexOf('- markRunCompleted:')).toBeLessThan(
