@@ -26,6 +26,7 @@ export const analyticsAttributions = pgTable(
     authorId: uuid('author_id').references(() => authors.authorId, { onDelete: 'set null' }),
     clientId: varchar('client_id', { length: 100 }).notNull(),
     sessionId: bigint('session_id', { mode: 'number' }),
+    engagementTimeMsec: integer('engagement_time_msec'),
     consent: jsonb('consent').$type<AnalyticsConsent>().notNull(),
     landingSlug: varchar('landing_slug', { length: 160 }),
     primaryIntent: varchar('primary_intent', { length: 120 }),
@@ -51,6 +52,11 @@ export const analyticsAttributions = pgTable(
     latestPath: varchar('latest_path', { length: 160 }),
     latestReferrerPath: varchar('latest_referrer_path', { length: 160 }),
     latestAttributionAt: timestamp('latest_attribution_at', { withTimezone: true }),
+    storyShareItemId: varchar('story_share_item_id', { length: 12 }),
+    storyShareMethod: varchar('story_share_method', { length: 32 }),
+    storyShareScope: varchar('story_share_scope', { length: 32 }),
+    storyShareTouchedAt: timestamp('story_share_touched_at', { withTimezone: true }),
+    storyShareExpiresAt: timestamp('story_share_expires_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     linkedAt: timestamp('linked_at', { withTimezone: true }),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
@@ -147,7 +153,10 @@ export const storyGenerationRequests = pgTable(
 export type ProductGenerationAction = 'audiobook_generation' | 'self_print';
 export type ProductGenerationStatus = 'pending' | 'queued' | 'running' | 'completed' | 'failed';
 
-/** Synced from the WebApp-owned shared database schema. */
+/**
+ * Durable customer request that connects a paid WebApp action to its workflow run.
+ * Recipient details and story content deliberately do not belong in this table.
+ */
 export const productGenerationRequests = pgTable(
   'product_generation_requests',
   {
