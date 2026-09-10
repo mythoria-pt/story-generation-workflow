@@ -95,11 +95,11 @@ describe('OpenAIImageService', () => {
     });
   });
 
-  it('keeps input_fidelity for gpt-image-1.5 image generation tool requests', async () => {
+  it('omits input_fidelity for gpt-image-2.5-flare image generation tool requests', async () => {
     const service = new OpenAIImageService({
       apiKey: 'test-key',
       model: 'gpt-5.5',
-      imageModel: 'gpt-image-1.5',
+      imageModel: 'gpt-image-2.5-flare',
     });
 
     await service.generate('Generate a chapter illustration.', {
@@ -111,8 +111,8 @@ describe('OpenAIImageService', () => {
     const request = mockResponsesCreate.mock.calls[0]?.[0] as any;
     expect(request.tools[0]).toMatchObject({
       type: 'image_generation',
-      model: 'gpt-image-1.5',
-      input_fidelity: 'high',
+      model: 'gpt-image-2.5-flare',
     });
+    expect(request.tools[0]).not.toHaveProperty('input_fidelity');
   });
 });

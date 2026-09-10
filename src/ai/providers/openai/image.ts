@@ -48,7 +48,6 @@ type OpenAIImageToolConfig = {
   model: string;
   size: '1024x1024' | '1024x1536' | '1536x1024';
   quality: 'low' | 'high' | 'medium' | 'auto';
-  input_fidelity?: 'high';
   output_format: 'jpeg';
   background: 'opaque';
   moderation: 'low';
@@ -199,13 +198,6 @@ export class OpenAIImageService implements IImageGenerationService {
         moderation: 'low' as const,
         partial_images: 0,
       };
-      if (this.supportsInputFidelity()) {
-        toolConfig.input_fidelity = 'high';
-      } else {
-        logger.info('OpenAI: Skipping unsupported input_fidelity for image tool model', {
-          imageToolModel: this.imageModel,
-        });
-      }
       if (shouldLogVerboseDebug) {
         logger.debug('OpenAI: Verbose image request debug enabled', {
           model: this.model,
@@ -597,10 +589,6 @@ export class OpenAIImageService implements IImageGenerationService {
 
     const env = getEnvironment();
     return `${env.IMAGE_DEFAULT_WIDTH}x${env.IMAGE_DEFAULT_HEIGHT}`; // Use environment configuration
-  }
-
-  private supportsInputFidelity(): boolean {
-    return !/^gpt-image-2(?:$|-)/i.test(this.imageModel);
   }
 
   /**
