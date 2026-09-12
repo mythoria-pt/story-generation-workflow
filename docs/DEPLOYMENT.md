@@ -102,3 +102,7 @@ Keep the last known-good container tag (e.g., `:2025-11-15`) so you can redeploy
 | API returns 401                     | `x-api-key` mismatch                      | Confirm secret `story-generation-api-key` mount and header casing                      |
 
 Need deeper context? Pair this guide with `docs/overview.md` (what runs where) and `docs/ai.md` (retry + safety expectations) before touching Cloud Run settings.
+
+## Referral platform v1 (2026-09-09)
+
+See the [referral implementation and operations guide](referrals.md) for this service's responsibilities, updated contracts, configuration, schema ownership and validation. The feature is implemented locally; production migration, deployment and pilot activation require their separate rollout checkpoints.

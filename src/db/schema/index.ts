@@ -1,4 +1,4 @@
-﻿// -----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 // Shared database schema - imports from mythoria-webapp
 // This allows both applications to share the same database schema
 //

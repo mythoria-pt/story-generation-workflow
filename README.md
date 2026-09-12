@@ -46,3 +46,7 @@ See `docs/overview.md` for the end-to-end flow diagram and dependency map.
 - `docs/backlog.md` – clean-up and follow-up tasks that have not moved to GitHub issues yet.
 
 For automation guidance refer to `AGENTS.md`; for route-level implementation details browse `src/routes/*.ts`.
+
+## Referral platform v1 (2026-09-09)
+
+See the [referral implementation and operations guide](docs/referrals.md) for this service's responsibilities, updated contracts, configuration, schema ownership and validation. The feature is implemented locally; production migration, deployment and pilot activation require their separate rollout checkpoints.

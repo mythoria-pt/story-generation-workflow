@@ -91,3 +91,7 @@ pwsh -NoProfile -Command "npm run dev"
 - Keep documentation synchronized (see `docs/README.md` for the index). If you create a new convention, add or update the closest `AGENTS.md` to keep future agents aligned.
 
 Need more context? Read `docs/overview.md` for the narrative, `docs/ai.md` for retry/safety specifics, and `docs/deployment.md` before touching Cloud Run config.
+
+## Referral platform v1 (2026-09-09)
+
+See the [referral implementation and operations guide](docs/referrals.md) for this service's responsibilities, updated contracts, configuration, schema ownership and validation. The feature is implemented locally; production migration, deployment and pilot activation require their separate rollout checkpoints.

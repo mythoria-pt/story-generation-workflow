@@ -60,7 +60,8 @@ export class AIGateway {
           throw new Error('OpenAI API Key is required for OpenAI image service');
         }
         const baseModel = this.config.credentials.openaiBaseModel;
-        const imageToolModel = this.config.credentials.openaiImageToolModel || 'gpt-image-2';
+        const imageToolModel =
+          this.config.credentials.openaiImageToolModel || 'gpt-image-2.5-flare';
         return new OpenAIImageService({
           apiKey: this.config.credentials.openaiApiKey,
           model: baseModel || 'gpt-5.5',
@@ -111,7 +112,7 @@ export class AIGateway {
       process.env.OPENAI_TEXT_MODEL ||
       process.env.OPENAI_MODEL ||
       'gpt-5.5';
-    const openaiImageToolModel = process.env.OPENAI_IMAGE_TOOL_MODEL || 'gpt-image-2';
+    const openaiImageToolModel = process.env.OPENAI_IMAGE_TOOL_MODEL || 'gpt-image-2.5-flare';
     const config: AIProviderConfig = {
       textProvider,
       imageProvider,

@@ -27,6 +27,7 @@ $RequiredSchemas = @(
     "ratings.ts",
     "relations.ts",
     "analytics.ts",
+    "referrals.ts",
     "writing-personas.ts"
 )
 
