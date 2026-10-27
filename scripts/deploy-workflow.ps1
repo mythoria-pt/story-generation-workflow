@@ -101,7 +101,9 @@ $triggerName = "$WorkflowName-trigger"
 
 try {
     # Check if trigger exists
-    $triggerExists = & gcloud eventarc triggers describe $triggerName --location=$Region --project=$ProjectId 2>$null    if ($LASTEXITCODE -ne 0) {
+    $triggerExists = & gcloud eventarc triggers describe $triggerName --location=$Region --project=$ProjectId 2>$null
+
+    if ($LASTEXITCODE -ne 0) {
         Write-Host "   Creating Pub/Sub trigger: $triggerName" -ForegroundColor Yellow
         & gcloud eventarc triggers create $triggerName `
             --destination-workflow=$WorkflowName `
