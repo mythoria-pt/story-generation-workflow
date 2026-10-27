@@ -3,21 +3,41 @@ import { join } from 'path';
 import { logger } from '@/config/logger.js';
 import { getPromptsPath } from '../shared/path-utils.js';
 
+export const AUDIO_TARGET_AGES = [
+  'toddlers',
+  'children',
+  'young adults',
+  'adults',
+  'general audience',
+] as const;
+
+export type AudioTargetAge = (typeof AUDIO_TARGET_AGES)[number];
+
 export interface AudioPromptConfig {
-  systemPrompt: string;
   language: string;
   languageName: string;
-  targetAgeOptions: string[];
-  instructions: string[];
+  /** One short English delivery-style line per target age (Gemini speechMetadata.style). */
+  baseStyle: Partial<Record<AudioTargetAge, string>>;
   translations?: {
     audioIntro?: string;
     chapter?: string;
   };
 }
 
+const DEFAULT_TARGET_AGE: AudioTargetAge = 'general audience';
+
+/** Built-in styles used when no locale file (or no entry) provides one. */
+const BUILT_IN_BASE_STYLE: Record<AudioTargetAge, string> = {
+  toddlers: 'Soft, gentle, sing-song storyteller, slow and soothing',
+  children: 'Warm, playful storyteller, unhurried, smiling through the words',
+  'young adults': 'Engaging, expressive storyteller with natural, lively pacing',
+  adults: 'Rich, immersive narrator, measured and expressive',
+  'general audience': 'Warm, engaging storyteller with natural, expressive pacing',
+};
+
 /**
- * Default accent enforcement prompts for languages without a config file
- * These are used as fallback when no locale-specific prompt is available
+ * Accent instructions for the OpenAI provider only (sent via the `instructions` parameter).
+ * Gemini does not use these: it receives a style plus a BCP-47 languageCode instead.
  */
 const DEFAULT_ACCENT_PROMPTS: Record<string, string> = {
   'en-US':
@@ -82,57 +102,35 @@ export class AudioPromptService {
   }
 
   /**
-   * Process the system prompt by replacing template variables
+   * Map any incoming target-age value to a known audio target-age key.
+   * Unknown or missing values resolve to 'general audience'.
    */
-  static processSystemPrompt(
-    systemPrompt: string,
-    targetAge: string | undefined,
-    targetAgeOptions: string[],
-  ): string {
-    let processedPrompt = systemPrompt;
-
-    // Replace {{story-target-age}} with appropriate age group
-    if (targetAge && targetAgeOptions.includes(targetAge)) {
-      processedPrompt = processedPrompt.replace(/\{\{story-target-age\}\}/g, targetAge);
-    } else {
-      // Use default (first option) if no specific target age is provided
-      const defaultAge = targetAgeOptions[0] || 'general audience';
-      processedPrompt = processedPrompt.replace(/\{\{story-target-age\}\}/g, defaultAge);
-    }
-
-    return processedPrompt;
+  static normalizeTargetAge(targetAge: string | undefined | null): AudioTargetAge {
+    const key = (targetAge ?? '').trim().toLowerCase();
+    if (key === 'all_ages' || key === 'all ages') return DEFAULT_TARGET_AGE;
+    return (AUDIO_TARGET_AGES as readonly string[]).includes(key)
+      ? (key as AudioTargetAge)
+      : DEFAULT_TARGET_AGE;
   }
 
   /**
-   * Get the complete TTS instructions for a story
+   * Get the delivery-style line for a locale and target age.
+   * Fallback chain: locale file -> en-US file -> built-in default; the age falls back to
+   * 'general audience'.
    */
-  static async getTTSInstructions(
-    storyLanguage: string,
-    targetAge?: string,
-  ): Promise<{
-    systemPrompt: string;
-    instructions: string[];
-    language: string;
-    languageName: string;
-  } | null> {
-    const promptConfig = await this.loadAudioPrompt(storyLanguage);
+  static async getBaseStyle(locale: string, targetAge?: string): Promise<string> {
+    const age = this.normalizeTargetAge(targetAge);
+    const localeConfig = await this.loadAudioPrompt(locale);
+    const fallbackConfig = locale === 'en-US' ? null : await this.loadAudioPrompt('en-US');
 
-    if (!promptConfig) {
-      return null;
-    }
-
-    const processedSystemPrompt = this.processSystemPrompt(
-      promptConfig.systemPrompt,
-      targetAge,
-      promptConfig.targetAgeOptions,
+    return (
+      localeConfig?.baseStyle?.[age] ||
+      fallbackConfig?.baseStyle?.[age] ||
+      localeConfig?.baseStyle?.[DEFAULT_TARGET_AGE] ||
+      fallbackConfig?.baseStyle?.[DEFAULT_TARGET_AGE] ||
+      BUILT_IN_BASE_STYLE[age] ||
+      BUILT_IN_BASE_STYLE[DEFAULT_TARGET_AGE]
     );
-
-    return {
-      systemPrompt: processedSystemPrompt,
-      instructions: promptConfig.instructions,
-      language: promptConfig.language,
-      languageName: promptConfig.languageName,
-    };
   }
 
   /**
@@ -195,62 +193,6 @@ export class AudioPromptService {
   }
 
   /**
-   * Process text for better TTS pronunciation and pacing
-   */
-  static enhanceTextForTTS(
-    originalText: string,
-    systemPrompt: string,
-    instructions: string[],
-  ): string {
-    // Don't prepend system prompts to text - they should not be read aloud
-    // Instead, enhance the text based on the instructions for better TTS
-
-    let enhancedText = originalText;
-
-    // Apply text processing based on instructions
-    const instructionText = instructions.join(' ').toLowerCase();
-
-    // Check if we are using Gemini 3.1
-    const model = process.env.TTS_MODEL || '';
-    const isGemini31 = model.includes('gemini-3.1');
-
-    // Add appropriate pauses for emotional delivery
-    if (
-      systemPrompt.toLowerCase().includes('emotion') ||
-      systemPrompt.toLowerCase().includes('passion')
-    ) {
-      if (isGemini31) {
-        // Use tags for Gemini 3.1
-        enhancedText = enhancedText
-          .replace(/!/g, '! [excited] ')
-          .replace(/\.\.\./g, ' [long pause] ')
-          .replace(/([.!?])\s*"/g, '$1" [short pause] ');
-      } else {
-        // Add slight pauses after emotional moments for other models
-        enhancedText = enhancedText
-          .replace(/(!|\.\.\.)/g, '$1 ') // Pause after exclamations and ellipses
-          .replace(/([.!?])\s*"/g, '$1" '); // Pause after quoted speech
-      }
-    }
-
-    // Enhance pronunciation for clear articulation
-    if (instructionText.includes('clear') || instructionText.includes('pronounce')) {
-      // Add pronunciation hints for difficult words
-      enhancedText = enhancedText
-        .replace(/\b(said|says)\b/g, 'said') // Ensure clear past tense
-        .replace(/(\w+)'(\w+)/g, '$1 $2'); // Separate contractions slightly
-    }
-
-    // Clean up any extra whitespace and tags
-    enhancedText = enhancedText
-      .replace(/\s+/g, ' ')
-      .replace(/(\[excited\]\s*)+/g, '[excited] ')
-      .trim();
-
-    return enhancedText;
-  }
-
-  /**
    * Clear the prompt cache (useful for testing or dynamic reloading)
    */
   static clearCache(): void {
@@ -258,50 +200,21 @@ export class AudioPromptService {
   }
 
   /**
-   * Get the TTS system prompt for accent enforcement
-   * This prompt is sent as a system instruction to the TTS API to ensure
-   * consistent accent and pronunciation for the target language.
+   * Build the OpenAI-compatible instruction string (accent hint + delivery style).
+   * Gemini does not use this; it takes `getBaseStyle()` plus a languageCode instead.
    *
    * @param storyLanguage - The language code (e.g., 'pt-PT', 'en-US')
-   * @param targetAge - Optional target age for audience-specific adjustments
-   * @returns The system prompt string for the TTS API
+   * @param targetAge - Optional target age for the delivery style
    */
   static async getTTSSystemPrompt(storyLanguage: string, targetAge?: string): Promise<string> {
-    // Try to load the full audio prompt config
-    const promptConfig = await this.loadAudioPrompt(storyLanguage);
+    const style = await this.getBaseStyle(storyLanguage, targetAge);
+    const accent =
+      DEFAULT_ACCENT_PROMPTS[storyLanguage] ??
+      `You are a professional voice actor. Speak clearly and naturally in ${storyLanguage}.`;
 
-    if (promptConfig) {
-      // Process the system prompt with target age
-      const processedPrompt = this.processSystemPrompt(
-        promptConfig.systemPrompt,
-        targetAge,
-        promptConfig.targetAgeOptions,
-      );
+    return `${accent}
 
-      logger.info('Using locale-specific TTS system prompt', {
-        language: storyLanguage,
-        languageName: promptConfig.languageName,
-        targetAge,
-        promptLength: processedPrompt.length,
-      });
-
-      return processedPrompt;
-    }
-
-    // Fallback to default accent enforcement prompts
-    const defaultPrompt = DEFAULT_ACCENT_PROMPTS[storyLanguage];
-    if (defaultPrompt) {
-      logger.info('Using default accent enforcement prompt', {
-        language: storyLanguage,
-      });
-      return defaultPrompt;
-    }
-
-    // Ultimate fallback for unknown languages
-    logger.warn('No accent enforcement prompt available, using generic fallback', {
-      language: storyLanguage,
-    });
-    return `You are a professional voice actor. Speak clearly and naturally in ${storyLanguage}.`;
+Delivery style: ${style}.`;
   }
 
   /**
@@ -329,6 +242,6 @@ export class AudioPromptService {
     }
 
     // Fallback to default English
-    return `This story was imagined by ${authorName} and crafted using Mythoria - tell your own story.`;
+    return `This story was imagined by ${authorName} and crafted using Mythoria. Tell your own story.`;
   }
 }

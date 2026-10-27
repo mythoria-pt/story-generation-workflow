@@ -56,6 +56,9 @@ export interface IImageGenerationService {
 }
 
 export interface TextGenerationOptions {
+  signal?: AbortSignal;
+  /** Omit input/output content from provider logs and persisted token telemetry. */
+  privateContent?: boolean;
   maxTokens?: number;
   /** Provider-specific sampling control. Used by OpenAI; never sent to Gemini 3.6+. */
   temperature?: number;
@@ -86,10 +89,12 @@ export interface ImageGenerationOptions {
   imageType?: 'front_cover' | 'back_cover' | 'chapter';
   systemPrompt?: string;
   /**
-   * Up to two reference images (JPEG) to guide style/character consistency.
+   * Reference images (JPEG) to guide style/character consistency.
    * Ordered oldest -> newest for narrative continuity.
+   * `label` is an optional short caption (e.g. "Character reference: Maya") that Gemini
+   * providers interleave as a text part before the image.
    */
-  referenceImages?: Array<{ buffer: Buffer; mimeType: string; source: string }>;
+  referenceImages?: Array<{ buffer: Buffer; mimeType: string; source: string; label?: string }>;
 }
 
 export interface AIProviderConfig {
@@ -115,6 +120,16 @@ export type TTSProvider = 'openai' | 'google-genai';
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
+ * One ordered slice of a transcript with its own delivery style.
+ */
+export interface TTSSegment {
+  /** Verbatim transcript slice (may contain whitelisted inline audio tags) */
+  text: string;
+  /** Short delivery-style direction for this slice */
+  style?: string;
+}
+
+/**
  * Configuration options for TTS synthesis
  */
 export interface TTSOptions {
@@ -126,8 +141,21 @@ export interface TTSOptions {
   language?: string;
   /** Model to use for synthesis */
   model?: string;
-  /** System prompt for accent/style enforcement (sent as instruction to TTS API) */
+  /**
+   * Accent/style instruction string for OpenAI only (sent via the `instructions`
+   * parameter). Gemini uses `style` + `languageCode` instead and is never given this.
+   */
   systemPrompt?: string;
+  /** Short delivery-style direction (Gemini: sent as per-part speechMetadata.style) */
+  style?: string;
+  /** BCP-47 locale for synthesis (Gemini: speechConfig.languageCode), e.g. 'pt-PT' */
+  languageCode?: string;
+  /**
+   * Optional ordered partition of the transcript (Gemini only). When present, each segment
+   * is sent as its own part with its own speechMetadata.style, and `text`/`style` are
+   * ignored by the Gemini provider. Other providers ignore segments.
+   */
+  segments?: TTSSegment[];
   /** Chapter number for contextual logging */
   chapterNumber?: number;
 }
@@ -148,6 +176,16 @@ export interface TTSResult {
   model: string;
   /** Provider that generated the audio */
   provider: TTSProvider;
+  /** Token usage reported by the provider, when available */
+  usage?: TTSUsage;
+}
+
+/**
+ * Token usage reported by a TTS provider
+ */
+export interface TTSUsage {
+  inputTokens: number;
+  outputTokens: number;
 }
 
 /**

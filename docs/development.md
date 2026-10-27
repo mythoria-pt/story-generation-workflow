@@ -58,7 +58,7 @@ All commands run through `npm run` wrappers so they pick up the repo’s tsconfi
 1. **Unit/Integration** – Jest (`npm test`) bootstraps environment vars via `src/tests/setup.ts` and mocks Google SDKs.
 2. **Routes** – For manual smoke tests use `scripts/execute-workflow.ps1` or fire off HTTP requests with `x-api-key` headers.
 3. **Print/CMYK** – Install Ghostscript, run `pwsh -NoProfile -Command "npm run setup-icc-profiles"`, then `pwsh -NoProfile -Command "npm run test:cmyk"` to render sample PDFs.
-4. **TTS/Audiobook** – `pwsh -NoProfile -Command "npm run test-openai"` (see `scripts/test-openai-integration.ts`) validates API keys before hitting `/audio` routes.
+4. **TTS/Audiobook** – `pwsh -NoProfile -Command "npm run test-openai"` (see `scripts/test-openai-integration.ts`) validates OpenAI API keys for the OpenAI TTS provider before hitting `/audio` routes. The default Gemini TTS provider (`TTS_PROVIDER=google-genai`, `gemini-3.8-flash-tts`) needs `GOOGLE_GENAI_API_KEY`; see `docs/audio-narration-system.md`.
 
 ## Debugging tips
 

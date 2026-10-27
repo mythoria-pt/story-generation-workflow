@@ -53,4 +53,22 @@ describe('TextGenerationMiddleware', () => {
     ]);
     expect(usagePayload.inputPromptJson.options.usageObserver).toBeUndefined();
   });
+  it('retains cost accounting without private prompt or system content', async () => {
+    const middleware = new TextGenerationMiddleware(
+      { complete: jest.fn().mockResolvedValue('private output') },
+      { authorId: 'author', storyId: 'guide:session', action: 'story_enhancement' },
+    );
+    await middleware.complete('PRIVATE FAMILY MEMORY', {
+      privateContent: true,
+      systemInstruction: 'PRIVATE SYSTEM',
+      signal: new AbortController().signal,
+    });
+    await new Promise<void>((resolve) => globalThis.setImmediate(resolve));
+    expect(mockRecordUsage).toHaveBeenCalledTimes(1);
+    const serialized = JSON.stringify(mockRecordUsage.mock.calls);
+    expect(serialized).not.toContain('PRIVATE FAMILY MEMORY');
+    expect(serialized).not.toContain('PRIVATE SYSTEM');
+    expect(serialized).not.toContain('private output');
+    expect(mockRecordUsage.mock.calls[0][0].inputPromptJson.operation).toBe('story_guide');
+  });
 });

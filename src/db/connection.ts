@@ -39,4 +39,11 @@ export function closeDatabaseConnection(): Promise<void> {
   return Promise.resolve();
 }
 
+/** Reserve a connection from the existing pool for session-scoped advisory locks. */
+export async function acquireDatabaseClient() {
+  getDatabase();
+  if (!pool) throw new Error('Database pool unavailable');
+  return pool.connect();
+}
+
 export { schema };

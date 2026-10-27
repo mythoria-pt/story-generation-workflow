@@ -22,6 +22,7 @@ const LIMITS: Record<string, ModelLimits> = {
   // Image preview model still returns textual prompt refinements / JSON; use same cap
   'gemini-2.5-flash-image-preview': { maxOutputTokens: 32768 },
   'gemini-3.1-flash-image': { maxOutputTokens: 32768 },
+  'gemini-nano-banana-2.1': { maxOutputTokens: 32768 },
   'gemini-3-pro-image-preview': { maxOutputTokens: 32768 },
   // OpenAI GPT‑5 family (assumed: base 16k, mini 8k, nano 4k output cap)
   'gpt-5': { maxOutputTokens: 128000 },

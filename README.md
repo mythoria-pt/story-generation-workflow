@@ -30,7 +30,7 @@ Point the webapp or integration tests at `http://localhost:3000` with the same `
 - `src/ai/` implements the multi-provider gateway, context preservation, and token accounting; providers live in `src/ai/providers/*`.
 - `src/services/` houses domain logic (stories, chapters, prompts, printers, retry helpers, notification dispatch).
 - `src/workflows/` mirrors Google Cloud Workflow handlers, while `workflows/*.yaml` defines orchestration logic executed in GCP.
-- `src/templates/` + Ghostscript produce RGB + CMYK PDFs; `src/services/tts.ts` handles audiobook generation via OpenAI TTS.
+- `src/templates/` + Ghostscript produce RGB + CMYK PDFs; `src/services/tts.ts` handles audiobook generation via Google Gemini TTS (default) or OpenAI TTS.
 
 See `docs/overview.md` for the end-to-end flow diagram and dependency map.
 

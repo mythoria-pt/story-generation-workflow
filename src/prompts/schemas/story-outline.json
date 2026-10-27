@@ -19,7 +19,7 @@
     },
     "bookCoverPrompt": {
       "type": "string",
-      "description": "Detailed prompt for generating the book cover illustration. Include characters physical descriptions, actions, and settings, and explicitly include the exact book title text on the cover."
+      "description": "Narrative shot description (max 120 words, en-US) of the front cover artwork: shot type and camera angle, each visible character with key physical traits, action and facial expression, the setting, time of day and lighting, and the mood. Name the exact book title in quotes as the cover lettering and keep open space in the top third of the composition for it."
     },
     "bookCoverCharacters": {
       "type": "array",
@@ -29,7 +29,7 @@
     },
     "bookBackCoverPrompt": {
       "type": "string",
-      "description": "Detailed prompt for generating the book back cover illustration. Include characters physical descriptions, actions, and settings."
+      "description": "Narrative shot description (max 120 words, en-US) of the back cover artwork, continuing the front cover palette and style: shot type and camera angle, each visible character with key physical traits, action and facial expression, the setting, time of day and lighting, and the mood. Wordless scene with no lettering and a calm area for back-cover text."
     },
     "bookBackCoverCharacters": {
       "type": "array",
@@ -59,7 +59,7 @@
           },
           "chapterPhotoPrompt": {
             "type": "string",
-            "description": "Detailed prompt for generating an illustration for this chapter. Include characters physical descriptions, actions, and settings."
+            "description": "Narrative shot description (max 120 words, en-US) of this chapter's illustration: shot type and camera angle, each visible character with key physical traits, action and facial expression, the setting, time of day and lighting, and the mood. Wordless scene with no lettering."
           },
           "charactersInScene": {
             "type": "array",

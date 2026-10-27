@@ -5,7 +5,7 @@ import { getStorageService } from '@/services/storage-singleton.js';
 import { TTSService } from '@/services/tts.js';
 import { GoogleCloudWorkflowsAdapter } from '@/adapters/google-cloud/workflows-adapter.js';
 import { getTTSHttpError, isTTSGenerationError } from '@/services/tts-errors.js';
-import { getTTSConfig } from '@/services/tts-utils.js';
+import { isAutoVoice } from '@/services/voice-registry.js';
 
 const router = express.Router();
 const storyService = new StoryService();
@@ -29,8 +29,10 @@ router.post(
         });
         return;
       }
+      // Empty / 'auto' is forwarded as-is: the TTS service resolves the recommended
+      // voice from the story's target audience for every chapter.
       const requestedVoice = typeof voice === 'string' ? voice.trim() : '';
-      const selectedVoice = requestedVoice || getTTSConfig().voice;
+      const selectedVoice = isAutoVoice(requestedVoice) ? '' : requestedVoice;
 
       logger.info('Audio API: Creating audiobook', { storyId, voice: selectedVoice });
 
@@ -56,7 +58,7 @@ router.post(
           success: true,
           message: 'Audiobook generation started',
           storyId,
-          voice: selectedVoice,
+          voice: selectedVoice || 'auto',
           status: 'processing',
           executionId,
         });

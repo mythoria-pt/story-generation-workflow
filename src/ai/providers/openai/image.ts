@@ -43,6 +43,12 @@ interface OpenAIResponseData {
   [key: string]: unknown;
 }
 
+/** Effective tool settings attached to the returned Buffer for cost tracking. */
+export interface OpenAIImageMeta {
+  quality: OpenAIImageToolConfig['quality'];
+  size: OpenAIImageToolConfig['size'];
+}
+
 type OpenAIImageToolConfig = {
   type: 'image_generation';
   model: string;
@@ -335,7 +341,9 @@ export class OpenAIImageService implements IImageGenerationService {
       const augmented = buffer as Buffer & {
         __openaiResponseId?: string;
         __openaiUsage?: OpenAIResponseData['usage'];
+        __openaiImageMeta?: OpenAIImageMeta;
       };
+      augmented.__openaiImageMeta = { quality: finalQuality, size: finalSize };
       if (responseData.id) {
         augmented.__openaiResponseId = responseData.id;
       }
@@ -524,7 +532,9 @@ export class OpenAIImageService implements IImageGenerationService {
         revisedPrompt: revisedPrompt?.substring(0, 100) + '...',
       });
 
-      return buffer;
+      const augmentedEdit = buffer as Buffer & { __openaiImageMeta?: OpenAIImageMeta };
+      augmentedEdit.__openaiImageMeta = { quality: finalQuality, size: finalSize };
+      return augmentedEdit;
     } catch (error) {
       // If it's an OpenAI API error, log the response body
       if (error instanceof Error && 'response' in error) {

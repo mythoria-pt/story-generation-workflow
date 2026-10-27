@@ -124,7 +124,11 @@ export class PromptService {
     for (const [key, value] of Object.entries(variables)) {
       const placeholder = `{{${key}}}`;
       const replacement = String(value ?? '');
-      processedTemplate = processedTemplate.replace(new RegExp(placeholder, 'g'), replacement);
+      // Replacer function so `$&`, `$'` and `$$` in story text stay literal
+      processedTemplate = processedTemplate.replace(
+        new RegExp(placeholder, 'g'),
+        () => replacement,
+      );
     }
 
     // Handle conditional sections (e.g., {{#customInstructions}}...{{/customInstructions}})

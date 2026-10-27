@@ -4,6 +4,8 @@
  */
 
 import { randomUUID } from 'crypto';
+import { storyGuideRouter } from './story-guide.js';
+import { storyPreferencesSchema } from '@/services/story-guide-contract.js';
 import { Router } from 'express';
 import { z } from 'zod';
 import { validateImageRequest, generateImageFilename, formatImageError } from './ai-image-utils.js';
@@ -47,6 +49,7 @@ import { persistPromptDebug } from '@/services/prompt-debug.js';
 
 // Initialize services
 const router = Router();
+router.use(storyGuideRouter);
 const aiGateway = getAIGatewayWithTokenTracking();
 const storyService = new StoryService();
 const storageService = getStorageService();
@@ -647,6 +650,8 @@ router.post('/text/structure', async (req, res) => {
       audioObjectPath: z.string().optional(),
       characterIds: z.array(z.string().uuid()).optional(),
       locale: z.string().min(2).max(10).optional(),
+      storyPreferences: storyPreferencesSchema.optional(),
+      factuality: z.literal('memory').optional(),
     });
 
     const parsed = RequestSchema.parse(req.body);
@@ -663,6 +668,8 @@ router.post('/text/structure', async (req, res) => {
       ...(parsed.audioObjectPath !== undefined && { audioObjectPath: parsed.audioObjectPath }),
       ...(parsed.characterIds !== undefined && { characterIds: parsed.characterIds }),
       ...(parsed.locale !== undefined && { locale: parsed.locale }),
+      ...(parsed.storyPreferences && { storyPreferences: parsed.storyPreferences }),
+      ...(parsed.factuality && { factuality: parsed.factuality }),
     });
 
     res.json({
@@ -1479,7 +1486,12 @@ router.post('/image', async (req, res) => {
     // Assemble up to five reference images (JPEG only), prioritizing character photo references,
     // then falling back to existing cover/previous-chapter references when capacity remains.
     currentStep = 'collecting_references';
-    const referenceImages: Array<{ buffer: Buffer; mimeType: string; source: string }> = [];
+    const referenceImages: Array<{
+      buffer: Buffer;
+      mimeType: string;
+      source: string;
+      label?: string;
+    }> = [];
     const seenReferenceFiles = new Set<string>();
     const MAX_REFERENCE_IMAGES = 5;
     try {
@@ -1520,7 +1532,7 @@ router.post('/image', async (req, res) => {
         }
       };
 
-      const addRef = async (uri: string | null | undefined, source: string) => {
+      const addRef = async (uri: string | null | undefined, source: string, label?: string) => {
         if (!uri) return;
         if (referenceImages.length >= MAX_REFERENCE_IMAGES) return;
         const filename = getSupportedGcsObjectPath(uri);
@@ -1529,7 +1541,12 @@ router.post('/image', async (req, res) => {
         if (!lower.endsWith('.jpg') && !lower.endsWith('.jpeg')) return;
         try {
           const buf = await storage.downloadFileAsBuffer(filename);
-          referenceImages.push({ buffer: buf, mimeType: 'image/jpeg', source });
+          referenceImages.push({
+            buffer: buf,
+            mimeType: 'image/jpeg',
+            source,
+            ...(label && { label }),
+          });
           seenReferenceFiles.add(filename);
         } catch (refErr) {
           logger.warn('Failed to load reference image', {
@@ -1588,6 +1605,9 @@ router.post('/image', async (req, res) => {
               await addRef(
                 character.photoGcsUri || character.photoUrl,
                 `character:${character.characterId}`,
+                character.name
+                  ? `Character reference: ${character.name} - keep face, hair, skin tone, outfit and proportions exactly`
+                  : 'Character reference - keep face, hair, skin tone, outfit and proportions exactly',
               );
               if (referenceImages.length >= MAX_REFERENCE_IMAGES) break;
             }
@@ -1611,7 +1631,11 @@ router.post('/image', async (req, res) => {
         if (Array.isArray(coverRefs)) {
           for (const uri of coverRefs) {
             if (referenceImages.length >= MAX_REFERENCE_IMAGES) break;
-            await addRef(uri, 'cover_reference');
+            await addRef(
+              uri,
+              'cover_reference',
+              'Original photo relevant to the cover - use for likeness and details',
+            );
           }
         }
       }
@@ -1619,10 +1643,18 @@ router.post('/image', async (req, res) => {
       // Secondary preference: existing cover/back/previous chapter references
       if (storyRecord) {
         if (imageType === 'back_cover') {
-          await addRef(storyRecord.coverUri as string | undefined, 'cover');
+          await addRef(
+            storyRecord.coverUri as string | undefined,
+            'cover',
+            'Front cover of this book - match its art style and palette',
+          );
         } else if (imageType === 'chapter') {
           // Front cover first
-          await addRef(storyRecord.coverUri as string | undefined, 'cover');
+          await addRef(
+            storyRecord.coverUri as string | undefined,
+            'cover',
+            'Front cover of this book - match its art style, palette and character designs',
+          );
           // Previous chapter image
           if (typeof chapterNumber === 'number' && chapterNumber > 1) {
             try {
@@ -1639,7 +1671,11 @@ router.post('/image', async (req, res) => {
                 .orderBy(desc(chapters.version))
                 .limit(1);
               const prevUri = prev[0]?.imageUri as string | undefined;
-              await addRef(prevUri, `chapter_${chapterNumber - 1}`);
+              await addRef(
+                prevUri,
+                `chapter_${chapterNumber - 1}`,
+                'Previous chapter illustration - match style only, not the composition',
+              );
             } catch (dbErr) {
               logger.warn('Failed to fetch previous chapter image for reference', {
                 storyId,

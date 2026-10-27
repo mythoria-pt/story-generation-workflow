@@ -11,10 +11,12 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { execFile } from 'child_process';
 import { logger } from '@/config/logger.js';
-import { FFMPEG_BINARY } from '@/config/ffmpeg.js';
+import { FFMPEG_BINARY, FFPROBE_BINARY } from '@/config/ffmpeg.js';
 import { TTSGenerationError } from './tts-errors.js';
 
 ffmpeg.setFfmpegPath(FFMPEG_BINARY);
+
+const FFPROBE_TIMEOUT_MS = 30_000;
 
 /**
  * Result of audio concatenation
@@ -216,9 +218,9 @@ export interface AudioMixOptions {
   narrationVolume?: number;
   /** Volume of background music (0.0 to 1.0), default 0.1 (10%) */
   backgroundVolume?: number;
-  /** Fade in duration in seconds for background music, default 1.5 */
+  /** Fade in duration in seconds for background music, default 0.5 */
   fadeInDuration?: number;
-  /** Fade out duration in seconds for background music, default 1.5 */
+  /** Fade out duration in seconds for background music, default 0.5 */
   fadeOutDuration?: number;
 }
 
@@ -251,8 +253,8 @@ export async function mixAudioWithBackground(
   const {
     narrationVolume = 1.0,
     backgroundVolume = 0.1,
-    fadeInDuration = 1.5,
-    fadeOutDuration = 1.5,
+    fadeInDuration = 0.5,
+    fadeOutDuration = 0.5,
   } = options;
 
   logger.info('Starting audio mixing with background music', {
@@ -450,5 +452,52 @@ async function cleanupMixTempFiles(
     await fs.rmdir(tempDir);
   } catch {
     // Directory may not be empty or not exist, ignore
+  }
+}
+
+/**
+ * Measure the duration (seconds, rounded up) of an audio buffer with ffprobe.
+ * Returns undefined when probing fails so callers can fall back to an estimate.
+ */
+export async function measureAudioDurationSeconds(buffer: Buffer): Promise<number | undefined> {
+  const tempDir = join(tmpdir(), `mythoria-audio-probe-${randomUUID()}`);
+  const filePath = join(tempDir, 'audio.mp3');
+
+  try {
+    await fs.mkdir(tempDir, { recursive: true });
+    await fs.writeFile(filePath, buffer);
+
+    // execFile's timeout kills the ffprobe child (SIGKILL) so it cannot hang the chapter
+    const duration = await new Promise<number | undefined>((resolve, reject) => {
+      execFile(
+        FFPROBE_BINARY,
+        ['-v', 'error', '-print_format', 'json', '-show_format', filePath],
+        { timeout: FFPROBE_TIMEOUT_MS, killSignal: 'SIGKILL', maxBuffer: 1024 * 1024 },
+        (err, stdout) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+          try {
+            const data = JSON.parse(stdout) as { format?: { duration?: string | number } };
+            const raw = data?.format?.duration;
+            resolve(raw === undefined ? undefined : Number(raw));
+          } catch (parseError) {
+            reject(parseError);
+          }
+        },
+      );
+    });
+
+    return typeof duration === 'number' && Number.isFinite(duration) && duration > 0
+      ? Math.ceil(duration)
+      : undefined;
+  } catch (error) {
+    logger.warn('ffprobe duration measurement failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return undefined;
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
   }
 }

@@ -23,6 +23,28 @@ interface ImagenGenerateResponse {
   [key: string]: unknown;
 }
 
+type InteractionInputPart =
+  { type: 'image'; data: string; mime_type: string } | { type: 'text'; text: string };
+
+type ReferenceImageInput = NonNullable<ImageGenerationOptions['referenceImages']>[number];
+export interface GeminiImageUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  imageOutputTokens?: number;
+  imageSize?: string;
+}
+
+/** Gemini image models accept up to 14 input images per request. */
+export const MAX_GEMINI_REFERENCE_IMAGES = 14;
+
+const DEFAULT_GEMINI_IMAGE_MODEL = 'gemini-nano-banana-2.1';
+
+const REFERENCE_USAGE_INSTRUCTION =
+  'Use the labelled reference images above to keep every character and style identity exactly as shown (face, hair, skin tone, outfit, proportions, art style, palette). Compose a new scene as described below; do not copy the composition of any reference.';
+
+const EDIT_USAGE_INSTRUCTION =
+  'The first image is the one to edit. Apply only the change described below and keep everything else in it exactly the same. Use the other labelled images only to keep identities and style consistent.';
+
 export class GoogleGenAIImageService implements IImageGenerationService {
   private apiKey: string;
   private model: string;
@@ -56,7 +78,7 @@ export class GoogleGenAIImageService implements IImageGenerationService {
 
   constructor(config: GoogleGenAIImageConfig) {
     this.apiKey = config.apiKey;
-    this.model = config.model || 'gemini-3.1-flash-image';
+    this.model = config.model || DEFAULT_GEMINI_IMAGE_MODEL;
     // Only enable vertex mode if explicitly requested; API key + projectId without proper auth can cause 404
     const useVertex = process.env.GOOGLE_GENAI_USE_VERTEX === 'true';
     this.projectId = useVertex
@@ -70,7 +92,7 @@ export class GoogleGenAIImageService implements IImageGenerationService {
     const disableMapping = process.env.GOOGLE_GENAI_DISABLE_IMAGEN_MAPPING === 'true';
     if (this.model.startsWith('imagen-') && !disableMapping) {
       const legacy = this.model;
-      this.model = 'gemini-3.1-flash-image';
+      this.model = DEFAULT_GEMINI_IMAGE_MODEL;
       logger.warn('Legacy Google Imagen model detected; mapping to Gemini image model', {
         legacyModel: legacy,
         mappedModel: this.model,
@@ -103,29 +125,19 @@ export class GoogleGenAIImageService implements IImageGenerationService {
           promptPreview: prompt.slice(0, 120),
         });
 
-        const input: Array<
-          { type: 'image'; data: string; mime_type: string } | { type: 'text'; text: string }
-        > = [];
-        const referenceImages = options?.referenceImages ?? [];
-        const refCount = referenceImages.length;
-        for (const ref of referenceImages) {
-          try {
-            input.push({
-              type: 'image',
-              data: ref.buffer.toString('base64'),
-              mime_type: ref.mimeType || 'image/jpeg',
-            });
-          } catch (error) {
-            logger.warn('Failed to encode reference image for Gemini', {
-              error: error instanceof Error ? error.message : String(error),
-            });
-          }
-        }
+        const input: InteractionInputPart[] = [];
+        const refCount = this.appendReferenceParts(
+          input,
+          options?.referenceImages ?? [],
+          MAX_GEMINI_REFERENCE_IMAGES,
+          {
+            model,
+            operation: 'generate',
+            ...(options?.imageType && { imageType: options.imageType }),
+          },
+        );
         if (refCount) {
-          input.push({
-            type: 'text',
-            text: 'The preceding images are reference material. Use them to maintain consistency in characters and style.',
-          });
+          input.push({ type: 'text', text: REFERENCE_USAGE_INSTRUCTION });
         }
         input.push({ type: 'text', text: prompt });
 
@@ -148,7 +160,7 @@ export class GoogleGenAIImageService implements IImageGenerationService {
           stepCount: response.steps.length,
         });
         const imageBase64 = this.extractInteractionImageBase64(response, model);
-        const buffer = Buffer.from(imageBase64, 'base64');
+        const buffer = this.attachUsage(Buffer.from(imageBase64, 'base64'), response.usage, model);
         logger.info('Google Gemini Image: image generated', {
           model,
           size: buffer.length,
@@ -264,9 +276,11 @@ export class GoogleGenAIImageService implements IImageGenerationService {
           (options?.imageType === 'front_cover' || options?.imageType === 'back_cover'
             ? 'image/jpeg'
             : 'image/png');
-        const input: Array<
-          { type: 'image'; data: string; mime_type: string } | { type: 'text'; text: string }
-        > = [
+        const input: InteractionInputPart[] = [
+          {
+            type: 'text',
+            text: 'Image to edit (keep its composition, characters, lighting and style unless the instruction says otherwise):',
+          },
           {
             type: 'image',
             data: originalImage.toString('base64'),
@@ -274,19 +288,19 @@ export class GoogleGenAIImageService implements IImageGenerationService {
           },
         ];
 
-        for (const ref of options?.referenceImages || []) {
-          try {
-            input.push({
-              type: 'image',
-              data: ref.buffer.toString('base64'),
-              mime_type: ref.mimeType || 'image/jpeg',
-            });
-          } catch (error) {
-            logger.warn('Failed to encode supplemental reference image for Gemini edit', {
-              error: error instanceof Error ? error.message : String(error),
-              source: ref.source,
-            });
-          }
+        // The image being edited counts toward the 14-image limit.
+        const supplementalCount = this.appendReferenceParts(
+          input,
+          options?.referenceImages ?? [],
+          MAX_GEMINI_REFERENCE_IMAGES - 1,
+          {
+            model,
+            operation: 'edit',
+            ...(options?.imageType && { imageType: options.imageType }),
+          },
+        );
+        if (supplementalCount) {
+          input.push({ type: 'text', text: EDIT_USAGE_INSTRUCTION });
         }
         input.push({ type: 'text', text: prompt });
 
@@ -302,11 +316,11 @@ export class GoogleGenAIImageService implements IImageGenerationService {
           },
         });
         const imageBase64 = this.extractInteractionImageBase64(response, model);
-        const buffer = Buffer.from(imageBase64, 'base64');
+        const buffer = this.attachUsage(Buffer.from(imageBase64, 'base64'), response.usage, model);
         logger.info('Google Gemini Image: edit completed', {
           model,
           size: buffer.length,
-          referenceImageCount: options?.referenceImages?.length || 0,
+          referenceImageCount: supplementalCount,
           imageType: options?.imageType,
         });
         return buffer;
@@ -324,6 +338,7 @@ export class GoogleGenAIImageService implements IImageGenerationService {
             buffer: originalImage,
             mimeType: options?.referenceImages?.[0]?.mimeType || 'image/jpeg',
             source: 'edit-original',
+            label: 'Image to edit - keep its composition, characters and lighting',
           },
           ...(options?.referenceImages || []),
         ],
@@ -391,12 +406,84 @@ export class GoogleGenAIImageService implements IImageGenerationService {
   }
 
   /**
-   * Returns true for Gemini 3+ image models that support the imageSize parameter.
-   * Gemini 2.5 has fixed resolutions per aspect ratio; Gemini 3 supports 1K/2K/4K (3.1 also 512px).
+   * Returns true for Gemini image models that support the image_size parameter
+   * (Gemini 3+ and Nano Banana models). Gemini 2.5 has fixed resolutions per aspect ratio.
    */
+  /**
+   * Attach Interactions API usage to the returned Buffer (mirrors __openaiUsage) so the
+   * token-tracking middleware can bill image vs text/thinking output tokens separately.
+   */
+  private attachUsage(buffer: Buffer, usage: unknown, model: string): Buffer {
+    const u = usage as
+      | {
+          total_input_tokens?: number;
+          total_output_tokens?: number;
+          total_thought_tokens?: number;
+          output_tokens_by_modality?: Array<{ modality?: string; tokens?: number }>;
+        }
+      | null
+      | undefined;
+    if (!u) return buffer;
+    const imageOutputTokens = u.output_tokens_by_modality
+      ?.filter((m) => m.modality === 'image')
+      .reduce((sum, m) => sum + (m.tokens ?? 0), 0);
+    const augmented = buffer as Buffer & { __geminiUsage?: GeminiImageUsage };
+    augmented.__geminiUsage = {
+      ...(u.total_input_tokens !== undefined && { inputTokens: u.total_input_tokens }),
+      ...(u.total_output_tokens !== undefined && {
+        // Thinking tokens are billed at the output rate
+        outputTokens: u.total_output_tokens + (u.total_thought_tokens ?? 0),
+      }),
+      ...(imageOutputTokens !== undefined && { imageOutputTokens }),
+      ...(this.supportsImageSize(model) && { imageSize: '2K' }),
+    };
+    return augmented;
+  }
+
   private supportsImageSize(model: string): boolean {
     const m = model.toLowerCase();
-    return m.includes('gemini-3');
+    if (m.includes('nano-banana')) return true;
+    const major = /gemini-(\d+)/.exec(m)?.[1];
+    return major !== undefined && Number(major) >= 3;
+  }
+
+  /**
+   * Append interleaved [label text, image] parts for each reference image, capped at maxImages.
+   * Returns the number of images actually appended.
+   */
+  private appendReferenceParts(
+    input: InteractionInputPart[],
+    referenceImages: ReferenceImageInput[],
+    maxImages: number,
+    logContext: Record<string, unknown>,
+  ): number {
+    let refs = referenceImages;
+    if (refs.length > maxImages) {
+      logger.warn('Reference images exceed Gemini limit; trimming', {
+        ...logContext,
+        providedCount: refs.length,
+        maxImages,
+        droppedSources: refs.slice(maxImages).map((r) => r.source),
+      });
+      refs = refs.slice(0, maxImages);
+    }
+
+    let appended = 0;
+    for (const ref of refs) {
+      try {
+        const data = ref.buffer.toString('base64');
+        appended += 1;
+        input.push({ type: 'text', text: ref.label?.trim() || `Reference image ${appended}` });
+        input.push({ type: 'image', data, mime_type: ref.mimeType || 'image/jpeg' });
+      } catch (error) {
+        logger.warn('Failed to encode reference image for Gemini', {
+          ...logContext,
+          error: error instanceof Error ? error.message : String(error),
+          source: ref.source,
+        });
+      }
+    }
+    return appended;
   }
 
   private async getGenAIClient(): Promise<GoogleGenAI> {

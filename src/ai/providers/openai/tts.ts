@@ -6,6 +6,7 @@
 import OpenAI from 'openai';
 import { ITTSService, TTSOptions, TTSResult, TTSProvider } from '../../interfaces.js';
 import { logger } from '@/config/logger.js';
+import { stripPauseTags } from '@/shared/tts-text.js';
 
 export interface OpenAITTSConfig {
   apiKey: string;
@@ -14,24 +15,10 @@ export interface OpenAITTSConfig {
   defaultSpeed?: number | undefined;
 }
 
-/**
- * OpenAI TTS voices available for use
- */
-export const OPENAI_TTS_VOICES = [
-  'alloy',
-  'ash',
-  'ballad',
-  'coral',
-  'echo',
-  'fable',
-  'nova',
-  'onyx',
-  'sage',
-  'shimmer',
-  'verse',
-] as const;
-
-export type OpenAITTSVoice = (typeof OPENAI_TTS_VOICES)[number];
+/** OpenAI TTS voices live in the voice registry; re-exported for provider consumers. */
+import type { OpenAITTSVoice } from '@/services/voice-registry.js';
+export { OPENAI_TTS_VOICES } from '@/services/voice-registry.js';
+export type { OpenAITTSVoice };
 
 /**
  * OpenAI TTS models
@@ -73,17 +60,20 @@ export class OpenAITTSService implements ITTSService {
         hasSystemPrompt: !!systemPrompt,
       });
 
-      // Build input text with system prompt if provided
-      // OpenAI gpt-4o-mini-tts supports instructions prepended to the text
-      let inputText = text;
-      if (systemPrompt) {
-        inputText = `${systemPrompt}\n\n---\n\nRead the following text:\n\n${text}`;
+      // Pause tags are never used (they can be read aloud); strip any stray one defensively.
+      const inputText = stripPauseTags(text).trim();
+      if (inputText !== text.trim()) {
+        logger.debug('Stripped stray pause tags from the OpenAI TTS input', { model });
       }
+
+      // gpt-4o-mini-tts supports a dedicated `instructions` parameter; tts-1 / tts-1-hd do not.
+      const supportsInstructions = model.startsWith('gpt-4o');
 
       const response = await this.client.audio.speech.create({
         model: model as OpenAITTSModel,
         voice: voice as OpenAITTSVoice,
         input: inputText,
+        ...(systemPrompt && supportsInstructions ? { instructions: systemPrompt } : {}),
         speed,
         response_format: 'mp3',
       });

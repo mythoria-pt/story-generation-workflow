@@ -5,9 +5,11 @@ import {
   buildIssueKey,
   chooseBestSafeImprovedVariant,
   derivePrintQaStatus,
+  detectInlineFontSizeOverrides,
   detectSafeZoneViolations,
   detectSparseChapterEndings,
   evaluateAutoFixCandidate,
+  extractCoverSignals,
   extractMarginSnapshot,
   findChapterStartPages,
 } from '@/services/print-quality-rules.js';
@@ -324,5 +326,28 @@ describe('print-quality-rules', () => {
     });
 
     expect(status).toBe('passed_with_fixes');
+  });
+
+  it('decodes HTML entities when extracting inline font-size previews', () => {
+    const html =
+      '<div class="chapter-content"><p style="font-size: 20pt">Tom &amp; Jerry&nbsp;said &quot;hi&quot; &#39;there&#39; &lt;3</p><p>plain</p></div>';
+
+    const overrides = detectInlineFontSizeOverrides(html);
+
+    expect(overrides).toHaveLength(1);
+    expect(overrides[0]?.tagName).toBe('p');
+    expect(overrides[0]?.style).toBe('font-size: 20pt');
+    expect(overrides[0]?.textPreview).toBe('Tom & Jerry said "hi" \'there\' <3');
+  });
+
+  it('extracts cover signals with decoded spine text', () => {
+    const html =
+      '<div class="cover"><img class="logo-img" src="a.png"><div class="spine">  Cats &amp;\n  Dogs  </div></div>';
+
+    expect(extractCoverSignals(html)).toEqual({
+      hasLogo: true,
+      hasQrCode: false,
+      spineText: 'Cats & Dogs',
+    });
   });
 });

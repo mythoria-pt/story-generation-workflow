@@ -162,11 +162,11 @@ If both rewrite and fallback fail, the error payload includes `promptRewriteAtte
 
 ### Audio (`src/routes/audio.ts`)
 
-| Endpoint                                  | Notes                                                                                                                 |
-| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `POST /audio/create-audiobook`            | Triggers the `audiobook-generation` Cloud Workflow for a story (`voice` defaults to the configured TTS voice).        |
-| `POST /audio/internal/audiobook/chapter`  | Workflow callback for per-chapter TTS generation. Requires chapter HTML plus metadata flags (e.g., `isFirstChapter`). |
-| `POST /audio/internal/audiobook/finalize` | Aggregates stored chapter audio in GCS, updates story record with URLs.                                               |
+| Endpoint                                  | Notes                                                                                                                                                                                                                           |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /audio/create-audiobook`            | Triggers the `audiobook-generation` Cloud Workflow for a story (`voice` is optional; omit it, leave it empty, or pass `'auto'` to use the default voice for the story's target audience. See `docs/audio-narration-system.md`). |
+| `POST /audio/internal/audiobook/chapter`  | Workflow callback for per-chapter TTS generation. Requires chapter HTML plus metadata flags (e.g., `isFirstChapter`).                                                                                                           |
+| `POST /audio/internal/audiobook/finalize` | Aggregates stored chapter audio in GCS, updates story record with URLs.                                                                                                                                                         |
 
 Even though two endpoints live under `/audio/internal/*`, they still require the external API key because they share the `/audio` mount.
 

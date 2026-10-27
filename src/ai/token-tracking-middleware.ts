@@ -12,6 +12,8 @@ import {
 } from '@/ai/interfaces.js';
 import { tokenUsageTrackingService } from '@/services/token-usage-tracking.js';
 import { logger } from '@/config/logger.js';
+import type { GeminiImageUsage } from '@/ai/providers/google-genai/image.js';
+import type { OpenAIImageMeta } from '@/ai/providers/openai/image.js';
 
 export interface AICallContext {
   authorId: string;
@@ -33,6 +35,12 @@ export interface AICallContext {
     | 'image_analysis'
     | 'email_asset_generation'
     | 'test';
+  /**
+   * Optional finer-grained label stored as `inputPromptJson.operation`. Lets a feature share
+   * an existing `ai_action_type` enum value (e.g. narration direction under
+   * 'audio_generation') without a workflows-DB migration.
+   */
+  operation?: string;
 }
 
 /**
@@ -94,7 +102,17 @@ export class TextGenerationMiddleware implements ITextGenerationService {
         inputTokens: tokenUsage.inputTokens,
         outputTokens: tokenUsage.outputTokens,
         inputPromptJson: {
-          prompt,
+          ...(baseOptions.privateContent
+            ? {
+                operation:
+                  this.context.operation ??
+                  (this.context.action === 'story_structure' ? 'story_structure' : 'story_guide'),
+                promptLength: prompt.length,
+              }
+            : {
+                ...(this.context.operation ? { operation: this.context.operation } : {}),
+                prompt,
+              }),
           options: sanitizedOptions,
           timestamp: new Date().toISOString(),
           processingTimeMs,
@@ -104,6 +122,13 @@ export class TextGenerationMiddleware implements ITextGenerationService {
 
       return result;
     } catch (error) {
+      if (options?.privateContent) {
+        logger.error('Private text generation failed with token tracking', {
+          context: this.context,
+          promptLength: prompt.length,
+        });
+        throw error;
+      }
       const anyErr: any = error as any;
       const structured =
         anyErr && (anyErr.cause?.error || anyErr.response?.error || anyErr.error)
@@ -139,6 +164,11 @@ export class TextGenerationMiddleware implements ITextGenerationService {
     const { mediaParts, ...rest } = options as any;
     const sanitized: Record<string, unknown> = { ...rest };
     delete sanitized.usageObserver;
+    delete sanitized.signal;
+    if (options?.privateContent) {
+      delete sanitized.systemInstruction;
+      delete sanitized.contextId;
+    }
     if (Array.isArray(mediaParts)) {
       sanitized.mediaParts = mediaParts.map((mp: any) => {
         const isString = typeof mp?.data === 'string';
@@ -295,11 +325,14 @@ export class ImageGenerationMiddleware implements IImageGenerationService {
         };
       };
       const realUsage = augmented.__openaiUsage;
+      // Gemini Interactions usage attached by the Google provider
+      const geminiUsage = (result as Buffer & { __geminiUsage?: GeminiImageUsage }).__geminiUsage;
 
       // Prefer real API usage; fall back to estimates when unavailable
-      const inputTokens = realUsage?.input_tokens ?? Math.ceil(prompt.length / 4);
-      const outputTokens = realUsage?.output_tokens ?? 1000; // 1000 is the legacy estimate
-      const usageSource = realUsage ? 'api' : 'estimate';
+      const inputTokens =
+        realUsage?.input_tokens ?? geminiUsage?.inputTokens ?? Math.ceil(prompt.length / 4);
+      const outputTokens = realUsage?.output_tokens ?? geminiUsage?.outputTokens ?? 1000; // 1000 is the legacy estimate
+      const usageSource = realUsage || geminiUsage?.outputTokens !== undefined ? 'api' : 'estimate';
 
       // Sanitize options (remove raw buffers from reference images before persisting)
       const sanitizedOptions = this.sanitizeImageOptions(options);
@@ -312,6 +345,12 @@ export class ImageGenerationMiddleware implements IImageGenerationService {
         aiModel: this.determineModel(options),
         inputTokens,
         outputTokens,
+        ...this.openaiImageCostFields(result),
+        ...(geminiUsage?.imageSize && { imageSize: geminiUsage.imageSize }),
+        ...(geminiUsage?.imageOutputTokens !== undefined &&
+          geminiUsage.outputTokens !== undefined && {
+            imageOutputTokens: geminiUsage.imageOutputTokens,
+          }),
         inputPromptJson: {
           prompt,
           options: sanitizedOptions,
@@ -399,13 +438,16 @@ export class ImageGenerationMiddleware implements IImageGenerationService {
         };
       };
       const realEditUsage = augmentedEdit.__openaiUsage;
+      const geminiUsage = (result as Buffer & { __geminiUsage?: GeminiImageUsage }).__geminiUsage;
 
       // Prefer real API usage; fall back to estimates when unavailable
       const inputTokens =
         realEditUsage?.input_tokens ??
+        geminiUsage?.inputTokens ??
         Math.ceil(prompt.length / 4) + Math.ceil(originalImage.length / 1000);
-      const outputTokens = realEditUsage?.output_tokens ?? 1500; // 1500 is the legacy estimate
-      const editUsageSource = realEditUsage ? 'api' : 'estimate';
+      const outputTokens = realEditUsage?.output_tokens ?? geminiUsage?.outputTokens ?? 1500; // 1500 is the legacy estimate
+      const editUsageSource =
+        realEditUsage || geminiUsage?.outputTokens !== undefined ? 'api' : 'estimate';
 
       // Sanitize options (strip raw reference image buffers)
       const sanitizedOptions = this.sanitizeImageOptions(options);
@@ -418,6 +460,12 @@ export class ImageGenerationMiddleware implements IImageGenerationService {
         aiModel: this.determineModel(options),
         inputTokens,
         outputTokens,
+        ...this.openaiImageCostFields(result),
+        ...(geminiUsage?.imageSize && { imageSize: geminiUsage.imageSize }),
+        ...(geminiUsage?.imageOutputTokens !== undefined &&
+          geminiUsage.outputTokens !== undefined && {
+            imageOutputTokens: geminiUsage.imageOutputTokens,
+          }),
         inputPromptJson: {
           prompt,
           options: sanitizedOptions,
@@ -464,10 +512,12 @@ export class ImageGenerationMiddleware implements IImageGenerationService {
     const provider = process.env.IMAGE_PROVIDER || 'google-genai';
     if (provider === 'openai') {
       return (
-        process.env.OPENAI_IMAGE_TOOL_MODEL || process.env.OPENAI_BASE_MODEL || 'gpt-image-2.5-flare'
+        process.env.OPENAI_IMAGE_TOOL_MODEL ||
+        process.env.OPENAI_BASE_MODEL ||
+        'gpt-image-2.5-flare'
       );
     } else if (provider === 'google-genai') {
-      return process.env.GOOGLE_GENAI_IMAGE_MODEL || 'gemini-3.1-flash-image';
+      return process.env.GOOGLE_GENAI_IMAGE_MODEL || 'gemini-nano-banana-2.1';
     }
 
     return 'unknown';
@@ -495,6 +545,15 @@ export class ImageGenerationMiddleware implements IImageGenerationService {
    * Sanitize ImageGenerationOptions by replacing referenceImages buffers with size metadata only.
    * Prevents large binary data from being logged or stored (privacy & storage efficiency).
    */
+  /** Quality/size the OpenAI image tool actually used, for quality x size pricing. */
+  private openaiImageCostFields(result: Buffer): {
+    imageQuality?: 'low' | 'medium' | 'high' | 'auto';
+    imageSize?: string;
+  } {
+    const meta = (result as Buffer & { __openaiImageMeta?: OpenAIImageMeta }).__openaiImageMeta;
+    return meta ? { imageQuality: meta.quality, imageSize: meta.size } : {};
+  }
+
   private sanitizeImageOptions(options?: ImageGenerationOptions): Record<string, unknown> {
     if (!options) return {};
     const { referenceImages, ...rest } = options as any;

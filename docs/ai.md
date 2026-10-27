@@ -8,7 +8,7 @@ This guide consolidates how Story Generation Workflow talks to Google GenAI and 
 | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Runtime selection | `TEXT_PROVIDER` and `IMAGE_PROVIDER` environment variables toggle Google GenAI or OpenAI at runtime. The AI gateway (`src/ai/gateway.ts`) lazily instantiates providers and injects token tracking middleware.                                                                                                      |
 | Image analysis    | The vision-language model used to analyse input images is selected by `IMAGE_ANALYZER_PROVIDER` (fallback `IMAGE_PROVIDER`, then `google-genai`) via `getImageAnalysisTextService` in `src/ai/gateway-with-tracking.ts`. OpenAI has no multimodal support yet, so an `openai` selection falls back to google-genai. |
-| Models in use     | Google text and multimodal analysis use Gemini 3.6 Flash; Google image generation/editing uses Gemini 3.1 Flash Image; TTS remains on its provider-specific speech model.                                                                                                                                           |
+| Models in use     | Google text and multimodal analysis use Gemini 3.6 Flash; Google image generation/editing uses Gemini 3.1 Flash Image; Audiobook TTS defaults to Gemini `gemini-3.8-flash-tts` (`TTS_PROVIDER=google-genai`); OpenAI `gpt-4o-mini-tts` is the alternative provider. See `docs/audio-narration-system.md`.           |
 | Context + state   | Prompt sessions are keyed by `<storyId>:<runId>`; `/ai/text/context/clear` must be called when workflows finish to avoid stale context bleed.                                                                                                                                                                       |
 | Token telemetry   | Each AI call records an entry in `token_usage_tracking` with `action` (`outline`, `chapter`, `image`, `prompt_rewrite`, etc.) so we can budget costs or debug spikes.                                                                                                                                               |
 
@@ -18,7 +18,7 @@ This guide consolidates how Story Generation Workflow talks to Google GenAI and 
 - Do not send `temperature`, `topP`, `topK`, or `candidateCount` to Gemini 3.6. Use explicit system instructions and structured output schemas when deterministic formatting is required.
 - Use `thinkingConfig.thinkingLevel`; do not use the legacy `thinkingBudget` with Gemini 3.6.
 - Requests and cached prefixes must not end with a prefilled `model` turn. Native chats start with empty history and append user messages through the SDK.
-- Google image generation/editing uses `gemini-3.1-flash-image` through the current `interactions.create` API; Gemini 3.6 Flash is a text-output model and cannot replace the image endpoint.
+- Google image generation/editing defaults to `gemini-nano-banana-2.1` (2K output; replaces `gemini-3.1-flash-image`) through the current `interactions.create` API. The default image provider is `google-genai`; rollback is setting `IMAGE_PROVIDER=openai`; Gemini 3.6 Flash is a text-output model and cannot replace the image endpoint.
 
 ## Prompt templates
 

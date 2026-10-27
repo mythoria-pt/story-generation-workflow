@@ -122,7 +122,7 @@ router.post('/runs/:runId/claim', async (req: Request, res: Response) => {
  * PATCH /internal/runs/:runId
  * Update run status and metadata
  */
-router.patch('/runs/:runId', async (req: Request, res: Response) => {
+router.patch('/runs/:runId', async (req: Request<{ runId: string }>, res: Response) => {
   try {
     const runId = req.params.runId;
     if (!runId) {
@@ -701,130 +701,136 @@ router.post('/runs/:runId/image', async (req, res) => {
  * GET /internal/stories/:storyId
  * Get story details for validation
  */
-router.get('/stories/:storyId', async (req: Request, res: Response): Promise<void> => {
-  try {
-    const storyId = req.params.storyId;
+router.get(
+  '/stories/:storyId',
+  async (req: Request<{ storyId: string }>, res: Response): Promise<void> => {
+    try {
+      const storyId = req.params.storyId;
 
-    if (!storyId) {
-      res.status(400).json({
-        success: false,
-        error: 'storyId parameter is required',
+      if (!storyId) {
+        res.status(400).json({
+          success: false,
+          error: 'storyId parameter is required',
+        });
+        return;
+      }
+
+      logger.info('Internal API: Getting story details', { storyId });
+
+      const story = await storyService.getStory(storyId);
+
+      if (!story) {
+        res.status(404).json({
+          success: false,
+          error: 'Story not found',
+        });
+        return;
+      }
+
+      res.json({
+        success: true,
+        title: story.title,
+        storyLanguage: story.storyLanguage,
+        features: story.features,
       });
-      return;
-    }
-
-    logger.info('Internal API: Getting story details', { storyId });
-
-    const story = await storyService.getStory(storyId);
-
-    if (!story) {
-      res.status(404).json({
-        success: false,
-        error: 'Story not found',
+    } catch (error) {
+      logger.error('Internal API: Failed to get story details', {
+        error: error instanceof Error ? error.message : String(error),
+        storyId: req.params.storyId,
       });
-      return;
+
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
     }
-
-    res.json({
-      success: true,
-      title: story.title,
-      storyLanguage: story.storyLanguage,
-      features: story.features,
-    });
-  } catch (error) {
-    logger.error('Internal API: Failed to get story details', {
-      error: error instanceof Error ? error.message : String(error),
-      storyId: req.params.storyId,
-    });
-
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
-    });
-  }
-});
+  },
+);
 
 /**
  * GET /internal/stories/:storyId/html
  * Get story details and chapter content from database for audiobook generation
  */
-router.get('/stories/:storyId/html', async (req: Request, res: Response): Promise<void> => {
-  try {
-    const storyId = req.params.storyId;
+router.get(
+  '/stories/:storyId/html',
+  async (req: Request<{ storyId: string }>, res: Response): Promise<void> => {
+    try {
+      const storyId = req.params.storyId;
 
-    if (!storyId) {
-      res.status(400).json({
-        success: false,
-        error: 'storyId parameter is required',
+      if (!storyId) {
+        res.status(400).json({
+          success: false,
+          error: 'storyId parameter is required',
+        });
+        return;
+      }
+
+      logger.info('Internal API: Getting story chapters for audiobook', { storyId });
+
+      // Get story details from database
+      const story = await storyService.getStory(storyId);
+
+      if (!story) {
+        res.status(404).json({
+          success: false,
+          error: 'Story not found',
+        });
+        return;
+      }
+
+      // Get chapters from database (latest versions only)
+      const chaptersFromDb = await chaptersService.getStoryChapters(storyId);
+
+      if (!chaptersFromDb || chaptersFromDb.length === 0) {
+        res.status(404).json({
+          success: false,
+          error: 'No chapters found - story has not been generated yet',
+        });
+        return;
+      }
+
+      // Transform database chapters to the format expected by the workflow
+      const chapters = chaptersFromDb.map((chapter) => ({
+        title: chapter.title,
+        content: chapter.htmlContent
+          .replace(/<[^>]*>/g, '') // Remove HTML tags
+          .replace(/&[^;]+;/g, ' ') // Replace HTML entities
+          .trim(),
+      }));
+
+      const authorName =
+        typeof story.customAuthor === 'string' && story.customAuthor.trim()
+          ? story.customAuthor.trim()
+          : story.author;
+
+      logger.info('Internal API: Retrieved chapters from database', {
+        storyId,
+        chaptersFound: chapters.length,
+        chapterTitles: chapters.map((ch) => ch.title),
       });
-      return;
-    }
 
-    logger.info('Internal API: Getting story chapters for audiobook', { storyId });
-
-    // Get story details from database
-    const story = await storyService.getStory(storyId);
-
-    if (!story) {
-      res.status(404).json({
-        success: false,
-        error: 'Story not found',
+      res.json({
+        success: true,
+        storyId,
+        chapters,
+        title: story.title,
+        author: authorName,
+        dedicationMessage: story.dedicationMessage,
+        storyLanguage: story.storyLanguage,
       });
-      return;
-    }
-
-    // Get chapters from database (latest versions only)
-    const chaptersFromDb = await chaptersService.getStoryChapters(storyId);
-
-    if (!chaptersFromDb || chaptersFromDb.length === 0) {
-      res.status(404).json({
-        success: false,
-        error: 'No chapters found - story has not been generated yet',
+    } catch (error) {
+      logger.error('Internal API: Failed to get story HTML', {
+        error: error instanceof Error ? error.message : String(error),
+        storyId: req.params.storyId,
       });
-      return;
+
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
     }
-
-    // Transform database chapters to the format expected by the workflow
-    const chapters = chaptersFromDb.map((chapter) => ({
-      title: chapter.title,
-      content: chapter.htmlContent
-        .replace(/<[^>]*>/g, '') // Remove HTML tags
-        .replace(/&[^;]+;/g, ' ') // Replace HTML entities
-        .trim(),
-    }));
-
-    const authorName =
-      typeof story.customAuthor === 'string' && story.customAuthor.trim()
-        ? story.customAuthor.trim()
-        : story.author;
-
-    logger.info('Internal API: Retrieved chapters from database', {
-      storyId,
-      chaptersFound: chapters.length,
-      chapterTitles: chapters.map((ch) => ch.title),
-    });
-
-    res.json({
-      success: true,
-      storyId,
-      chapters,
-      title: story.title,
-      author: authorName,
-      dedicationMessage: story.dedicationMessage,
-      storyLanguage: story.storyLanguage,
-    });
-  } catch (error) {
-    logger.error('Internal API: Failed to get story HTML', {
-      error: error instanceof Error ? error.message : String(error),
-      storyId: req.params.storyId,
-    });
-
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
-    });
-  }
-});
+  },
+);
 
 /**
  * POST /internal/audiobook/chapter
@@ -1029,176 +1035,179 @@ router.post('/audiobook/finalize', async (req: Request, res: Response): Promise<
  * PATCH /internal/stories/:storyId/audiobook-status
  * Update audiobook generation status for a story
  */
-router.patch('/stories/:storyId/audiobook-status', async (req: Request, res: Response) => {
-  try {
-    const { storyId } = req.params;
-    const {
-      status,
-      runId,
-      completedAt,
-      failedAt,
-      audioUrls,
-      totalDuration,
-      chapters,
-      expectedChapters,
-      generatedChapters,
-      failureStage,
-      error: workflowError,
-    } = req.body;
+router.patch(
+  '/stories/:storyId/audiobook-status',
+  async (req: Request<{ storyId: string }>, res: Response) => {
+    try {
+      const { storyId } = req.params;
+      const {
+        status,
+        runId,
+        completedAt,
+        failedAt,
+        audioUrls,
+        totalDuration,
+        chapters,
+        expectedChapters,
+        generatedChapters,
+        failureStage,
+        error: workflowError,
+      } = req.body;
 
-    // Validate storyId
-    if (!storyId) {
-      res.status(400).json({
-        success: false,
-        error: 'Story ID is required',
-      });
-      return;
-    }
-
-    // Validate status
-    const validStatuses = ['generating', 'completed', 'failed'];
-    if (status && !validStatuses.includes(status)) {
-      res.status(400).json({
-        success: false,
-        error: `Invalid status. Must be one of: ${validStatuses.join(', ')}`,
-      });
-      return;
-    }
-    if (status && !z.string().uuid().safeParse(runId).success) {
-      res.status(400).json({ success: false, error: 'A valid runId is required' });
-      return;
-    }
-
-    logger.info('Internal API: Updating audiobook status', {
-      storyId,
-      status,
-      completedAt,
-      failedAt,
-      hasAudioUrls: !!audioUrls,
-      hasChapters: Array.isArray(chapters),
-      totalDuration,
-    });
-
-    // Update story audiobook status
-    const updateData: {
-      audiobookStatus?: string;
-      audiobookUri?: object;
-    } = {};
-
-    if (status) {
-      updateData.audiobookStatus = status;
-    }
-
-    if (status === 'completed') {
-      const normalizedChapters: Array<{
-        chapterTitle: string;
-        audioUri: string;
-        duration: number;
-      }> = [];
-
-      if (Array.isArray(chapters)) {
-        chapters.forEach((chapter, idx) => {
-          if (!chapter?.audioUri) return;
-          const chapterNumber = chapter.chapterNumber ?? idx + 1;
-          const duration =
-            typeof chapter.duration === 'number' && chapter.duration > 0 ? chapter.duration : 0;
-          normalizedChapters.push({
-            chapterTitle: chapter.chapterTitle || `Chapter ${chapterNumber}`,
-            audioUri: chapter.audioUri,
-            duration,
-          });
+      // Validate storyId
+      if (!storyId) {
+        res.status(400).json({
+          success: false,
+          error: 'Story ID is required',
         });
-      } else if (audioUrls && typeof audioUrls === 'object') {
-        Object.keys(audioUrls)
-          .map((key) => parseInt(key, 10))
-          .sort((a, b) => a - b)
-          .forEach((chapterNumber) => {
-            const audioUri = (audioUrls as Record<string, string>)[chapterNumber];
-            if (!audioUri) return;
+        return;
+      }
+
+      // Validate status
+      const validStatuses = ['generating', 'completed', 'failed'];
+      if (status && !validStatuses.includes(status)) {
+        res.status(400).json({
+          success: false,
+          error: `Invalid status. Must be one of: ${validStatuses.join(', ')}`,
+        });
+        return;
+      }
+      if (status && !z.string().uuid().safeParse(runId).success) {
+        res.status(400).json({ success: false, error: 'A valid runId is required' });
+        return;
+      }
+
+      logger.info('Internal API: Updating audiobook status', {
+        storyId,
+        status,
+        completedAt,
+        failedAt,
+        hasAudioUrls: !!audioUrls,
+        hasChapters: Array.isArray(chapters),
+        totalDuration,
+      });
+
+      // Update story audiobook status
+      const updateData: {
+        audiobookStatus?: string;
+        audiobookUri?: object;
+      } = {};
+
+      if (status) {
+        updateData.audiobookStatus = status;
+      }
+
+      if (status === 'completed') {
+        const normalizedChapters: Array<{
+          chapterTitle: string;
+          audioUri: string;
+          duration: number;
+        }> = [];
+
+        if (Array.isArray(chapters)) {
+          chapters.forEach((chapter, idx) => {
+            if (!chapter?.audioUri) return;
+            const chapterNumber = chapter.chapterNumber ?? idx + 1;
+            const duration =
+              typeof chapter.duration === 'number' && chapter.duration > 0 ? chapter.duration : 0;
             normalizedChapters.push({
-              chapterTitle: `Chapter ${chapterNumber}`,
-              audioUri,
-              duration: 0,
+              chapterTitle: chapter.chapterTitle || `Chapter ${chapterNumber}`,
+              audioUri: chapter.audioUri,
+              duration,
             });
           });
-      }
+        } else if (audioUrls && typeof audioUrls === 'object') {
+          Object.keys(audioUrls)
+            .map((key) => parseInt(key, 10))
+            .sort((a, b) => a - b)
+            .forEach((chapterNumber) => {
+              const audioUri = (audioUrls as Record<string, string>)[chapterNumber];
+              if (!audioUri) return;
+              normalizedChapters.push({
+                chapterTitle: `Chapter ${chapterNumber}`,
+                audioUri,
+                duration: 0,
+              });
+            });
+        }
 
-      if (normalizedChapters.length > 0) {
-        updateData.audiobookUri = normalizedChapters;
-      }
-    }
-
-    // Update the story in the database
-    await storyService.updateAudiobookStatus(storyId, updateData);
-
-    if (status && runId) {
-      const terminalTimestamp = status === 'completed' ? completedAt : failedAt;
-      const updatedRun = await runsService.updateRun(runId, {
-        status: status === 'generating' ? 'running' : status,
-        currentStep:
-          status === 'generating'
-            ? 'audiobook_generation'
-            : status === 'completed'
-              ? 'audiobook_completed'
-              : failureStage || 'audiobook_generation',
-        ...(status === 'generating' && req.body.startedAt
-          ? { startedAt: String(req.body.startedAt) }
-          : {}),
-        ...(terminalTimestamp ? { endedAt: String(terminalTimestamp) } : {}),
-        ...(status === 'failed'
-          ? {
-              failureStage: String(failureStage || 'audiobook_generation'),
-              errorMessage: String(workflowError || 'Audiobook generation failed'),
-            }
-          : {}),
-        metadata: {
-          actionType: 'audiobook_generation',
-          ...(typeof expectedChapters === 'number' ? { expectedChapters } : {}),
-          ...(typeof generatedChapters === 'number' ? { generatedChapters } : {}),
-          ...(typeof totalDuration === 'number' ? { totalDuration } : {}),
-        },
-      });
-      if (updatedRun.status === 'completed' || updatedRun.status === 'failed') {
-        try {
-          await analyticsReconciliationService.recordTerminalRun(updatedRun);
-        } catch (analyticsError) {
-          logger.warn('Audiobook terminal analytics will be repaired by reconciliation', {
-            runRef: analyticsReference(runId),
-            error:
-              analyticsError instanceof Error ? analyticsError.message : String(analyticsError),
-          });
+        if (normalizedChapters.length > 0) {
+          updateData.audiobookUri = normalizedChapters;
         }
       }
+
+      // Update the story in the database
+      await storyService.updateAudiobookStatus(storyId, updateData);
+
+      if (status && runId) {
+        const terminalTimestamp = status === 'completed' ? completedAt : failedAt;
+        const updatedRun = await runsService.updateRun(runId, {
+          status: status === 'generating' ? 'running' : status,
+          currentStep:
+            status === 'generating'
+              ? 'audiobook_generation'
+              : status === 'completed'
+                ? 'audiobook_completed'
+                : failureStage || 'audiobook_generation',
+          ...(status === 'generating' && req.body.startedAt
+            ? { startedAt: String(req.body.startedAt) }
+            : {}),
+          ...(terminalTimestamp ? { endedAt: String(terminalTimestamp) } : {}),
+          ...(status === 'failed'
+            ? {
+                failureStage: String(failureStage || 'audiobook_generation'),
+                errorMessage: String(workflowError || 'Audiobook generation failed'),
+              }
+            : {}),
+          metadata: {
+            actionType: 'audiobook_generation',
+            ...(typeof expectedChapters === 'number' ? { expectedChapters } : {}),
+            ...(typeof generatedChapters === 'number' ? { generatedChapters } : {}),
+            ...(typeof totalDuration === 'number' ? { totalDuration } : {}),
+          },
+        });
+        if (updatedRun.status === 'completed' || updatedRun.status === 'failed') {
+          try {
+            await analyticsReconciliationService.recordTerminalRun(updatedRun);
+          } catch (analyticsError) {
+            logger.warn('Audiobook terminal analytics will be repaired by reconciliation', {
+              runRef: analyticsReference(runId),
+              error:
+                analyticsError instanceof Error ? analyticsError.message : String(analyticsError),
+            });
+          }
+        }
+      }
+
+      logger.info('Internal API: Audiobook status updated successfully', {
+        storyId,
+        status,
+        updateData,
+      });
+
+      res.json({
+        success: true,
+        storyId,
+        status,
+        updatedAt: new Date().toISOString(),
+        ...(audioUrls && { audioUrls }),
+        ...(totalDuration && { totalDuration }),
+      });
+    } catch (error) {
+      const serializedError = serializeError(error);
+      logger.error('Internal API: Failed to update audiobook status', {
+        error: serializedError.message,
+        errorDetails: serializedError,
+        storyId: req.params.storyId,
+        requestBody: req.body,
+      });
+
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
     }
-
-    logger.info('Internal API: Audiobook status updated successfully', {
-      storyId,
-      status,
-      updateData,
-    });
-
-    res.json({
-      success: true,
-      storyId,
-      status,
-      updatedAt: new Date().toISOString(),
-      ...(audioUrls && { audioUrls }),
-      ...(totalDuration && { totalDuration }),
-    });
-  } catch (error) {
-    const serializedError = serializeError(error);
-    logger.error('Internal API: Failed to update audiobook status', {
-      error: serializedError.message,
-      errorDetails: serializedError,
-      storyId: req.params.storyId,
-      requestBody: req.body,
-    });
-
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
-    });
-  }
-});
+  },
+);
 
 export { router as internalRouter };

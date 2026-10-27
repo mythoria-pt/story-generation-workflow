@@ -23,11 +23,21 @@ import {
   buildChapterAudioText,
 } from './tts-utils.js';
 import { getTTSGateway } from '@/ai/tts-gateway.js';
-import { ITTSService, TTSProvider, TTSOptions, TTSResult } from '@/ai/interfaces.js';
+import { ITTSService, TTSProvider, TTSOptions, TTSResult, TTSUsage } from '@/ai/interfaces.js';
 import { splitTextIntoChunks, needsChunking } from './text-chunking.js';
-import { concatenateAudioBuffers, mixAudioWithBackground } from './audio-concatenation.js';
+import {
+  concatenateAudioBuffers,
+  mixAudioWithBackground,
+  measureAudioDurationSeconds,
+} from './audio-concatenation.js';
 import { getBackgroundMusicForStory } from './background-music.js';
-import { getProviderForVoice, getDefaultVoiceForProvider } from './voice-registry.js';
+import {
+  getProviderForVoice,
+  getDefaultVoiceForProvider,
+  isAutoVoice,
+  resolveDefaultVoice,
+} from './voice-registry.js';
+import { composeStyle, directNarration, shouldDirectNarration } from './narration-direction.js';
 import { TTSGenerationError } from './tts-errors.js';
 
 export interface TTSChapterResult {
@@ -43,6 +53,68 @@ export interface TTSChapterResult {
     model: string;
     speed: number;
   };
+}
+
+const LANGUAGE_CODE_PATTERN = /^[a-z]{2,3}(-[A-Za-z0-9]{2,8})+$/;
+
+/** Return the story language only when it is a BCP-47 locale (e.g. 'pt-PT'). */
+export function toLanguageCode(storyLanguage: string | undefined): string | undefined {
+  const trimmed = storyLanguage?.trim();
+  return trimmed && LANGUAGE_CODE_PATTERN.test(trimmed) ? trimmed : undefined;
+}
+
+/**
+ * Single place that decides the delivery style for one chunk (or one directed segment).
+ * Every chunk carries the story's base style; a narration-direction mood, when present,
+ * is appended as `${baseStyle}; ${mood}`.
+ */
+export function resolveChunkStyle(
+  baseStyle: string | undefined,
+  _chunkIndex: number,
+  mood?: string,
+): string | undefined {
+  return composeStyle(baseStyle, mood);
+}
+
+function safeStringify(value: unknown): string {
+  if (value === undefined || value === null) return '';
+  if (typeof value === 'string') return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * True only when the error explicitly points at the voice (e.g. "voice not found",
+ * "invalid voice name") or is a structured 400/404 whose message mentions the voice.
+ * A bare 404 / "not found" (wrong model or endpoint) is NOT a voice error.
+ */
+export function isVoiceError(error: unknown): boolean {
+  const record =
+    typeof error === 'object' && error !== null ? (error as Record<string, unknown>) : {};
+  const text = [
+    error instanceof Error ? error.message : String(error),
+    safeStringify(record.details),
+    safeStringify((record.error as { message?: unknown } | undefined)?.message),
+  ]
+    .join(' ')
+    .toLowerCase();
+
+  if (!/voice/.test(text)) {
+    return false;
+  }
+
+  const status = Number(
+    record.status ??
+      record.statusCode ??
+      record.code ??
+      (record.error as { code?: unknown } | undefined)?.code,
+  );
+  const structuredStatus = status === 400 || status === 404;
+  const problem = /not found|not available|invalid|unsupported|unknown|does not exist/.test(text);
+  return problem || structuredStatus;
 }
 
 export class TTSService {
@@ -95,10 +167,23 @@ export class TTSService {
 
       // Get TTS configuration
       const config = getTTSConfig();
-      if (voice) {
-        config.voice = voice;
+      // Empty / missing / 'auto' voice: SGW picks the recommended voice for the story audience
+      const requestedVoice = isAutoVoice(voice) ? undefined : voice?.trim();
+      const audienceVoice = story.targetAudience
+        ? resolveDefaultVoice(config.provider, story.targetAudience)
+        : undefined;
+      if (requestedVoice) {
+        config.voice = requestedVoice;
+      } else if (audienceVoice) {
+        config.voice = audienceVoice;
+        logger.info('Resolved default TTS voice from story audience', {
+          storyId,
+          chapterNumber,
+          targetAudience: story.targetAudience,
+          voice: config.voice,
+        });
       }
-      const normalizedVoice = normalizeTTSVoice(config.provider, config.voice);
+      const normalizedVoice = normalizeTTSVoice(config.provider, config.voice, audienceVoice);
       if (normalizedVoice.wasFallback) {
         logger.warn('Ignoring unsupported TTS voice for provider', {
           storyId,
@@ -123,13 +208,61 @@ export class TTSService {
       // Extract target age from story.targetAudience
       const targetAge = extractTargetAge(story.targetAudience);
 
-      // Load audio prompt configuration for the story language
-      const audioPromptConfig = await AudioPromptService.getTTSInstructions(
-        storyLanguage,
-        targetAge,
-      );
+      // Delivery style (Gemini) keyed by target age; unknown ages use 'general audience'
+      const baseStyle = await AudioPromptService.getBaseStyle(storyLanguage, targetAge);
+      const languageCode = toLanguageCode(storyLanguage);
 
-      // Prepare chapter text for TTS
+      // Generate audio for the chapter using the TTS provider
+      // Uses intelligent chunking and concatenation for long texts
+      const ttsOptions: TTSOptions = {
+        voice: config.voice,
+        speed: config.speed,
+        model: config.model,
+        language: storyLanguage,
+        chapterNumber,
+        ...(languageCode ? { languageCode } : {}),
+      };
+
+      // Smart Provider Detection:
+      // If a voice is specified, check if it belongs to the current provider.
+      // If not, try to switch to the correct provider.
+      let effectiveProvider: TTSProvider = config.provider;
+      let effectiveTTSProvider: ITTSService = this.ttsProvider;
+
+      if (requestedVoice) {
+        const detectedProvider = getProviderForVoice(requestedVoice);
+        if (detectedProvider && detectedProvider !== config.provider) {
+          logger.info('Switching TTS provider based on requested voice', {
+            requestedVoice,
+            configuredProvider: config.provider,
+            detectedProvider,
+          });
+          try {
+            effectiveTTSProvider = getTTSGateway().getService(detectedProvider);
+            effectiveProvider = detectedProvider;
+            // The requested voice belongs to the switched-to provider
+            ttsOptions.voice = requestedVoice;
+            // When switching providers, we should clear the model to let the new service use its default
+            delete ttsOptions.model;
+          } catch (switchError) {
+            logger.warn('Failed to switch TTS provider, falling back to default provider', {
+              error: switchError instanceof Error ? switchError.message : String(switchError),
+              requestedVoice,
+              defaultProvider: config.provider,
+            });
+          }
+        }
+      }
+
+      // OpenAI-only instruction string (accent + style); Gemini gets style + languageCode instead
+      if (effectiveProvider === 'openai') {
+        ttsOptions.systemPrompt = await AudioPromptService.getTTSSystemPrompt(
+          storyLanguage,
+          targetAge,
+        );
+      }
+
+      // Prepare chapter text for TTS (pauses come from paragraph breaks, never from tags)
       let chapterText: string;
       if (extraParams?.isFirstChapter) {
         // For first chapter, include story title, dedication, author intro, and chapter content
@@ -140,6 +273,7 @@ export class TTSService {
           storyLanguage,
           chapterContent,
           chapterTitle,
+          effectiveProvider,
         );
       } else {
         // For other chapters, use translated "Chapter X" + content
@@ -148,86 +282,23 @@ export class TTSService {
           storyLanguage,
           chapterContent,
           chapterTitle,
+          effectiveProvider,
         );
-      }
-
-      // Enhance text with audio prompts if available
-      if (audioPromptConfig) {
-        logger.info('Applying audio prompt configuration', {
-          storyId,
-          chapterNumber,
-          language: audioPromptConfig.language,
-          languageName: audioPromptConfig.languageName,
-          targetAge,
-        });
-
-        chapterText = AudioPromptService.enhanceTextForTTS(
-          chapterText,
-          audioPromptConfig.systemPrompt,
-          audioPromptConfig.instructions,
-        );
-      } else {
-        logger.warn('No audio prompt configuration found, using basic TTS', {
-          storyId,
-          chapterNumber,
-          storyLanguage,
-          targetAge,
-          targetAudience: story.targetAudience,
-        });
-      }
-
-      // Get TTS system prompt for accent enforcement
-      // This is sent as a system instruction to the TTS API on every request
-      const ttsSystemPrompt = await AudioPromptService.getTTSSystemPrompt(storyLanguage, targetAge);
-
-      logger.info('TTS system prompt loaded for accent enforcement', {
-        storyId,
-        chapterNumber,
-        storyLanguage,
-        promptLength: ttsSystemPrompt.length,
-      });
-
-      // Generate audio for the chapter using the TTS provider
-      // Uses intelligent chunking and concatenation for long texts
-      const ttsOptions: TTSOptions = {
-        voice: config.voice,
-        speed: config.speed,
-        model: config.model,
-        language: storyLanguage,
-        systemPrompt: ttsSystemPrompt,
-        chapterNumber,
-      };
-
-      // Smart Provider Detection:
-      // If a voice is specified, check if it belongs to the current provider.
-      // If not, try to switch to the correct provider.
-      let effectiveProvider: TTSProvider = config.provider;
-      let effectiveTTSProvider: ITTSService = this.ttsProvider;
-
-      if (voice) {
-        const detectedProvider = getProviderForVoice(voice);
-        if (detectedProvider && detectedProvider !== config.provider) {
-          logger.info('Switching TTS provider based on requested voice', {
-            requestedVoice: voice,
-            configuredProvider: config.provider,
-            detectedProvider,
-          });
-          try {
-            effectiveTTSProvider = getTTSGateway().getService(detectedProvider);
-            effectiveProvider = detectedProvider;
-            // When switching providers, we should clear the model to let the new service use its default
-            delete ttsOptions.model;
-          } catch (switchError) {
-            logger.warn('Failed to switch TTS provider, falling back to default provider', {
-              error: switchError instanceof Error ? switchError.message : String(switchError),
-              requestedVoice: voice,
-              defaultProvider: config.provider,
-            });
-          }
-        }
       }
 
       const maxTextLength = effectiveTTSProvider.getMaxTextLength();
+      const usageTotals: TTSUsage = { inputTokens: 0, outputTokens: 0 };
+      let usageReported = false;
+      // Per chunk: provider usage when reported, else characters as an input proxy (0 output)
+      const addUsage = (result: TTSResult, chunkText: string): void => {
+        if (result.usage) {
+          usageReported = true;
+          usageTotals.inputTokens += result.usage.inputTokens;
+          usageTotals.outputTokens += result.usage.outputTokens;
+        } else {
+          usageTotals.inputTokens += chunkText.length;
+        }
+      };
       let audioBuffer: Buffer;
       let actualVoice: string = config.voice;
       let actualModel: string = config.model;
@@ -241,16 +312,14 @@ export class TTSService {
         try {
           return await effectiveTTSProvider.synthesize(text, options);
         } catch (synthError) {
-          // Check if it's a voice-related error (usually 404 or specific message)
           const errorMsg = synthError instanceof Error ? synthError.message : String(synthError);
-          const isVoiceError =
-            errorMsg.includes('404') ||
-            errorMsg.toLowerCase().includes('not found') ||
-            errorMsg.toLowerCase().includes('invalid voice') ||
-            errorMsg.toLowerCase().includes('voice not available');
 
-          if (isVoiceError) {
-            const fallbackVoice = getDefaultVoiceForProvider(effectiveProvider);
+          if (isVoiceError(synthError)) {
+            const audienceVoice = resolveDefaultVoice(effectiveProvider, story.targetAudience);
+            const fallbackVoice =
+              audienceVoice !== options.voice
+                ? audienceVoice
+                : getDefaultVoiceForProvider(effectiveProvider);
             logger.warn('TTS synthesis failed for requested voice, falling back to default voice', {
               requestedVoice: options.voice,
               fallbackVoice,
@@ -267,6 +336,40 @@ export class TTSService {
           // If not a voice error, rethrow
           throw synthError;
         }
+      };
+
+      // Optional per-chunk narration direction (Gemini only, behind a flag). Any failure
+      // falls back to the base style for that chunk; narration is never blocked.
+      const directionEnabled = shouldDirectNarration(effectiveProvider);
+      const directionStats = { directedChunks: 0, fallbackChunks: 0 };
+      const synthesizeChunk = async (text: string, chunkIndex: number): Promise<TTSResult> => {
+        if (directionEnabled) {
+          const direction = await directNarration({
+            text,
+            storyLanguage,
+            targetAge,
+            authorId: story.authorId,
+            storyId,
+            chapterNumber,
+            chunkIndex,
+          });
+          if (direction.source === 'llm') {
+            directionStats.directedChunks += 1;
+            return synthesizeWithFallback(text, {
+              ...ttsOptions,
+              segments: direction.segments.map((segment) => {
+                const segmentStyle = resolveChunkStyle(baseStyle, chunkIndex, segment.mood);
+                return { text: segment.text, ...(segmentStyle ? { style: segmentStyle } : {}) };
+              }),
+            });
+          }
+          directionStats.fallbackChunks += 1;
+        }
+        const chunkStyle = resolveChunkStyle(baseStyle, chunkIndex);
+        return synthesizeWithFallback(text, {
+          ...ttsOptions,
+          ...(chunkStyle ? { style: chunkStyle } : {}),
+        });
       };
 
       if (needsChunking(chapterText, maxTextLength)) {
@@ -307,8 +410,9 @@ export class TTSService {
             chunkLength: chunk.text.length,
           });
 
-          const chunkResult = await synthesizeWithFallback(chunk.text, ttsOptions);
+          const chunkResult = await synthesizeChunk(chunk.text, i);
           audioBuffers.push(chunkResult.buffer);
+          addUsage(chunkResult, chunk.text);
 
           // Store first chunk's metadata as the canonical values
           if (i === 0) {
@@ -336,7 +440,8 @@ export class TTSService {
         });
       } else {
         // Text within limit - single synthesis call
-        const ttsResult = await synthesizeWithFallback(chapterText, ttsOptions);
+        const ttsResult = await synthesizeChunk(chapterText, 0);
+        addUsage(ttsResult, chapterText);
         audioBuffer = ttsResult.buffer;
         actualVoice = ttsResult.voice;
         actualModel = ttsResult.model;
@@ -399,6 +504,10 @@ export class TTSService {
         });
       }
 
+      // Measure the real duration of the final MP3; fall back to the word-count estimate
+      const measuredDuration = await measureAudioDurationSeconds(audioBuffer);
+      const duration = measuredDuration ?? estimateDuration(chapterText);
+
       // Record token usage for TTS generation
       try {
         await tokenUsageTrackingService.recordUsage({
@@ -406,8 +515,8 @@ export class TTSService {
           storyId: storyId,
           action: 'audio_generation',
           aiModel: actualModel,
-          inputTokens: chapterText.length, // Characters in the input text
-          outputTokens: 0, // TTS doesn't have traditional output tokens
+          inputTokens: usageTotals.inputTokens,
+          outputTokens: usageTotals.outputTokens,
           inputPromptJson: {
             chapterNumber,
             chapterText: chapterText.substring(0, 500) + '...', // Store first 500 chars for reference
@@ -416,14 +525,13 @@ export class TTSService {
             provider: actualProvider,
             model: actualModel,
             storyLanguage: storyLanguage,
-            audioPromptConfig: audioPromptConfig
-              ? {
-                  language: audioPromptConfig.language,
-                  languageName: audioPromptConfig.languageName,
-                  systemPrompt: audioPromptConfig.systemPrompt.substring(0, 300) + '...', // First 300 chars of system prompt
-                  instructions: audioPromptConfig.instructions,
-                }
-              : null,
+            baseStyle,
+            languageCode: languageCode ?? null,
+            usageReported,
+            narrationDirection: {
+              enabled: directionEnabled,
+              ...directionStats,
+            },
             targetAge,
             isFirstChapter: extraParams?.isFirstChapter || false,
           },
@@ -433,6 +541,8 @@ export class TTSService {
           storyId,
           chapterNumber,
           characters: chapterText.length,
+          inputTokens: usageTotals.inputTokens,
+          outputTokens: usageTotals.outputTokens,
           model: actualModel,
           authorId: story.authorId,
           storyLanguage,
@@ -460,7 +570,7 @@ export class TTSService {
       const result: TTSChapterResult = {
         chapterNumber,
         audioUrl,
-        duration: estimateDuration(chapterText),
+        duration,
         format: 'mp3',
         provider: actualProvider,
         voice: actualVoice,

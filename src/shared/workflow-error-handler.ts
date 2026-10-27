@@ -9,11 +9,7 @@ import { StoryService } from '@/services/story.js';
 
 export interface WorkflowError {
   type:
-    | 'STORY_NOT_FOUND'
-    | 'ORPHANED_RUN'
-    | 'DATABASE_ERROR'
-    | 'VALIDATION_ERROR'
-    | 'UNKNOWN_ERROR';
+    'STORY_NOT_FOUND' | 'ORPHANED_RUN' | 'DATABASE_ERROR' | 'VALIDATION_ERROR' | 'UNKNOWN_ERROR';
   message: string;
   details: Record<string, unknown>;
   recoverable: boolean;

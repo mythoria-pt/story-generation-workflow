@@ -7,11 +7,24 @@ describe('Audiobook workflow retry contract', () => {
     'utf8',
   );
   const audioRoute = readFileSync(join(process.cwd(), 'src', 'routes', 'audio.ts'), 'utf8');
+  const internalRoute = readFileSync(join(process.cwd(), 'src', 'routes', 'internal.ts'), 'utf8');
 
-  it('uses the Gemini default voice and bounds layered retries', () => {
-    expect(workflow).toContain('voice: ${default(payload.voice, "Charon")}');
+  it('defaults to an empty voice so SGW resolves it per audience, and bounds layered retries', () => {
+    expect(workflow).toContain('voice: ${default(map.get(payload, "voice"), "")}');
+    expect(workflow).toContain(
+      'includeBackgroundMusic: ${default(map.get(payload, "includeBackgroundMusic"), true)}',
+    );
+    expect(workflow).not.toContain('default(payload.voice');
+    expect(workflow).toContain('voice: ${voice}');
     expect(workflow).toContain('chapterAudioMaxAttempts: 2');
-    expect(audioRoute).toContain('const selectedVoice = requestedVoice || getTTSConfig().voice;');
+    expect(audioRoute).toContain(
+      "const selectedVoice = isAutoVoice(requestedVoice) ? '' : requestedVoice;",
+    );
+    expect(audioRoute).not.toContain('getTTSConfig().voice');
+    // Chapter routes forward the raw voice; TTSService resolves empty/'auto'
+    expect(internalRoute).toMatch(
+      /generateChapterAudioFromText\(\s*storyId,\s*chapterNumber,\s*chapterContent,\s*storyTitle[^,]*,\s*voice,/,
+    );
     expect(audioRoute).not.toContain("voice: voice || 'coral'");
     expect(audioRoute).not.toContain("voice: voice || 'nova'");
   });

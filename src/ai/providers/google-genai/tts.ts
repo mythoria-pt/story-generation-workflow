@@ -2,16 +2,26 @@
  * Google Gemini TTS (Text-to-Speech) Provider
  * Implements ITTSService for Google's Gemini TTS API.
  *
- * Note: Gemini TTS outputs raw PCM audio at 24kHz, 16-bit, mono.
- * This provider converts PCM to MP3 using fluent-ffmpeg.
+ * Only `gemini-3.8-flash-tts` is supported. It returns WAV (mono, 24kHz, 16-bit), which
+ * this provider converts to MP3 using fluent-ffmpeg. Headerless PCM is still decoded
+ * defensively.
  */
 
 import { FinishReason, GenerateContentResponse, GoogleGenAI } from '@google/genai';
-import { ITTSService, TTSOptions, TTSResult, TTSProvider } from '../../interfaces.js';
+import {
+  ITTSService,
+  TTSOptions,
+  TTSResult,
+  TTSProvider,
+  TTSUsage,
+  TTSSegment,
+} from '../../interfaces.js';
 import { logger } from '@/config/logger.js';
 import { isTransientError, withRetry } from '@/shared/retry-utils.js';
 import { FFMPEG_BINARY } from '@/config/ffmpeg.js';
 import { TTSGenerationError, isTTSGenerationError } from '@/services/tts-errors.js';
+import { GEMINI_TTS_VOICES, type GeminiTTSVoice } from '@/services/voice-registry.js';
+import { stripPauseTags } from '@/shared/tts-text.js';
 import ffmpeg from 'fluent-ffmpeg';
 import { Readable, PassThrough } from 'stream';
 
@@ -26,9 +36,110 @@ const NON_RETRYABLE_FINISH_REASONS = new Set<FinishReason>([
   FinishReason.SPII,
 ]);
 
+interface PcmFormat {
+  sampleRate: number;
+  channels: number;
+}
+
 interface GeminiAudioResponse {
-  pcmBuffer: Buffer;
+  audioBuffer: Buffer;
+  mimeType: string | undefined;
+  /** Set when several WAV parts were merged into headerless s16le PCM. */
+  pcmFormat?: PcmFormat;
+  usage: TTSUsage | undefined;
   metadata: Record<string, unknown>;
+}
+
+const BCP47_PATTERN = /^[a-z]{2,3}(-[A-Za-z0-9]{2,8})+$/;
+
+/**
+ * Return the locale only when it looks like a BCP-47 tag (e.g. 'pt-PT'), else undefined.
+ */
+function normalizeLanguageCode(languageCode: string | undefined): string | undefined {
+  const trimmed = languageCode?.trim();
+  return trimmed && BCP47_PATTERN.test(trimmed) ? trimmed : undefined;
+}
+
+/**
+ * Detect WAV payloads by mime type or RIFF magic bytes.
+ */
+function isWavAudio(buffer: Buffer, mimeType: string | undefined): boolean {
+  if (mimeType && /audio\/(x-)?wav|audio\/wave/i.test(mimeType)) return true;
+  return buffer.length >= 4 && buffer.subarray(0, 4).toString('ascii') === 'RIFF';
+}
+
+const DEFAULT_PCM_FORMAT: PcmFormat = { sampleRate: 24000, channels: 1 };
+const FFMPEG_CONVERSION_TIMEOUT_MS = 120_000;
+
+/**
+ * Parse a WAV file by walking its RIFF chunks (headers are not always 44 bytes; extra
+ * chunks such as LIST may precede `data`). Returns the format and the PCM payload.
+ */
+export function parseWav(buffer: Buffer): {
+  format: PcmFormat;
+  bitsPerSample: number;
+  pcm: Buffer;
+} {
+  if (
+    buffer.length < 12 ||
+    buffer.subarray(0, 4).toString('ascii') !== 'RIFF' ||
+    buffer.subarray(8, 12).toString('ascii') !== 'WAVE'
+  ) {
+    throw new Error('Not a RIFF/WAVE buffer');
+  }
+
+  let format: PcmFormat | undefined;
+  let bitsPerSample = 16;
+  let offset = 12;
+  while (offset + 8 <= buffer.length) {
+    const id = buffer.subarray(offset, offset + 4).toString('ascii');
+    const size = buffer.readUInt32LE(offset + 4);
+    const bodyStart = offset + 8;
+    if (id === 'fmt ' && bodyStart + 16 <= buffer.length) {
+      format = {
+        channels: buffer.readUInt16LE(bodyStart + 2),
+        sampleRate: buffer.readUInt32LE(bodyStart + 4),
+      };
+      bitsPerSample = buffer.readUInt16LE(bodyStart + 14);
+    } else if (id === 'data') {
+      // Streamed WAVs may declare a bogus size; clamp to what is actually present
+      const end = Math.min(bodyStart + size, buffer.length);
+      if (!format) {
+        throw new Error('WAV data chunk found before fmt chunk');
+      }
+      return { format, bitsPerSample, pcm: buffer.subarray(bodyStart, end) };
+    }
+    // Chunks are word-aligned
+    offset = bodyStart + size + (size % 2);
+  }
+  throw new Error('WAV buffer has no data chunk');
+}
+
+/**
+ * Merge several WAV buffers into one headerless s16le PCM payload, using the first
+ * part's sample rate and channel count.
+ */
+export function mergeWavParts(buffers: Buffer[]): { pcm: Buffer; format: PcmFormat } {
+  const parsed = buffers.map((buffer) => parseWav(buffer));
+  const first = parsed[0];
+  if (!first) {
+    throw new Error('No WAV parts to merge');
+  }
+  for (const part of parsed) {
+    if (part.bitsPerSample !== 16) {
+      throw new Error(`Unsupported WAV bit depth: ${part.bitsPerSample}`);
+    }
+    if (
+      part.format.sampleRate !== first.format.sampleRate ||
+      part.format.channels !== first.format.channels
+    ) {
+      logger.warn('Gemini TTS WAV parts differ in format; using the first part format', {
+        first: first.format,
+        other: part.format,
+      });
+    }
+  }
+  return { pcm: Buffer.concat(parsed.map((part) => part.pcm)), format: first.format };
 }
 
 function summarizeGeminiResponse(response: GenerateContentResponse): Record<string, unknown> {
@@ -79,7 +190,7 @@ function extractGeminiAudio(response: GenerateContentResponse): GeminiAudioRespo
     });
   }
 
-  const audioBuffers = candidates
+  const audioParts = candidates
     .map((candidate) =>
       (candidate.content?.parts ?? []).flatMap((part) => {
         const data = part.inlineData?.data;
@@ -87,12 +198,12 @@ function extractGeminiAudio(response: GenerateContentResponse): GeminiAudioRespo
         if (!data || (mimeType && !mimeType.startsWith('audio/'))) {
           return [];
         }
-        return [Buffer.from(data, 'base64')];
+        return [{ buffer: Buffer.from(data, 'base64'), mimeType }];
       }),
     )
-    .find((buffers) => buffers.length > 0);
+    .find((parts) => parts.length > 0);
 
-  if (!audioBuffers) {
+  if (!audioParts) {
     throw new TTSGenerationError('Gemini TTS returned no audio data', {
       code: 'GEMINI_TTS_EMPTY_AUDIO',
       statusCode: 502,
@@ -101,8 +212,43 @@ function extractGeminiAudio(response: GenerateContentResponse): GeminiAudioRespo
     });
   }
 
+  const usageMetadata = response.usageMetadata;
+  const audioTokens = usageMetadata?.candidatesTokensDetails?.find(
+    (detail) => detail.modality === 'AUDIO',
+  )?.tokenCount;
+  const usage: TTSUsage | undefined = usageMetadata
+    ? {
+        inputTokens: usageMetadata.promptTokenCount ?? 0,
+        outputTokens: audioTokens ?? usageMetadata.candidatesTokenCount ?? 0,
+      }
+    : undefined;
+
+  // Each WAV part carries its own RIFF header, so parts cannot be byte-concatenated.
+  if (audioParts.length > 1 && audioParts.every((p) => isWavAudio(p.buffer, p.mimeType))) {
+    try {
+      const merged = mergeWavParts(audioParts.map((part) => part.buffer));
+      return {
+        audioBuffer: merged.pcm,
+        mimeType: `audio/L16;codec=pcm;rate=${merged.format.sampleRate}`,
+        pcmFormat: merged.format,
+        usage,
+        metadata,
+      };
+    } catch (error) {
+      throw new TTSGenerationError('Gemini TTS returned unreadable WAV audio parts', {
+        code: 'GEMINI_TTS_INVALID_WAV',
+        statusCode: 502,
+        retryable: true,
+        details: metadata,
+        cause: error,
+      });
+    }
+  }
+
   return {
-    pcmBuffer: Buffer.concat(audioBuffers),
+    audioBuffer: Buffer.concat(audioParts.map((part) => part.buffer)),
+    mimeType: audioParts[0]?.mimeType,
+    usage,
     metadata,
   };
 }
@@ -164,33 +310,42 @@ export interface GoogleGenAITTSConfig {
   defaultSpeed?: number | undefined;
 }
 
-/**
- * Curated Google Gemini TTS voices for storytelling
- * Selected 8 voices with diverse characteristics suitable for audiobooks
- */
-export const GEMINI_TTS_VOICES = [
-  'Charon', // Informative - good for narration (DEFAULT)
-  'Aoede', // Breezy - light and pleasant
-  'Puck', // Upbeat - energetic delivery
-  'Kore', // Firm - confident and clear
-  'Fenrir', // Excitable - dynamic storytelling
-  'Orus', // Firm - authoritative
-  'Zephyr', // Bright - cheerful tone
-  'Sulafat', // Warm - comfortable and inviting
-] as const;
-
-export type GeminiTTSVoice = (typeof GEMINI_TTS_VOICES)[number];
+/** Curated voices live in the voice registry; re-exported for provider consumers. */
+export { GEMINI_TTS_VOICES };
+export type { GeminiTTSVoice };
 
 /**
- * Google Gemini TTS models
+ * The only supported Google Gemini TTS model.
  */
-export const GEMINI_TTS_MODELS = [
-  'gemini-3.1-flash-tts-preview',
-  'gemini-2.5-pro-preview-tts',
-  'gemini-2.5-flash-preview-tts',
-] as const;
+export const DEFAULT_GEMINI_TTS_MODEL = 'gemini-3.8-flash-tts';
+
+export const GEMINI_TTS_MODELS = [DEFAULT_GEMINI_TTS_MODEL] as const;
 
 export type GeminiTTSModel = (typeof GEMINI_TTS_MODELS)[number];
+
+export function isSupportedGeminiTTSModel(model: string): model is GeminiTTSModel {
+  return (GEMINI_TTS_MODELS as readonly string[]).includes(model);
+}
+
+/**
+ * Build the request parts. The transcript is sent verbatim; delivery direction travels
+ * as per-part speechMetadata.style, never inside the spoken text. When segments are
+ * given, each becomes its own styled part (in order) so the mood can change mid-chunk.
+ */
+export function buildGeminiSpeechParts(
+  text: string,
+  style: string | undefined,
+  segments: TTSSegment[] | undefined,
+): Array<{ text: string; speechMetadata?: { style: string } }> {
+  const usable = (segments ?? []).filter((segment) => segment.text.trim() !== '');
+  const source = usable.length > 0 ? usable : [{ text, style }];
+  return source.map((segment) => {
+    const partStyle = segment.style?.trim();
+    return partStyle
+      ? { text: segment.text, speechMetadata: { style: partStyle } }
+      : { text: segment.text };
+  });
+}
 
 export class GoogleGenAITTSService implements ITTSService {
   private client: GoogleGenAI;
@@ -199,24 +354,45 @@ export class GoogleGenAITTSService implements ITTSService {
 
   constructor(config: GoogleGenAITTSConfig) {
     this.client = new GoogleGenAI({ apiKey: config.apiKey });
-    this.model = config.model || 'gemini-3.1-flash-tts-preview';
+    this.model = config.model || DEFAULT_GEMINI_TTS_MODEL;
+    if (!isSupportedGeminiTTSModel(this.model)) {
+      throw new Error(
+        `Unsupported Gemini TTS model "${this.model}". Only ${DEFAULT_GEMINI_TTS_MODEL} is supported.`,
+      );
+    }
     this.defaultVoice = config.defaultVoice || 'Charon';
     // Note: Gemini TTS doesn't support speed parameter directly
   }
 
   /**
-   * Convert PCM audio buffer to MP3 using ffmpeg
+   * Convert Gemini audio to MP3 using ffmpeg.
+   * WAV payloads are parsed by ffmpeg itself because the header length varies; a payload
+   * without a RIFF header is treated as raw 24kHz 16-bit mono little-endian PCM.
    */
-  private async convertPcmToMp3(pcmBuffer: Buffer): Promise<Buffer> {
+  private async convertToMp3(
+    audioBuffer: Buffer,
+    wav: boolean,
+    pcmFormat: PcmFormat = DEFAULT_PCM_FORMAT,
+  ): Promise<Buffer> {
     return new Promise((resolve, reject) => {
       const chunks: Buffer[] = [];
+      let settled = false;
 
-      // Create a readable stream from the PCM buffer
+      const finish = (error?: Error): void => {
+        clearTimeout(timer);
+        if (settled) return;
+        settled = true;
+        if (error) {
+          reject(error);
+        } else {
+          resolve(Buffer.concat(chunks));
+        }
+      };
+
       const inputStream = new Readable();
-      inputStream.push(pcmBuffer);
+      inputStream.push(audioBuffer);
       inputStream.push(null);
 
-      // Create output stream
       const outputStream = new PassThrough();
 
       outputStream.on('data', (chunk: Buffer) => {
@@ -224,18 +400,40 @@ export class GoogleGenAITTSService implements ITTSService {
       });
 
       outputStream.on('end', () => {
-        resolve(Buffer.concat(chunks));
+        finish();
       });
 
       outputStream.on('error', (err: unknown) => {
-        reject(err instanceof Error ? err : new Error(String(err)));
+        finish(err instanceof Error ? err : new Error(String(err)));
       });
 
-      // Convert PCM to MP3
-      // Gemini TTS outputs: 24kHz, 16-bit, mono, little-endian PCM
-      ffmpeg(inputStream)
-        .inputFormat('s16le') // signed 16-bit little-endian
-        .inputOptions(['-ar 24000', '-ac 1']) // 24kHz, mono
+      const command = ffmpeg(inputStream);
+
+      const timer = setTimeout(() => {
+        logger.error('FFmpeg conversion timed out', { timeoutMs: FFMPEG_CONVERSION_TIMEOUT_MS });
+        finish(
+          new TTSGenerationError('FFmpeg MP3 conversion timed out', {
+            code: 'FFMPEG_CONVERSION_TIMEOUT',
+            statusCode: 504,
+            retryable: true,
+          }),
+        );
+        try {
+          command.kill('SIGKILL');
+        } catch {
+          // Process may already be gone
+        }
+      }, FFMPEG_CONVERSION_TIMEOUT_MS);
+
+      if (wav) {
+        command.inputFormat('wav');
+      } else {
+        command
+          .inputFormat('s16le')
+          .inputOptions([`-ar ${pcmFormat.sampleRate}`, `-ac ${pcmFormat.channels}`]);
+      }
+
+      command
         .audioCodec('libmp3lame')
         .audioBitrate('128k')
         .format('mp3')
@@ -243,7 +441,7 @@ export class GoogleGenAITTSService implements ITTSService {
           logger.error('FFmpeg conversion error', {
             error: err.message,
           });
-          reject(err);
+          finish(err);
         })
         .pipe(outputStream, { end: true });
     });
@@ -254,84 +452,62 @@ export class GoogleGenAITTSService implements ITTSService {
    */
   async synthesize(text: string, options?: TTSOptions): Promise<TTSResult> {
     const voice = options?.voice || this.defaultVoice;
-    const model = options?.model || this.model;
+    const apiModel = options?.model || this.model;
 
-    // Normalize model name to match API requirements
-    let apiModel = model;
-    if (model === 'gemini-3.1-flash-tts') {
-      apiModel = 'gemini-3.1-flash-tts-preview';
-    } else if (model === 'gemini-2.5-pro-tts') {
-      apiModel = 'gemini-2.5-pro-preview-tts';
-    } else if (model === 'gemini-2.5-flash-tts') {
-      apiModel = 'gemini-2.5-flash-preview-tts';
-    } else if (model === 'gemini-3.1-flash') {
-      apiModel = 'gemini-3.1-flash-tts-preview';
-    } else if (model === 'gemini-2.5-pro') {
-      apiModel = 'gemini-2.5-pro-preview-tts';
+    if (!isSupportedGeminiTTSModel(apiModel)) {
+      throw new TTSGenerationError(
+        `Unsupported Gemini TTS model "${apiModel}". Only ${DEFAULT_GEMINI_TTS_MODEL} is supported.`,
+        {
+          code: 'GEMINI_TTS_UNSUPPORTED_MODEL',
+          // Configuration error: non-retryable, like BACKGROUND_MUSIC_UNAVAILABLE
+          statusCode: 424,
+          retryable: false,
+        },
+      );
     }
 
-    const systemPrompt = options?.systemPrompt;
-    const speed = options?.speed || 1.0;
+    const style = options?.style?.trim() || undefined;
     const language = options?.language;
+    const languageCode = normalizeLanguageCode(options?.languageCode ?? language);
     const chapterNumber = options?.chapterNumber;
 
     try {
       logger.info('Generating TTS with Google Gemini', {
         model: apiModel,
-        originalModel: model,
         voice,
         textLength: text.length,
-        hasSystemPrompt: !!systemPrompt,
-        speed,
+        hasStyle: !!style,
+        segmentCount: options?.segments?.length ?? 0,
+        languageCode,
         language,
       });
 
-      // Use an explicit speech-synthesis preamble so the Gemini TTS classifier
-      // does not mistake the request for ordinary text generation.
-      let contentText = [
-        'Generate single-speaker speech from the transcript below.',
-        'Speak only the transcript. Do not read the instructions or section labels.',
-        'Return audio only; do not return text.',
-        '',
-      ].join('\n');
-
-      // 1. Add System Prompt / Style Instructions
-      if (systemPrompt) {
-        // Enhance system prompt for the new model's expressive capabilities
-        const enhancedSystemPrompt =
-          apiModel === 'gemini-3.1-flash-tts-preview'
-            ? `${systemPrompt}\n\nIMPORTANT: Use high emotional range. Honor all inline audio tags like [whispers], [laughs], [excited], and [long pause] to create a compelling performance.`
-            : systemPrompt;
-
-        contentText += `### DIRECTOR'S NOTES\n${enhancedSystemPrompt}\n`;
+      // Pause tags are never used: the model can read them aloud. Strip any stray one from
+      // the text and from every segment before it reaches the request.
+      const cleanText = stripPauseTags(text);
+      const cleanSegments = options?.segments?.map((segment) => ({
+        ...segment,
+        text: stripPauseTags(segment.text),
+      }));
+      const strippedPauseTags =
+        cleanText !== text ||
+        (cleanSegments?.some(
+          (segment, index) => segment.text !== options?.segments?.[index]?.text,
+        ) ??
+          false);
+      if (strippedPauseTags) {
+        logger.debug('Stripped stray pause tags from the Gemini TTS transcript', {
+          model: apiModel,
+          chapterNumber,
+        });
       }
 
-      // 2. Add Speed Instruction if not 1.0 (Gemini TTS doesn't support speed param directly)
-      if (speed !== 1.0) {
-        let paceInstruction = '';
-        if (speed < 0.8) paceInstruction = 'Speak very slowly and clearly.';
-        else if (speed < 1.0) paceInstruction = 'Speak slightly slower than normal.';
-        else if (speed > 1.2) paceInstruction = 'Speak fast and energetically.';
-        else if (speed > 1.0) paceInstruction = 'Speak slightly faster than normal.';
-
-        if (paceInstruction) {
-          if (!contentText.includes("DIRECTOR'S NOTES")) {
-            contentText += `### DIRECTOR'S NOTES\n`;
-          }
-          contentText += `Pacing: ${paceInstruction}\n`;
-        }
-      }
-
-      // 3. Add Language Instruction if systemPrompt didn't cover it
-      if (!systemPrompt && language) {
-        if (!contentText.includes("DIRECTOR'S NOTES")) {
-          contentText += `### DIRECTOR'S NOTES\n`;
-        }
-        contentText += `Language: Read this text in ${language}.\n`;
-      }
-
-      // 4. Add Transcript
-      contentText += `\n### TRANSCRIPT\n${text}`;
+      const contents = [
+        {
+          role: 'user',
+          parts: buildGeminiSpeechParts(cleanText, style, cleanSegments),
+        },
+      ];
 
       // Gemini TTS uses the generate_content API with audio response modality
       const synthesis = await withRetry(
@@ -349,10 +525,11 @@ export class GoogleGenAITTSService implements ITTSService {
 
           const response = await this.client.models.generateContent({
             model: apiModel,
-            contents: contentText,
+            contents,
             config: {
               responseModalities: ['AUDIO'],
               speechConfig: {
+                ...(languageCode ? { languageCode } : {}),
                 voiceConfig: {
                   prebuiltVoiceConfig: {
                     voiceName: voice,
@@ -362,8 +539,8 @@ export class GoogleGenAITTSService implements ITTSService {
             },
           });
 
-          // Validate within the retry boundary. Gemini 3.1 TTS Preview can
-          // occasionally return text or an empty candidate instead of audio.
+          // Validate within the retry boundary. Gemini TTS can occasionally
+          // return text or an empty candidate instead of audio.
           return extractGeminiAudio(response);
         },
         {
@@ -376,20 +553,24 @@ export class GoogleGenAITTSService implements ITTSService {
         },
       );
 
-      const pcmBuffer = synthesis.pcmBuffer;
+      const wav = isWavAudio(synthesis.audioBuffer, synthesis.mimeType);
 
-      logger.debug('Gemini TTS synthesis successful, converting PCM to MP3', {
-        model,
+      logger.debug('Gemini TTS synthesis successful, converting audio to MP3', {
+        model: apiModel,
         voice,
-        pcmBufferSize: pcmBuffer.length,
+        audioBufferSize: synthesis.audioBuffer.length,
+        mimeType: synthesis.mimeType,
+        wav,
+        pcmFormat: synthesis.pcmFormat,
         response: synthesis.metadata,
       });
 
-      // Convert PCM to MP3
-      const mp3Buffer = await this.convertPcmToMp3(pcmBuffer);
+      const mp3Buffer = synthesis.pcmFormat
+        ? await this.convertToMp3(synthesis.audioBuffer, wav, synthesis.pcmFormat)
+        : await this.convertToMp3(synthesis.audioBuffer, wav);
 
-      logger.debug('PCM to MP3 conversion complete', {
-        pcmSize: pcmBuffer.length,
+      logger.debug('Audio to MP3 conversion complete', {
+        sourceSize: synthesis.audioBuffer.length,
         mp3Size: mp3Buffer.length,
       });
 
@@ -398,8 +579,9 @@ export class GoogleGenAITTSService implements ITTSService {
         format: 'mp3',
         sampleRate: 24000, // Gemini TTS outputs at 24kHz
         voice,
-        model: model.endsWith('-tts') ? model : `${model}-tts`, // Ensure tracking sees it as TTS
+        model: apiModel,
         provider: 'google-genai',
+        ...(synthesis.usage ? { usage: synthesis.usage } : {}),
       };
     } catch (error) {
       logger.error('Google Gemini TTS synthesis failed', {
@@ -415,13 +597,15 @@ export class GoogleGenAITTSService implements ITTSService {
   }
 
   /**
-   * Get the maximum text length supported by Gemini TTS
-   * Gemini 3.1 TTS quality can drift for outputs longer than a few minutes.
-   * Keep each request around 400 words so chapters are synthesized in stable,
-   * retryable segments and concatenated afterward.
+   * Get the maximum text length supported by Gemini TTS.
+   * gemini-3.8-flash-tts limits: 8,192 input tokens and 16,384 output tokens (about 655 s
+   * of audio). 4,500 characters is roughly 310 s of audio (~7,800 audio tokens) per call,
+   * well inside both limits; a single ~4,900-character request was validated live and
+   * returned a complete transcript in ~47 s. Chapters above this are chunked and
+   * concatenated afterward.
    */
   getMaxTextLength(): number {
-    return 2500;
+    return 4500;
   }
 
   /**

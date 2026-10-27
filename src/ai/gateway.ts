@@ -74,7 +74,7 @@ export class AIGateway {
           throw new Error('Google GenAI API Key is required for Google Imagen service');
         }
         const selectedModel =
-          this.config.credentials.googleGenAIImageModel || 'gemini-3.1-flash-image';
+          this.config.credentials.googleGenAIImageModel || 'gemini-nano-banana-2.1';
         const service = new GoogleGenAIImageService({
           apiKey: this.config.credentials.googleGenAIApiKey,
           model: selectedModel,

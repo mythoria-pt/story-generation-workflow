@@ -141,6 +141,10 @@ export class OpenAITextService implements ITextGenerationService {
     try {
       return await this.completeWithResponsesAPI(prompt, options);
     } catch (error) {
+      if (options?.privateContent) {
+        logger.error('Private OpenAI text generation failed', { model: options.model });
+        throw new Error('Private text generation failed');
+      }
       logger.error('OpenAI text generation failed', {
         error: error instanceof Error ? error.message : String(error),
         promptLength: prompt.length,
@@ -205,7 +209,7 @@ export class OpenAITextService implements ITextGenerationService {
       temperature: options?.temperature || 1,
       max_output_tokens: maxOut,
       top_p: 1,
-      store: true,
+      store: !options?.privateContent,
     };
     // Configure JSON schema if provided
     if (options?.jsonSchema) {
@@ -227,7 +231,9 @@ export class OpenAITextService implements ITextGenerationService {
     logger.info('OpenAI Responses API Debug - Request Details', {
       model: requestBody.model,
       inputLength: requestBody.input.length,
-      inputPreview: JSON.stringify(requestBody.input).substring(0, 300) + '...',
+      inputPreview: options?.privateContent
+        ? '[omitted]'
+        : JSON.stringify(requestBody.input).substring(0, 300) + '...',
       temperature: requestBody.temperature,
       maxOutputTokens: requestBody.max_output_tokens,
       hasJsonSchema: !!requestBody.text.format.schema,
@@ -236,7 +242,7 @@ export class OpenAITextService implements ITextGenerationService {
     });
 
     // For full debugging, log the complete request
-    if (process.env.DEBUG_AI_FULL_PROMPTS === 'true') {
+    if (!options?.privateContent && process.env.DEBUG_AI_FULL_PROMPTS === 'true') {
       logger.debug('OpenAI Responses API Debug - Full Request', {
         requestBody,
         contextId: options?.contextId,
@@ -250,6 +256,7 @@ export class OpenAITextService implements ITextGenerationService {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(requestBody),
+      ...(options?.signal && { signal: options.signal }),
     });
 
     if (!response.ok) {
@@ -257,11 +264,17 @@ export class OpenAITextService implements ITextGenerationService {
       logger.error('OpenAI Responses API Debug - Request Failed', {
         status: response.status,
         statusText: response.statusText,
-        errorData,
-        requestPreview: JSON.stringify(requestBody).substring(0, 500),
+        errorData: options?.privateContent ? '[omitted]' : errorData,
+        requestPreview: options?.privateContent
+          ? '[omitted]'
+          : JSON.stringify(requestBody).substring(0, 500),
         contextId: options?.contextId,
       });
-      throw new Error(`OpenAI Responses API error: ${response.status} - ${errorData}`);
+      throw new Error(
+        options?.privateContent
+          ? `OpenAI Responses API error: ${response.status}`
+          : `OpenAI Responses API error: ${response.status} - ${errorData}`,
+      );
     }
 
     const data: OpenAIResponseData = await response.json();
@@ -276,7 +289,7 @@ export class OpenAITextService implements ITextGenerationService {
     });
 
     // For full debugging, log the complete response
-    if (process.env.DEBUG_AI_FULL_RESPONSES === 'true') {
+    if (!options?.privateContent && process.env.DEBUG_AI_FULL_RESPONSES === 'true') {
       logger.debug('OpenAI Responses API Debug - Full Response', {
         fullResponse: data,
         contextId: options?.contextId,
@@ -290,9 +303,7 @@ export class OpenAITextService implements ITextGenerationService {
 
     if (!result) {
       logger.error('OpenAI Responses API Debug - No text in response', {
-        data,
-        outputMessage,
-        textContent,
+        ...(options?.privateContent ? {} : { data, outputMessage, textContent }),
         contextId: options?.contextId,
       });
       throw new Error('No text generated from OpenAI Responses API');
@@ -301,11 +312,11 @@ export class OpenAITextService implements ITextGenerationService {
     // DEBUG: Log the extracted result
     logger.info('OpenAI Responses API Debug - Extracted Result', {
       resultLength: result.length,
-      resultPreview: result.substring(0, 300) + '...',
+      resultPreview: options?.privateContent ? '[omitted]' : result.substring(0, 300) + '...',
       startsWithBackticks: result.startsWith('```'),
       containsJsonMarkers: result.includes('```json') || result.includes('```'),
-      firstChar: result.charAt(0),
-      lastChar: result.charAt(result.length - 1),
+      firstChar: options?.privateContent ? '' : result.charAt(0),
+      lastChar: options?.privateContent ? '' : result.charAt(result.length - 1),
       contextId: options?.contextId,
     }); // Store response_id for future stateful conversation continuity
     if (options?.contextId && data.id) {

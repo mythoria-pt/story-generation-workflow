@@ -6,6 +6,8 @@
 import { countWords } from '@/shared/utils.js';
 import { AudioPromptService } from './audio-prompt.js';
 import { TTSProvider } from '@/ai/interfaces.js';
+import { getDefaultVoiceForProvider, isKnownVoiceForProvider } from './voice-registry.js';
+import { stripPauseTags } from '@/shared/tts-text.js';
 
 export interface TTSConfig {
   provider: TTSProvider;
@@ -15,43 +17,11 @@ export interface TTSConfig {
   language: string;
 }
 
-const OPENAI_TTS_VOICES = new Set([
-  'alloy',
-  'ash',
-  'ballad',
-  'coral',
-  'echo',
-  'fable',
-  'nova',
-  'onyx',
-  'sage',
-  'shimmer',
-  'verse',
-]);
-
-const GEMINI_TTS_VOICES = new Set([
-  'Charon',
-  'Aoede',
-  'Puck',
-  'Kore',
-  'Fenrir',
-  'Orus',
-  'Zephyr',
-  'Sulafat',
-]);
-
 /**
  * Get default voice for a given TTS provider
  */
 export function getDefaultVoice(provider: TTSProvider): string {
-  switch (provider) {
-    case 'openai':
-      return 'coral';
-    case 'google-genai':
-      return 'Charon';
-    default:
-      return 'coral';
-  }
+  return getDefaultVoiceForProvider(provider);
 }
 
 /**
@@ -64,9 +34,8 @@ export function normalizeTTSVoice(
   fallbackVoice = getDefaultVoice(provider),
 ): { voice: string; wasFallback: boolean } {
   const voice = requestedVoice?.trim() || fallbackVoice;
-  const allowedVoices = provider === 'google-genai' ? GEMINI_TTS_VOICES : OPENAI_TTS_VOICES;
 
-  if (allowedVoices.has(voice)) {
+  if (isKnownVoiceForProvider(voice, provider)) {
     return { voice, wasFallback: false };
   }
 
@@ -81,7 +50,7 @@ export function getDefaultModel(provider: TTSProvider): string {
     case 'openai':
       return 'gpt-4o-mini-tts';
     case 'google-genai':
-      return 'gemini-3.1-flash-tts-preview';
+      return 'gemini-3.8-flash-tts';
     default:
       return 'gpt-4o-mini-tts';
   }
@@ -101,59 +70,58 @@ export function getTTSConfig(): TTSConfig {
   };
 }
 
+const ENGLISH_SMALL_NUMBERS = [
+  'zero',
+  'one',
+  'two',
+  'three',
+  'four',
+  'five',
+  'six',
+  'seven',
+  'eight',
+  'nine',
+  'ten',
+  'eleven',
+  'twelve',
+  'thirteen',
+  'fourteen',
+  'fifteen',
+  'sixteen',
+  'seventeen',
+  'eighteen',
+  'nineteen',
+  'twenty',
+];
+
+export interface ProcessTextForTTSOptions {
+  provider?: TTSProvider;
+  /** Story locale, e.g. 'pt-PT' */
+  language?: string;
+}
+
 /**
- * Process text to optimize for TTS pronunciation and flow
+ * Whether small numbers should be spelled out as English words.
+ * Only OpenAI narrating English text benefits; Gemini reads digits natively in every
+ * language, and English words would be wrong for pt/es/fr/de stories.
  */
-export function processTextForTTS(text: string): string {
-  const config = getTTSConfig();
-  const isGemini31 = config.model.includes('gemini-3.1');
+function shouldSpellSmallNumbers(options: ProcessTextForTTSOptions): boolean {
+  return options.provider === 'openai' && /^en(-|$)/i.test(options.language?.trim() ?? '');
+}
 
-  // Apply TTS best practices
-  let processedText = text
-    // Add natural pauses with commas for better breathing
-    .replace(/([.!?])\s+/g, '$1 ')
-    // Handle numbers - spell out small numbers
-    .replace(/\b(\d{1,2})\b/g, (match, num) => {
-      const number = parseInt(num);
-      const words = [
-        'zero',
-        'one',
-        'two',
-        'three',
-        'four',
-        'five',
-        'six',
-        'seven',
-        'eight',
-        'nine',
-        'ten',
-        'eleven',
-        'twelve',
-        'thirteen',
-        'fourteen',
-        'fifteen',
-        'sixteen',
-        'seventeen',
-        'eighteen',
-        'nineteen',
-        'twenty',
-      ];
-      return number <= 20 && words[number] ? words[number] : match;
+/**
+ * Process text to optimize for TTS pronunciation and flow.
+ * Body text is passed through verbatim (no inline tags): Gemini reads the transcript as
+ * written and infers prosody from punctuation. Pauses come from paragraph breaks.
+ */
+export function processTextForTTS(text: string, options: ProcessTextForTTSOptions = {}): string {
+  let processedText = text.replace(/([.!?])\s+/g, '$1 ');
+
+  if (shouldSpellSmallNumbers(options)) {
+    processedText = processedText.replace(/\b(\d{1,2})\b/g, (match, num: string) => {
+      const number = parseInt(num, 10);
+      return ENGLISH_SMALL_NUMBERS[number] ?? match;
     });
-
-  // Use expressive tags for Gemini 3.1
-  if (isGemini31) {
-    processedText = processedText
-      // Convert ellipses to long pauses
-      .replace(/\.\.\./g, ' [long pause] ')
-      // Add short pauses for certain punctuation if they don't already have one
-      .replace(/([:;])\s*/g, '$1 [short pause] ')
-      // Clean up multiple tags
-      .replace(/(\[short pause\]\s*)+/g, '[short pause] ')
-      .replace(/(\[long pause\]\s*)+/g, '[long pause] ');
-  } else {
-    // Legacy pause handling
-    processedText = processedText.replace(/\.\.\./g, '... ');
   }
 
   return (
@@ -174,25 +142,6 @@ export function estimateDuration(text: string): number {
   const wordCount = countWords(text);
   const wordsPerMinute = 140;
   return Math.ceil((wordCount / wordsPerMinute) * 60); // return seconds
-}
-
-/**
- * Get maximum chunk size (in characters) for a given TTS provider
- * Each provider has different limits for text input per request
- */
-export function getMaxChunkSize(provider?: TTSProvider): number {
-  const effectiveProvider = provider || getTTSConfig().provider;
-  switch (effectiveProvider) {
-    case 'openai':
-      // OpenAI TTS has a 4096 character limit per request
-      return 4096;
-    case 'google-genai':
-      // Gemini TTS supports longer text - using conservative 8000 char limit
-      // Actual limit may be higher but this provides safe margin
-      return 8000;
-    default:
-      return 4096;
-  }
 }
 
 /**
@@ -262,6 +211,20 @@ export async function getMythoriaCreditMessage(
 }
 
 /**
+ * Inline pause tags (`<short pause>` / `<long pause>`) are deliberately not used: Gemini can
+ * read them aloud (translated), and a paragraph break already produces the same pause.
+ * `stripPauseTags` is kept as a defensive sanitizer for text sent to any provider.
+ */
+export { stripPauseTags };
+
+/**
+ * Join the header pieces and the body with a blank line (a paragraph break is the pause).
+ */
+function joinWithParagraphs(parts: string[]): string {
+  return parts.join('\n\n');
+}
+
+/**
  * Build the complete first chapter audio text with story intro
  */
 export async function buildFirstChapterAudioText(
@@ -271,31 +234,27 @@ export async function buildFirstChapterAudioText(
   storyLanguage: string,
   chapterContent: string,
   chapterTitle?: string,
+  provider: TTSProvider = getTTSConfig().provider,
 ): Promise<string> {
-  let text = storyTitle + '.';
+  const parts: string[] = [`${storyTitle}.`];
 
   // Add dedicatory message if it exists
   if (dedicatoryMessage && dedicatoryMessage.trim()) {
-    text += ` ${dedicatoryMessage.trim()}.`;
+    parts.push(`${dedicatoryMessage.trim()}.`);
   }
 
   // Add the Mythoria credit message
-  const creditMessage = await getMythoriaCreditMessage(storyLanguage, authorName);
-  text += ` ${creditMessage}`;
+  parts.push(await getMythoriaCreditMessage(storyLanguage, authorName));
 
   // Add translated "Chapter 1"
   const chapterWord = await getTranslatedChapter(storyLanguage);
   const trimmedTitle = chapterTitle?.trim();
-  if (trimmedTitle) {
-    text += ` ${chapterWord} 1 - ${trimmedTitle}.`;
-  } else {
-    text += ` ${chapterWord} 1.`;
-  }
+  parts.push(trimmedTitle ? `${chapterWord} 1 - ${trimmedTitle}.` : `${chapterWord} 1.`);
 
   // Add the processed chapter content
-  text += ` ${processTextForTTS(chapterContent)}`;
+  parts.push(processTextForTTS(chapterContent, { provider, language: storyLanguage }));
 
-  return text;
+  return joinWithParagraphs(parts);
 }
 
 /**
@@ -306,15 +265,16 @@ export async function buildChapterAudioText(
   storyLanguage: string,
   chapterContent: string,
   chapterTitle?: string,
+  provider: TTSProvider = getTTSConfig().provider,
 ): Promise<string> {
   const chapterWord = await getTranslatedChapter(storyLanguage);
   const trimmedTitle = chapterTitle?.trim();
-  let text = trimmedTitle
+  const heading = trimmedTitle
     ? `${chapterWord} ${chapterNumber} - ${trimmedTitle}.`
     : `${chapterWord} ${chapterNumber}.`;
 
-  // Add the processed chapter content
-  text += ` ${processTextForTTS(chapterContent)}`;
-
-  return text;
+  return joinWithParagraphs([
+    heading,
+    processTextForTTS(chapterContent, { provider, language: storyLanguage }),
+  ]);
 }

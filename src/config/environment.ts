@@ -35,7 +35,19 @@ if (nodeEnv === 'production') {
 }
 
 // Environment schema based on .env.schema.json
+/**
+ * Boolean flag: case-insensitive, trimmed 'true'/'false'/'1'/'0'; empty or unset is false.
+ * Mirrored by the pattern in .env.schema.json.
+ */
+export const booleanFlagSchema = z
+  .string()
+  .optional()
+  .transform((v) => (v ?? '').trim().toLowerCase())
+  .pipe(z.enum(['', 'true', 'false', '1', '0']))
+  .transform((v) => v === 'true' || v === '1');
+
 const envSchema = z.object({
+  STORY_TEMPLATES_ENABLED: z.enum(['true', 'false']).default('false'),
   // Added 'test' to support Jest and other test runners without failing validation
   NODE_ENV: z.enum(['development', 'staging', 'production', 'test']),
   PORT: z.string().default('8080').transform(Number),
@@ -79,11 +91,12 @@ const envSchema = z.object({
   TEMP_DIR: z.string().optional(),
   GHOSTSCRIPT_BINARY: z.string().optional(),
   FFMPEG_BINARY: z.string().optional().default('ffmpeg'),
+  FFPROBE_BINARY: z.string().optional().default('ffprobe'),
 
   // Google GenAI Configuration
   GOOGLE_GENAI_API_KEY: z.string().optional(),
   GOOGLE_GENAI_MODEL: z.string().optional().default('gemini-3.6-flash'),
-  GOOGLE_GENAI_IMAGE_MODEL: z.string().optional().default('gemini-3.1-flash-image'),
+  GOOGLE_GENAI_IMAGE_MODEL: z.string().optional().default('gemini-nano-banana-2.1'),
   /** If set to "true", use Vertex instead of API key (advanced). */
   GOOGLE_GENAI_USE_VERTEX: z.string().optional(),
   /** Debug: force REST transport for GenAI image client. */
@@ -94,10 +107,15 @@ const envSchema = z.object({
   // TTS Configuration
   // Supports OpenAI and Google Gemini TTS providers
   TTS_PROVIDER: z.enum(['openai', 'google-genai']).optional().default('google-genai'),
-  TTS_MODEL: z.string().optional().default('gemini-3.1-flash-tts-preview'),
+  TTS_MODEL: z.string().optional().default('gemini-3.8-flash-tts'),
   TTS_VOICE: z.string().optional().default('Charon'),
   TTS_SPEED: z.string().optional().default('1'),
   TTS_LANGUAGE: z.string().optional().default('en-US'),
+  // Per-chunk narration direction (mood styles + sparse inline audio tags) via a text LLM.
+  // Gemini TTS only; defaults off.
+  TTS_EXPRESSIVE_DIRECTION_ENABLED: booleanFlagSchema,
+  // Optional Gemini text model for narration direction; defaults to GOOGLE_GENAI_MODEL.
+  TTS_DIRECTION_MODEL: z.string().optional(),
 
   // Background Music Configuration
   // Controls whether background music is mixed with narration audio
@@ -110,10 +128,10 @@ const envSchema = z.object({
   BACKGROUND_MUSIC_VOLUME: z
     .string()
     .optional()
-    .default('0.1')
+    .default('0.08')
     .transform((v) => {
-      const n = v ? parseFloat(v) : 0.1;
-      return Number.isNaN(n) ? 0.1 : Math.max(0, Math.min(1, n));
+      const n = v ? parseFloat(v) : 0.08;
+      return Number.isNaN(n) ? 0.08 : Math.max(0, Math.min(1, n));
     }),
   // Volume of narrator voice (1.0 = original, >1.0 = louder)
   NARRATOR_VOLUME: z
@@ -128,19 +146,19 @@ const envSchema = z.object({
   BACKGROUND_MUSIC_FADE_IN: z
     .string()
     .optional()
-    .default('1.5')
+    .default('0.5')
     .transform((v) => {
-      const n = v ? parseFloat(v) : 1.5;
-      return Number.isNaN(n) ? 1.5 : Math.max(0, n);
+      const n = v ? parseFloat(v) : 0.5;
+      return Number.isNaN(n) ? 0.5 : Math.max(0, n);
     }),
   // Fade out duration in seconds for background music
   BACKGROUND_MUSIC_FADE_OUT: z
     .string()
     .optional()
-    .default('1.5')
+    .default('0.5')
     .transform((v) => {
-      const n = v ? parseFloat(v) : 1.5;
-      return Number.isNaN(n) ? 1.5 : Math.max(0, n);
+      const n = v ? parseFloat(v) : 0.5;
+      return Number.isNaN(n) ? 0.5 : Math.max(0, n);
     }),
 
   // Notification Engine
@@ -175,6 +193,20 @@ const envSchema = z.object({
 /** Stable list of variable names validated by Zod (for env parity tooling). */
 export const zodEnvironmentVariableNames = Object.keys(envSchema.shape) as string[];
 
+/** The only Gemini TTS model this service supports. */
+export const SUPPORTED_GEMINI_TTS_MODEL = 'gemini-3.8-flash-tts';
+
+// Cross-field rules. Kept separate so `envSchema.shape` stays available for parity tooling.
+const validatedEnvSchema = envSchema.superRefine((env, ctx) => {
+  if (env.TTS_PROVIDER === 'google-genai' && env.TTS_MODEL !== SUPPORTED_GEMINI_TTS_MODEL) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['TTS_MODEL'],
+      message: `TTS_MODEL "${env.TTS_MODEL}" is not supported for google-genai. Only ${SUPPORTED_GEMINI_TTS_MODEL} is supported.`,
+    });
+  }
+});
+
 export type Environment = z.infer<typeof envSchema>;
 
 let cachedEnv: Environment | null = null;
@@ -194,7 +226,7 @@ export function getEnvironment(): Environment {
       GOOGLE_GENAI_CLOUD_REGION: process.env.GOOGLE_GENAI_CLOUD_REGION || 'global',
     };
 
-    cachedEnv = envSchema.parse(envVars);
+    cachedEnv = validatedEnvSchema.parse(envVars);
     return cachedEnv;
   } catch (error) {
     console.error('Environment validation failed:', error);

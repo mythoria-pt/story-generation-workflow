@@ -7,11 +7,7 @@ import { randomUUID } from 'crypto';
 import { logger } from '@/config/logger.js';
 
 export type JobType =
-  | 'text_edit'
-  | 'image_edit'
-  | 'text_translate'
-  | 'email_asset_generation'
-  | 'story_structure';
+  'text_edit' | 'image_edit' | 'text_translate' | 'email_asset_generation' | 'story_structure';
 export type JobStatus = 'pending' | 'processing' | 'completed' | 'failed';
 
 export interface Job {

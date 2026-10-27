@@ -153,6 +153,7 @@ export class GoogleGenAITextService implements ITextGenerationService {
     const targetModel = (options?.model || this.model).toLowerCase();
     const config: GenerateContentConfig = {
       maxOutputTokens: options?.maxTokens || getMaxOutputTokens(targetModel),
+      ...(options?.signal && { abortSignal: options.signal }),
       ...(options?.stopSequences && { stopSequences: options.stopSequences }),
       ...(cachedContent && { cachedContent }),
       ...(options?.googleSearchGrounding && { tools: [{ googleSearch: {} }] }),
@@ -665,6 +666,13 @@ export class GoogleGenAITextService implements ITextGenerationService {
 
       return textContent;
     } catch (error) {
+      if (options?.privateContent) {
+        const safe = new Error('Private text generation failed');
+        const providerError = error as { code?: unknown; status?: unknown };
+        Object.assign(safe, { code: providerError?.code, status: providerError?.status });
+        logger.error('Private Google text generation failed', { model: options.model });
+        throw safe;
+      }
       const structured = GoogleGenAITextService.extractGoogleError(error);
       const googleErrorResponse = GoogleGenAITextService.extractGoogleErrorPayload(error);
       logger.error('Google GenAI text generation failed', {

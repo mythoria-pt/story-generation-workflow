@@ -1,3 +1,10 @@
+import {
+  claimStructureJob,
+  getDurableStructureJob,
+  runDurableStructureJob,
+  StructureRequestConflict,
+} from '@/services/structure-jobs.js';
+import { storyPreferencesSchema } from '@/services/story-guide-contract.js';
 /**
  * Async Job API Routes
  * RESTful endpoints for managing asynchronous AI editing jobs
@@ -428,11 +435,14 @@ router.post('/generate-email-assets', async (req, res) => {
 
 const StoryStructureJobSchema = z.object({
   storyId: z.string().uuid(),
+  structureRequestId: z.string().uuid().optional(),
   userDescription: z.string().optional(),
   imageObjectPaths: z.array(z.string()).optional(),
   audioObjectPath: z.string().optional(),
   characterIds: z.array(z.string().uuid()).optional(),
   locale: z.string().min(2).max(10).optional(),
+  storyPreferences: storyPreferencesSchema.optional(),
+  factuality: z.literal('memory').optional(),
 });
 
 /**
@@ -453,8 +463,6 @@ router.post('/story-structure', async (req, res) => {
       operationType: 'story_structure',
     };
 
-    const jobId = jobManager.createJob('story_structure', metadata, estimatedDuration);
-
     // Build worker params, omitting undefined keys
     const jobParams: any = {
       storyId: params.storyId,
@@ -464,7 +472,26 @@ router.post('/story-structure', async (req, res) => {
     if (params.audioObjectPath !== undefined) jobParams.audioObjectPath = params.audioObjectPath;
     if (params.characterIds !== undefined) jobParams.characterIds = params.characterIds;
     if (params.locale !== undefined) jobParams.locale = params.locale;
+    if (params.storyPreferences) jobParams.storyPreferences = params.storyPreferences;
+    if (params.factuality) jobParams.factuality = params.factuality;
 
+    if (params.structureRequestId) {
+      if (jobManager.getJob(params.structureRequestId))
+        throw new StructureRequestConflict('Request ID already used');
+      const claim = await claimStructureJob(
+        params.structureRequestId,
+        jobParams,
+        estimatedDuration,
+      );
+      if (claim.created) {
+        void runDurableStructureJob(claim.id, jobParams).catch(() => {
+          logger.error('Durable structure worker could not persist status', { jobId: claim.id });
+        });
+      }
+      res.json({ success: true, jobId: claim.id, estimatedDuration, duplicate: !claim.created });
+      return;
+    }
+    const jobId = jobManager.createJob('story_structure', metadata, estimatedDuration);
     processStoryStructureJob(jobId, jobParams).catch((error: any) => {
       logger.error('Story structure job processing failed', {
         jobId,
@@ -485,7 +512,9 @@ router.post('/story-structure', async (req, res) => {
       message: 'Story structure job created successfully',
     });
   } catch (error) {
-    if (error instanceof z.ZodError) {
+    if (error instanceof StructureRequestConflict) {
+      sendErrorResponse(res, 409, 'Structure request conflict');
+    } else if (error instanceof z.ZodError) {
       sendErrorResponse(res, 400, 'Invalid request parameters', { validationErrors: error.issues });
     } else {
       sendErrorResponse(res, 500, 'Failed to create story structure job', {
@@ -508,7 +537,7 @@ router.get('/:jobId', async (req, res) => {
       return;
     }
 
-    const job = jobManager.getJob(jobId);
+    const job = jobManager.getJob(jobId) ?? (await getDurableStructureJob(jobId));
 
     if (!job) {
       sendErrorResponse(res, 404, 'Job not found', { jobId });

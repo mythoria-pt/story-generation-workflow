@@ -92,6 +92,24 @@ const ABBREVIATIONS = new Set([
 ]);
 
 /**
+ * Marker prefixed to the first segment of every paragraph after the first, so a merged chunk
+ * keeps its paragraph breaks (the paragraph break is what creates the narration pause).
+ */
+const PARAGRAPH_BREAK = '\n\n';
+
+/** Prefix the first piece of a paragraph with the paragraph-break marker. */
+function markParagraphStart(pieces: string[]): string[] {
+  const [first, ...rest] = pieces;
+  return first === undefined ? pieces : [PARAGRAPH_BREAK + first, ...rest];
+}
+
+/** Join two segments with a paragraph break when the next one starts a paragraph. */
+function joinSegments(current: string, segment: string): string {
+  if (!current) return segment.replace(/^\n+/, '');
+  return segment.startsWith(PARAGRAPH_BREAK) ? current + segment : current + ' ' + segment;
+}
+
+/**
  * Check if a word ending with period is an abbreviation
  */
 function isAbbreviation(word: string): boolean {
@@ -249,56 +267,42 @@ function mergeSegmentsToLimit(
   let currentStartOffset = 0;
   let runningOffset = 0;
 
+  const flush = (): void => {
+    if (!currentText.trim()) return;
+    const lastChunk = chunks[chunks.length - 1];
+    if (currentText.length >= minChunkSize || !lastChunk) {
+      chunks.push({
+        text: currentText.replace(/^\n+/, ''),
+        index: chunks.length,
+        startOffset: currentStartOffset,
+        endOffset: runningOffset,
+      });
+    } else {
+      // Merge a tiny remainder into the previous chunk instead of emitting a stub
+      lastChunk.text += currentText.startsWith(PARAGRAPH_BREAK) ? currentText : ' ' + currentText;
+      lastChunk.endOffset = runningOffset;
+    }
+  };
+
   for (const segment of segments) {
-    const segmentWithSpace = currentText ? ' ' + segment : segment;
+    const joined = joinSegments(currentText, segment);
 
     // Check if adding this segment would exceed the limit
-    if (currentText.length + segmentWithSpace.length > maxSize) {
-      // Save current chunk if it meets minimum size
-      if (currentText.length >= minChunkSize || chunks.length === 0) {
-        chunks.push({
-          text: currentText,
-          index: chunks.length,
-          startOffset: currentStartOffset,
-          endOffset: runningOffset,
-        });
-      } else if (chunks.length > 0) {
-        // Append to previous chunk if current is too small
-        const lastChunk = chunks[chunks.length - 1];
-        if (lastChunk) {
-          lastChunk.text += ' ' + currentText;
-          lastChunk.endOffset = runningOffset;
-        }
-      }
+    if (currentText && joined.length > maxSize) {
+      flush();
 
-      // Start new chunk
+      // Start new chunk (the paragraph marker is kept in case it is merged back later)
       currentText = segment;
       currentStartOffset = runningOffset;
     } else {
-      currentText += segmentWithSpace;
+      currentText = joined;
     }
 
     runningOffset += segment.length + 1; // +1 for space
   }
 
   // Don't forget the last chunk
-  if (currentText.trim()) {
-    if (currentText.length >= minChunkSize || chunks.length === 0) {
-      chunks.push({
-        text: currentText,
-        index: chunks.length,
-        startOffset: currentStartOffset,
-        endOffset: runningOffset,
-      });
-    } else if (chunks.length > 0) {
-      // Append to previous chunk
-      const lastChunk = chunks[chunks.length - 1];
-      if (lastChunk) {
-        lastChunk.text += ' ' + currentText;
-        lastChunk.endOffset = runningOffset;
-      }
-    }
-  }
+  flush();
 
   // Re-index chunks
   return chunks.map((chunk, index) => ({ ...chunk, index }));
@@ -349,18 +353,20 @@ export function splitTextIntoChunks(
 
     if (needsSentenceSplit) {
       // Split long paragraphs into sentences
-      segments = paragraphs.flatMap((paragraph) => {
-        if (paragraph.length <= maxSize) {
-          return [paragraph];
-        }
-        // This paragraph is too long, split into sentences
-        const sentences = splitBySentences(paragraph);
-
-        // Check if any sentence is still too long
-        return sentences.flatMap((sentence) => splitLongSentence(sentence, maxSize));
+      segments = paragraphs.flatMap((paragraph, index) => {
+        const pieces =
+          paragraph.length <= maxSize
+            ? [paragraph]
+            : // This paragraph is too long: split into sentences, then any long sentence
+              splitBySentences(paragraph).flatMap((sentence) =>
+                splitLongSentence(sentence, maxSize),
+              );
+        return index > 0 ? markParagraphStart(pieces) : pieces;
       });
     } else {
-      segments = paragraphs;
+      segments = paragraphs.map((paragraph, index) =>
+        index > 0 ? PARAGRAPH_BREAK + paragraph : paragraph,
+      );
     }
   } else {
     // Split directly by sentences
@@ -398,7 +404,7 @@ function mergeDialogueSegments(segments: string[], maxSize: number): string[] {
     const closeQuotes = (segment.match(/[""\u201D]/g) || []).length;
 
     if (inDialogue) {
-      dialogueBuffer += ' ' + segment;
+      dialogueBuffer = joinSegments(dialogueBuffer, segment);
 
       // Check if dialogue closes
       if (closeQuotes > openQuotes || closeQuotes >= 1) {

@@ -13,7 +13,7 @@
 When you spin up another agent (or Copilot Workspace) paste the following facts so it stays unblocked:
 
 1. **Environment files**: `.env.local` overrides `.env`, `.env.test` is wired through `src/tests/setup.ts`.
-2. **Critical variables**: `DB_*`, `WORKFLOWS_DB_*`, `STORY_GENERATION_WORKFLOW_API_KEY`, `TEXT_PROVIDER`, `IMAGE_PROVIDER`, `GOOGLE_GENAI_*`, `OPENAI_*`, `STORAGE_BUCKET_NAME`, `GHOSTSCRIPT_BINARY`, `TEMP_DIR`, `NOTIFICATION_ENGINE_*`, `MYTHORIA_ADMIN_URL`, `MYTHORIA_ADMIN_API_KEY`.
+2. **Critical variables**: `DB_*`, `WORKFLOWS_DB_*`, `STORY_GENERATION_WORKFLOW_API_KEY`, `TEXT_PROVIDER`, `IMAGE_PROVIDER`, `GOOGLE_GENAI_*`, `OPENAI_*`, `STORAGE_BUCKET_NAME`, `GHOSTSCRIPT_BINARY`, `TEMP_DIR`, `NOTIFICATION_ENGINE_*`, `MYTHORIA_ADMIN_URL`, `MYTHORIA_ADMIN_API_KEY`, `TTS_*` (incl. `TTS_PROVIDER`, `TTS_MODEL`, `TTS_VOICE`, `TTS_EXPRESSIVE_DIRECTION_ENABLED`), `FFPROBE_BINARY`.
 3. **Commands must run via PowerShell**: every script assumes `pwsh` semantics (`&&` is invalid, use `;`).
 4. **Database access**: migrations live next door (`../mythoria-webapp/drizzle`). Use the `schema:sync*.ps1` scripts before editing `src/db/schema/*`.
 5. **Workflows**: YAML lives in `workflows/*.yaml`; deploy through `npm run deploy` or `npm run deploy:fast` (workflow only). Keep Cloud Run + Workflows in sync.
@@ -92,6 +92,18 @@ pwsh -NoProfile -Command "npm run dev"
 
 Need more context? Read `docs/overview.md` for the narrative, `docs/ai.md` for retry/safety specifics, and `docs/deployment.md` before touching Cloud Run config.
 
+## Story templates guidance
+
+See [docs/story-templates.md](docs/story-templates.md). The guide is stateless and defaults off behind `STORY_TEMPLATES_ENABLED`. Preserve private AI content handling, atomic workflow-DB quotas and deterministic story preferences. Workflows migrations 0008/0009 were applied with authorization after backup on 2026-09-19; see the [operation record](../docs/STORY_TEMPLATES_LOCAL_TEST_2026-09-19.md). The WebApp also requires an author opt-in for new guided requests; accepted jobs must remain recoverable when access is disabled. Its generated core opt-in migration has not been applied. Routine local tests must not run migrations or integration fixtures against the shared production database.
+
 ## Referral platform v1 (2026-09-09)
 
 See the [referral implementation and operations guide](docs/referrals.md) for this service's responsibilities, updated contracts, configuration, schema ownership and validation. The feature is implemented locally; production migration, deployment and pilot activation require their separate rollout checkpoints.
+
+## Audiobook TTS (gemini-3.8-flash-tts)
+
+See [docs/audio-narration-system.md](docs/audio-narration-system.md) for the full pipeline. Key rules:
+
+- Default provider is `google-genai` with `gemini-3.8-flash-tts` as the only accepted Gemini TTS model. OpenAI (`gpt-4o-mini-tts`) is the alternative. Rollback to an older model means redeploying the previous Cloud Run revision.
+- Expressive narration (`TTS_EXPRESSIVE_DIRECTION_ENABLED`) defaults to off in code, but `cloudbuild.yaml` and `.env.local` enable it with `TTS_DIRECTION_MODEL=gemini-3.8-flash`. When off, chunks are sent with the plain per-locale base style.
+- Voice resolution lives in `src/services/voice-registry.ts`. It must stay in sync with `mythoria-webapp/src/lib/voice-options.ts` and `mythoria_admin/src/lib/voice-options.ts` across the three repos.

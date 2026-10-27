@@ -1,3 +1,10 @@
+import { withStructureLock } from './structure-lock.js';
+import { relocateStructureInput } from './structure-inputs.js';
+import {
+  mergeStoryPreferences,
+  MEMORY_INSTRUCTION,
+  type StoryPreferences,
+} from './story-guide-contract.js';
 /**
  * Story Structure Service
  *
@@ -70,6 +77,10 @@ function toStoryLanguageCode(value: unknown, fallback: string): string {
 }
 
 export interface GenerateStoryStructureParams {
+  deadlineAt?: number;
+  signal?: AbortSignal;
+  storyPreferences?: StoryPreferences;
+  factuality?: 'memory';
   storyId: string;
   userDescription?: string;
   imageObjectPaths?: string[];
@@ -108,6 +119,7 @@ async function cropCharacterPhoto(
   sourceImagePath: string,
   index: number,
   imageMetas: ImageMetaWithPath[],
+  signal?: AbortSignal,
 ): Promise<string | null> {
   const meta = imageMetas.find((m) => m.path === sourceImagePath);
   if (!meta || meta.overallImageContent !== 'photo') return null;
@@ -121,9 +133,11 @@ async function cropCharacterPhoto(
 
   const version = `${Date.now()}-${randomUUID().replace(/-/g, '').slice(0, 12)}`;
   const objectPath = `${authorId}/characters/${characterId}/${version}.jpg`;
+  signal?.throwIfAborted();
   const publicUrl = await storage.uploadFile(objectPath, cropped, 'image/jpeg', {
     cacheControl: 'public, max-age=31536000',
   });
+  signal?.throwIfAborted();
   await characterService.updateCharacterPhoto(characterId, objectPath, objectPath);
 
   logger.info('Cropped character photo from input image', {
@@ -132,12 +146,6 @@ async function cropCharacterPhoto(
     index,
   });
   return publicUrl;
-}
-
-/** Map a staged input path to its story-scoped equivalent (keeps the filename). */
-function storyInputPath(storyId: string, objectPath: string): string {
-  const file = objectPath.slice(objectPath.lastIndexOf('/') + 1);
-  return `${storyId}/inputs/${file}`;
 }
 
 /**
@@ -160,33 +168,21 @@ async function relocateInputsToStory(
   authorId: string,
   imagePaths: string[],
   audioPath?: string,
+  signal?: AbortSignal,
 ): Promise<{ imageObjectPaths: string[]; audioObjectPath?: string | undefined }> {
   const storage = getStorageService();
-  const stagingPrefix = `${authorId}/inputs/`;
-
-  const relocate = async (src: string): Promise<string> => {
-    const dest = storyInputPath(storyId, src);
-    if (dest === src) return dest;
-    try {
-      if (await storage.fileExists(src)) {
-        // Move out of staging; copy when the source is another story's input.
-        if (src.startsWith(stagingPrefix)) {
-          await storage.moveFile(src, dest);
-        } else {
-          await storage.copyFile(src, dest);
-        }
-      } else if (!(await storage.fileExists(dest))) {
-        logger.warn('Input to relocate not found at source or destination', { src, dest });
-      }
-    } catch (e) {
-      logger.warn('Failed to relocate input into story folder', {
-        src,
-        dest,
-        error: e instanceof Error ? e.message : String(e),
-      });
-    }
-    return dest;
-  };
+  const relocate = (src: string): Promise<string> =>
+    relocateStructureInput(
+      storage,
+      storyId,
+      authorId,
+      src,
+      async (sourceStoryId) => {
+        const sourceStory = await storyService.getStory(sourceStoryId);
+        return sourceStory?.authorId === authorId;
+      },
+      signal,
+    );
 
   const imageObjectPaths: string[] = [];
   for (const src of imagePaths) {
@@ -264,6 +260,18 @@ async function writeInputSnapshot(args: {
 export async function generateStoryStructure(
   params: GenerateStoryStructureParams,
 ): Promise<StoryStructureResult> {
+  return withStructureLock(
+    params.storyId,
+    (signal) => generateStoryStructureLocked({ ...params, signal }),
+    params.deadlineAt,
+  );
+}
+
+async function generateStoryStructureLocked(
+  params: GenerateStoryStructureParams,
+): Promise<StoryStructureResult> {
+  const assertActive = () => params.signal?.throwIfAborted();
+  assertActive();
   const { storyId, userDescription, characterIds } = params;
   const analysisLocale = params.locale || 'en-US';
 
@@ -282,6 +290,7 @@ export async function generateStoryStructure(
     authorId,
     params.imageObjectPaths ?? [],
     params.audioObjectPath,
+    params.signal,
   );
 
   // Load and author-verify any explicitly requested characters
@@ -325,7 +334,15 @@ export async function generateStoryStructure(
   const defaultPersona = 'classic-novelist';
   const templateVars = {
     authorName: '',
-    userDescription: userDescription ?? '',
+    userDescription: [
+      userDescription ?? '',
+      params.storyPreferences
+        ? `Confirmed story preferences: ${JSON.stringify(params.storyPreferences)}`
+        : '',
+      params.factuality === 'memory' ? MEMORY_INSTRUCTION : '',
+    ]
+      .filter(Boolean)
+      .join('\n'),
     existingCharacters: JSON.stringify(
       existingCharacters.map((c) => ({
         characterId: c.characterId,
@@ -373,6 +390,8 @@ export async function generateStoryStructure(
     );
     const structureModel = process.env.GOOGLE_GENAI_MODEL || 'gemini-3.6-flash';
     aiResponse = await aiGateway.getTextService(aiContext).complete(userPrompt, {
+      ...(params.signal && { signal: params.signal }),
+      privateContent: Boolean(params.storyPreferences || params.factuality),
       model: structureModel,
       jsonSchema: structSchema,
       ...(mediaParts.length ? { mediaParts } : {}),
@@ -383,6 +402,8 @@ export async function generateStoryStructure(
     const finalPrompt = PromptService.buildPrompt(promptTemplate, templateVars);
     const model = process.env.OPENAI_BASE_MODEL || process.env.OPENAI_TEXT_MODEL || 'gpt-5.5';
     aiResponse = await aiGateway.getTextService(aiContext).complete(finalPrompt, {
+      ...(params.signal && { signal: params.signal }),
+      privateContent: Boolean(params.storyPreferences || params.factuality),
       temperature: 0.8,
       model,
       jsonSchema: structSchema,
@@ -410,6 +431,11 @@ export async function generateStoryStructure(
   updates.literaryPersona = defaultPersona;
   updates.storyLanguage = toStoryLanguageCode(parsed.story.storyLanguage, analysisLocale);
 
+  Object.assign(
+    updates,
+    mergeStoryPreferences(updates, params.storyPreferences, params.factuality),
+  );
+
   // Cover reference URIs: only photo-type inputs that were actually provided.
   const bucket = process.env.STORAGE_BUCKET_NAME;
   const providedPaths = new Set(imageObjectPaths);
@@ -431,11 +457,13 @@ export async function generateStoryStructure(
   try {
     const { getDatabase } = await import('@/db/connection.js');
     const { stories } = await import('@/db/schema/index.js');
+    assertActive();
     await getDatabase()
       .update(stories)
       .set({ ...updates, updatedAt: new Date() })
       .where(eq(stories.storyId, storyId));
   } catch (dbErr) {
+    assertActive();
     logger.error('Failed updating story with structured fields', {
       error: dbErr instanceof Error ? dbErr.message : String(dbErr),
     });
@@ -464,6 +492,7 @@ export async function generateStoryStructure(
   // Create/reuse characters, crop photos from source images, link to story
   const processedCharacters: Array<Record<string, any>> = [];
   for (const ch of parsed.characters as any[]) {
+    assertActive();
     let record: Record<string, any> | null = null;
 
     if (typeof ch.characterId === 'string' && UUID_RE.test(ch.characterId)) {
@@ -478,6 +507,7 @@ export async function generateStoryStructure(
     }
 
     if (!record) {
+      assertActive();
       record =
         (await characterService.createCharacter({
           name: ch.name,
@@ -511,12 +541,14 @@ export async function generateStoryStructure(
     // Crop a character photo from the source input image when available
     if (!record.photoUrl && cropPath && cropIndex !== null) {
       try {
+        assertActive();
         const url = await cropCharacterPhoto(
           authorId,
           record.characterId,
           cropPath,
           cropIndex,
           imageMetas,
+          params.signal,
         );
         if (url) {
           record.photoUrl = url;
@@ -537,6 +569,7 @@ export async function generateStoryStructure(
     }
 
     try {
+      assertActive();
       await characterService.addCharacterToStory(storyId, record.characterId, ch.role);
     } catch (linkErr) {
       logger.warn('Character may already be linked to story', {
@@ -550,10 +583,19 @@ export async function generateStoryStructure(
 
   // Persist the durable input snapshot (text + manifest) alongside the inputs
   // we already relocated, so the story can be re-generated from its own folder.
+  assertActive();
   await writeInputSnapshot({
     storyId,
     locale: analysisLocale,
-    userDescription: userDescription ?? '',
+    userDescription: [
+      userDescription ?? '',
+      params.storyPreferences
+        ? `Confirmed story preferences: ${JSON.stringify(params.storyPreferences)}`
+        : '',
+      params.factuality === 'memory' ? MEMORY_INSTRUCTION : '',
+    ]
+      .filter(Boolean)
+      .join('\n'),
     characterIds: characterIds ?? [],
     imageMetas,
     audioObjectPath,

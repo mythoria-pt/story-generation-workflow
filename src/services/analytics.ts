@@ -13,12 +13,7 @@ import { storyGenerationRuns } from '@/db/workflows-schema/index.js';
 
 type TerminalRun = typeof storyGenerationRuns.$inferSelect;
 export type TerminalAnalyticsOutcome =
-  | 'ignored'
-  | 'recorded'
-  | 'deferred_context'
-  | 'duplicate'
-  | 'not_eligible'
-  | 'untracked';
+  'ignored' | 'recorded' | 'deferred_context' | 'duplicate' | 'not_eligible' | 'untracked';
 
 export interface AnalyticsReconciliationResult {
   inspected: number;

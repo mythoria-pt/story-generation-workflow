@@ -177,4 +177,12 @@ describe('PromptService', () => {
     });
     expect(styleSpy).not.toHaveBeenCalled();
   });
+
+  describe('processPrompt replacement safety', () => {
+    it('keeps $-patterns in variable values literal', () => {
+      const transcript = "She said $' and then $& and $$ done.";
+      const result = PromptService.processPrompt('Read: {{transcript}} | end', { transcript });
+      expect(result).toBe(`Read: ${transcript} | end`);
+    });
+  });
 });

@@ -13,6 +13,13 @@ export interface EnvVarDescriptor {
 }
 
 export const envManifest: EnvVarDescriptor[] = [
+  {
+    name: 'STORY_TEMPLATES_ENABLED',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    default: 'false',
+    source: 'inline',
+  },
   { name: 'NODE_ENV', required: true, scopes: ['dev', 'runtime', 'prod'], default: 'development' },
   {
     name: 'NODE_VERSION',
@@ -141,7 +148,7 @@ export const envManifest: EnvVarDescriptor[] = [
     name: 'GOOGLE_GENAI_IMAGE_MODEL',
     required: false,
     scopes: ['dev', 'runtime', 'prod'],
-    default: 'gemini-3.1-flash-image',
+    default: 'gemini-nano-banana-2.1',
     source: 'substitution',
   },
   {
@@ -290,6 +297,14 @@ export const envManifest: EnvVarDescriptor[] = [
     source: 'inline',
     note: 'System FFmpeg executable; the production container sets /usr/bin/ffmpeg.',
   },
+  {
+    name: 'FFPROBE_BINARY',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    default: 'ffprobe',
+    source: 'inline',
+    note: 'System ffprobe executable used to measure narration duration.',
+  },
 
   // Logging
   { name: 'LOG_LEVEL', required: false, scopes: ['dev', 'runtime', 'prod'], default: 'info' },
@@ -325,7 +340,23 @@ export const envManifest: EnvVarDescriptor[] = [
     name: 'TTS_MODEL',
     required: false,
     scopes: ['dev', 'runtime', 'prod'],
-    default: 'gemini-3.1-flash-tts-preview',
+    default: 'gemini-3.8-flash-tts',
+    note: 'With TTS_PROVIDER=google-genai only gemini-3.8-flash-tts is accepted (validated at startup).',
+  },
+  {
+    name: 'TTS_EXPRESSIVE_DIRECTION_ENABLED',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    default: 'false',
+    source: 'inline',
+    note: 'Gemini only: one text-LLM call per narration chunk adds mood styles and sparse inline audio tags; falls back to the base style on any failure.',
+  },
+  {
+    name: 'TTS_DIRECTION_MODEL',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    source: 'inline',
+    note: 'Optional Gemini text model for narration direction; defaults to GOOGLE_GENAI_MODEL.',
   },
   { name: 'TTS_VOICE', required: false, scopes: ['dev', 'runtime', 'prod'], default: 'Charon' },
   { name: 'TTS_SPEED', required: false, scopes: ['dev', 'runtime', 'prod'], default: '1' },
@@ -341,7 +372,7 @@ export const envManifest: EnvVarDescriptor[] = [
     name: 'BACKGROUND_MUSIC_VOLUME',
     required: false,
     scopes: ['dev', 'runtime', 'prod'],
-    default: '0.2',
+    default: '0.08',
   },
   {
     name: 'NARRATOR_VOLUME',
@@ -353,7 +384,7 @@ export const envManifest: EnvVarDescriptor[] = [
     name: 'BACKGROUND_MUSIC_FADE_IN',
     required: false,
     scopes: ['dev', 'runtime', 'prod'],
-    default: '1.5',
+    default: '0.5',
     source: 'inline',
     note: 'Fade-in seconds for background music.',
   },
@@ -361,7 +392,7 @@ export const envManifest: EnvVarDescriptor[] = [
     name: 'BACKGROUND_MUSIC_FADE_OUT',
     required: false,
     scopes: ['dev', 'runtime', 'prod'],
-    default: '1.5',
+    default: '0.5',
     source: 'inline',
     note: 'Fade-out seconds for background music.',
   },

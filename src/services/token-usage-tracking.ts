@@ -7,6 +7,21 @@ import { getWorkflowsDatabase } from '@/db/workflows-db.js';
 import { tokenUsageTracking, InsertTokenUsage } from '@/db/workflows-db.js';
 import { logger } from '@/config/logger.js';
 import { eq, gte, lte, and } from 'drizzle-orm';
+import {
+  GOOGLE_FALLBACK_MODEL,
+  GOOGLE_TTS_FALLBACK_MODEL,
+  USD_TO_EUR,
+  resolvePricing,
+  type ImageQualityLevel,
+  type ImageResolution,
+  type PricingTier,
+} from '@/services/model-pricing.js';
+
+/** Models already warned about, so each unknown model is logged once per process. */
+const warnedUnknownModels = new Set<string>();
+
+/** Legacy 'standard'/'hd' values map to medium/high; 'auto' is billed as medium. */
+export type ImageQualityInput = 'standard' | 'hd' | 'auto' | ImageQualityLevel;
 
 export interface TokenUsageRequest {
   authorId: string;
@@ -32,8 +47,10 @@ export interface TokenUsageRequest {
   inputTokens: number;
   outputTokens: number;
   cachedInputTokens?: number;
-  imageQuality?: 'standard' | 'hd';
+  imageQuality?: ImageQualityInput;
   imageSize?: string;
+  /** Output tokens that were image tokens (vs text/thinking), when the provider reports the split. */
+  imageOutputTokens?: number;
   inputPromptJson: Record<string, unknown>;
 }
 
@@ -43,8 +60,11 @@ export interface CostEstimation {
   inputTokens: number;
   outputTokens: number;
   cachedInputTokens?: number;
-  imageQuality?: 'standard' | 'hd';
+  imageQuality?: ImageQualityInput;
   imageSize?: string;
+  imageOutputTokens?: number;
+  /** Request time used to select dated pricing tiers; defaults to now. */
+  timestamp?: Date;
   estimatedCostInEuros: number;
 }
 
@@ -72,6 +92,9 @@ export class TokenUsageTrackingService {
       }
       if (request.imageSize !== undefined) {
         costEstimationParams.imageSize = request.imageSize;
+      }
+      if (request.imageOutputTokens !== undefined) {
+        costEstimationParams.imageOutputTokens = request.imageOutputTokens;
       }
 
       const estimatedCost = this.calculateCost(costEstimationParams);
@@ -121,226 +144,157 @@ export class TokenUsageTrackingService {
   }
 
   /**
-   * Calculate estimated cost based on provider and model
+   * Calculate estimated cost based on provider and model.
    *
-   * Supported Models (reviewed July 2026):
-   * - OpenAI Text: gpt-5.5, gpt-5.5-pro, gpt-5.4, gpt-5.4-mini, gpt-5.4-nano
-   * - OpenAI Image: gpt-image-2, gpt-image-1.5
+   * Rates live in `model-pricing.ts` (ordered, dated tiers). Supported models (reviewed 2026-10-27):
+   * - OpenAI Text:  gpt-6.1-sol, gpt-6.1-terra, gpt-6-luna / gpt-6.1-luna, gpt-5.5, gpt-5.5-pro,
+   *                 gpt-5.4, gpt-5.4-mini, gpt-5.4-nano
+   * - OpenAI Image: gpt-image-2.5-flare / -sunburst (approximated with gpt-image-2 per-image
+   *                 estimates), gpt-image-2 (quality x size table), gpt-image-1.5
    * - OpenAI TTS:   gpt-4o-mini-tts (kept for legacy callers; not advertised)
-   * - Google Text:  gemini-3.6-flash, gemini-3.5-flash, gemini-3.1-pro-preview
-   * - Google Image: gemini-3.1-flash-image, gemini-3-pro-image, gemini-2.5-flash-image
-   * - Google TTS:   gemini-2.5-pro-tts, gemini-2.5-flash-tts
+   * - Google Text:  gemini-4-argon, gemini-3.8-flash, gemini-3.6-flash, gemini-3.5-flash(-lite),
+   *                 gemini-3.1-flash-lite, gemini-3.1-pro, gemini-3-pro-preview, gemini-3-flash, gemini-2.5-flash
+   * - Google Image: gemini-nano-banana-2.1, gemini-3.1-flash-lite-image, gemini-3.1-flash-image,
+   *                 gemini-3-pro-image, gemini-2.5-flash-image
+   * - Google TTS:   gemini-3.8-flash-tts (current); gemini-2.5-pro-tts, gemini-2.5-flash-tts
+   *                 (historic records only)
+   * GPT-6.x requests above 272K input tokens use the long-context surcharge (2x in, 1.5x out).
+   * Unknown Google TTS models fall back to gemini-3.8-flash-tts rates, never text rates.
+   * Other unknown Google models fall back to gemini-3.8-flash rates (warned once per model);
+   * unknown OpenAI models cost 0 (warned once per model).
    *
    * Sources:
-   * - https://developers.openai.com/api/docs/pricing (verified May 2026)
-   * - https://openai.com/api/pricing
+   * - https://ai.google.dev/gemini-api/docs/pricing
+   * - https://developers.openai.com/api/docs/pricing
    */
   private calculateCost(estimation: CostEstimation): CostEstimation {
-    let inputCostPer1KTokens = 0;
-    let outputCostPer1KTokens = 0;
-    let cachedInputCostPer1KTokens = 0;
+    const at = estimation.timestamp ?? new Date();
+    let resolved =
+      estimation.provider === 'unknown'
+        ? undefined
+        : resolvePricing(estimation.provider, estimation.model, at);
 
-    // Cost calculations in USD (converted to EUR later).
-    // Pricing reviewed July 2026.
-
-    // OpenAI Models
-    if (estimation.provider === 'openai') {
-      // Order matters: more specific names ('-pro', '-mini', '-nano') before bare family names.
-      if (estimation.model.includes('gpt-5.5-pro')) {
-        // GPT-5.5 Pro (no cached discount published; treat cached as regular input)
-        inputCostPer1KTokens = 0.03; // $30.00 per 1M
-        outputCostPer1KTokens = 0.18; // $180.00 per 1M
-        cachedInputCostPer1KTokens = 0.03;
-      } else if (estimation.model.includes('gpt-5.5')) {
-        // GPT-5.5 - flagship reasoning + chat model
-        inputCostPer1KTokens = 0.005; // $5.00 per 1M
-        outputCostPer1KTokens = 0.03; // $30.00 per 1M
-        cachedInputCostPer1KTokens = 0.0005; // $0.50 per 1M
-      } else if (estimation.model.includes('gpt-5.4-mini')) {
-        // GPT-5.4 mini
-        inputCostPer1KTokens = 0.00075; // $0.75 per 1M
-        outputCostPer1KTokens = 0.0045; // $4.50 per 1M
-        cachedInputCostPer1KTokens = 0.000075; // $0.075 per 1M
-      } else if (estimation.model.includes('gpt-5.4-nano')) {
-        // GPT-5.4 nano
-        inputCostPer1KTokens = 0.0002; // $0.20 per 1M
-        outputCostPer1KTokens = 0.00125; // $1.25 per 1M
-        cachedInputCostPer1KTokens = 0.00002; // $0.02 per 1M
-      } else if (estimation.model.includes('gpt-5.4')) {
-        // GPT-5.4 - lower-cost frontier
-        inputCostPer1KTokens = 0.0025; // $2.50 per 1M
-        outputCostPer1KTokens = 0.015; // $15.00 per 1M
-        cachedInputCostPer1KTokens = 0.00025; // $0.25 per 1M
-      } else if (estimation.model.includes('gpt-image-2')) {
-        // GPT Image 2 - state-of-the-art image generation (April 2026)
-        // Per-image pricing (square 1024x1024): low ~$0.006, medium ~$0.053, high ~$0.211
-        // Token-based: image input $8/1M, cached image input $2/1M, image output $30/1M, text input $5/1M, cached text input $1.25/1M
-        const imagesGenerated = Math.max(1, Math.ceil(estimation.outputTokens / 1000));
-        let costPerImage = 0.053; // Medium/standard quality default
-        if (estimation.imageQuality === 'hd') {
-          costPerImage = 0.211; // High quality
-        }
-        const cachedTokens = estimation.cachedInputTokens || 0;
-        const regularInputTokens = Math.max(0, estimation.inputTokens - cachedTokens);
-        const inputCostUSD = (regularInputTokens / 1000) * 0.005; // text input $5/1M
-        const cachedInputCostUSD = (cachedTokens / 1000) * 0.00125; // cached text input $1.25/1M
-        estimation.estimatedCostInEuros =
-          (imagesGenerated * costPerImage + inputCostUSD + cachedInputCostUSD) * 0.92;
-        return estimation;
-      } else if (estimation.model.includes('gpt-image-1.5')) {
-        // GPT Image 1.5 - previous-generation image model (kept for in-flight requests)
-        // Per-image pricing (square 1024x1024): low $0.009, medium $0.034, high $0.133
-        const imagesGenerated = Math.max(1, Math.ceil(estimation.outputTokens / 1000));
-        let costPerImage = 0.034; // Medium/standard quality default
-        if (estimation.imageQuality === 'hd') {
-          costPerImage = 0.133; // High quality
-        }
-        const cachedTokens = estimation.cachedInputTokens || 0;
-        const regularInputTokens = Math.max(0, estimation.inputTokens - cachedTokens);
-        const inputCostUSD = (regularInputTokens / 1000) * 0.005; // $5.00 per 1M
-        const cachedInputCostUSD = (cachedTokens / 1000) * 0.00125; // $1.25 per 1M
-        const outputCostUSD = (estimation.outputTokens / 1000) * 0.01; // $10.00 per 1M (text output incl. reasoning)
-        estimation.estimatedCostInEuros =
-          (imagesGenerated * costPerImage + inputCostUSD + cachedInputCostUSD + outputCostUSD) *
-          0.92;
-        return estimation;
-      } else if (estimation.model.includes('gpt-4o-mini-tts')) {
-        // GPT-4o-mini TTS - Text-to-speech model
-        // Input (text): $0.60 per 1M, Output (audio): $12.00 per 1M
-        inputCostPer1KTokens = 0.0006; // $0.60 per 1M
-        outputCostPer1KTokens = 0.012; // $12.00 per 1M (audio tokens)
-        cachedInputCostPer1KTokens = 0.00006; // $0.06 per 1M
-      }
-    }
-    // Google Models
-    else if (estimation.provider === 'google-genai') {
-      if (estimation.model.includes('gemini-3.6-flash')) {
-        // Gemini 3.6 Flash standard pricing (July 2026)
-        // Input: $1.50 per 1M; output (including thinking): $7.50 per 1M
-        // Cached input: $0.15 per 1M
-        inputCostPer1KTokens = 0.0015;
-        outputCostPer1KTokens = 0.0075;
-        cachedInputCostPer1KTokens = 0.00015;
-      } else if (estimation.model.includes('gemini-3.5-flash')) {
-        // Gemini 3.5 Flash - Speed-optimized frontier model
-        // Input: $1.50 per 1M tokens
-        // Output: $9.00 per 1M tokens
-        // Cached input: $0.15 per 1M tokens (10% of input)
-        inputCostPer1KTokens = 0.0015; // $1.50 per 1M
-        outputCostPer1KTokens = 0.009; // $9.00 per 1M
-        cachedInputCostPer1KTokens = 0.00015; // $0.15 per 1M
-      } else if (estimation.model.includes('gemini-3.1-pro')) {
-        // Gemini 3.1 Pro Preview - Latest Gemini 3 family model
-        // Input: $2.00 per 1M tokens
-        // Output (Text): $12.00 per 1M tokens
-        // Cached input: $0.20 per 1M tokens (10% of input)
-        inputCostPer1KTokens = 0.002; // $2.00 per 1M
-        outputCostPer1KTokens = 0.012; // $12.00 per 1M
-        cachedInputCostPer1KTokens = 0.0002; // $0.20 per 1M
-      } else if (estimation.model.includes('gemini-3-pro-image')) {
-        // Gemini 3 Pro Image Preview - Native image generation on Gemini 3 Pro
-        // Input: $2.00 per 1M tokens (560 tokens per input image)
-        // Text output: $12.00 per 1M tokens
-        // Image output: $120.00 per 1M tokens
-        //   1K/2K images consume 1120 tokens (~$0.134/image)
-        //   4K images consume 2000 tokens (~$0.24/image)
-        const imagesGenerated = Math.max(1, Math.floor(estimation.outputTokens / 1120));
-        const costPerImage = 0.134; // ~$0.134 per 1K/2K image (1120 tokens * $120/1M)
-        const cachedTokens = estimation.cachedInputTokens || 0;
-        const regularInputTokens = Math.max(0, estimation.inputTokens - cachedTokens);
-        const inputCostUSD = (regularInputTokens / 1000) * 0.002; // $2.00 per 1M
-        const cachedInputCostUSD = (cachedTokens / 1000) * 0.0002; // $0.20 per 1M
-        estimation.estimatedCostInEuros =
-          (imagesGenerated * costPerImage + inputCostUSD + cachedInputCostUSD) * 0.92;
-        return estimation;
-      } else if (estimation.model.includes('gemini-3-pro-preview')) {
-        // Gemini 3 Pro Preview - DEPRECATED March 9, 2026 (migrate to gemini-3.1-pro-preview)
-        // Input: $2.00 per 1M tokens
-        // Output (Text): $12.00 per 1M tokens
-        inputCostPer1KTokens = 0.002; // $2.00 per 1M
-        outputCostPer1KTokens = 0.012; // $12.00 per 1M
-        cachedInputCostPer1KTokens = 0.0002; // $0.20 per 1M
-      } else if (
-        estimation.model.includes('gemini-3.1-flash-image') ||
-        estimation.model.includes('gemini-3-flash-image')
-      ) {
-        // Gemini 3.1 Flash Image Preview - Fast native image generation
-        // Input: $0.25 per 1M tokens (text/image)
-        // Text output: $1.50 per 1M tokens
-        // Image output: $60.00 per 1M tokens
-        //   1K images consume 1120 tokens (~$0.067/image)
-        //   2K images consume 1680 tokens (~$0.101/image)
-        //   4K images consume 2520 tokens (~$0.151/image)
-        const imagesGenerated = Math.max(1, Math.floor(estimation.outputTokens / 1120));
-        const costPerImage = 0.067; // ~$0.067 per 1K image (1120 tokens * $60/1M)
-        const inputCostUSD = (estimation.inputTokens / 1000) * 0.00025; // $0.25 per 1M
-        estimation.estimatedCostInEuros = (imagesGenerated * costPerImage + inputCostUSD) * 0.92;
-        return estimation;
-      } else if (estimation.model.includes('gemini-3-flash')) {
-        // Gemini 3 Flash Preview - Frontier intelligence built for speed
-        // Input: $0.50 per 1M tokens (text/image/video), $1.00 per 1M (audio)
-        // Output: $3.00 per 1M tokens
-        // Cached input: $0.05 per 1M tokens (10% of input)
-        inputCostPer1KTokens = 0.0005; // $0.50 per 1M
-        outputCostPer1KTokens = 0.003; // $3.00 per 1M
-        cachedInputCostPer1KTokens = 0.00005; // $0.05 per 1M
-      } else if (
-        estimation.model.includes('gemini-2.5-pro-preview-tts') ||
-        estimation.model.includes('gemini-2.5-pro-tts')
-      ) {
-        // Gemini 2.5 Pro TTS - High-fidelity, reasoning-enhanced TTS
-        // Input (Text): $1.00 per 1M tokens
-        // Output (Audio): $20.00 per 1M tokens
-        inputCostPer1KTokens = 0.001; // $1.00 per 1M
-        outputCostPer1KTokens = 0.02; // $20.00 per 1M
-        cachedInputCostPer1KTokens = 0.0001; // 10% of input
-      } else if (
-        estimation.model.includes('gemini-2.5-flash-preview-tts') ||
-        estimation.model.includes('gemini-2.5-flash-tts')
-      ) {
-        // Gemini 2.5 Flash TTS - Low-latency, cost-effective multimodal TTS
-        // Input (Text): $0.50 per 1M tokens
-        // Output (Audio): $10.00 per 1M tokens
-        inputCostPer1KTokens = 0.0005; // $0.50 per 1M
-        outputCostPer1KTokens = 0.01; // $10.00 per 1M
-        cachedInputCostPer1KTokens = 0.00005; // 10% of input
-      } else if (estimation.model.includes('gemini-2.5-flash-image')) {
-        // Gemini 2.5 Flash Image - Native image generation
-        // Input: $0.30 per 1M, Output: $0.039 per image (~1290 tokens per image)
-        const imagesGenerated = Math.max(1, Math.floor(estimation.outputTokens / 1290));
-        const costPerImage = 0.039;
-        // Add input token cost
-        const inputCostUSD = (estimation.inputTokens / 1000) * 0.0003;
-        estimation.estimatedCostInEuros = (imagesGenerated * costPerImage + inputCostUSD) * 0.92;
-        return estimation;
-      } else if (estimation.model.includes('gemini-2.5-flash')) {
-        // Gemini 2.5 Flash - Hybrid reasoning model with 1M context
-        inputCostPer1KTokens = 0.0003; // $0.30 per 1M (text/image/video)
-        outputCostPer1KTokens = 0.0025; // $2.50 per 1M
-        cachedInputCostPer1KTokens = 0.00003; // $0.03 per 1M
-      } else {
-        // Default Gemini pricing (fallback to 2.5 Flash)
-        inputCostPer1KTokens = 0.0003;
-        outputCostPer1KTokens = 0.0025;
-        cachedInputCostPer1KTokens = 0.00003;
+    if (!resolved) {
+      if (estimation.provider === 'google-genai') {
+        const fallbackModel = /tts/i.test(estimation.model)
+          ? GOOGLE_TTS_FALLBACK_MODEL
+          : GOOGLE_FALLBACK_MODEL;
+        this.warnUnknownModelOnce(estimation.provider, estimation.model, fallbackModel);
+        resolved = resolvePricing('google-genai', fallbackModel, at);
+      } else if (estimation.provider === 'openai') {
+        this.warnUnknownModelOnce(estimation.provider, estimation.model, undefined);
       }
     }
 
-    // Calculate total cost in USD
+    if (!resolved) {
+      estimation.estimatedCostInEuros = 0;
+      return estimation;
+    }
+
+    const { entry, tier } = resolved;
     const cachedTokens = estimation.cachedInputTokens || 0;
     const regularInputTokens = Math.max(0, estimation.inputTokens - cachedTokens);
+    // Long-context surcharge applies to the whole request once input crosses the threshold.
+    const longContext =
+      tier.longContext && estimation.inputTokens > tier.longContext.inputTokensAbove
+        ? tier.longContext
+        : undefined;
+    const inputMultiplier = longContext?.inputMultiplier ?? 1;
+    const outputMultiplier = longContext?.outputMultiplier ?? 1;
+    const inputCostUSD =
+      ((regularInputTokens * tier.inputPer1M + cachedTokens * tier.cachedInputPer1M) *
+        inputMultiplier) /
+      1_000_000;
 
-    const inputCostUSD = (regularInputTokens / 1000) * inputCostPer1KTokens;
-    const cachedInputCostUSD = (cachedTokens / 1000) * cachedInputCostPer1KTokens;
-    const outputCostUSD = (estimation.outputTokens / 1000) * outputCostPer1KTokens;
+    let totalCostUSD: number;
+    if (entry.billing === 'image-count') {
+      const tokensPerImage = tier.tokensPerImage ?? 1000;
+      const rawImages = estimation.outputTokens / tokensPerImage;
+      const imagesGenerated = Math.max(
+        1,
+        tier.imageCountRounding === 'ceil' ? Math.ceil(rawImages) : Math.floor(rawImages),
+      );
+      const costPerImage = this.resolvePerImageCost(tier, estimation);
+      const outputCostUSD = (estimation.outputTokens * tier.outputPer1M) / 1_000_000;
+      totalCostUSD = imagesGenerated * costPerImage + inputCostUSD + outputCostUSD;
+    } else if (entry.billing === 'image-split') {
+      const defaultResolution = tier.defaultResolution ?? '2K';
+      let resolution = this.normalizeImageResolution(estimation.imageSize, defaultResolution);
+      // Models with a single supported resolution (e.g. 1K-only lite-image) bill at that size.
+      if (tier.perImageByResolution?.[resolution] === undefined) {
+        resolution = defaultResolution;
+      }
+      const imageTokens = tier.tokensPerImageByResolution?.[resolution] ?? 0;
+      let imageCostUSD: number;
+      let textTokens: number;
+      if (estimation.imageOutputTokens !== undefined) {
+        // Real split available: bill image tokens at the image rate, the rest as text/thinking.
+        const imageOutputTokens = Math.min(estimation.imageOutputTokens, estimation.outputTokens);
+        imageCostUSD = (imageOutputTokens * (tier.imageOutputPer1M ?? 0)) / 1_000_000;
+        textTokens = estimation.outputTokens - imageOutputTokens;
+      } else {
+        // No split: SGW requests exactly one image per call, so bill one flat image and
+        // treat any output tokens beyond that image's tokens as text/thinking.
+        imageCostUSD = tier.perImageByResolution?.[resolution] ?? 0;
+        textTokens = Math.max(0, estimation.outputTokens - imageTokens);
+      }
+      totalCostUSD = imageCostUSD + inputCostUSD + (textTokens * tier.outputPer1M) / 1_000_000;
+    } else {
+      const outputCostUSD =
+        (estimation.outputTokens * tier.outputPer1M * outputMultiplier) / 1_000_000;
+      totalCostUSD = inputCostUSD + outputCostUSD;
+    }
 
-    const totalCostUSD = inputCostUSD + cachedInputCostUSD + outputCostUSD;
-
-    // Convert to EUR (approximate conversion rate: 1 USD = 0.92 EUR)
-    estimation.estimatedCostInEuros = totalCostUSD * 0.92;
-
+    estimation.estimatedCostInEuros = totalCostUSD * USD_TO_EUR;
     return estimation;
   }
+
+  /**
+   * Per-image price for image-count billing. Uses the quality/size table when the tier has one
+   * (unknown size → square, unknown quality → medium), else the legacy perImage/perImageHd pair.
+   */
+  private resolvePerImageCost(tier: PricingTier, estimation: CostEstimation): number {
+    if (tier.perImageByQuality) {
+      const quality: ImageQualityLevel =
+        estimation.imageQuality === 'hd' || estimation.imageQuality === 'high'
+          ? 'high'
+          : estimation.imageQuality === 'low'
+            ? 'low'
+            : 'medium';
+      const dims = estimation.imageSize?.match(/^(\d+)\s*x\s*(\d+)$/i);
+      const nonSquare = !!dims && dims[1] !== dims[2];
+      return tier.perImageByQuality[nonSquare ? 'nonSquare' : 'square'][quality];
+    }
+    return estimation.imageQuality === 'hd' && tier.perImageHd !== undefined
+      ? tier.perImageHd
+      : (tier.perImage ?? 0);
+  }
+
+  private normalizeImageResolution(
+    size: string | undefined,
+    fallback: ImageResolution,
+  ): ImageResolution {
+    const normalized = size?.trim().toUpperCase();
+    return normalized === '1K' || normalized === '2K' || normalized === '4K'
+      ? normalized
+      : fallback;
+  }
+
+  private warnUnknownModelOnce(
+    provider: string,
+    model: string,
+    fallback: string | undefined,
+  ): void {
+    const key = `${provider}:${model}`;
+    if (warnedUnknownModels.has(key)) return;
+    warnedUnknownModels.add(key);
+    logger.warn('Unknown AI model for cost estimation', {
+      model,
+      provider,
+      fallback: fallback ?? 'none (cost 0)',
+    });
+  }
+
   /**
    * Determine provider from model name
    */

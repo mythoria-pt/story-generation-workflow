@@ -227,4 +227,14 @@ describe('GoogleGenAITextService Gemini 3.6 requests', () => {
       }),
     );
   });
+  it('forwards cancellation and omits private provider errors and prompt previews', async () => {
+    const service = new GoogleGenAITextService({ apiKey: 'test-key', model: 'gemini-3.6-flash' });
+    const signal = new AbortController().signal;
+    mockModelsGenerateContent.mockRejectedValue(new Error('PRIVATE PROVIDER CONTENT'));
+    await expect(
+      service.complete('PRIVATE USER CONTENT', { privateContent: true, signal }),
+    ).rejects.toThrow('Private text generation failed');
+    expect(mockModelsGenerateContent.mock.calls[0][0].config.abortSignal).toBe(signal);
+    expect(JSON.stringify(mockLogger.error.mock.calls)).not.toContain('PRIVATE');
+  });
 });
