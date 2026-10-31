@@ -71,4 +71,40 @@ describe('persisted structure identity', () => {
     });
     expect(mockWrite).toHaveBeenCalledTimes(1);
   });
+  it('binds a confirmed photo subject to the exact durable request identity', async () => {
+    const photoParams = {
+      ...params,
+      characterReferences: [
+        {
+          questionId: 'hero',
+          question: 'Who is the protagonist?',
+          answer: 'My selected subject',
+          imageObjectPath: 'author/inputs/photo.jpg',
+          sourceCharacterIndex: 0,
+          targetRole: 'protagonist' as const,
+        },
+      ],
+    };
+    mockRead.mockResolvedValue([
+      {
+        storyId: params.storyId,
+        inputHash: createHash('sha256').update(JSON.stringify(photoParams)).digest('hex'),
+      },
+    ]);
+    await expect(claimStructureJob('request', photoParams, 100)).resolves.toMatchObject({
+      created: false,
+    });
+    await expect(
+      claimStructureJob(
+        'request',
+        {
+          ...photoParams,
+          characterReferences: [
+            { ...photoParams.characterReferences[0]!, sourceCharacterIndex: 1 },
+          ],
+        },
+        100,
+      ),
+    ).rejects.toBeInstanceOf(StructureRequestConflict);
+  });
 });

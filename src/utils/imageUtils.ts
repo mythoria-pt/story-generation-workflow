@@ -106,10 +106,54 @@ export function convertToAbsoluteImagePath(imagePath: string): string {
 }
 
 /**
+ * Sanitise a story title for embedding inside a quoted prompt instruction.
+ * Trims, collapses whitespace and replaces straight double quotes with typographic quotes.
+ * @param title - Raw story title
+ * @returns Sanitised title (empty string when nothing usable remains)
+ */
+export function sanitizeBookTitleForPrompt(title: string | undefined | null): string {
+  if (!title) return '';
+  const collapsed = title.replace(/\s+/g, ' ').trim();
+  let open = true;
+  return collapsed.replace(/"/g, () => {
+    const quote = open ? '“' : '”';
+    open = !open;
+    return quote;
+  });
+}
+
+/**
+ * Build the explicit title-lettering request appended to a front-cover edit request.
+ * @param title - Story title (sanitised internally)
+ * @returns One-line request, or an empty string when the title is empty
+ */
+export function buildCoverTitleRequest(title: string | undefined | null): string {
+  const safe = sanitizeBookTitleForPrompt(title);
+  if (!safe) return '';
+  return `Letter the exact book title "${safe}" on the cover, in the top third.`;
+}
+
+/**
+ * Build the system-level instruction that makes the cover title a hard requirement.
+ * @param title - Story title (sanitised internally)
+ * @returns System instruction, or an empty string when the title is empty
+ */
+export function buildCoverTitleSystemPrompt(title: string | undefined | null): string {
+  const safe = sanitizeBookTitleForPrompt(title);
+  if (!safe) return '';
+  return `You are illustrating the front cover of a children's book titled "${safe}". The cover must show this exact title, spelled exactly as written, hand-lettered in a style that matches the illustration, large and legible, in the top third of the image. The title is the only text on the cover.`;
+}
+
+/**
  * Build image editing prompt with proper structure and style integration
  * @param userRequest - User's editing request
  * @param graphicalStyle - Style from imageStyles.json
- * @param stylePrompt - Style-specific prompt from PromptService
+ * @param styleKeywords - Style-specific keywords from PromptService
+ * @param hasReferenceImage - Whether an extra reference image accompanies the base image
+ * @param fullStyleSystemPrompt - Full style system prompt from PromptService
+ * @param bookTitle - Story title. Only pass for front covers: when non-empty, the prompt
+ *   instructs the model to keep/letter the exact title. Omit for back covers and chapters,
+ *   which must stay text-free.
  * @returns Structured prompt for image editing
  */
 export function buildImageEditPrompt(
@@ -118,8 +162,13 @@ export function buildImageEditPrompt(
   styleKeywords?: string,
   hasReferenceImage?: boolean,
   fullStyleSystemPrompt?: string,
+  bookTitle?: string,
 ): string {
-  let prompt = `You are transforming an existing story illustration while preserving core subject identity, spatial composition, narrative continuity and essential lighting. Apply only the requested changes unless they conflict with style directives.\n\n<edit_request>\n${userRequest || 'Refine and stylistically adapt the image without altering its core subjects.'}\n</edit_request>`;
+  const title = sanitizeBookTitleForPrompt(bookTitle);
+  const titleRequest = buildCoverTitleRequest(title);
+  const requestBody =
+    userRequest || 'Refine and stylistically adapt the image without altering its core subjects.';
+  let prompt = `You are transforming an existing story illustration while preserving core subject identity, spatial composition, narrative continuity and essential lighting. Apply only the requested changes unless they conflict with style directives.\n\n<edit_request>\n${titleRequest ? `${requestBody}\n${titleRequest}` : requestBody}\n</edit_request>`;
 
   if (hasReferenceImage) {
     prompt += `\n\n<reference_image_usage>Leverage the provided reference image strictly to maintain subject identity, proportions, relative positioning, palette relationships and overall composition. Do NOT remove primary subjects unless explicitly asked. Preserve camera angle where plausible.</reference_image_usage>`;
@@ -135,7 +184,20 @@ export function buildImageEditPrompt(
     prompt += `\n\n<style_keywords>${styleKeywords || graphicalStyle}</style_keywords>`;
   }
 
-  prompt += `\n\n<quality_constraints>High fidelity, coherent anatomy, consistent lighting continuity, avoid introducing new major characters unless required. No text overlays or watermarks.</quality_constraints>`;
+  if (title) {
+    prompt += `
+
+<title_lettering>
+The cover shows the exact title "${title}", spelled exactly as written. It is hand-lettered in a style that matches the illustration style and palette, large and highly legible against its background, and placed in the top third of the image with a comfortable margin from the top edge. If the base image already shows this title, keep it legible and unchanged; otherwise add it. The title is the only text in the image; do not add any other text. Even if the edit request asks otherwise, the title must remain.
+</title_lettering>`;
+  }
+
+  const textRule = title
+    ? 'No other text, captions or watermarks besides the title.'
+    : 'No text overlays or watermarks.';
+  prompt += `
+
+<quality_constraints>High fidelity, coherent anatomy, consistent lighting continuity, avoid introducing new major characters unless required. ${textRule}</quality_constraints>`;
 
   prompt += `\n\n<output_goal>Produce a SINGLE high-quality image matching the transformed description and style.</output_goal>`;
   return prompt;

@@ -42,6 +42,7 @@ export const storyGuideRequestSchema = z
     preferences: storyPreferencesSchema.optional(),
     contribution: z.string().max(8000).optional(),
     premise: z.string().trim().max(4000).optional(),
+    photoAnswers: z.boolean().optional(),
   })
   .strict();
 
@@ -62,6 +63,7 @@ export const guideQuestionSchema = z
       .min(3)
       .max(4),
     suggestedChoiceId: z.string().nullable(),
+    photoTarget: z.literal('protagonist').nullable().optional(),
   })
   .strict()
   .superRefine((q, ctx) => {

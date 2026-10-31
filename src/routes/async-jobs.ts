@@ -5,6 +5,10 @@ import {
   StructureRequestConflict,
 } from '@/services/structure-jobs.js';
 import { storyPreferencesSchema } from '@/services/story-guide-contract.js';
+import {
+  characterReferencesSchema,
+  refineCharacterReferenceInput,
+} from '@/services/character-reference.js';
 /**
  * Async Job API Routes
  * RESTful endpoints for managing asynchronous AI editing jobs
@@ -433,17 +437,20 @@ router.post('/generate-email-assets', async (req, res) => {
 // Story structure generation
 // ---------------------------------------------------------------------------
 
-const StoryStructureJobSchema = z.object({
-  storyId: z.string().uuid(),
-  structureRequestId: z.string().uuid().optional(),
-  userDescription: z.string().optional(),
-  imageObjectPaths: z.array(z.string()).optional(),
-  audioObjectPath: z.string().optional(),
-  characterIds: z.array(z.string().uuid()).optional(),
-  locale: z.string().min(2).max(10).optional(),
-  storyPreferences: storyPreferencesSchema.optional(),
-  factuality: z.literal('memory').optional(),
-});
+const StoryStructureJobSchema = z
+  .object({
+    storyId: z.string().uuid(),
+    structureRequestId: z.string().uuid().optional(),
+    userDescription: z.string().optional(),
+    imageObjectPaths: z.array(z.string()).optional(),
+    audioObjectPath: z.string().optional(),
+    characterIds: z.array(z.string().uuid()).optional(),
+    locale: z.string().min(2).max(10).optional(),
+    storyPreferences: storyPreferencesSchema.optional(),
+    factuality: z.literal('memory').optional(),
+    characterReferences: characterReferencesSchema.optional(),
+  })
+  .superRefine(refineCharacterReferenceInput);
 
 /**
  * POST /jobs/story-structure
@@ -474,6 +481,8 @@ router.post('/story-structure', async (req, res) => {
     if (params.locale !== undefined) jobParams.locale = params.locale;
     if (params.storyPreferences) jobParams.storyPreferences = params.storyPreferences;
     if (params.factuality) jobParams.factuality = params.factuality;
+    if (params.characterReferences !== undefined)
+      jobParams.characterReferences = params.characterReferences;
 
     if (params.structureRequestId) {
       if (jobManager.getJob(params.structureRequestId))

@@ -1,6 +1,13 @@
 import { withStructureLock } from './structure-lock.js';
 import { relocateStructureInput } from './structure-inputs.js';
 import {
+  characterReferencesSchema,
+  resolveCharacterReferences,
+  bindCharacterReference,
+  CHARACTER_REFERENCE_INSTRUCTION,
+  type CharacterReference,
+} from './character-reference.js';
+import {
   mergeStoryPreferences,
   MEMORY_INSTRUCTION,
   type StoryPreferences,
@@ -86,6 +93,7 @@ export interface GenerateStoryStructureParams {
   imageObjectPaths?: string[];
   audioObjectPath?: string;
   characterIds?: string[];
+  characterReferences?: CharacterReference[];
   /** Locale used when an image still needs to be analysed on demand. */
   locale?: string;
 }
@@ -120,6 +128,7 @@ async function cropCharacterPhoto(
   index: number,
   imageMetas: ImageMetaWithPath[],
   signal?: AbortSignal,
+  preparedCrop?: Buffer,
 ): Promise<string | null> {
   const meta = imageMetas.find((m) => m.path === sourceImagePath);
   if (!meta || meta.overallImageContent !== 'photo') return null;
@@ -128,8 +137,9 @@ async function cropCharacterPhoto(
   if (!detected || !Array.isArray(detected.box_2d) || detected.box_2d.length !== 4) return null;
 
   const storage = getStorageService();
-  const original = await storage.downloadFileAsBuffer(sourceImagePath);
-  const cropped = await cropToJpeg(original, detected.box_2d);
+  const cropped =
+    preparedCrop ??
+    (await cropToJpeg(await storage.downloadFileAsBuffer(sourceImagePath), detected.box_2d));
 
   const version = `${Date.now()}-${randomUUID().replace(/-/g, '').slice(0, 12)}`;
   const objectPath = `${authorId}/characters/${characterId}/${version}.jpg`;
@@ -138,7 +148,8 @@ async function cropCharacterPhoto(
     cacheControl: 'public, max-age=31536000',
   });
   signal?.throwIfAborted();
-  await characterService.updateCharacterPhoto(characterId, objectPath, objectPath);
+  const updated = await characterService.updateCharacterPhoto(characterId, objectPath, objectPath);
+  if (preparedCrop && !updated) throw new Error('Character photo could not be saved');
 
   logger.info('Cropped character photo from input image', {
     characterId,
@@ -210,6 +221,7 @@ async function writeInputSnapshot(args: {
   userDescription: string;
   characterIds: string[];
   imageMetas: ImageMetaWithPath[];
+  characterReferences?: CharacterReference[];
   audioObjectPath?: string | undefined;
 }): Promise<void> {
   const storage = getStorageService();
@@ -236,6 +248,9 @@ async function writeInputSnapshot(args: {
         metadataPath: metadataPathFor(m.path),
         overallImageContent: m.overallImageContent,
       })),
+      ...(args.characterReferences?.length
+        ? { characterReferences: args.characterReferences }
+        : {}),
     };
     await storage.uploadFile(
       `${base}/manifest.json`,
@@ -274,6 +289,9 @@ async function generateStoryStructureLocked(
   assertActive();
   const { storyId, userDescription, characterIds } = params;
   const analysisLocale = params.locale || 'en-US';
+  const references = characterReferencesSchema.parse(params.characterReferences ?? []);
+  if (references.some((reference) => !params.imageObjectPaths?.includes(reference.imageObjectPath)))
+    throw new StructureError('Character reference must be a submitted image', 400);
 
   const storyContext = await storyService.getStoryContext(storyId);
   if (!storyContext) {
@@ -315,19 +333,56 @@ async function generateStoryStructureLocked(
     if (meta) imageMetas.push({ path, ...meta });
   }
 
+  let resolvedReferences: ReturnType<typeof resolveCharacterReferences>;
+  const referenceCrops = new Map<string, Buffer>();
+  try {
+    resolvedReferences = resolveCharacterReferences(
+      references,
+      params.imageObjectPaths ?? [],
+      imageObjectPaths,
+      imageMetas,
+    );
+    // Fail before model calls or story/character writes if the selected subject cannot be cropped.
+    for (const reference of resolvedReferences) {
+      const original = await storage.downloadFileAsBuffer(reference.imageObjectPath);
+      referenceCrops.set(
+        reference.imageObjectPath,
+        await cropToJpeg(original, reference.detected.box_2d),
+      );
+    }
+  } catch {
+    throw new StructureError('The selected character photograph could not be prepared', 422);
+  }
+  const characterOnlyPaths = new Set(
+    resolvedReferences.map((reference) => reference.imageObjectPath),
+  );
+  const referenceInstructions = resolvedReferences.length
+    ? `${CHARACTER_REFERENCE_INSTRUCTION}\nConfirmed protagonist reference: ${JSON.stringify(
+        resolvedReferences.map((reference) => ({
+          question: reference.question,
+          answer: reference.answer,
+          targetRole: reference.targetRole,
+          appearance: reference.detected.physicalDescription,
+          detectedKind: reference.detected.type,
+        })),
+      )}\nReturn exactly one character with role protagonist for this reference.`
+    : '';
+
   // Metadata payload for the prompt — pixel boxes omitted, indexes kept for mapping.
-  const promptImageMetadata = imageMetas.map((m) => ({
-    path: m.path,
-    overallImageContent: m.overallImageContent,
-    description: m.description,
-    text: m.text,
-    characters: m.characters.map((c, index) => ({
-      index,
-      type: c.type,
-      age: c.age,
-      physicalDescription: c.physicalDescription,
-    })),
-  }));
+  const promptImageMetadata = imageMetas
+    .filter((m) => !characterOnlyPaths.has(m.path))
+    .map((m) => ({
+      path: m.path,
+      overallImageContent: m.overallImageContent,
+      description: m.description,
+      text: m.text,
+      characters: m.characters.map((c, index) => ({
+        index,
+        type: c.type,
+        age: c.age,
+        physicalDescription: c.physicalDescription,
+      })),
+    }));
 
   // Build prompt + schema
   const promptTemplate = await PromptService.loadPrompt('en-US', 'text-structure');
@@ -340,6 +395,7 @@ async function generateStoryStructureLocked(
         ? `Confirmed story preferences: ${JSON.stringify(params.storyPreferences)}`
         : '',
       params.factuality === 'memory' ? MEMORY_INSTRUCTION : '',
+      referenceInstructions,
     ]
       .filter(Boolean)
       .join('\n'),
@@ -391,7 +447,7 @@ async function generateStoryStructureLocked(
     const structureModel = process.env.GOOGLE_GENAI_MODEL || 'gemini-3.6-flash';
     aiResponse = await aiGateway.getTextService(aiContext).complete(userPrompt, {
       ...(params.signal && { signal: params.signal }),
-      privateContent: Boolean(params.storyPreferences || params.factuality),
+      privateContent: Boolean(params.storyPreferences || params.factuality || references.length),
       model: structureModel,
       jsonSchema: structSchema,
       ...(mediaParts.length ? { mediaParts } : {}),
@@ -403,7 +459,7 @@ async function generateStoryStructureLocked(
     const model = process.env.OPENAI_BASE_MODEL || process.env.OPENAI_TEXT_MODEL || 'gpt-5.5';
     aiResponse = await aiGateway.getTextService(aiContext).complete(finalPrompt, {
       ...(params.signal && { signal: params.signal }),
-      privateContent: Boolean(params.storyPreferences || params.factuality),
+      privateContent: Boolean(params.storyPreferences || params.factuality || references.length),
       temperature: 0.8,
       model,
       jsonSchema: structSchema,
@@ -416,6 +472,14 @@ async function generateStoryStructureLocked(
       receivedKeys: parsed ? Object.keys(parsed) : null,
     });
     throw new StructureError('Invalid structured response from AI', 500);
+  }
+
+  let explicitProtagonist: Record<string, any> | undefined;
+  try {
+    for (const reference of resolvedReferences)
+      explicitProtagonist = bindCharacterReference(parsed.characters, reference);
+  } catch {
+    throw new StructureError('The selected photograph could not be linked to one protagonist', 422);
   }
 
   // Persist story fields (subset used by the app)
@@ -435,12 +499,18 @@ async function generateStoryStructureLocked(
     updates,
     mergeStoryPreferences(updates, params.storyPreferences, params.factuality),
   );
+  if (resolvedReferences.length)
+    updates.additionalRequests = [updates.additionalRequests, CHARACTER_REFERENCE_INSTRUCTION]
+      .filter(Boolean)
+      .join('\n');
 
   // Cover reference URIs: only photo-type inputs that were actually provided.
   const bucket = process.env.STORAGE_BUCKET_NAME;
   const providedPaths = new Set(imageObjectPaths);
   const photoPaths = new Set(
-    imageMetas.filter((m) => m.overallImageContent === 'photo').map((m) => m.path),
+    imageMetas
+      .filter((m) => m.overallImageContent === 'photo' && !characterOnlyPaths.has(m.path))
+      .map((m) => m.path),
   );
   const toUri = (p: string) => (bucket ? `https://storage.googleapis.com/${bucket}/${p}` : p);
   const flaggedPaths = [
@@ -475,7 +545,10 @@ async function generateStoryStructureLocked(
   // When the model linked nobody but there is exactly one photo with detected
   // people, map detected people to characters in order so crops still happen.
   const photoMetasWithPeople = imageMetas.filter(
-    (m) => m.overallImageContent === 'photo' && m.characters.length > 0,
+    (m) =>
+      m.overallImageContent === 'photo' &&
+      m.characters.length > 0 &&
+      !characterOnlyPaths.has(m.path),
   );
   const modelLinkedAnyCharacter = (parsed.characters as any[]).some(
     (c) => typeof c.sourceImagePath === 'string' && Number.isInteger(c.sourceCharacterIndex),
@@ -520,7 +593,11 @@ async function generateStoryStructureLocked(
         })) ?? null;
     }
 
-    if (!record) continue;
+    if (!record) {
+      if (ch === explicitProtagonist)
+        throw new StructureError('The photographed protagonist could not be saved', 500);
+      continue;
+    }
 
     // Resolve which detected person to crop: prefer the model's explicit link,
     // otherwise consume the next heuristic fallback pair (single-photo case).
@@ -549,7 +626,10 @@ async function generateStoryStructureLocked(
           cropIndex,
           imageMetas,
           params.signal,
+          ch === explicitProtagonist ? referenceCrops.get(cropPath) : undefined,
         );
+        if (ch === explicitProtagonist && !url)
+          throw new Error('The protagonist photo could not be saved');
         if (url) {
           record.photoUrl = url;
           if (usedFallback) {
@@ -561,6 +641,8 @@ async function generateStoryStructureLocked(
           }
         }
       } catch (e) {
+        if (ch === explicitProtagonist)
+          throw new StructureError('The protagonist photograph could not be saved', 500);
         logger.warn('Character photo crop failed', {
           characterId: record.characterId,
           error: e instanceof Error ? e.message : String(e),
@@ -572,6 +654,11 @@ async function generateStoryStructureLocked(
       assertActive();
       await characterService.addCharacterToStory(storyId, record.characterId, ch.role);
     } catch (linkErr) {
+      if (ch === explicitProtagonist)
+        throw new StructureError(
+          'The photographed protagonist could not be linked to the story',
+          500,
+        );
       logger.warn('Character may already be linked to story', {
         storyId,
         characterId: record.characterId,
@@ -593,11 +680,15 @@ async function generateStoryStructureLocked(
         ? `Confirmed story preferences: ${JSON.stringify(params.storyPreferences)}`
         : '',
       params.factuality === 'memory' ? MEMORY_INSTRUCTION : '',
+      referenceInstructions,
     ]
       .filter(Boolean)
       .join('\n'),
     characterIds: characterIds ?? [],
     imageMetas,
+    characterReferences: resolvedReferences.map(
+      ({ detected: _detected, ...reference }) => reference,
+    ),
     audioObjectPath,
   });
 

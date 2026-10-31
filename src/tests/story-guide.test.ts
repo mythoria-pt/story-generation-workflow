@@ -58,6 +58,22 @@ describe('story guide', () => {
       generateStoryGuideQuestion(storyGuideRequestSchema.parse(input)),
     ).rejects.toThrow();
   });
+  it('exposes optional protagonist photo questions only for opted-in requests across supported locales', async () => {
+    mockComplete.mockResolvedValue(
+      JSON.stringify({ question: { ...question, photoTarget: 'protagonist' } }),
+    );
+    const enabled = await generateStoryGuideQuestion(
+      storyGuideRequestSchema.parse({ ...input, locale: 'en-US', photoAnswers: true }),
+    );
+    expect(enabled.question?.photoTarget).toBe('protagonist');
+    expect(mockComplete.mock.calls[0][1].systemInstruction).toContain('visible appearance only');
+    expect(mockComplete.mock.calls[0][1].jsonSchema).toMatchObject({
+      properties: { question: { anyOf: expect.any(Array) } },
+    });
+    const legacy = await generateStoryGuideQuestion(storyGuideRequestSchema.parse(input));
+    expect(legacy.question).not.toHaveProperty('photoTarget');
+    expect(storyGuideRequestSchema.safeParse({ ...input, photoAnswers: true }).success).toBe(true);
+  });
   it('never preselects an AI fact for memory mode', async () => {
     const result = await generateStoryGuideQuestion(
       storyGuideRequestSchema.parse({
@@ -120,4 +136,16 @@ describe('story guide', () => {
     });
     expect(mergeStoryPreferences({ title: 'Existing' })).toEqual({ title: 'Existing' });
   });
+});
+
+it('requests formal European Portuguese only for pt-PT', async () => {
+  mockComplete.mockResolvedValue(JSON.stringify({ question }));
+  await generateStoryGuideQuestion(storyGuideRequestSchema.parse({ ...input, locale: 'pt-PT' }));
+  expect(mockComplete.mock.calls.at(-1)[1].systemInstruction).toContain(
+    'address the reader formally',
+  );
+  await generateStoryGuideQuestion(storyGuideRequestSchema.parse(input));
+  expect(mockComplete.mock.calls.at(-1)[1].systemInstruction).not.toContain(
+    'address the reader formally',
+  );
 });

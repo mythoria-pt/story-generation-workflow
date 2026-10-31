@@ -45,6 +45,10 @@ import { ImageSafetyService } from '@/services/image-safety-service.js';
 import { analyzeInputImage } from '@/services/image-analysis.js';
 import { normalizeToJpeg } from '@/utils/imageProcessing.js';
 import { generateStoryStructure, StructureError } from '@/services/story-structure.js';
+import {
+  characterReferencesSchema,
+  refineCharacterReferenceInput,
+} from '@/services/character-reference.js';
 import { persistPromptDebug } from '@/services/prompt-debug.js';
 
 // Initialize services
@@ -640,19 +644,33 @@ router.post('/text/outline', async (req, res) => {
  */
 router.post('/text/structure', async (req, res) => {
   try {
-    const RequestSchema = z.object({
-      storyId: z.string().uuid(),
-      userDescription: z.string().optional(),
-      // New: list of already-uploaded + analysed input image object paths
-      imageObjectPaths: z.array(z.string()).optional(),
-      // Legacy single-image object path (still accepted for back-compat)
-      imageObjectPath: z.string().optional(),
-      audioObjectPath: z.string().optional(),
-      characterIds: z.array(z.string().uuid()).optional(),
-      locale: z.string().min(2).max(10).optional(),
-      storyPreferences: storyPreferencesSchema.optional(),
-      factuality: z.literal('memory').optional(),
-    });
+    const RequestSchema = z
+      .object({
+        storyId: z.string().uuid(),
+        userDescription: z.string().optional(),
+        // New: list of already-uploaded + analysed input image object paths
+        imageObjectPaths: z.array(z.string()).optional(),
+        // Legacy single-image object path (still accepted for back-compat)
+        imageObjectPath: z.string().optional(),
+        audioObjectPath: z.string().optional(),
+        characterIds: z.array(z.string().uuid()).optional(),
+        locale: z.string().min(2).max(10).optional(),
+        storyPreferences: storyPreferencesSchema.optional(),
+        factuality: z.literal('memory').optional(),
+        characterReferences: characterReferencesSchema.optional(),
+      })
+      .superRefine((input, context) =>
+        refineCharacterReferenceInput(
+          {
+            ...input,
+            imageObjectPaths: [
+              ...(input.imageObjectPaths ?? []),
+              ...(input.imageObjectPath ? [input.imageObjectPath] : []),
+            ],
+          },
+          context,
+        ),
+      );
 
     const parsed = RequestSchema.parse(req.body);
 
@@ -670,6 +688,9 @@ router.post('/text/structure', async (req, res) => {
       ...(parsed.locale !== undefined && { locale: parsed.locale }),
       ...(parsed.storyPreferences && { storyPreferences: parsed.storyPreferences }),
       ...(parsed.factuality && { factuality: parsed.factuality }),
+      ...(parsed.characterReferences !== undefined && {
+        characterReferences: parsed.characterReferences,
+      }),
     });
 
     res.json({

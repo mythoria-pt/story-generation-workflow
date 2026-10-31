@@ -16,7 +16,9 @@ import {
   extractFilenameFromUri,
   generateNextVersionFilename,
   buildImageEditPrompt,
+  buildCoverTitleSystemPrompt,
   getImageDimensions,
+  sanitizeBookTitleForPrompt,
 } from '@/utils/imageUtils.js';
 
 // Initialize services
@@ -34,6 +36,44 @@ interface ImageEditJobParams {
   graphicalStyle?: string;
   userImageUri?: string; // user uploaded image used for style conversion or reference
   convertToStyle?: boolean; // when true, treat userImageUri as the base to restyle
+}
+
+/**
+ * Whether the image service can really edit. Wrappers expose supportsEdit() because they
+ * always define edit() even when the underlying provider does not.
+ */
+function canUseEdit(imageService: { edit?: unknown; supportsEdit?: unknown }): boolean {
+  if (typeof imageService.supportsEdit === 'function') {
+    return (imageService as { supportsEdit: () => boolean }).supportsEdit();
+  }
+  return typeof imageService.edit === 'function';
+}
+
+/**
+ * Build the front-cover prompt used with generate() (or edit()), ending with the title as the
+ * last instruction the model reads.
+ */
+function buildFrontCoverFinalPrompt(
+  imagePrompt: string,
+  bookTitle: string,
+  baseImageDescription: string | undefined,
+  includeAnchor: boolean,
+): string {
+  const title = sanitizeBookTitleForPrompt(bookTitle);
+  let prompt = imagePrompt;
+  if (includeAnchor) {
+    const allowed = title
+      ? 'Only apply style adaptation, the explicitly requested changes and the cover title lettering.'
+      : 'Only apply style adaptation and the explicitly requested changes.';
+    prompt += `\n\nThe provided reference image MUST anchor subject identity, composition and core visual elements. ${allowed}`;
+    if (baseImageDescription) {
+      prompt += `\n\nREFERENCE_IMAGE_STRUCTURED_DESCRIPTION:\n${baseImageDescription}`;
+    }
+  }
+  if (title) {
+    prompt += `\n\nFinal requirement: the cover shows the title "${title}" lettered exactly as written in the top third.`;
+  }
+  return prompt;
 }
 
 /** Infer a naive mime type for a stored filename */
@@ -248,6 +288,13 @@ async function processFrontCoverEdit(
     }
   }
 
+  const bookTitle = typeof story.title === 'string' ? story.title.trim() : '';
+  if (!bookTitle) {
+    logger.warn('Story title missing for front cover edit; proceeding without title lettering', {
+      storyId: story.storyId,
+    });
+  }
+
   const imagePrompt = buildImageEditPrompt(
     // Only append reference guidance if we're not directly converting the uploaded image itself
     userImageUri && baseImageUri !== userImageUri
@@ -257,6 +304,7 @@ async function processFrontCoverEdit(
     stylePrompt,
     !!userImageUri && baseImageUri !== userImageUri,
     fullStyleSystemPrompt,
+    bookTitle,
   );
 
   // 4. Get image dimensions from environment configuration
@@ -267,19 +315,38 @@ async function processFrontCoverEdit(
   let imageBuffer: Buffer;
   try {
     const imageService = aiGateway.getImageService(aiContext);
-    const canAttemptEdit = typeof imageService.edit === 'function';
+    // Style conversion creates a new image, so edit() ("keep everything else") works against it.
+    const canAttemptEdit = !convertToStyle && canUseEdit(imageService);
     const referenceImageEntry = {
       buffer: baseImageBuffer,
       mimeType: guessMimeType(baseImageFilename),
       source: baseImageUri,
     };
+    const titleSystemPrompt = buildCoverTitleSystemPrompt(bookTitle);
     const buildGenerationOptions = () => ({
       width: dimensions.width,
       height: dimensions.height,
       imageType: 'front_cover' as const,
+      ...(bookTitle && { bookTitle }),
+      ...(titleSystemPrompt && { systemPrompt: titleSystemPrompt }),
       ...(graphicalStyle && { graphicalStyle }),
       referenceImages: [referenceImageEntry],
     });
+    const generatePromptText = buildFrontCoverFinalPrompt(
+      imagePrompt,
+      bookTitle,
+      baseImageDescription,
+      true,
+    );
+    const editPromptText = buildFrontCoverFinalPrompt(imagePrompt, bookTitle, undefined, false);
+    const logImageCall = (path: 'edit' | 'generate', promptLength: number) =>
+      logger.info('Front cover image call', {
+        storyId: story.storyId,
+        path,
+        convertToStyle: !!convertToStyle,
+        hasTitleLettering: !!bookTitle,
+        promptLength,
+      });
 
     if (canAttemptEdit) {
       try {
@@ -291,23 +358,25 @@ async function processFrontCoverEdit(
           });
           throw new Error('Invariant: edit function missing after capability check');
         }
-        imageBuffer = await imageService.edit(imagePrompt, baseImageBuffer, {
+        logImageCall('edit', editPromptText.length);
+        imageBuffer = await imageService.edit(editPromptText, baseImageBuffer, {
           width: dimensions.width,
           height: dimensions.height,
           imageType: 'front_cover',
+          ...(titleSystemPrompt && { systemPrompt: titleSystemPrompt }),
           ...(graphicalStyle && { graphicalStyle }),
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         if (/does not support editing|not support editing/i.test(msg)) {
-          logger.warn('Edit unsupported; falling back to generate() with reference image', {
+          logger.info('Edit unsupported; falling back to generate() with reference image', {
             storyId: story.storyId,
             imageType: 'front_cover',
           });
           if (!imageService.generate)
             throw new Error('Image generation not supported by current AI provider');
-          const augmentedPrompt = `${imagePrompt}\n\nThe provided reference image MUST anchor subject identity, composition and core visual elements. Only apply style adaptation and the explicitly requested changes.${baseImageDescription ? `\n\nREFERENCE_IMAGE_STRUCTURED_DESCRIPTION:\n${baseImageDescription}` : ''}`;
-          imageBuffer = await imageService.generate(augmentedPrompt, buildGenerationOptions());
+          logImageCall('generate', generatePromptText.length);
+          imageBuffer = await imageService.generate(generatePromptText, buildGenerationOptions());
         } else {
           throw err;
         }
@@ -315,12 +384,13 @@ async function processFrontCoverEdit(
     } else {
       if (!imageService.generate)
         throw new Error('Image generation not supported by current AI provider');
-      logger.info('Provider lacks edit(); using generate() with reference image to simulate edit', {
+      logger.info('Using generate() with reference image to simulate edit', {
         storyId: story.storyId,
         imageType: 'front_cover',
+        convertToStyle: !!convertToStyle,
       });
-      const augmentedPrompt = `${imagePrompt}\n\nThe provided reference image MUST anchor subject identity, composition and core visual elements. Only apply style adaptation and the explicitly requested changes.${baseImageDescription ? `\n\nREFERENCE_IMAGE_STRUCTURED_DESCRIPTION:\n${baseImageDescription}` : ''}`;
-      imageBuffer = await imageService.generate(augmentedPrompt, buildGenerationOptions());
+      logImageCall('generate', generatePromptText.length);
+      imageBuffer = await imageService.generate(generatePromptText, buildGenerationOptions());
     }
   } catch (editError) {
     throw new Error(
@@ -439,7 +509,7 @@ async function processBackCoverEdit(
   let imageBuffer: Buffer;
   try {
     const imageService = aiGateway.getImageService(aiContext);
-    const canAttemptEdit = typeof imageService.edit === 'function';
+    const canAttemptEdit = canUseEdit(imageService);
     const referenceImageEntry = {
       buffer: baseImageBuffer,
       mimeType: guessMimeType(baseImageFilename),
@@ -471,7 +541,7 @@ async function processBackCoverEdit(
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         if (/does not support editing|not support editing/i.test(msg)) {
-          logger.warn('Edit unsupported; falling back to generate() with reference image', {
+          logger.info('Edit unsupported; falling back to generate() with reference image', {
             storyId: story.storyId,
             imageType: 'back_cover',
           });
@@ -623,7 +693,7 @@ async function processChapterImageEdit(
   let imageBuffer: Buffer;
   try {
     const imageService = aiGateway.getImageService(aiContext);
-    const canAttemptEdit = typeof imageService.edit === 'function';
+    const canAttemptEdit = canUseEdit(imageService);
     const referenceImageEntry = {
       buffer: baseImageBuffer,
       mimeType: guessMimeType(baseImageFilename),
@@ -656,7 +726,7 @@ async function processChapterImageEdit(
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         if (/does not support editing|not support editing/i.test(msg)) {
-          logger.warn('Edit unsupported; falling back to generate() with reference image', {
+          logger.info('Edit unsupported; falling back to generate() with reference image', {
             storyId: story.storyId,
             imageType: 'chapter',
             chapterNumber,

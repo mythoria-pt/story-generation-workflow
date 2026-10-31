@@ -298,6 +298,11 @@ export class ImageGenerationMiddleware implements IImageGenerationService {
     private context: AICallContext,
   ) {}
 
+  /** True when the wrapped provider service really implements edit(). */
+  public supportsEdit(): boolean {
+    return typeof this.baseService.edit === 'function';
+  }
+
   async generate(prompt: string, options?: ImageGenerationOptions): Promise<Buffer> {
     const startTime = Date.now();
 
