@@ -71,9 +71,7 @@ export async function generateStoryGuideQuestion(input: StoryGuideRequest, signa
             text: z.string(),
             choices: z.array(choice).min(3).max(4),
             suggestedChoiceId: z.string().nullable(),
-            ...(input.photoAnswers
-              ? { photoTarget: z.literal('protagonist').nullable() }
-              : {}),
+            ...(input.photoAnswers ? { photoTarget: z.literal('protagonist').nullable() } : {}),
           })
           .strict()
           .nullable(),
@@ -101,8 +99,7 @@ export async function generateStoryGuideQuestion(input: StoryGuideRequest, signa
       throw new Error('Repeated guide question');
     }
     const supportedQuestion = parsed.question ? { ...parsed.question } : null;
-    if (supportedQuestion && !input.photoAnswers)
-      delete supportedQuestion.photoTarget;
+    if (supportedQuestion && !input.photoAnswers) delete supportedQuestion.photoTarget;
     const question = supportedQuestion
       ? guideQuestionSchema.parse({
           ...supportedQuestion,
