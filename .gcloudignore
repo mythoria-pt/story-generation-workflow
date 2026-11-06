@@ -27,6 +27,7 @@ coverage/
 
 # Build artifacts
 /build/
+/dist/
 /.cache/
 
 # Other files and folders
