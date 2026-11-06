@@ -13,13 +13,6 @@ export interface EnvVarDescriptor {
 }
 
 export const envManifest: EnvVarDescriptor[] = [
-  {
-    name: 'STORY_TEMPLATES_ENABLED',
-    required: false,
-    scopes: ['dev', 'runtime', 'prod'],
-    default: 'false',
-    source: 'inline',
-  },
   { name: 'NODE_ENV', required: true, scopes: ['dev', 'runtime', 'prod'], default: 'development' },
   {
     name: 'NODE_VERSION',

@@ -24,15 +24,9 @@ const body = {
   answers: [],
 };
 describe('story guide route', () => {
-  const original = process.env.STORY_TEMPLATES_ENABLED;
   beforeEach(() => {
-    process.env.STORY_TEMPLATES_ENABLED = 'true';
     jest.clearAllMocks();
     mockGenerate.mockResolvedValue({ revision: 0, source: 'ai', question: null });
-  });
-  afterAll(() => {
-    if (original === undefined) delete process.env.STORY_TEMPLATES_ENABLED;
-    else process.env.STORY_TEMPLATES_ENABLED = original;
   });
   const post = () =>
     request(app)
@@ -42,10 +36,7 @@ describe('story guide route', () => {
     expect((await request(app).post('/ai/text/story-guide').send(body)).status).toBe(401);
     expect(mockGenerate).not.toHaveBeenCalled();
   });
-  it('defaults off and rejects invalid input', async () => {
-    delete process.env.STORY_TEMPLATES_ENABLED;
-    expect((await post().send(body)).status).toBe(404);
-    process.env.STORY_TEMPLATES_ENABLED = 'true';
+  it('rejects invalid input', async () => {
     expect((await post().send({ ...body, authorId: 'forged' })).status).toBe(400);
     expect(mockGenerate).not.toHaveBeenCalled();
   });

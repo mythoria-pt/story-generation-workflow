@@ -6,10 +6,6 @@ import { logger } from '@/config/logger.js';
 
 export const storyGuideRouter = Router();
 storyGuideRouter.post('/text/story-guide', async (req, res) => {
-  if (process.env.STORY_TEMPLATES_ENABLED !== 'true') {
-    res.status(404).json({ error: 'Story guide unavailable' });
-    return;
-  }
   const parsed = storyGuideRequestSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'Invalid story guide request' });
