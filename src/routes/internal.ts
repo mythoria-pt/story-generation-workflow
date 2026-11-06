@@ -16,6 +16,7 @@ import { serializeError } from '@/utils/errorHandling.js';
 import type { OutlineData } from '@/types/database.js';
 import { analyticsReconciliationService } from '@/services/analytics.js';
 import { schedulerAuth } from '@/middleware/schedulerAuth.js';
+import { apiKeyAuth } from '@/middleware/apiKeyAuth.js';
 import { getTTSHttpError, isTTSGenerationError } from '@/services/tts-errors.js';
 
 const router = Router();
@@ -80,6 +81,97 @@ router.get('/auth/status', async (_req, res) => {
     apiKeyConfigured: trimmed.length > 0,
     keyLength: trimmed.length,
   });
+});
+
+const candidateTime = z.iso.datetime({ offset: true });
+const candidateCursor = z.object({
+  from: candidateTime,
+  to: candidateTime,
+  after: z.object({
+    completedAt: z
+      .string()
+      .max(80)
+      .regex(/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}(?::?\d{2})?)$/),
+    runId: z.string().uuid(),
+  }),
+});
+
+router.get('/notifications/story-created-candidates', apiKeyAuth, async (req, res) => {
+  try {
+    const query = z
+      .object({
+        from: candidateTime.optional(),
+        to: candidateTime.optional(),
+        limit: z.coerce.number().int().min(1).max(100).default(100),
+        cursor: z.string().max(2048).optional(),
+      })
+      .parse(req.query);
+    let cursor: z.infer<typeof candidateCursor> | undefined;
+    if (query.cursor) {
+      try {
+        cursor = candidateCursor.parse(
+          JSON.parse(Buffer.from(query.cursor, 'base64url').toString('utf8')),
+        );
+      } catch {
+        res.status(400).json({ error: 'Invalid cursor' });
+        return;
+      }
+    }
+    if (
+      cursor &&
+      ((query.from && query.from !== cursor.from) || (query.to && query.to !== cursor.to))
+    ) {
+      res.status(400).json({ error: 'Cursor does not match time window' });
+      return;
+    }
+    const to = cursor?.to ?? query.to ?? new Date().toISOString();
+    const from =
+      cursor?.from ?? query.from ?? new Date(Date.parse(to) - 7 * 86400000).toISOString();
+    if (Date.parse(from) > Date.parse(to)) {
+      res.status(400).json({ error: 'Invalid time window' });
+      return;
+    }
+    const result = await runsService.listStoryCreatedCandidates({
+      from,
+      to,
+      limit: query.limit,
+      ...(cursor ? { after: cursor.after } : {}),
+    });
+    const nextCursor = result.after
+      ? Buffer.from(JSON.stringify({ from, to, after: result.after })).toString('base64url')
+      : null;
+    res.json({ candidates: result.candidates, nextCursor });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ error: 'Invalid candidate query' });
+      return;
+    }
+    logger.error('Failed to list story notification candidates', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    res.status(500).json({ error: 'Failed to list candidates' });
+  }
+});
+
+router.get('/notifications/story-created-candidates/:runId', apiKeyAuth, async (req, res) => {
+  const parsed = z.string().uuid().safeParse(req.params.runId);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid runId' });
+    return;
+  }
+  try {
+    const candidate = await runsService.getStoryCreatedCandidate(parsed.data);
+    if (!candidate) {
+      res.status(404).json({ error: 'Candidate not found' });
+      return;
+    }
+    res.json(candidate);
+  } catch (error) {
+    logger.error('Failed to get story notification candidate', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    res.status(500).json({ error: 'Failed to get candidate' });
+  }
 });
 
 /** POST /internal/runs/:runId/claim - atomically claim a workflow run. */

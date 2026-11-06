@@ -3,7 +3,8 @@
  * Handles database operations for story generation runs and steps
  */
 
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, sql, gte, lte, gt, or, asc } from 'drizzle-orm';
+import { isStoryCreatedEligible } from './story-created-eligibility.js';
 import { getWorkflowsDatabase } from '@/db/workflows-db.js';
 import { storyGenerationRuns, storyGenerationSteps } from '@/db/workflows-db.js';
 import { logger } from '@/config/logger.js';
@@ -247,7 +248,12 @@ export class RunsService {
         }
 
         if (['completed', 'failed', 'cancelled', 'blocked'].includes(updates.status)) {
-          updateData.endedAt = updates.endedAt || new Date().toISOString();
+          updateData.endedAt =
+            updates.status === 'completed' &&
+            existingRun.status === 'completed' &&
+            existingRun.endedAt
+              ? existingRun.endedAt
+              : updates.endedAt || new Date().toISOString();
         }
 
         if (updates.status === 'failed') {
@@ -336,6 +342,68 @@ export class RunsService {
       });
       throw error;
     }
+  }
+
+  async getStoryCreatedCandidate(runId: string) {
+    const run = await this.getRun(runId);
+    if (!run || run.status !== 'completed' || !run.endedAt) return null;
+    const steps = run.metadata == null ? await this.getRunSteps(runId) : [];
+    if (!isStoryCreatedEligible(run.metadata, steps)) return null;
+    return {
+      runId: run.runId,
+      storyId: run.storyId,
+      completedAt: new Date(run.endedAt).toISOString(),
+    };
+  }
+
+  async listStoryCreatedCandidates(input: {
+    from: string;
+    to: string;
+    limit: number;
+    after?: { completedAt: string; runId: string };
+  }) {
+    const position = input.after;
+    const rows = await this.db
+      .select()
+      .from(storyGenerationRuns)
+      .where(
+        and(
+          eq(storyGenerationRuns.status, 'completed'),
+          gte(storyGenerationRuns.endedAt, input.from),
+          lte(storyGenerationRuns.endedAt, input.to),
+          position
+            ? or(
+                gt(storyGenerationRuns.endedAt, position.completedAt),
+                and(
+                  eq(storyGenerationRuns.endedAt, position.completedAt),
+                  gt(storyGenerationRuns.runId, position.runId),
+                ),
+              )
+            : undefined,
+        ),
+      )
+      .orderBy(asc(storyGenerationRuns.endedAt), asc(storyGenerationRuns.runId))
+      .limit(input.limit + 1);
+    const page = rows.slice(0, input.limit);
+    const candidates = [];
+    for (const run of page) {
+      const steps = run.metadata == null ? await this.getRunSteps(run.runId) : [];
+      if (run.endedAt && isStoryCreatedEligible(run.metadata, steps)) {
+        candidates.push({
+          runId: run.runId,
+          storyId: run.storyId,
+          completedAt: new Date(run.endedAt).toISOString(),
+        });
+      }
+    }
+    const last = page.at(-1);
+    return {
+      candidates,
+      after:
+        rows.length > input.limit && last?.endedAt
+          ? { completedAt: last.endedAt, runId: last.runId }
+          : null,
+    };
   }
 
   /**

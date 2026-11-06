@@ -1,5 +1,7 @@
 # AGENTS.md — Copilot/Vibe Playbook
 
+Email event identity, generation recovery and the coordinated delivery-ledger rollout are documented in [the shared email reliability runbook](../docs/EMAIL_DELIVERY_RELIABILITY.md). Keep the successful generation run ID stable across immediate and recovered notifications; copied stories are not generation events. Deploy the authenticated candidate API before enabling Notification Engine recovery.
+
 ## 1. Quick Context
 
 - **Runtime**: Node.js 24.18.1 LTS (ESM) + Express, compiled with `tsc` and path aliases (`@/...`).
@@ -94,7 +96,7 @@ Need more context? Read `docs/overview.md` for the narrative, `docs/ai.md` for r
 
 ## Story templates guidance
 
-See [docs/story-templates.md](docs/story-templates.md). The guide is stateless and defaults off behind `STORY_TEMPLATES_ENABLED`. Preserve private AI content handling, atomic workflow-DB quotas and deterministic story preferences. Workflows migrations 0008/0009 were applied with authorization after backup on 2026-09-19; see the [operation record](../docs/STORY_TEMPLATES_LOCAL_TEST_2026-09-19.md). The WebApp also requires an author opt-in for new guided requests; accepted jobs must remain recoverable when access is disabled. Its generated core opt-in migration has not been applied. Routine local tests must not run migrations or integration fixtures against the shared production database.
+See [docs/story-templates.md](docs/story-templates.md). Guidance is available to all authenticated authors. Preserve private AI content handling, atomic workflow-DB quotas, deterministic story preferences and accepted-job recovery. Routine tests must not run migrations or integration fixtures against the shared production database.
 
 ## Referral platform v1 (2026-09-09)
 
@@ -107,3 +109,7 @@ See [docs/audio-narration-system.md](docs/audio-narration-system.md) for the ful
 - Default provider is `google-genai` with `gemini-3.8-flash-tts` as the only accepted Gemini TTS model. OpenAI (`gpt-4o-mini-tts`) is the alternative. Rollback to an older model means redeploying the previous Cloud Run revision.
 - Expressive narration (`TTS_EXPRESSIVE_DIRECTION_ENABLED`) defaults to off in code, but `cloudbuild.yaml` and `.env.local` enable it with `TTS_DIRECTION_MODEL=gemini-3.8-flash`. When off, chunks are sent with the plain per-locale base style.
 - Voice resolution lives in `src/services/voice-registry.ts`. It must stay in sync with `mythoria-webapp/src/lib/voice-options.ts` and `mythoria_admin/src/lib/voice-options.ts` across the three repos.
+
+## Story-created notification recovery
+
+`GET /internal/notifications/story-created-candidates` requires `x-api-key` and lists completed story generation runs from workflows_db. Optional ISO `from` and `to` define an inclusive window (default: seven days ending now); `limit` is 1–100. Follow `nextCursor` until null, including empty pages. The opaque cursor preserves the window and completion-time/run-ID position. `GET /internal/notifications/story-created-candidates/:runId` returns one eligible candidate or 404. Each candidate has `runId`, `storyId`, and ISO `completedAt`; neither endpoint asserts the core story is published or email is safe to resend. Explicit storyGeneration runs and legacy null-metadata runs with completed generation steps qualify. Notification Engine must check delivery state and core story eligibility before recovery.

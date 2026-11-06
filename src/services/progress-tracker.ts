@@ -1,3 +1,4 @@
+import { isStoryCreatedEligible } from './story-created-eligibility.js';
 /**
  * Progress Tracker Service
  * Calculates and updates story generation completion percentage based on workflow steps
@@ -29,7 +30,6 @@ export interface ProgressCalculation {
 export class ProgressTrackerService {
   private runsService: RunsService;
   private storyService: StoryService;
-  private readonly notificationExclusionServiceCodes = new Set(['selfPrinting', 'printGeneration']);
 
   // Base workflow steps with estimated times
   private readonly baseWorkflowSteps: WorkflowStep[] = [
@@ -328,13 +328,18 @@ export class ProgressTrackerService {
 
             await this.storyService.updateStoryStatus(run.storyId, 'published');
 
-            if (this.shouldDispatchStoryCreatedEmail(run.metadata)) {
+            if (
+              isStoryCreatedEligible(
+                run.metadata,
+                run.metadata == null ? await this.runsService.getRunSteps(runId) : [],
+              )
+            ) {
               await this.dispatchStoryCreatedEmail(run.runId, run.storyId);
             } else {
               logger.info('Skipping story-created email for non-story-generation run', {
                 runId,
                 storyId: run.storyId,
-                serviceCode: this.extractServiceCode(run.metadata),
+                metadataPresent: run.metadata != null,
               });
             }
           }
@@ -405,6 +410,7 @@ export class ProgressTrackerService {
     const sent = await sendStoryCreatedEmail({
       storyId,
       entityId: runId,
+      runId,
       templateId: 'story-created',
       recipients: [{ email: story.authorEmail, name: story.author, language }],
       variables,
@@ -479,41 +485,5 @@ export class ProgressTrackerService {
       });
       return 0;
     }
-  }
-
-  private shouldDispatchStoryCreatedEmail(metadata: unknown): boolean {
-    const serviceCode = this.extractServiceCode(metadata);
-    if (!serviceCode) {
-      return true;
-    }
-
-    // Only send story-created emails for the core story generation workflow.
-    return !this.notificationExclusionServiceCodes.has(serviceCode);
-  }
-
-  private extractServiceCode(metadata: unknown): string | undefined {
-    if (!metadata || typeof metadata !== 'object') {
-      return undefined;
-    }
-
-    const root = metadata as Record<string, unknown>;
-    if (typeof root.serviceCode === 'string' && root.serviceCode.trim().length > 0) {
-      return root.serviceCode;
-    }
-
-    const delivery = root.delivery;
-    if (delivery && typeof delivery === 'object') {
-      const deliveryMetadata = (delivery as Record<string, unknown>).metadata;
-      if (
-        deliveryMetadata &&
-        typeof deliveryMetadata === 'object' &&
-        typeof (deliveryMetadata as Record<string, unknown>).serviceCode === 'string'
-      ) {
-        const code = (deliveryMetadata as Record<string, unknown>).serviceCode as string;
-        return code.trim().length > 0 ? code : undefined;
-      }
-    }
-
-    return undefined;
   }
 }

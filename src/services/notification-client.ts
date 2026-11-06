@@ -4,6 +4,7 @@ import { getEnvironment } from '@/config/environment.js';
 export interface StoryCreatedEmailPayload {
   storyId: string;
   entityId: string;
+  runId: string;
   templateId: 'story-created';
   recipients: Array<{ email: string; name?: string; language?: string }>;
   variables: Record<string, unknown>;
@@ -163,6 +164,7 @@ async function sendTemplateEmail(payload: {
   metadata?: Record<string, unknown>;
   storyId?: string;
   entityId?: string;
+  runId?: string;
 }): Promise<boolean> {
   const env = getEnvironment();
   if (!env.NOTIFICATION_ENGINE_URL) {
@@ -176,6 +178,7 @@ async function sendTemplateEmail(payload: {
 
   try {
     const headers = buildHeaders(env);
+    if (payload.entityId) headers['Idempotency-Key'] = `${payload.templateId}:${payload.entityId}`;
     const body = JSON.stringify(payload);
 
     const response = await fetch(url, {
@@ -223,6 +226,7 @@ export async function sendStoryPrintInstructionsEmail(
   const baseUrl = env.NOTIFICATION_ENGINE_URL.replace(/\/$/, '');
   const url = `${baseUrl}/email/story-print-instructions`;
   const headers = buildHeaders(env);
+  headers['Idempotency-Key'] = `story-print-instructions:${payload.workflowId}`;
   const locale = payload.locale || payload.recipient.language || payload.storyLanguage || 'en-US';
 
   const additionalPdfs = [

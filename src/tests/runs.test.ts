@@ -140,6 +140,21 @@ describe('RunsService', () => {
     getRunSpy.mockRestore();
   });
 
+  it('keeps the completion position stable on repeated completion updates', async () => {
+    const endedAt = '2026-10-30T12:00:00.000Z';
+    jest
+      .spyOn(service, 'getRun')
+      .mockResolvedValue({ runId: 'r1', storyId: 's1', status: 'completed', endedAt } as any);
+    const setMock = jest.fn().mockReturnValue({
+      where: jest
+        .fn()
+        .mockReturnValue({ returning: jest.fn().mockResolvedValue([{ runId: 'r1' }]) }),
+    });
+    mockDb.update.mockReturnValue({ set: setMock });
+    await service.updateRun('r1', { status: 'completed' });
+    expect(setMock).toHaveBeenCalledWith(expect.objectContaining({ endedAt }));
+  });
+
   it('persists a deterministic failure classification for terminal failures', async () => {
     jest.spyOn(service, 'getRun').mockResolvedValue({
       runId: 'r1',

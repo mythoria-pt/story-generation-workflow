@@ -47,7 +47,6 @@ export const booleanFlagSchema = z
   .transform((v) => v === 'true' || v === '1');
 
 const envSchema = z.object({
-  STORY_TEMPLATES_ENABLED: z.enum(['true', 'false']).default('false'),
   // Added 'test' to support Jest and other test runners without failing validation
   NODE_ENV: z.enum(['development', 'staging', 'production', 'test']),
   PORT: z.string().default('8080').transform(Number),
