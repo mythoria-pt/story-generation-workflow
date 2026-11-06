@@ -1,6 +1,7 @@
 # .gcloudignore
 
 # Exclude git history and configuration
+.git
 .git/
 .gitignore
 .github/
