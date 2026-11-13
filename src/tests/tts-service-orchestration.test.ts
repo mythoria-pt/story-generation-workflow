@@ -161,30 +161,47 @@ describe('TTSService.generateChapterAudioFromText orchestration', () => {
     expect(mockSynthesize.mock.calls[0][1].systemPrompt).toBe('system prompt');
   });
 
-  it('sends segments with "<baseStyle>; <mood>" styles when direction succeeds', async () => {
+  it('sends adapted narration and vocal cues with segment moods and records direction outcomes', async () => {
     mockShouldDirect.mockReturnValue(true);
     mockDirectNarration.mockResolvedValue({
       source: 'llm',
+      insertedTags: 1,
+      discardedTags: 1,
+      adaptedText: true,
       segments: [
-        { text: 'Once', mood: 'hushed' },
-        { text: 'upon a time.', mood: 'bright' },
+        { text: 'Once...', mood: 'hushed' },
+        { text: '<gasp> upon a time!', mood: 'bright' },
       ],
     });
     await run();
     expect(mockSynthesize.mock.calls[0][1].segments).toEqual([
-      { text: 'Once', style: `${BASE_STYLE}; hushed` },
-      { text: 'upon a time.', style: `${BASE_STYLE}; bright` },
+      { text: 'Once...', style: `${BASE_STYLE}; hushed` },
+      { text: '<gasp> upon a time!', style: `${BASE_STYLE}; bright` },
     ]);
+    expect(mockRecordUsage.mock.calls[0][0].inputPromptJson.narrationDirection).toEqual({
+      enabled: true,
+      directedChunks: 1,
+      fallbackChunks: 0,
+      insertedTags: 1,
+      discardedTags: 1,
+      adaptedChunks: 1,
+      styledSegments: 2,
+      fallbackReasons: {},
+    });
   });
 
   it('falls back to single text with the base style when direction falls back', async () => {
     mockShouldDirect.mockReturnValue(true);
-    mockDirectNarration.mockResolvedValue({ source: 'fallback', segments: [] });
+    mockDirectNarration.mockResolvedValue({ source: 'fallback', reason: 'content_drift' });
     await run();
     const [text, options] = mockSynthesize.mock.calls[0];
     expect(text).toBe('Once upon a time.');
     expect(options.style).toBe(BASE_STYLE);
     expect(options.segments).toBeUndefined();
+    expect(mockRecordUsage.mock.calls[0][0].inputPromptJson.narrationDirection).toMatchObject({
+      fallbackChunks: 1,
+      fallbackReasons: { content_drift: 1 },
+    });
   });
 
   it('sums usage across chunks and proxies chunks without provider usage', async () => {

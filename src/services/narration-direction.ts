@@ -2,7 +2,7 @@
  * Narration Direction
  * Optional per-chunk "audiobook director" pass for Gemini TTS. One text-LLM call splits a
  * chunk into 1-4 ordered segments, each with a short mood style, and may insert a few
- * whitelisted inline audio tags. Every result is validated by pure guardrails; any failure
+ * documented inline audio tags and make small spoken-language edits. Invalid content
  * falls back to the untouched chunk with the base style. Narration is never blocked.
  */
 
@@ -20,19 +20,38 @@ import { PromptService } from './prompt.js';
  */
 export const NARRATION_AUDIO_TAGS = [
   '<sigh>',
-  '<laughs>',
+  '<sighs>',
+  '<laugh>',
+  '<laughter>',
   '<chuckle>',
+  '<chuckles>',
   '<giggle>',
   '<gasp>',
   '<whispers>',
+  '<whispering>',
   '<breath>',
+  '<heavy breath>',
+  '<exhales>',
+  '<cough>',
+  '<throat-clearing>',
+  '<cry>',
+  '<sob>',
+  '<whimper>',
+  '<snicker>',
+  '<snort>',
+  '<phew>',
+  '<yawn>',
+  '<groan>',
+  '<cheer>',
 ] as const;
 
 const ALLOWED_TAGS: ReadonlySet<string> = new Set(NARRATION_AUDIO_TAGS);
-const TAG_PATTERN = /<[^<>\n]{1,40}>/g;
+const TAG_PATTERN = /<[^<>\n]{1,40}>|\[[^[\]\n]{1,40}\]/g;
+const WORD_SEGMENTER = new Intl.Segmenter(undefined, { granularity: 'word' });
 
 export const MAX_DIRECTION_SEGMENTS = 4;
-export const WORDS_PER_INSERTED_TAG = 120;
+export const WORDS_PER_INSERTED_TAG = 60;
+export const MAX_NARRATION_EDIT_RATIO = 0.25;
 export const MAX_STYLE_LENGTH = 80;
 export const NARRATION_DIRECTION_TIMEOUT_MS = 20000;
 const DIRECTION_MAX_OUTPUT_TOKENS = 8192;
@@ -49,22 +68,32 @@ export type NarrationDirectionFailureReason =
   | 'invalid_json'
   | 'invalid_shape'
   | 'segment_count'
-  | 'unknown_tag'
-  | 'too_many_tags'
-  | 'verbatim_mismatch';
+  | 'content_drift';
 
-/** A validated segment: verbatim text (maybe with inserted tags) and an optional mood. */
+/** A narration-adapted segment, with supported inline cues and an optional mood. */
 export interface DirectedSegment {
   text: string;
   mood?: string;
 }
 
 export type DirectionValidation =
-  | { ok: true; segments: DirectedSegment[]; insertedTags: number }
+  | {
+      ok: true;
+      segments: DirectedSegment[];
+      insertedTags: number;
+      discardedTags: number;
+      adaptedText: boolean;
+    }
   | { ok: false; reason: NarrationDirectionFailureReason };
 
 export type NarrationDirectionResult =
-  | { source: 'llm'; segments: DirectedSegment[]; insertedTags: number }
+  | {
+      source: 'llm';
+      segments: DirectedSegment[];
+      insertedTags: number;
+      discardedTags: number;
+      adaptedText: boolean;
+    }
   | { source: 'fallback'; reason: NarrationDirectionFailureReason };
 
 export interface NarrationDirectionInput {
@@ -88,7 +117,7 @@ export interface NarrationDirectionDeps {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Canonical form for the verbatim comparison: NFC, collapsed whitespace, and no
+ * Canonical form for recording whether narration was adapted: NFC, collapsed whitespace, and no
  * whitespace next to punctuation (so a removed tag never leaves a stray space).
  */
 export function canonicalizeTranscript(text: string): string {
@@ -100,32 +129,49 @@ export function canonicalizeTranscript(text: string): string {
     .trim();
 }
 
-/** Remove whitelisted tags only; unknown `<...>` markup is left in place. */
+/** Remove supported vocal tags; other markup is left in place. */
 export function stripAllowedTags(text: string): string {
-  return text.replace(TAG_PATTERN, (match) => (ALLOWED_TAGS.has(match) ? ' ' : match));
+  return text.replace(TAG_PATTERN, (match) =>
+    ALLOWED_TAGS.has(normalizeTag(match)) ? ' ' : match,
+  );
 }
 
-function countTags(text: string): { allowedTotal: number; unknown: number } {
-  let allowedTotal = 0;
-  let unknown = 0;
-  for (const match of text.match(TAG_PATTERN) ?? []) {
-    if (ALLOWED_TAGS.has(match)) {
-      allowedTotal += 1;
-    } else {
-      unknown += 1;
-    }
-  }
-  return { allowedTotal, unknown };
+function normalizeTag(tag: string): string {
+  return `<${tag.slice(1, -1).trim().toLowerCase()}>`;
 }
 
-function countSpokenWords(text: string): number {
-  const canonical = canonicalizeTranscript(stripAllowedTags(text));
-  return canonical ? canonical.split(' ').filter(Boolean).length : 0;
+function spokenWords(text: string): string[] {
+  return Array.from(WORD_SEGMENTER.segment(stripAllowedTags(text).normalize('NFC').toLowerCase()))
+    .filter((segment) => segment.isWordLike)
+    .map((segment) => segment.segment);
 }
 
-/** Density cap: one inserted tag per ~120 words, always allowing at least one. */
+/** Room for expressive cues: roughly one per 60 words, at least two and at most 16. */
 export function maxInsertedTags(text: string): number {
-  return Math.max(1, Math.floor(countSpokenWords(text) / WORDS_PER_INSERTED_TAG));
+  return Math.min(16, Math.max(2, Math.ceil(spokenWords(text).length / WORDS_PER_INSERTED_TAG)));
+}
+
+/** Lexical bound, not a semantic proof: permit minor edits, reject broad rewrites/truncation. */
+function hasContentDrift(original: string, directed: string): boolean {
+  const before = spokenWords(original);
+  const after = spokenWords(directed);
+  const budget = Math.max(3, Math.floor(before.length * MAX_NARRATION_EDIT_RATIO));
+  if (after.length < Math.ceil(before.length * (1 - MAX_NARRATION_EDIT_RATIO))) return true;
+  if (Math.abs(before.length - after.length) > budget) return true;
+  let previous = Array.from({ length: after.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= before.length; i += 1) {
+    const current = [i];
+    for (let j = 1; j <= after.length; j += 1) {
+      current[j] = Math.min(
+        (previous[j] ?? Infinity) + 1,
+        (current[j - 1] ?? Infinity) + 1,
+        (previous[j - 1] ?? Infinity) + (before[i - 1] === after[j - 1] ? 0 : 1),
+      );
+    }
+    if (Math.min(...current) > budget) return true;
+    previous = current;
+  }
+  return (previous[after.length] ?? Infinity) > budget;
 }
 
 /**
@@ -173,34 +219,47 @@ export function validateDirection(original: string, raw: unknown): DirectionVali
   }
 
   const segments: DirectedSegment[] = [];
+  let keptTags = 0;
+  let discardedTags = 0;
+  const tagBudget = maxInsertedTags(original);
   for (const item of rawSegments) {
     const text = (item as { text?: unknown } | null)?.text;
     if (typeof text !== 'string' || text.trim() === '') {
       return { ok: false, reason: 'invalid_shape' };
     }
     const mood = sanitizeStyle((item as { style?: unknown }).style);
-    segments.push({ text: text.trim(), ...(mood ? { mood } : {}) });
+    const cleaned = text
+      .replace(TAG_PATTERN, (match) => {
+        const tag = normalizeTag(match);
+        if (ALLOWED_TAGS.has(tag) && keptTags < tagBudget) {
+          keptTags += 1;
+          return tag;
+        }
+        discardedTags += 1;
+        return ' ';
+      })
+      .trim();
+    if (!cleaned) continue;
+    segments.push({ text: cleaned, ...(mood ? { mood } : {}) });
   }
+  if (segments.length === 0) return { ok: false, reason: 'invalid_shape' };
 
   const joined = segments.map((segment) => segment.text).join(' ');
-  const before = countTags(original);
-  const after = countTags(joined);
-
-  if (after.unknown > before.unknown) {
-    return { ok: false, reason: 'unknown_tag' };
-  }
-  const insertedTags = after.allowedTotal - before.allowedTotal;
-  if (insertedTags > maxInsertedTags(original)) {
-    return { ok: false, reason: 'too_many_tags' };
-  }
-  if (
+  if (hasContentDrift(original, joined)) return { ok: false, reason: 'content_drift' };
+  const originalTags = (original.match(TAG_PATTERN) ?? []).filter((tag) =>
+    ALLOWED_TAGS.has(normalizeTag(tag)),
+  ).length;
+  const adaptedText =
     canonicalizeTranscript(stripAllowedTags(joined)) !==
-    canonicalizeTranscript(stripAllowedTags(original))
-  ) {
-    return { ok: false, reason: 'verbatim_mismatch' };
-  }
+    canonicalizeTranscript(stripAllowedTags(original));
 
-  return { ok: true, segments, insertedTags };
+  return {
+    ok: true,
+    segments,
+    insertedTags: Math.max(0, keptTags - originalTags),
+    discardedTags,
+    adaptedText,
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -290,7 +349,7 @@ export async function directNarration(
     return { source: 'fallback', reason: 'disabled' };
   }
 
-  if (countSpokenWords(input.text) === 0) {
+  if (spokenWords(input.text).length === 0) {
     return fallback('empty_text');
   }
 
@@ -366,8 +425,16 @@ export async function directNarration(
     model,
     segmentCount: validation.segments.length,
     insertedTags: validation.insertedTags,
+    discardedTags: validation.discardedTags,
+    adaptedText: validation.adaptedText,
     styledSegments: validation.segments.filter((segment) => segment.mood).length,
   });
 
-  return { source: 'llm', segments: validation.segments, insertedTags: validation.insertedTags };
+  return {
+    source: 'llm',
+    segments: validation.segments,
+    insertedTags: validation.insertedTags,
+    discardedTags: validation.discardedTags,
+    adaptedText: validation.adaptedText,
+  };
 }

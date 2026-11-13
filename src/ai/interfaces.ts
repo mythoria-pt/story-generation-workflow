@@ -125,7 +125,7 @@ export type TTSProvider = 'openai' | 'google-genai';
  * One ordered slice of a transcript with its own delivery style.
  */
 export interface TTSSegment {
-  /** Verbatim transcript slice (may contain whitelisted inline audio tags) */
+  /** Narration-ready transcript slice (may include minor spoken edits and supported vocal cues) */
   text: string;
   /** Short delivery-style direction for this slice */
   style?: string;

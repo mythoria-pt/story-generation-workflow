@@ -50,7 +50,7 @@ describe('narration direction guardrails', () => {
     const result = validateDirection(ORIGINAL, {
       segments: [
         {
-          text: 'Chapter 1 - The Door. Mia laughed <laughs> at the tiny dragon.',
+          text: 'Chapter 1 - The Door. Mia laughed <laugh> at the tiny dragon.',
           style: 'light and amused',
         },
         { text: 'Then, suddenly, the door creaked open!', style: 'hushed and suspenseful' },
@@ -60,9 +60,11 @@ describe('narration direction guardrails', () => {
     expect(result).toEqual({
       ok: true,
       insertedTags: 1,
+      discardedTags: 0,
+      adaptedText: false,
       segments: [
         {
-          text: 'Chapter 1 - The Door. Mia laughed <laughs> at the tiny dragon.',
+          text: 'Chapter 1 - The Door. Mia laughed <laugh> at the tiny dragon.',
           mood: 'light and amused',
         },
         { text: 'Then, suddenly, the door creaked open!', mood: 'hushed and suspenseful' },
@@ -78,7 +80,7 @@ describe('narration direction guardrails', () => {
     expect(canonicalizeTranscript('a  b ,c\n d')).toBe('a b,c d');
   });
 
-  it('rejects any change to the words (verbatim guard)', () => {
+  it('accepts small spoken-language changes while retaining segment moods', () => {
     expect(
       validateDirection(ORIGINAL, {
         segments: [
@@ -88,24 +90,85 @@ describe('narration direction guardrails', () => {
           },
         ],
       }),
-    ).toEqual({ ok: false, reason: 'verbatim_mismatch' });
+    ).toMatchObject({ ok: true, adaptedText: true });
 
     expect(validateDirection('One. Two.', { segments: [{ text: 'One.', style: '' }] })).toEqual({
       ok: false,
-      reason: 'verbatim_mismatch',
+      reason: 'content_drift',
     });
   });
 
-  it('rejects unknown or square-bracket tags', () => {
+  it.each([
+    [
+      'I cannot believe it. We have finally found our way home!',
+      "I can't believe it... We've finally found our way home!",
+    ],
+    [
+      'Não consigo acreditar. Finalmente, chegámos a casa!',
+      'Não consigo acreditar... Finalmente chegámos a casa!',
+    ],
+    [
+      '¡No puedo creerlo! Por fin hemos llegado a casa.',
+      '¡No puedo creerlo! Al fin hemos llegado a casa.',
+    ],
+    [
+      'Je ne peux pas le croire. Nous sommes enfin chez nous !',
+      'Je ne peux pas le croire... Nous sommes enfin chez nous !',
+    ],
+    [
+      'Ich kann es nicht glauben. Endlich sind wir wieder zu Hause!',
+      'Ich kann es kaum glauben... Endlich sind wir wieder zu Hause!',
+    ],
+  ])('accepts minor adaptations across the supported locales: %s', (original, directed) => {
     expect(
-      validateDirection('She smiled.', { segments: [{ text: 'She <cries> smiled.', style: '' }] }),
-    ).toEqual({ ok: false, reason: 'unknown_tag' });
-    expect(
-      validateDirection('She smiled.', { segments: [{ text: 'She [laughs] smiled.', style: '' }] }),
-    ).toEqual({ ok: false, reason: 'verbatim_mismatch' });
+      validateDirection(original, { segments: [{ text: directed, style: 'delighted relief' }] }),
+    ).toMatchObject({ ok: true, adaptedText: true });
   });
 
-  it('rejects pause tags like any other unknown tag', () => {
+  it('rejects broad rewrites, reordered scenes, truncation and duplicated passages', () => {
+    const original = words(40);
+    for (const text of [
+      words(15),
+      words(40) + ' ' + words(40),
+      'An entirely unrelated adventure with different people.',
+      original.split(' ').reverse().join(' '),
+    ]) {
+      expect(validateDirection(original, { segments: [{ text, style: 'lively' }] })).toEqual({
+        ok: false,
+        reason: 'content_drift',
+      });
+    }
+  });
+
+  it('removes unsupported cues without rejecting the text or style', () => {
+    expect(
+      validateDirection('She smiled.', {
+        segments: [{ text: 'She <applause>smiled.', style: 'warm amusement' }],
+      }),
+    ).toMatchObject({
+      ok: true,
+      discardedTags: 1,
+      segments: [{ text: 'She  smiled.', mood: 'warm amusement' }],
+    });
+  });
+
+  it('normalizes supported bracket cues to documented angle-bracket spelling', () => {
+    expect(
+      validateDirection('She smiled.', {
+        segments: [{ text: 'She [LAUGH] smiled.', style: 'amused' }],
+      }),
+    ).toMatchObject({
+      ok: true,
+      insertedTags: 1,
+      segments: [{ text: 'She <laugh> smiled.', mood: 'amused' }],
+    });
+    expect(NARRATION_AUDIO_TAGS).toContain('<laugh>');
+    expect(NARRATION_AUDIO_TAGS).toContain('<sob>');
+    expect(NARRATION_AUDIO_TAGS).toContain('<exhales>');
+    expect(NARRATION_AUDIO_TAGS).not.toContain('<laughs>');
+  });
+
+  it('removes pause tags without losing expressive direction', () => {
     expect(
       validateDirection(ORIGINAL, {
         segments: [
@@ -115,26 +178,65 @@ describe('narration direction guardrails', () => {
           },
         ],
       }),
-    ).toEqual({ ok: false, reason: 'unknown_tag' });
+    ).toMatchObject({ ok: true, discardedTags: 1 });
     expect(
       validateDirection('One. Two.', {
         segments: [{ text: 'One. <short pause> Two.', style: '' }],
       }),
-    ).toEqual({ ok: false, reason: 'unknown_tag' });
+    ).toMatchObject({ ok: true, discardedTags: 1 });
     expect(NARRATION_AUDIO_TAGS).not.toContain('<short pause>');
     expect(NARRATION_AUDIO_TAGS).not.toContain('<long pause>');
   });
 
-  it('enforces the density cap of one inserted tag per ~120 words (minimum one)', () => {
-    expect(maxInsertedTags('Short text.')).toBe(1);
-    expect(maxInsertedTags(words(250))).toBe(2);
-    expect(maxInsertedTags(`<sigh> ${words(119)}`)).toBe(1);
+  it('allows more expressive cues and trims surplus cues instead of rejecting direction', () => {
+    expect(maxInsertedTags('Short text.')).toBe(2);
+    expect(maxInsertedTags(words(250))).toBe(5);
+    expect(maxInsertedTags(`<sigh> ${words(119)}`)).toBe(2);
+    expect(maxInsertedTags(words(2000))).toBe(16);
 
     expect(
       validateDirection('Short text here.', {
-        segments: [{ text: '<sigh> Short <gasp> text here.', style: '' }],
+        segments: [
+          { text: '<sigh> Short <gasp> text <breath> here.', style: 'breathless anticipation' },
+        ],
       }),
-    ).toEqual({ ok: false, reason: 'too_many_tags' });
+    ).toMatchObject({
+      ok: true,
+      insertedTags: 2,
+      discardedTags: 1,
+      segments: [expect.objectContaining({ mood: 'breathless anticipation' })],
+    });
+  });
+
+  it('applies the cue budget across all segments', () => {
+    expect(
+      validateDirection('One. Two.', {
+        segments: [
+          { text: '<sigh> One.', style: 'thoughtful' },
+          { text: '<gasp> Two. <laugh>', style: 'surprised' },
+        ],
+      }),
+    ).toMatchObject({ ok: true, insertedTags: 2, discardedTags: 1 });
+  });
+
+  it('accepts a vocal-event segment and removes an unsupported cue-only segment', () => {
+    expect(
+      validateDirection('She smiled.', {
+        segments: [
+          { text: '<applause>', style: '' },
+          { text: '<chuckle>', style: 'amused' },
+          { text: 'She smiled.', style: 'warm' },
+        ],
+      }),
+    ).toMatchObject({
+      ok: true,
+      insertedTags: 1,
+      discardedTags: 1,
+      segments: [
+        { text: '<chuckle>', mood: 'amused' },
+        { text: 'She smiled.', mood: 'warm' },
+      ],
+    });
   });
 
   it('rejects malformed shapes and bad segment counts', () => {
@@ -184,7 +286,11 @@ describe('narration direction guardrails', () => {
     const result = validateDirection('She smiled.', {
       segments: [{ text: 'She smiled.', style: 'British accent' }],
     });
-    expect(result).toEqual({ ok: true, insertedTags: 0, segments: [{ text: 'She smiled.' }] });
+    expect(result).toMatchObject({
+      ok: true,
+      insertedTags: 0,
+      segments: [{ text: 'She smiled.' }],
+    });
   });
 
   it('composes the final style from base style and mood', () => {
@@ -235,7 +341,7 @@ describe('directNarration', () => {
     });
 
     it('returns validated segments and tracks the call as audio_generation/narration_direction', async () => {
-      mockEnv.TTS_DIRECTION_MODEL = 'gemini-3.5-flash-lite';
+      mockEnv.TTS_DIRECTION_MODEL = 'gemini-4-hydrogen';
       complete.mockResolvedValue(
         JSON.stringify({
           segments: [{ text: ORIGINAL, style: 'bright and curious' }],
@@ -247,6 +353,8 @@ describe('directNarration', () => {
       expect(result).toEqual({
         source: 'llm',
         insertedTags: 0,
+        discardedTags: 0,
+        adaptedText: false,
         segments: [{ text: ORIGINAL, mood: 'bright and curious' }],
       });
       expect(getTextService).toHaveBeenCalledWith({
@@ -260,12 +368,14 @@ describe('directNarration', () => {
       expect(prompt).toContain('<story_language>pt-PT</story_language>');
       expect(prompt).toContain('<whispers>');
       expect(options).toMatchObject({
-        model: 'gemini-3.5-flash-lite',
+        model: 'gemini-4-hydrogen',
         thinkingLevel: 'low',
         privateContent: true,
       });
       expect(options.jsonSchema).toBeDefined();
       expect(options.systemInstruction).toContain('audiobook director');
+      expect(options.systemInstruction).toContain('small spoken-language adjustments');
+      expect(prompt).not.toContain('Copy the transcript EXACTLY');
     });
 
     it('uses the tracked gateway with the default Gemini text model when no override is set', async () => {
@@ -313,7 +423,7 @@ describe('directNarration', () => {
 
       await expect(directNarration(input, { getTextService })).resolves.toEqual({
         source: 'fallback',
-        reason: 'verbatim_mismatch',
+        reason: 'content_drift',
       });
     });
 

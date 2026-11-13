@@ -108,6 +108,7 @@ See [docs/audio-narration-system.md](docs/audio-narration-system.md) for the ful
 
 - Default provider is `google-genai` with `gemini-3.8-flash-tts` as the only accepted Gemini TTS model. OpenAI (`gpt-4o-mini-tts`) is the alternative. Rollback to an older model means redeploying the previous Cloud Run revision.
 - Expressive narration (`TTS_EXPRESSIVE_DIRECTION_ENABLED`) defaults to off in code, but `cloudbuild.yaml` and `.env.local` enable it with `TTS_DIRECTION_MODEL=gemini-4-hydrogen`. When off, chunks are sent with the plain per-locale base style.
+- The narration director may make minor spoken-language edits; do not restore exact transcript matching. Keep the lexical drift check for broad rewrites, normalize supported vocal cues, and remove unsupported/excessive cues without discarding useful styles. Source chapter text stays unchanged; pause tags remain excluded.
 - Voice resolution lives in `src/services/voice-registry.ts`. It must stay in sync with `mythoria-webapp/src/lib/voice-options.ts` and `mythoria_admin/src/lib/voice-options.ts` across the three repos.
 
 ## Story-created notification recovery
