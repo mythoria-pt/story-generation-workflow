@@ -94,7 +94,33 @@ const envSchema = z.object({
 
   // Google GenAI Configuration
   GOOGLE_GENAI_API_KEY: z.string().optional(),
-  GOOGLE_GENAI_MODEL: z.string().optional().default('gemini-3.6-flash'),
+  GOOGLE_GENAI_API_VERSION: z.literal('v1beta').default('v1beta'),
+  STORY_TEXT_GENERATION_MODE: z.enum(['hybrid', 'chapter_by_chapter']).default('hybrid'),
+  STORY_SEQUENTIAL_AUDIENCES: z
+    .string()
+    .default('young_adult_15-17,adult_18+')
+    .refine(
+      (value) =>
+        value
+          .split(',')
+          .every((item) =>
+            [
+              'children_0-2',
+              'children_3-6',
+              'children_7-10',
+              'children_11-14',
+              'young_adult_15-17',
+              'adult_18+',
+              'all_ages',
+            ].includes(item.trim()),
+          ),
+      'Invalid sequential audience list',
+    ),
+  STORY_SEQUENTIAL_MIN_CHAPTERS: z.coerce.number().int().positive().default(8),
+  STORY_WHOLE_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(65537).max(1048576).default(262144),
+  STORY_CHAPTER_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(65537).max(1048576).default(131072),
+
+  GOOGLE_GENAI_MODEL: z.literal('gemini-4-hydrogen').default('gemini-4-hydrogen'),
   GOOGLE_GENAI_IMAGE_MODEL: z.string().optional().default('gemini-nano-banana-2.1'),
   /** If set to "true", use Vertex instead of API key (advanced). */
   GOOGLE_GENAI_USE_VERTEX: z.string().optional(),
@@ -114,7 +140,7 @@ const envSchema = z.object({
   // Gemini TTS only; defaults off.
   TTS_EXPRESSIVE_DIRECTION_ENABLED: booleanFlagSchema,
   // Optional Gemini text model for narration direction; defaults to GOOGLE_GENAI_MODEL.
-  TTS_DIRECTION_MODEL: z.string().optional(),
+  TTS_DIRECTION_MODEL: z.literal('gemini-4-hydrogen').optional(),
 
   // Background Music Configuration
   // Controls whether background music is mixed with narration audio

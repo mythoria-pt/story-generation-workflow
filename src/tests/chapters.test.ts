@@ -45,6 +45,25 @@ describe('ChaptersService', () => {
     jest.clearAllMocks();
   });
 
+  it('reuses a preallocated chapter identity after a workflow receipt failure', async () => {
+    mockDb.select.mockReturnValue({
+      from: jest.fn(() => ({ where: jest.fn(async () => [{ id: 'stable-id', version: 7 }]) })),
+    });
+    expect(
+      await service.saveChapterOnce(
+        {
+          storyId: 's1',
+          authorId: 'a1',
+          chapterNumber: 1,
+          title: 'Chapter',
+          htmlContent: '<p>Prose</p>',
+        },
+        'stable-id',
+      ),
+    ).toEqual({ id: 'stable-id', version: 7 });
+    expect(mockDb.insert).not.toHaveBeenCalled();
+  });
+
   it('saves chapter with incremented version', async () => {
     mockDb.select.mockReturnValue({
       from: jest.fn().mockReturnValue({

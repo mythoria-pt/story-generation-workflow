@@ -444,7 +444,7 @@ async function generateStoryStructureLocked(
       promptTemplate,
       templateVars,
     );
-    const structureModel = process.env.GOOGLE_GENAI_MODEL || 'gemini-3.6-flash';
+    const structureModel = process.env.GOOGLE_GENAI_MODEL || 'gemini-4-hydrogen';
     aiResponse = await aiGateway.getTextService(aiContext).complete(userPrompt, {
       ...(params.signal && { signal: params.signal }),
       privateContent: Boolean(params.storyPreferences || params.factuality || references.length),

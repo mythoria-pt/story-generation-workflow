@@ -496,7 +496,7 @@ export class GoogleGenAIImageService implements IImageGenerationService {
             project: this.projectId,
             location: this.location,
           } as any)
-        : new GoogleGenAI({ apiKey: this.apiKey } as any);
+        : new GoogleGenAI({ apiKey: this.apiKey, apiVersion: 'v1beta' } as any);
     }
     return this.genAIClient;
   }

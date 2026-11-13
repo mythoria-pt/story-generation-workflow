@@ -99,3 +99,7 @@ IMAGE_COVER_HEIGHT=1536
 - Style-specific exclusions currently live inside each style's `systemPrompt`. Introduce a separate `negativePrompt` field only if a future provider requires negative prompts as a distinct API parameter.
 - Provider fallback (auto-switch OpenAI ↔ Google for blocked prompts) is not implemented—document manual playbooks before attempting.
 - Prompt analytics dashboard could be layered on top of `token_usage_tracking` plus Cloud Logging to visualize block rates per story genre.
+
+## Hydrogen text generation
+
+The Gemini text adapter supports only `gemini-4-hydrogen`. See [the hybrid generation runbook](hydrogen-story-generation.md) for supported parameters, durable continuation, usage accounting, evaluation and rollout. Historical pricing data does not imply older-model runtime support.

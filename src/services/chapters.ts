@@ -42,6 +42,40 @@ export class ChapterNotPersistedError extends Error {
 export class ChaptersService {
   private db = getDatabase();
 
+  /** A checkpoint allocates the ID before persistence, closing the cross-database retry gap. */
+  async saveChapterOnce(data: ChapterData, id: string): Promise<ChapterIdentity> {
+    const [existing] = await this.db
+      .select({ id: chapters.id, version: chapters.version })
+      .from(chapters)
+      .where(eq(chapters.id, id));
+    if (existing) return existing;
+    const version = (await this.getLatestVersion(data.storyId, data.chapterNumber)) + 1;
+    await this.db
+      .insert(chapters)
+      .values({ ...data, id, version, createdAt: new Date(), updatedAt: new Date() })
+      .onConflictDoNothing({ target: chapters.id });
+    return this.getPersistedIdentity(data.storyId, data.chapterNumber, id);
+  }
+
+  async getPersistedIdentity(
+    storyId: string,
+    chapterNumber: number,
+    id: string,
+  ): Promise<ChapterIdentity> {
+    const [chapter] = await this.db
+      .select({ id: chapters.id, version: chapters.version })
+      .from(chapters)
+      .where(
+        and(
+          eq(chapters.id, id),
+          eq(chapters.storyId, storyId),
+          eq(chapters.chapterNumber, chapterNumber),
+        ),
+      );
+    if (!chapter) throw new ChapterNotPersistedError(storyId, chapterNumber, id);
+    return chapter;
+  }
+
   /**
    * Save or update a chapter
    * Automatically handles version incrementation

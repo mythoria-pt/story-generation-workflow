@@ -34,3 +34,7 @@ coverage/
 *.log
 *.gz
 *.zip
+
+tmp/
+
+temp/

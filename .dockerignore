@@ -9,3 +9,9 @@ Dockerfile
 .env
 *.md
 *.tsbuildinfo
+
+tmp/
+
+temp/
+
+.env.*

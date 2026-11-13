@@ -94,7 +94,7 @@ export interface ResolvedPricing {
 export const USD_TO_EUR = 0.92;
 
 /** Model whose rates are used for unknown Google models. */
-export const GOOGLE_FALLBACK_MODEL = 'gemini-3.8-flash';
+export const GOOGLE_FALLBACK_MODEL = 'gemini-4-hydrogen';
 
 /** Model whose rates are used for unknown Google TTS models (never text rates). */
 export const GOOGLE_TTS_FALLBACK_MODEL = 'gemini-3.8-flash-tts';
@@ -284,6 +284,13 @@ export const MODEL_PRICING: ModelPricing[] = [
   },
 
   // ---------------------------------------------------------------- Google text
+  {
+    match: ['gemini-4-hydrogen'],
+    provider: 'google-genai',
+    kind: 'text',
+    billing: 'tokens',
+    tiers: [{ inputPer1M: 1.5, cachedInputPer1M: 0.075, outputPer1M: 7.5 }],
+  },
   {
     match: ['gemini-4-argon'],
     provider: 'google-genai',

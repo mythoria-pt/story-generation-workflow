@@ -13,6 +13,42 @@ export interface EnvVarDescriptor {
 }
 
 export const envManifest: EnvVarDescriptor[] = [
+  {
+    name: 'GOOGLE_GENAI_API_VERSION',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    default: 'v1beta',
+  },
+  {
+    name: 'STORY_TEXT_GENERATION_MODE',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    default: 'hybrid',
+  },
+  {
+    name: 'STORY_SEQUENTIAL_AUDIENCES',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    default: 'young_adult_15-17,adult_18+',
+  },
+  {
+    name: 'STORY_SEQUENTIAL_MIN_CHAPTERS',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    default: '8',
+  },
+  {
+    name: 'STORY_WHOLE_MAX_OUTPUT_TOKENS',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    default: '262144',
+  },
+  {
+    name: 'STORY_CHAPTER_MAX_OUTPUT_TOKENS',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    default: '131072',
+  },
   { name: 'NODE_ENV', required: true, scopes: ['dev', 'runtime', 'prod'], default: 'development' },
   {
     name: 'NODE_VERSION',
@@ -134,7 +170,7 @@ export const envManifest: EnvVarDescriptor[] = [
     name: 'GOOGLE_GENAI_MODEL',
     required: false,
     scopes: ['dev', 'runtime', 'prod'],
-    default: 'gemini-3.6-flash',
+    default: 'gemini-4-hydrogen',
     source: 'substitution',
   },
   {

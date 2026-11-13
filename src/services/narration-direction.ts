@@ -220,7 +220,7 @@ export function shouldDirectNarration(provider: TTSProvider): boolean {
 /** Text model for the director: TTS_DIRECTION_MODEL, else the default Gemini text model. */
 export function getNarrationDirectionModel(): string {
   const env = getEnvironment();
-  return env.TTS_DIRECTION_MODEL?.trim() || env.GOOGLE_GENAI_MODEL || 'gemini-3.6-flash';
+  return env.TTS_DIRECTION_MODEL?.trim() || env.GOOGLE_GENAI_MODEL || 'gemini-4-hydrogen';
 }
 
 const AUDIENCE_GUIDANCE: Record<string, string> = {

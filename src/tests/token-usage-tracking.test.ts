@@ -31,6 +31,28 @@ describe('TokenUsageTrackingService', () => {
     jest.clearAllMocks();
   });
 
+  it('uses stable IDs for retry-safe segment accounting and surfaces required failures', async () => {
+    const conflict = jest.fn().mockResolvedValue(undefined);
+    const values = jest.fn(() => ({ onConflictDoNothing: conflict }));
+    mockDb.insert.mockReturnValue({ values });
+    const usage = {
+      tokenUsageId: 'stable-id',
+      authorId: 'author',
+      storyId: 'story',
+      action: 'chapter_writing' as const,
+      aiModel: 'gemini-4-hydrogen',
+      inputTokens: 100,
+      outputTokens: 30,
+      cachedInputTokens: 20,
+      inputPromptJson: {},
+    };
+    await service.recordUsage(usage, true);
+    expect(values).toHaveBeenCalledWith(expect.objectContaining({ tokenUsageId: 'stable-id' }));
+    expect(conflict).toHaveBeenCalledTimes(1);
+    conflict.mockRejectedValueOnce(new Error('DB unavailable'));
+    await expect(service.recordUsage(usage, true)).rejects.toThrow('DB unavailable');
+  });
+
   it('records usage with cost estimation', async () => {
     const valuesMock = jest.fn().mockResolvedValue(undefined);
     mockDb.insert.mockReturnValue({ values: valuesMock });
@@ -430,11 +452,11 @@ describe('TokenUsageTrackingService', () => {
       });
     });
 
-    it('falls back to gemini-3.8-flash rates and warns once for unknown Google models', () => {
+    it('falls back to Hydrogen rates and warns once for unknown Google models', () => {
       const model = 'gemini-unknown-warn-once';
       const first = cost('google-genai', model, { timestamp: NOW });
       const second = cost('google-genai', model, { timestamp: NOW });
-      expect(first).toBeCloseTo(eur(0.75 + 3.75), 6);
+      expect(first).toBeCloseTo(eur(1.5 + 7.5), 6);
       expect(second).toBeCloseTo(first, 10);
       const warns = (logger.warn as jest.Mock).mock.calls.filter(
         (call) => (call[1] as any)?.model === model,
@@ -443,7 +465,7 @@ describe('TokenUsageTrackingService', () => {
       expect(warns[0]?.[1]).toMatchObject({
         model,
         provider: 'google-genai',
-        fallback: 'gemini-3.8-flash',
+        fallback: 'gemini-4-hydrogen',
       });
     });
 

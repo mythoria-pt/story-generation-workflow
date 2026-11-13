@@ -1,0 +1,220 @@
+{
+  "date": "2026-11-13",
+  "baselineCommit": "b296bfab6974298268a702e9b90f9267413e409c",
+  "pricingUSDPerMillion": {
+    "Hydrogen": {
+      "input": 1.5,
+      "cachedInput": 0.075,
+      "outputIncludingThinking": 7.5
+    },
+    "FlashPromotional": {
+      "input": 0.75,
+      "cachedInput": 0.075,
+      "outputIncludingThinking": 3.75
+    }
+  },
+  "results": [
+    {
+      "key": "preschool-pt:baseline-sequential",
+      "fixture": "preschool-pt",
+      "variant": "baseline-sequential",
+      "valid": true,
+      "chapterCount": 4,
+      "words": [247, 295, 271, 256],
+      "ms": 87563,
+      "usd": 0.038853750000000006
+    },
+    {
+      "key": "preschool-pt:hydrogen-sequential",
+      "fixture": "preschool-pt",
+      "variant": "hydrogen-sequential",
+      "valid": true,
+      "chapterCount": 4,
+      "words": [259, 324, 298, 266],
+      "ms": 66292,
+      "usd": 0.12049499999999998
+    },
+    {
+      "key": "preschool-pt:hydrogen-whole",
+      "fixture": "preschool-pt",
+      "variant": "hydrogen-whole",
+      "valid": true,
+      "chapterCount": 4,
+      "words": [140, 150, 147, 124],
+      "ms": 13034,
+      "usd": 0.021867000000000025
+    },
+    {
+      "key": "adult-en:baseline-sequential",
+      "fixture": "adult-en",
+      "variant": "baseline-sequential",
+      "valid": true,
+      "chapterCount": 10,
+      "words": [1142, 1422, 2262, 1799, 2072, 2287, 1581, 1512, 1339, 1569],
+      "ms": 499291,
+      "usd": 0.25101524999999986
+    },
+    {
+      "key": "adult-en:hydrogen-sequential:v2",
+      "fixture": "adult-en",
+      "variant": "hydrogen-sequential",
+      "valid": true,
+      "chapterCount": 10,
+      "words": [2482, 2701, 3145, 2929, 2747, 3179, 3849, 3049, 3781, 2852],
+      "ms": 578119,
+      "usd": 0.9242984999999997
+    },
+    {
+      "key": "adult-en:hydrogen-whole:v2",
+      "fixture": "adult-en",
+      "variant": "hydrogen-whole",
+      "valid": true,
+      "chapterCount": 10,
+      "words": [1349, 1423, 1437, 1579, 1156, 1458, 1171, 1191, 1394, 1455],
+      "ms": 153103,
+      "usd": 0.15217199999999997
+    }
+  ],
+  "editorialReviews": [
+    {
+      "fixture": "preschool-pt",
+      "mapping": [
+        {
+          "id": "A",
+          "variant": "baseline-sequential"
+        },
+        {
+          "id": "B",
+          "variant": "hydrogen-sequential"
+        },
+        {
+          "id": "C",
+          "variant": "hydrogen-whole"
+        }
+      ],
+      "review": {
+        "drafts": [
+          {
+            "id": "A",
+            "acceptable": false,
+            "criticalFindings": [
+              "Only asks one neighbor (Dona Rosa in Ch. 2), falling short of the 'ask neighbors' requirement.",
+              "Weak chapter development and repetitive padding: the main plot—meeting Tomás, returning the kite, overcoming his shyness, and flying the kite together—already resolves in Ch. 2, leaving Ch. 3 and Ch. 4 as prolonged, repetitive epilogue.",
+              "Continuity slip with the yellow bow: Ch. 2 mentions finding 'outro laço amarelo' on the ground even though no fallen bow was previously found, and Ch. 4 has Tomás adjust the bow 'que tinham encontrado pelo caminho' without any scene showing them picking it up."
+            ],
+            "limitations": [
+              "Vocabulary in several passages (e.g., 'compadecida', 'imensidão límpida', 'armação', 'selar uma promessa') is slightly elevated for ages 3–6.",
+              "Repetitive motifs across chapters ('snif-snif', 'Au, au!', 'bondade') and awkward phrasing in Ch. 2 ('dar festinhas com o rabo')."
+            ],
+            "strengths": [
+              "Warm, sensory European Portuguese phrasing and clear emotional focus on empathy and kindness.",
+              "Includes all four paragraphs per chapter with vivid imagery of the kite and village."
+            ]
+          },
+          {
+            "id": "B",
+            "acceptable": true,
+            "criticalFindings": [],
+            "limitations": [
+              "Minor dialogue punctuation quirk in Ch. 2 where Dona Rosa's two spoken lines lack a speech tag between them.",
+              "Slightly longer sentences in Ch. 2 and Ch. 3 than ideal for the youngest end of the 3–6 age range."
+            ],
+            "strengths": [
+              "Cleanest four-chapter pacing: discovery (Ch. 1), asking two neighbors and following a clue (Ch. 2), meeting shy Tomás and learning his backstory (Ch. 3), and returning, fixing, and flying the kite together to build a friendship (Ch. 4).",
+              "Consistent details throughout (the loose yellow bow found in Ch. 2 is reattached in Ch. 4; the wind direction from Tomás's house matches Dona Rosa's clue).",
+              "Natural, age-appropriate European Portuguese with well-developed, named characters."
+            ]
+          },
+          {
+            "id": "C",
+            "acceptable": true,
+            "criticalFindings": [],
+            "limitations": [
+              "The shy boy and the two neighbors remain unnamed, which makes the characters less memorable for young listeners.",
+              "Emotional transition in Ch. 3–4 is slightly abrupt: the boy goes from hiding his face in shyness to smiling and happily joining Lia with minimal interaction."
+            ],
+            "strengths": [
+              "Most concise and accessible sentence and paragraph length for ages 3–6.",
+              "Covers every required plot beat clearly across the four chapters with no contradictions.",
+              "Natural European Portuguese vocabulary suited for reading aloud."
+            ]
+          }
+        ],
+        "comparison": "Draft B is the strongest overall: it fulfills every requirement with natural European Portuguese, consistent details, and well-paced four-chapter progression that saves the kite return and shared flight for the climax in Ch. 4. Draft C is also acceptable and offers the most concise, toddler-friendly prose, though its unnamed characters and brisk Ch. 3–4 transition make it less emotionally rich than B. Draft A should not ship as written because it asks only one neighbor, resolves the core plot prematurely in Ch. 2—turning Ch. 3–4 into repetitive padding—and includes a minor continuity gap around the fallen yellow bow alongside overly literary vocabulary for ages 3–6."
+      }
+    },
+    {
+      "fixture": "adult-en",
+      "mapping": [
+        {
+          "id": "A",
+          "variant": "baseline-sequential"
+        },
+        {
+          "id": "B",
+          "variant": "hydrogen-sequential"
+        },
+        {
+          "id": "C",
+          "variant": "hydrogen-whole"
+        }
+      ],
+      "review": {
+        "drafts": [
+          {
+            "id": "A",
+            "acceptable": true,
+            "criticalFindings": [],
+            "limitations": [
+              "Structurally repetitive back half: two separate storms (Ch. 4 and 8) and two separate technical corroborations dilute narrative momentum.",
+              "Mara and Tomas's major personal confrontation occurs in Ch. 6 after they already cooperated in Ch. 4, weakening emotional progression."
+            ],
+            "strengths": [
+              "Rich, tactile coastal prose with strong technical grounding in estuarine hydrodynamics.",
+              "Nuanced, unsentimental portrayal of Arthur's flawed motivations and Mara's complex grief."
+            ]
+          },
+          {
+            "id": "B",
+            "acceptable": true,
+            "criticalFindings": [],
+            "limitations": [
+              "Occasional over-explanation of technical engineering details slows pacing in middle chapters.",
+              "Frank Pelletier's hardware cellar subplot is resolved somewhat abruptly once the main trench is cut."
+            ],
+            "strengths": [
+              "Cohesive, escalating plot structure where every beat—notebooks, disagreement, corroboration, storm defense—builds naturally.",
+              "Exceptional emotional depth, particularly Mara's refusal to offer facile forgiveness for her father's lie about her mother."
+            ]
+          },
+          {
+            "id": "C",
+            "acceptable": true,
+            "criticalFindings": [],
+            "limitations": [
+              "The DOT transducer discovery at the county annex relies slightly on convenient archival luck.",
+              "Tomas's shift from defensive resistance to full cooperation happens relatively quickly once state data appears."
+            ],
+            "strengths": [
+              "Tightly paced, atmospheric storm climax featuring visceral physical stakes at the sluice gate.",
+              "Mature, understated reconciliation between Mara and Tomas that avoids melodrama."
+            ]
+          }
+        ],
+        "comparison": "All three drafts meet the adult literary fiction brief and include every required beat. Draft B is the strongest overall, offering the richest character psychology, seamless pacing, and an earned, unsentimental reconciliation. Draft C is a close second—tighter and more focused than A, with a gripping storm climax, though slightly less complex in its emotional aftermath. Draft A features strong prose and technical authenticity, but suffers from structural bloat, repeating its storm-defense and corroboration beats across the second half."
+      }
+    }
+  ],
+  "generationAndReviewCostUSDUpperBound": 2.1529859999999994,
+  "conservativeBudgetConversionEURPerUSD": 1.2,
+  "budgetEUR": 10,
+  "limitations": [
+    "One fictional fixture per audience, one run per final variant; no statistical conclusions.",
+    "Text-only harness; no image/audio/orchestration latency in these comparison figures.",
+    "Baseline replays the pre-change checkout prompts with explicit history; it is not a live-production load test.",
+    "Final sequential adapter additionally reorders stable prompt/history prefixes for implicit caching; that optimization was not isolated in this comparison.",
+    "Initial capped/truncated sequential and compressed whole-story runs are excluded from final comparison rows but included in spending.",
+    "One editorial-review response was truncated before its usage could be saved; its entire reserved upper-bound cost remains included.",
+    "A single automated, anonymized model review is an editorial aid, not a human quality study."
+  ]
+}

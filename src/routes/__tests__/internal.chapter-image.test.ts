@@ -69,6 +69,37 @@ describe('POST /internal/runs/:runId/image', () => {
     mockUpdateStoryProgress.mockResolvedValue(undefined);
   });
 
+  it('requires API-key authentication for durable text endpoints', async () => {
+    const response = await request(app)
+      .post(`/internal/runs/${runId}/text/advance`)
+      .set('Authorization', 'Bearer not-an-api-key')
+      .send({ chapterNumber: 1 });
+    expect(response.status).toBe(401);
+    expect(mockGetRun).not.toHaveBeenCalled();
+  });
+
+  it('validates chapter input before any provider work', async () => {
+    const response = await request(app)
+      .post(`/internal/runs/${runId}/text/advance`)
+      .set('x-api-key', process.env.STORY_GENERATION_WORKFLOW_API_KEY ?? 'test-api-key')
+      .send({ chapterNumber: 0 });
+    expect(response.status).toBe(400);
+    expect(mockGetRun).not.toHaveBeenCalled();
+  });
+
+  it('preserves safety-blocked status when Workflows wraps the provider error', async () => {
+    mockGetRun.mockResolvedValue({ runId, storyId, status: 'blocked' });
+    mockUpdateRun.mockResolvedValue({ runId, status: 'blocked' });
+    const response = await request(app)
+      .patch(`/internal/runs/${runId}`)
+      .send({ status: 'failed', errorMessage: 'UnhandledBranchError' });
+    expect(response.status).toBe(200);
+    expect(mockUpdateRun).toHaveBeenCalledWith(
+      runId,
+      expect.objectContaining({ status: 'blocked' }),
+    );
+  });
+
   it('persists a chapter image only against the exact chapter identity', async () => {
     mockUpdateChapterImage.mockResolvedValue({ id: chapterId, version: 2 });
 

@@ -4,11 +4,13 @@
  */
 
 export interface TextGenerationUsage {
+  model?: string;
+  thinkingTokens?: number | undefined;
+  cachedInputTokens?: number | undefined;
   provider?: 'google-genai' | 'openai' | 'unknown';
-  inputTokens?: number;
-  outputTokens?: number;
-  totalTokens?: number;
-  billedUnits?: number;
+  inputTokens?: number | undefined;
+  outputTokens?: number | undefined;
+  totalTokens?: number | undefined;
 }
 
 export interface ITextGenerationService {
@@ -60,7 +62,7 @@ export interface TextGenerationOptions {
   /** Omit input/output content from provider logs and persisted token telemetry. */
   privateContent?: boolean;
   maxTokens?: number;
-  /** Provider-specific sampling control. Used by OpenAI; never sent to Gemini 3.6+. */
+  /** Provider-specific sampling control. Used by OpenAI; never sent to Hydrogen. */
   temperature?: number;
   stopSequences?: string[];
   model?: string;
@@ -68,9 +70,9 @@ export interface TextGenerationOptions {
   jsonSchema?: object; // JSON schema for structured output
   mediaParts?: Array<{ mimeType: string; data: Buffer | string }>; // Optional media attachments for multimodal
   usageObserver?: (usage: TextGenerationUsage) => void; // Optional callback for provider usage metadata
-  // Gemini 3 specific options
-  thinkingLevel?: 'minimal' | 'low' | 'medium' | 'high'; // Controls Gemini 3's reasoning depth (default: medium for Flash)
-  mediaResolution?: 'low' | 'medium' | 'high'; // Controls multimodal token allocation (Gemini 3)
+  // Hydrogen options
+  thinkingLevel?: 'low' | 'medium' | 'high' | 'xhigh'; // Hydrogen reasoning depth
+  mediaResolution?: 'low' | 'medium' | 'high'; // Controls multimodal token allocation (Hydrogen)
   systemInstruction?: string | undefined; // Optional system instruction for the request (when not using stateful context)
   googleSearchGrounding?: boolean; // Enable Google Search grounding for real-time information
 }

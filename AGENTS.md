@@ -18,7 +18,7 @@ When you spin up another agent (or Copilot Workspace) paste the following facts 
 2. **Critical variables**: `DB_*`, `WORKFLOWS_DB_*`, `STORY_GENERATION_WORKFLOW_API_KEY`, `TEXT_PROVIDER`, `IMAGE_PROVIDER`, `GOOGLE_GENAI_*`, `OPENAI_*`, `STORAGE_BUCKET_NAME`, `GHOSTSCRIPT_BINARY`, `TEMP_DIR`, `NOTIFICATION_ENGINE_*`, `MYTHORIA_ADMIN_URL`, `MYTHORIA_ADMIN_API_KEY`, `TTS_*` (incl. `TTS_PROVIDER`, `TTS_MODEL`, `TTS_VOICE`, `TTS_EXPRESSIVE_DIRECTION_ENABLED`), `FFPROBE_BINARY`.
 3. **Commands must run via PowerShell**: every script assumes `pwsh` semantics (`&&` is invalid, use `;`).
 4. **Database access**: migrations live next door (`../mythoria-webapp/drizzle`). Use the `schema:sync*.ps1` scripts before editing `src/db/schema/*`.
-5. **Workflows**: YAML lives in `workflows/*.yaml`; deploy through `npm run deploy` or `npm run deploy:fast` (workflow only). Keep Cloud Run + Workflows in sync.
+5. **Workflows**: YAML lives in `workflows/*.yaml`. `npm run deploy` updates Cloud Run; `deploy:fast` skips local gates and still updates Cloud Run. Deploy changed Workflows definitions explicitly after Cloud Run, following the relevant runbook.
 6. **Secrets**: real deployments fetch secrets from Google Secret Manager; local dev reads `.env`. Never log secret values, only flags (`hasKey: true`).
 
 ## 3. Prompting Patterns for Agents
@@ -56,8 +56,8 @@ pwsh -NoProfile -Command "npm run dev"
 
 ### Workflows + deploys
 
-- Full deploy (container + workflow): `npm run deploy`.
-- Workflow-only update (YAML change, no new container): `npm run deploy:fast`.
+- Cloud Run container deployment: `npm run deploy`. Deploy changed workflow YAML separately afterward.
+- Workflow-only update: use `gcloud.cmd workflows deploy` with the existing workflow name, region, service account and call-log configuration. See `docs/hydrogen-story-generation.md` for the ordered story-text rollout.
 - Logs (Cloud Run): `npm run logs` (batch) or `npm run logs:tail` (stream).
 - Workflow execution helper: `npm run execute-workflow -- --storyId=<id> --runId=<id>`.
 
@@ -107,9 +107,13 @@ See the [referral implementation and operations guide](docs/referrals.md) for th
 See [docs/audio-narration-system.md](docs/audio-narration-system.md) for the full pipeline. Key rules:
 
 - Default provider is `google-genai` with `gemini-3.8-flash-tts` as the only accepted Gemini TTS model. OpenAI (`gpt-4o-mini-tts`) is the alternative. Rollback to an older model means redeploying the previous Cloud Run revision.
-- Expressive narration (`TTS_EXPRESSIVE_DIRECTION_ENABLED`) defaults to off in code, but `cloudbuild.yaml` and `.env.local` enable it with `TTS_DIRECTION_MODEL=gemini-3.8-flash`. When off, chunks are sent with the plain per-locale base style.
+- Expressive narration (`TTS_EXPRESSIVE_DIRECTION_ENABLED`) defaults to off in code, but `cloudbuild.yaml` and `.env.local` enable it with `TTS_DIRECTION_MODEL=gemini-4-hydrogen`. When off, chunks are sent with the plain per-locale base style.
 - Voice resolution lives in `src/services/voice-registry.ts`. It must stay in sync with `mythoria-webapp/src/lib/voice-options.ts` and `mythoria_admin/src/lib/voice-options.ts` across the three repos.
 
 ## Story-created notification recovery
 
 `GET /internal/notifications/story-created-candidates` requires `x-api-key` and lists completed story generation runs from workflows_db. Optional ISO `from` and `to` define an inclusive window (default: seven days ending now); `limit` is 1–100. Follow `nextCursor` until null, including empty pages. The opaque cursor preserves the window and completion-time/run-ID position. `GET /internal/notifications/story-created-candidates/:runId` returns one eligible candidate or 404. Each candidate has `runId`, `storyId`, and ISO `completedAt`; neither endpoint asserts the core story is published or email is safe to resend. Explicit storyGeneration runs and legacy null-metadata runs with completed generation steps qualify. Notification Engine must check delivery state and core story eligibility before recovery.
+
+## Hydrogen text generation
+
+See [docs/hydrogen-story-generation.md](docs/hydrogen-story-generation.md). Gemini text is Hydrogen-only; do not add older-model aliases or explicit caching. Both hybrid branches require durable same-run history and continuation checkpoints. Checkpoints are encrypted with a key derived from the API authentication secret; do not rotate that secret while runs are active. Deploy Cloud Run before the changed Workflows definition. Image synthesis and TTS retain their dedicated models.

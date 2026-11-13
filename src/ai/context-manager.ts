@@ -1,18 +1,13 @@
-import type { Chat } from '@google/genai';
+import { logger } from '@/config/logger.js';
+import type { Content } from '@google/genai';
 
 /**
  * AI Context Manager - Simplified for Stateful Conversation APIs
  * Manages session identifiers and provider-specific data for story generation
- * Note: Conversation history is now handled natively by OpenAI Responses API and Google GenAI Chat instances
+ * Note: Conversation history is now handled natively by OpenAI Responses API and completed Google GenAI response parts
  */
 
-// Simple logging for now to avoid test issues
-const log = {
-  info: (msg: string, ...args: unknown[]) => console.log(`[INFO] ${msg}`, ...args),
-  error: (msg: string, ...args: unknown[]) => console.error(`[ERROR] ${msg}`, ...args),
-  debug: (msg: string, ...args: unknown[]) => console.log(`[DEBUG] ${msg}`, ...args),
-  warn: (msg: string, ...args: unknown[]) => console.warn(`[WARN] ${msg}`, ...args),
-};
+const log = logger;
 
 export interface ContextData {
   contextId: string;
@@ -29,11 +24,9 @@ export interface ProviderContextData {
     responseId?: string;
   };
 
-  // Google GenAI - stores chat instance for stateful conversations
+  // Google GenAI - stores completed signed turns for stateful conversations
   googleGenAI?: {
-    chatInstance?: Chat;
-    /** Explicit cached content name for context caching (reduces repeated input token costs) */
-    cachedContentName?: string;
+    history?: Content[];
   };
 }
 

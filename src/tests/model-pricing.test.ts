@@ -2,6 +2,15 @@ import { describe, it, expect } from '@jest/globals';
 import { MODEL_PRICING, USD_TO_EUR, resolvePricing } from '../services/model-pricing';
 
 describe('model-pricing', () => {
+  it('prices Hydrogen explicitly without a dated promotional discount', () => {
+    for (const date of ['2026-11-13', '2027-01-01'])
+      expect(resolvePricing('google-genai', 'gemini-4-hydrogen', new Date(date))?.tier).toEqual({
+        inputPer1M: 1.5,
+        cachedInputPer1M: 0.075,
+        outputPer1M: 7.5,
+      });
+  });
+
   it('exports the USD to EUR rate', () => {
     expect(USD_TO_EUR).toBe(0.92);
   });

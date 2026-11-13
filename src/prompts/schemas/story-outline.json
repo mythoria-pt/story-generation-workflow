@@ -24,7 +24,9 @@
     "bookCoverCharacters": {
       "type": "array",
       "description": "Character names visible on the book cover illustration.",
-      "items": { "type": "string" },
+      "items": {
+        "type": "string"
+      },
       "default": []
     },
     "bookBackCoverPrompt": {
@@ -34,7 +36,9 @@
     "bookBackCoverCharacters": {
       "type": "array",
       "description": "Character names visible on the book back cover illustration.",
-      "items": { "type": "string" },
+      "items": {
+        "type": "string"
+      },
       "default": []
     },
     "synopses": {
@@ -64,7 +68,9 @@
           "charactersInScene": {
             "type": "array",
             "description": "Character names that appear in this chapter's illustration prompt.",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "default": []
           }
         },
@@ -84,8 +90,12 @@
       "items": {
         "type": "object",
         "properties": {
-          "characterId": { "type": ["string", "null"] },
-          "name": { "type": "string" },
+          "characterId": {
+            "type": ["string", "null"]
+          },
+          "name": {
+            "type": "string"
+          },
           "type": {
             "type": ["string", "null"],
             "enum": [
@@ -172,8 +182,12 @@
               ]
             }
           },
-          "characteristics": { "type": ["string", "null"] },
-          "physicalDescription": { "type": ["string", "null"] },
+          "characteristics": {
+            "type": ["string", "null"]
+          },
+          "physicalDescription": {
+            "type": ["string", "null"]
+          },
           "role": {
             "type": ["string", "null"],
             "enum": [
@@ -202,10 +216,6 @@
         ],
         "additionalProperties": false
       }
-    },
-    "thought_process": {
-      "type": "string",
-      "description": "Your internal reasoning and plan for this story. Outline character arcs, thematic goals, and stylistic decisions here before generating the structured data."
     }
   },
   "required": [
@@ -217,8 +227,7 @@
     "chapters",
     "synopses",
     "bookBackCoverPrompt",
-    "bookCoverPrompt",
-    "thought_process"
+    "bookCoverPrompt"
   ],
   "additionalProperties": false
 }

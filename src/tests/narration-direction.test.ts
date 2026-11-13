@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 const mockEnv = {
   TTS_EXPRESSIVE_DIRECTION_ENABLED: false,
   TTS_DIRECTION_MODEL: undefined as string | undefined,
-  GOOGLE_GENAI_MODEL: 'gemini-3.6-flash',
+  GOOGLE_GENAI_MODEL: 'gemini-4-hydrogen',
 };
 
 jest.mock('@/config/environment.js', () => ({
@@ -279,7 +279,7 @@ describe('directNarration', () => {
         expect.objectContaining({ operation: 'narration_direction' }),
       );
       expect((complete.mock.calls[0] as [string, { model: string }])[1].model).toBe(
-        'gemini-3.6-flash',
+        'gemini-4-hydrogen',
       );
     });
 
