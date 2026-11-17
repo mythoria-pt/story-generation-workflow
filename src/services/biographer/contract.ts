@@ -4,6 +4,8 @@ export const biographerLocale = z.enum(['en-US', 'pt-PT', 'es-ES', 'fr-FR', 'de-
 export const historyTurn = z.object({
   role: z.enum(['user', 'assistant']),
   text: z.string().max(40000),
+  contributorName: z.string().max(200).optional(),
+  participantId: z.string().uuid().optional(),
 });
 export const projectContext = z.object({
   projectTitle: z.string().max(500).optional(),
@@ -12,6 +14,18 @@ export const projectContext = z.object({
   places: z.array(z.string().max(200)).max(20).optional(),
   photoCaptions: z.array(z.string().max(2000)).max(20).optional(),
   period: z.string().max(200).optional(),
+  relationship: z.string().max(500).optional(),
+  followUps: z.array(z.string().max(1000)).max(5).optional(),
+  sharedMemories: z
+    .array(
+      z.object({
+        sourceId: z.string().uuid(),
+        contributorName: z.string().max(200),
+        text: z.string().max(2000),
+      }),
+    )
+    .max(30)
+    .optional(),
 });
 export const interviewRequest = z.object({
   authorId: z.string().uuid(),
@@ -26,6 +40,16 @@ export const interviewRequest = z.object({
     ),
   context: projectContext,
   userText: z.string().max(40000).optional(),
+  photoReferences: z
+    .array(
+      z.object({
+        objectPath: z.string().max(1024),
+        contentType: z.enum(['image/jpeg', 'image/png', 'image/webp']),
+        participantId: z.string().uuid(),
+      }),
+    )
+    .max(3)
+    .optional(),
 });
 export const proposalRequest = interviewRequest.extend({
   turns: z.array(historyTurn.extend({ id: z.string().uuid() })).max(1000),

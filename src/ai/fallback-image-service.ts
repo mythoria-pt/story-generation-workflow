@@ -32,6 +32,8 @@ export class FallbackImageGenerationService implements IImageGenerationService {
     try {
       return await this.primary.generate(prompt, options);
     } catch (err) {
+      // Private source material stays with the configured provider unless the author opts in.
+      if (options?.privateContent) throw err;
       const isSafetyBlocked =
         err instanceof ImageGenerationBlockedError ||
         (err instanceof Error && /PROHIBITED_CONTENT/.test(err.message));

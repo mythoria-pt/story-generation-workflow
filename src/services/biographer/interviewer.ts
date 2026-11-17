@@ -1,3 +1,4 @@
+import { loadInterviewPhotos } from './photos.js';
 import { getAIGatewayWithTokenTracking } from '@/ai/gateway-with-tracking.js';
 import { z } from 'zod';
 import type { InterviewRequest, ProposalRequest } from './contract.js';
@@ -9,6 +10,7 @@ export { INTERVIEWER_INSTRUCTION } from './instructions.js';
 import { INTERVIEWER_INSTRUCTION } from './instructions.js';
 
 export async function interview(input: InterviewRequest) {
+  const mediaParts = await loadInterviewPhotos(input);
   const service = getAIGatewayWithTokenTracking().getTextService({
     authorId: input.authorId,
     storyId: `biographer:${input.projectId}`,
@@ -17,6 +19,7 @@ export async function interview(input: InterviewRequest) {
   const output = z.object({ question: z.string().min(1).max(1200) });
   const text = await service.complete(JSON.stringify(input), {
     systemInstruction: INTERVIEWER_INSTRUCTION,
+    ...(mediaParts.length ? { mediaParts } : {}),
     privateContent: true,
     jsonSchema: z.toJSONSchema(output),
     maxTokens: 700,
