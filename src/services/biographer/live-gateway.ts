@@ -3,6 +3,7 @@ import { createServer, type IncomingMessage } from 'http';
 import { createRequire } from 'module';
 import { GoogleGenAI, Modality, type LiveServerMessage, type Session } from '@google/genai';
 import { z } from 'zod';
+import { logger } from '@/config/logger.js';
 import { INTERVIEWER_INSTRUCTION } from './instructions.js';
 import { historyTurn, projectContext, biographerLocale } from './contract.js';
 
@@ -126,6 +127,7 @@ export function startBiographerLiveGateway() {
       socket.send(JSON.stringify(value));
     };
     const fail = (code: string) => {
+      logger.warn('Biographer live gateway failure', { reason: code });
       send({ type: 'error', code });
       socket.close(1011, code);
     };
@@ -150,10 +152,6 @@ export function startBiographerLiveGateway() {
     };
     const processServer = async (event: LiveServerMessage) => {
       const content = event.serverContent;
-      for (const part of content?.modelTurn?.parts ?? []) {
-        if (part.inlineData?.data)
-          send({ type: 'media', mimeType: part.inlineData.mimeType, data: part.inlineData.data });
-      }
       if (hasRealInput && content?.inputTranscription?.text) {
         inputText += content.inputTranscription.text;
         await checkpoint('user', inputText, Boolean(content.inputTranscription.finished));
@@ -168,7 +166,6 @@ export function startBiographerLiveGateway() {
         await checkpoint('assistant', outputText, Boolean(content.outputTranscription.finished));
       }
       if (content?.interrupted) {
-        send({ type: 'interrupted' });
         await checkpoint('assistant', outputText, true, true);
         outputText = '';
         outputId = randomUUID();
@@ -253,12 +250,27 @@ export function startBiographerLiveGateway() {
               },
               callbacks: {
                 onmessage: (event) => {
+                  if (event.serverContent?.interrupted) send({ type: 'interrupted' });
+                  for (const part of event.serverContent?.modelTurn?.parts ?? []) {
+                    if (part.inlineData?.data)
+                      send({
+                        type: 'media',
+                        mimeType: part.inlineData.mimeType,
+                        data: part.inlineData.data,
+                      });
+                  }
                   queue = queue
                     .then(() => processServer(event))
                     .catch(() => fail('CHECKPOINT_FAILED'));
                 },
-                onerror: () => fail('LIVE_UNAVAILABLE'),
-                onclose: () => {
+                onerror: () => {
+                  logger.warn('Biographer live provider error');
+                  fail('LIVE_UNAVAILABLE');
+                },
+                onclose: (event) => {
+                  logger.info('Biographer live provider closed', {
+                    code: Number.isInteger(event.code) ? event.code : undefined,
+                  });
                   if (!closed) socket.close(1012, 'Reconnect to continue');
                 },
               },

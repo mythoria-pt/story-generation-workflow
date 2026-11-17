@@ -121,6 +121,61 @@ describe('Biographer live gateway protocol', () => {
     expect(events.some((event) => event.type === 'transcript')).toBe(false);
     socket.close();
   });
+  it('forwards interruptions and media in order while a transcript checkpoint is pending', async () => {
+    const port = (gateway.http.address() as AddressInfo).port;
+    const socket = new Ws(`ws://127.0.0.1:${port}/live`, {
+      headers: { Origin: 'https://mythoria.test' },
+    });
+    const events: Array<Record<string, unknown>> = [];
+    socket.on('message', (raw) => events.push(JSON.parse(raw.toString())));
+    await once(socket as never, 'open');
+    socket.send(
+      JSON.stringify({
+        type: 'authenticate',
+        ticket: 'a-valid-single-use-ticket',
+        projectId,
+        sessionId,
+      }),
+    );
+    await waitFor(() => events.some((event) => event.type === 'ready'));
+    let resolveCheckpoint!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => {
+      resolveCheckpoint = resolve;
+    });
+    let checkpoints = 0;
+    global.fetch = jest.fn(async (url) => {
+      if (String(url).endsWith('/checkpoint') && checkpoints++ === 0) return pending;
+      return { ok: true, json: async () => ({}) } as Response;
+    });
+    serverEvent({ serverContent: { outputTranscription: { text: 'Hello', finished: true } } });
+    await waitFor(() => (global.fetch as jest.Mock).mock.calls.length > 0);
+    serverEvent({
+      serverContent: {
+        interrupted: true,
+        modelTurn: { parts: [{ inlineData: { mimeType: 'video/jpeg', data: 'AAAA' } }] },
+      },
+    });
+    serverEvent({
+      serverContent: {
+        modelTurn: { parts: [{ inlineData: { mimeType: 'video/jpeg', data: 'BBBB' } }] },
+      },
+    });
+    await waitFor(() => events.filter((event) => event.type === 'media').length === 2);
+    expect(
+      events.filter((event) => event.type === 'interrupted' || event.type === 'media'),
+    ).toEqual([
+      { type: 'interrupted' },
+      { type: 'media', mimeType: 'video/jpeg', data: 'AAAA' },
+      { type: 'media', mimeType: 'video/jpeg', data: 'BBBB' },
+    ]);
+    expect(events.some((event) => event.type === 'transcript')).toBe(false);
+    resolveCheckpoint({ ok: true, json: async () => ({}) } as Response);
+    await waitFor(() =>
+      events.some((event) => event.type === 'transcript' && event.interrupted === true),
+    );
+    expect(events.filter((event) => event.type === 'interrupted')).toHaveLength(1);
+    socket.close();
+  });
   it('does not persist transcription of the synthetic startup instruction', async () => {
     const port = (gateway.http.address() as AddressInfo).port;
     const socket = new Ws(`ws://127.0.0.1:${port}/live`, {
