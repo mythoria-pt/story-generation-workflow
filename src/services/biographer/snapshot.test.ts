@@ -50,6 +50,12 @@ describe('approved Biographer generation', () => {
     expect(evidence.turns[0]?.id).toBe(id);
     expect(evidence.targetWords).toBe(2000);
   });
+  it('retains research in previously approved snapshots', () => {
+    const research = [{ url: 'https://example.org/history', title: 'History', text: 'Context' }];
+    expect(
+      chapterEvidence(validateGenerationSnapshot({ ...snapshot, research }), 1).research,
+    ).toEqual(research);
+  });
   it('fails closed when an approved source is missing', () => {
     expect(() => chapterEvidence({ ...snapshot, turns: [] }, 1)).toThrow(
       'Approved source turns missing',
