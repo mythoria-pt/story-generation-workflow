@@ -190,18 +190,6 @@ export function startBiographerLiveGateway() {
         send({ type: 'reconnecting' });
         socket.close(1012, 'Resume from saved history');
       }
-      // Usage metadata goes to the private internal service, never the browser or prompt logs.
-      if (event.usageMetadata) {
-        const lease = z.object({ remainingSeconds: z.number(), allowed: z.boolean() }).parse(
-          await internal('lease', {
-            sessionId,
-            leaseId,
-            action: 'heartbeat',
-            usage: event.usageMetadata,
-          }),
-        );
-        if (!lease.allowed) socket.close(1008, 'Allowance exhausted or access revoked');
-      }
     };
     const cleanup = () => {
       if (closed) return;

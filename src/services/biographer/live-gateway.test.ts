@@ -185,6 +185,40 @@ describe('Biographer live gateway protocol', () => {
     expect(mockConnect.mock.calls[0]?.[0].config.responseModalities).toEqual(['VIDEO']);
     socket.close();
   });
+  it('continues checkpointing after provider usage metadata follows a reply', async () => {
+    const port = (gateway.http.address() as AddressInfo).port;
+    const socket = new Ws(`ws://127.0.0.1:${port}/live`, {
+      headers: { Origin: 'https://mythoria.test' },
+    });
+    const events: Array<Record<string, unknown>> = [];
+    socket.on('message', (raw) => events.push(JSON.parse(raw.toString())));
+    await once(socket as never, 'open');
+    socket.send(
+      JSON.stringify({
+        type: 'authenticate',
+        ticket: 'a-valid-single-use-ticket',
+        projectId,
+        sessionId,
+      }),
+    );
+    await waitFor(() => events.some((event) => event.type === 'ready'));
+    socket.send(JSON.stringify({ type: 'audio', turnId, data: 'AAAA' }));
+    await waitFor(() => mockSendAudio.mock.calls.length > 0);
+    serverEvent({ serverContent: { inputTranscription: { text: 'A memory', finished: true } } });
+    serverEvent({ usageMetadata: { totalTokenCount: 12 } });
+    serverEvent({
+      serverContent: { outputTranscription: { text: 'Tell me more.', finished: true } },
+    });
+    await waitFor(() => events.some((event) => event.role === 'assistant'));
+    expect(events.some((event) => event.type === 'error')).toBe(false);
+    expect(
+      (global.fetch as jest.Mock).mock.calls.some(
+        ([url, options]) =>
+          String(url).endsWith('/lease') && JSON.parse(options.body).action === 'heartbeat',
+      ),
+    ).toBe(false);
+    socket.close();
+  });
 });
 async function waitFor(condition: () => boolean) {
   for (let attempt = 0; attempt < 100; attempt++) {
