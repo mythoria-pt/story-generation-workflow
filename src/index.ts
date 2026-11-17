@@ -60,6 +60,7 @@ app.get('/', (_req, res) => {
 });
 
 // Import and mount API routes
+import { biographerRouter } from './routes/biographer.js';
 import { aiRouter } from './routes/ai.js';
 import { internalRouter } from './routes/internal.js';
 import { storyEditRouter } from './routes/story-edit.js';
@@ -79,6 +80,7 @@ import apiKeyAuth from './middleware/apiKeyAuth.js';
 }
 // Unauthenticated debug endpoint (non-production recommendation: secure or remove)
 app.use('/debug', debugImageRouter);
+app.use('/api/biographer', apiKeyAuth, biographerRouter);
 app.use('/ai', apiKeyAuth, aiRouter);
 app.use('/audio', apiKeyAuth, audioRouter);
 app.use('/internal', internalRouter); // keep internal open or handle separately

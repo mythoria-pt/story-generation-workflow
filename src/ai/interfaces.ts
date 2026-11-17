@@ -76,6 +76,8 @@ export interface TextGenerationOptions {
 }
 
 export interface ImageGenerationOptions {
+  /** Never persist or log user-authored prompt content. */
+  privateContent?: boolean;
   width?: number;
   height?: number;
   aspectRatio?: string;

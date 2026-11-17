@@ -47,6 +47,18 @@ export const booleanFlagSchema = z
   .transform((v) => v === 'true' || v === '1');
 
 const envSchema = z.object({
+  BIOGRAPHER_ENABLED: booleanFlagSchema,
+  BIOGRAPHER_LIVE_ENABLED: booleanFlagSchema,
+  BIOGRAPHER_WEBAPP_URL: z.string().url().optional(),
+  BIOGRAPHER_STORAGE_BUCKET: z.string().min(1).optional(),
+  BIOGRAPHER_INTERNAL_API_KEY: z.string().optional(),
+  BIOGRAPHER_ALLOWED_ORIGINS: z.string().optional(),
+  BIOGRAPHER_GOOGLE_LOCATION: z.string().default('eu'),
+  BIOGRAPHER_AVATAR_NAME: z.string().default('Ben'),
+  BIOGRAPHER_VOICE_NAME: z.string().default('Puck'),
+  BIOGRAPHER_MAX_CONNECTIONS: z.coerce.number().int().positive().max(1000).default(20),
+  BIOGRAPHER_RESEARCH_ENTITLEMENT_CONFIRMED: booleanFlagSchema,
+  BRAVE_SEARCH_API_KEY: z.string().optional(),
   // Added 'test' to support Jest and other test runners without failing validation
   NODE_ENV: z.enum(['development', 'staging', 'production', 'test']),
   PORT: z.string().default('8080').transform(Number),

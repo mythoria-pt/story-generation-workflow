@@ -122,7 +122,7 @@ export class GoogleGenAIImageService implements IImageGenerationService {
           model,
           projectId: this.projectId,
           location: this.location,
-          promptPreview: prompt.slice(0, 120),
+          promptPreview: options?.privateContent ? '[omitted]' : prompt.slice(0, 120),
         });
 
         const input: InteractionInputPart[] = [];
@@ -159,7 +159,11 @@ export class GoogleGenAIImageService implements IImageGenerationService {
           hasOutputImage: !!response.output_image?.data,
           stepCount: response.steps.length,
         });
-        const imageBase64 = this.extractInteractionImageBase64(response, model);
+        const imageBase64 = this.extractInteractionImageBase64(
+          response,
+          model,
+          options?.privateContent,
+        );
         const buffer = this.attachUsage(Buffer.from(imageBase64, 'base64'), response.usage, model);
         logger.info('Google Gemini Image: image generated', {
           model,
@@ -187,9 +191,9 @@ export class GoogleGenAIImageService implements IImageGenerationService {
       };
 
       logger.debug('Google Imagen Debug - request prepared', {
-        url,
+        endpoint: 'generateImage',
         model,
-        promptPreview: prompt.slice(0, 120),
+        promptPreview: options?.privateContent ? '[omitted]' : prompt.slice(0, 120),
         aspectRatio: body.imageGenerationConfig.aspectRatio,
         hasApiKey: !!this.apiKey,
       });
@@ -210,8 +214,8 @@ export class GoogleGenAIImageService implements IImageGenerationService {
           status: response.status,
           statusText: response.statusText,
           model,
-          url,
-          errorText: errorText?.slice(0, 500),
+          url: '[redacted]',
+          errorText: options?.privateContent ? '[omitted]' : errorText?.slice(0, 500),
           headers: Object.fromEntries(response.headers.entries()),
         });
         if (response.status === 404) {
@@ -244,11 +248,15 @@ export class GoogleGenAIImageService implements IImageGenerationService {
     } catch (error) {
       const structured = GoogleGenAIImageService.extractGoogleError(error);
       logger.error('Google Imagen image generation failed', {
-        error: error instanceof Error ? error.message : String(error),
-        ...structured,
+        error: options?.privateContent
+          ? '[omitted]'
+          : error instanceof Error
+            ? error.message
+            : String(error),
+        ...(options?.privateContent ? {} : structured),
         promptLength: prompt.length,
         model: this.model,
-        promptPreview: prompt.slice(0, 160),
+        promptPreview: options?.privateContent ? '[omitted]' : prompt.slice(0, 160),
       });
       if (error instanceof Error) {
         throw error;
@@ -315,7 +323,11 @@ export class GoogleGenAIImageService implements IImageGenerationService {
             ...(this.supportsImageSize(model) && { image_size: '2K' }),
           },
         });
-        const imageBase64 = this.extractInteractionImageBase64(response, model);
+        const imageBase64 = this.extractInteractionImageBase64(
+          response,
+          model,
+          options?.privateContent,
+        );
         const buffer = this.attachUsage(Buffer.from(imageBase64, 'base64'), response.usage, model);
         logger.info('Google Gemini Image: edit completed', {
           model,
@@ -346,8 +358,12 @@ export class GoogleGenAIImageService implements IImageGenerationService {
     } catch (error) {
       const structured = GoogleGenAIImageService.extractGoogleError(error);
       logger.error('Google Imagen image edit failed', {
-        error: error instanceof Error ? error.message : String(error),
-        ...structured,
+        error: options?.privateContent
+          ? '[omitted]'
+          : error instanceof Error
+            ? error.message
+            : String(error),
+        ...(options?.privateContent ? {} : structured),
         promptLength: prompt.length,
         model: this.model,
       });
@@ -522,6 +538,7 @@ export class GoogleGenAIImageService implements IImageGenerationService {
       usage?: unknown | undefined;
     },
     model: string,
+    privateContent = false,
   ): string {
     if (response.output_image?.data) {
       return response.output_image.data;
@@ -549,7 +566,7 @@ export class GoogleGenAIImageService implements IImageGenerationService {
       model,
       status: response.status,
       stepCount: steps.length,
-      modelErrors,
+      modelErrors: privateContent ? '[omitted]' : modelErrors,
       usage: response.usage ?? null,
     });
 
@@ -557,7 +574,7 @@ export class GoogleGenAIImageService implements IImageGenerationService {
       throw new ImageGenerationBlockedError({
         provider: 'google-genai',
         finishReasons: safetyReasons,
-        diagnostics: modelErrors,
+        diagnostics: privateContent ? [] : modelErrors,
         message: `Image generation blocked by Google safety filters (reason: ${safetyReasons.join(',')}). Adjust prompt to comply with content policies.`,
       });
     }
@@ -566,7 +583,7 @@ export class GoogleGenAIImageService implements IImageGenerationService {
       throw new ImageOtherError({
         provider: 'google-genai',
         finishReasons: ['IMAGE_OTHER'],
-        diagnostics: modelErrors,
+        diagnostics: privateContent ? [] : modelErrors,
         message:
           'Image generation returned IMAGE_OTHER from Gemini (may be transient or a soft safety block).',
       });

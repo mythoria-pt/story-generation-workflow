@@ -386,7 +386,7 @@ async function generateStoryStructureLocked(
 
   // Build prompt + schema
   const promptTemplate = await PromptService.loadPrompt('en-US', 'text-structure');
-  const defaultPersona = 'classic-novelist';
+  const defaultPersona = storyContext.story.literaryPersona || 'classic-novelist';
   const templateVars = {
     authorName: '',
     userDescription: [

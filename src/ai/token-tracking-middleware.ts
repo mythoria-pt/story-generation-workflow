@@ -357,7 +357,7 @@ export class ImageGenerationMiddleware implements IImageGenerationService {
             imageOutputTokens: geminiUsage.imageOutputTokens,
           }),
         inputPromptJson: {
-          prompt,
+          ...(options?.privateContent ? { promptLength: prompt.length } : { prompt }),
           options: sanitizedOptions,
           timestamp: new Date().toISOString(),
           processingTimeMs,
@@ -378,6 +378,13 @@ export class ImageGenerationMiddleware implements IImageGenerationService {
 
       return result;
     } catch (error) {
+      if (options?.privateContent) {
+        logger.error('Private image generation failed with token tracking', {
+          context: this.context,
+          promptLength: prompt.length,
+        });
+        throw error;
+      }
       const anyErr: any = error as any;
       const structured =
         anyErr && (anyErr.cause?.error || anyErr.response?.error || anyErr.error)
@@ -472,7 +479,7 @@ export class ImageGenerationMiddleware implements IImageGenerationService {
             imageOutputTokens: geminiUsage.imageOutputTokens,
           }),
         inputPromptJson: {
-          prompt,
+          ...(options?.privateContent ? { promptLength: prompt.length } : { prompt }),
           options: sanitizedOptions,
           originalImageSize: originalImage.length,
           timestamp: new Date().toISOString(),
@@ -495,7 +502,11 @@ export class ImageGenerationMiddleware implements IImageGenerationService {
       return result;
     } catch (error) {
       logger.error('Image editing failed with token tracking', {
-        error: error instanceof Error ? error.message : String(error),
+        error: options?.privateContent
+          ? '[omitted]'
+          : error instanceof Error
+            ? error.message
+            : String(error),
         context: this.context,
         promptLength: prompt.length,
         originalImageSize: originalImage.length,
@@ -561,6 +572,13 @@ export class ImageGenerationMiddleware implements IImageGenerationService {
 
   private sanitizeImageOptions(options?: ImageGenerationOptions): Record<string, unknown> {
     if (!options) return {};
+    if (options.privateContent)
+      return {
+        privateContent: true,
+        model: options.model,
+        imageType: options.imageType,
+        referenceImageCount: options.referenceImages?.length ?? 0,
+      };
     const { referenceImages, ...rest } = options as any;
     const sanitized: Record<string, unknown> = { ...rest };
     if (Array.isArray(referenceImages)) {

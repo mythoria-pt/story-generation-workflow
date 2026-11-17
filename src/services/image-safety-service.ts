@@ -12,6 +12,7 @@ export interface ImageSafetyContext {
   authorId: string;
   bookTitle?: string;
   graphicalStyle?: string;
+  privateContent?: boolean;
 }
 
 export interface ImageSafetyResult {
@@ -80,6 +81,7 @@ export class ImageSafetyService {
         .complete(rewritePrompt, {
           temperature: 0.7,
           maxTokens: 65535,
+          ...(context.privateContent ? { privateContent: true } : {}),
         });
 
       result.finalPrompt = rewrittenPrompt.trim();
@@ -109,7 +111,7 @@ export class ImageSafetyService {
         runId: context.runId,
         imageType: context.imageType,
         chapterNumber: context.chapterNumber,
-        error: result.promptRewriteError,
+        error: context.privateContent ? '[omitted]' : result.promptRewriteError,
       });
     }
 
@@ -127,6 +129,10 @@ export class ImageSafetyService {
     } catch (fallbackError) {
       result.fallbackError =
         fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+      if (context.privateContent) {
+        result.promptRewriteError = '[omitted]';
+        result.fallbackError = '[omitted]';
+      }
       const enrichedError: any = safetyError;
       enrichedError.promptRewriteAttempted = true;
       if (result.promptRewriteError) enrichedError.promptRewriteError = result.promptRewriteError;

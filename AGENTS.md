@@ -113,3 +113,7 @@ See [docs/audio-narration-system.md](docs/audio-narration-system.md) for the ful
 ## Story-created notification recovery
 
 `GET /internal/notifications/story-created-candidates` requires `x-api-key` and lists completed story generation runs from workflows_db. Optional ISO `from` and `to` define an inclusive window (default: seven days ending now); `limit` is 1–100. Follow `nextCursor` until null, including empty pages. The opaque cursor preserves the window and completion-time/run-ID position. `GET /internal/notifications/story-created-candidates/:runId` returns one eligible candidate or 404. Each candidate has `runId`, `storyId`, and ISO `completedAt`; neither endpoint asserts the core story is published or email is safe to resend. Explicit storyGeneration runs and legacy null-metadata runs with completed generation steps qualify. Notification Engine must check delivery state and core story eligibility before recovery.
+
+## AI Biographer Phase 1
+
+See [docs/biographer.md](docs/biographer.md). Owner projects and archival durability are WebApp-owned; the dedicated live gateway uses single-use participant admission and server-side Gemini 3.8 Live credentials. Preserve approved source snapshots, persona and outline. Flags default off; no production migration, paid provider call or deployment is implied by local implementation.

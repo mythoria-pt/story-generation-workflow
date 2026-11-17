@@ -40,7 +40,9 @@
     "clean": "rimraf dist",
     "lint:bash": "bash ./scripts/lint.sh",
     "i18n:keys": "tsx scripts/check-i18n.ts keys de-DE",
-    "i18n:parity": "tsx scripts/check-i18n.ts parity de-DE"
+    "i18n:parity": "tsx scripts/check-i18n.ts parity de-DE",
+    "dev:biographer-live": "tsx watch src/biographer-live.ts",
+    "start:biographer-live": "node dist/biographer-live.js"
   },
   "dependencies": {
     "@google-cloud/storage": "^8.4.0",
@@ -64,6 +66,7 @@
     "sharp": "^0.35.5",
     "tmp": "^0.2.7",
     "winston": "^3.19.0",
+    "ws": "^8.23.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {
