@@ -2,7 +2,7 @@ import type { LiveServerMessage } from '@google/genai';
 const mockConnect = jest.fn();
 jest.mock('@google/genai', () => ({
   GoogleGenAI: jest.fn(() => ({ live: { connect: mockConnect } })),
-  Modality: { TEXT: 'TEXT' },
+  Modality: { AUDIO: 'AUDIO' },
 }));
 import { transcribeRecording, transcriptionRequest } from './transcribe.js';
 describe('archived audio transcription', () => {
@@ -39,6 +39,7 @@ describe('archived audio transcription', () => {
     expect(send.mock.calls[0]?.[0]).toEqual({ activityStart: {} });
     expect(close).toHaveBeenCalled();
     expect(mockConnect.mock.calls[0]?.[0].model).toBe('gemini-3.8-live');
+    expect(mockConnect.mock.calls[0]?.[0].config.responseModalities).toEqual(['AUDIO']);
   });
   it('does not turn a closed incomplete recording into a completed answer', async () => {
     mockConnect.mockImplementation(async ({ callbacks }) => {

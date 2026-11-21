@@ -10,7 +10,7 @@ const mockSendContent = jest.fn();
 const mockSendAudio = jest.fn();
 jest.mock('@google/genai', () => ({
   GoogleGenAI: jest.fn(() => ({ live: { connect: (...args: unknown[]) => mockConnect(...args) } })),
-  Modality: { VIDEO: 'VIDEO' },
+  Modality: { AUDIO: 'AUDIO' },
 }));
 jest.mock('./instructions.js', () => ({
   INTERVIEWER_INSTRUCTION: 'Ask one question; never invent memories.',
@@ -152,12 +152,12 @@ describe('Biographer live gateway protocol', () => {
     serverEvent({
       serverContent: {
         interrupted: true,
-        modelTurn: { parts: [{ inlineData: { mimeType: 'video/jpeg', data: 'AAAA' } }] },
+        modelTurn: { parts: [{ inlineData: { mimeType: 'audio/pcm;rate=24000', data: 'AAAA' } }] },
       },
     });
     serverEvent({
       serverContent: {
-        modelTurn: { parts: [{ inlineData: { mimeType: 'video/jpeg', data: 'BBBB' } }] },
+        modelTurn: { parts: [{ inlineData: { mimeType: 'audio/pcm;rate=24000', data: 'BBBB' } }] },
       },
     });
     await waitFor(() => events.filter((event) => event.type === 'media').length === 2);
@@ -165,8 +165,8 @@ describe('Biographer live gateway protocol', () => {
       events.filter((event) => event.type === 'interrupted' || event.type === 'media'),
     ).toEqual([
       { type: 'interrupted' },
-      { type: 'media', mimeType: 'video/jpeg', data: 'AAAA' },
-      { type: 'media', mimeType: 'video/jpeg', data: 'BBBB' },
+      { type: 'media', mimeType: 'audio/pcm;rate=24000', data: 'AAAA' },
+      { type: 'media', mimeType: 'audio/pcm;rate=24000', data: 'BBBB' },
     ]);
     expect(events.some((event) => event.type === 'transcript')).toBe(false);
     resolveCheckpoint({ ok: true, json: async () => ({}) } as Response);
@@ -237,7 +237,7 @@ describe('Biographer live gateway protocol', () => {
     );
     expect(JSON.parse(commits[0]?.[1].body)).toMatchObject({ turnId, text: 'The map was wrong.' });
     expect(mockConnect.mock.calls[0]?.[0].model).toBe('gemini-3.8-live');
-    expect(mockConnect.mock.calls[0]?.[0].config.responseModalities).toEqual(['VIDEO']);
+    expect(mockConnect.mock.calls[0]?.[0].config.responseModalities).toEqual(['AUDIO']);
     socket.close();
   });
   it('continues checkpointing after provider usage metadata follows a reply', async () => {
@@ -272,6 +272,50 @@ describe('Biographer live gateway protocol', () => {
           String(url).endsWith('/lease') && JSON.parse(options.body).action === 'heartbeat',
       ),
     ).toBe(false);
+    socket.close();
+  });
+  it('rotates capture before checkpoint completion while preserving saved turn order', async () => {
+    const port = (gateway.http.address() as AddressInfo).port;
+    const socket = new Ws(`ws://127.0.0.1:${port}/live`, {
+      headers: { Origin: 'https://mythoria.test' },
+    });
+    const events: Array<Record<string, unknown>> = [];
+    socket.on('message', (raw) => events.push(JSON.parse(raw.toString())));
+    await once(socket as never, 'open');
+    socket.send(
+      JSON.stringify({
+        type: 'authenticate',
+        ticket: 'a-valid-single-use-ticket',
+        projectId,
+        sessionId,
+      }),
+    );
+    await waitFor(() => events.some((event) => event.type === 'ready'));
+    let release!: (value: Response) => void;
+    const firstCheckpoint = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    global.fetch = jest
+      .fn()
+      .mockImplementationOnce(() => firstCheckpoint)
+      .mockResolvedValue({ ok: true, json: async () => ({}) });
+    socket.send(JSON.stringify({ type: 'audio', turnId, data: 'AAAA' }));
+    await waitFor(() => mockSendAudio.mock.calls.length > 0);
+    serverEvent({ serverContent: { inputTranscription: { text: 'First', finished: true } } });
+    await waitFor(() => events.some((event) => event.type === 'capture_boundary'));
+    const boundary = events.find((event) => event.type === 'capture_boundary')!;
+    expect(boundary.turnId).toBe(turnId);
+    expect(boundary.nextTurnId).not.toBe(turnId);
+    expect(events.some((event) => event.type === 'transcript')).toBe(false);
+    socket.send(JSON.stringify({ type: 'audio', turnId: boundary.nextTurnId, data: 'BBBB' }));
+    await waitFor(() => mockSendAudio.mock.calls.length > 1);
+    serverEvent({ serverContent: { inputTranscription: { text: 'Second', finished: true } } });
+    release({ ok: true, json: async () => ({}) } as Response);
+    await waitFor(() => events.filter((event) => event.type === 'transcript').length === 2);
+    expect(events.filter((event) => event.type === 'transcript')).toEqual([
+      expect.objectContaining({ turnId, text: 'First' }),
+      expect.objectContaining({ turnId: boundary.nextTurnId, text: 'Second' }),
+    ]);
     socket.close();
   });
 });

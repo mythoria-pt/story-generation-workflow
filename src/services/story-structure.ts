@@ -44,6 +44,12 @@ import {
 } from '@/services/image-analysis.js';
 import { cropToJpeg } from '@/utils/imageProcessing.js';
 import { randomUUID } from 'crypto';
+import {
+  getWhispererPrivateStorage,
+  isScopedWhispererPhoto,
+  withWhispererDraftAccess,
+  isWhispererPrivateInput,
+} from '@/services/biographer/whisperer-photos.js';
 
 const aiGateway = getAIGatewayWithTokenTracking();
 const storyService = new StoryService();
@@ -85,6 +91,8 @@ function toStoryLanguageCode(value: unknown, fallback: string): string {
 
 export interface GenerateStoryStructureParams {
   deadlineAt?: number;
+  storyWhisperer?: true;
+  structureRequestId?: string;
   signal?: AbortSignal;
   storyPreferences?: StoryPreferences;
   factuality?: 'memory';
@@ -178,6 +186,7 @@ async function relocateInputsToStory(
   storyId: string,
   authorId: string,
   imagePaths: string[],
+  privateImages: ReadonlySet<string>,
   audioPath?: string,
   signal?: AbortSignal,
 ): Promise<{ imageObjectPaths: string[]; audioObjectPath?: string | undefined }> {
@@ -197,6 +206,10 @@ async function relocateInputsToStory(
 
   const imageObjectPaths: string[] = [];
   for (const src of imagePaths) {
+    if (privateImages.has(src)) {
+      imageObjectPaths.push(src);
+      continue;
+    }
     imageObjectPaths.push(await relocate(src));
     // Move the sibling metadata JSON too, when it exists.
     const srcJson = metadataPathFor(src);
@@ -223,13 +236,20 @@ async function writeInputSnapshot(args: {
   imageMetas: ImageMetaWithPath[];
   characterReferences?: CharacterReference[];
   audioObjectPath?: string | undefined;
+  privateSnapshot?: {
+    storage: ReturnType<typeof getStorageService>;
+    requestId: string;
+    authorId: string;
+  };
 }): Promise<void> {
-  const storage = getStorageService();
+  const storage = args.privateSnapshot?.storage ?? getStorageService();
   const base = `${args.storyId}/inputs`;
-  try {
+  const prefix = args.privateSnapshot ? `whisperer-${args.privateSnapshot.requestId}-` : '';
+  const textName = `${prefix}description.txt`;
+  const write = async () => {
     if (args.userDescription) {
       await storage.uploadFile(
-        `${base}/description.txt`,
+        `${base}/${textName}`,
         Buffer.from(args.userDescription, 'utf8'),
         'text/plain; charset=utf-8',
       );
@@ -239,7 +259,7 @@ async function writeInputSnapshot(args: {
       storyId: args.storyId,
       locale: args.locale,
       createdAt: new Date().toISOString(),
-      textFile: args.userDescription ? 'description.txt' : null,
+      textFile: args.userDescription ? textName : null,
       userDescription: args.userDescription,
       characterIds: args.characterIds,
       audio: args.audioObjectPath ?? null,
@@ -253,7 +273,7 @@ async function writeInputSnapshot(args: {
         : {}),
     };
     await storage.uploadFile(
-      `${base}/manifest.json`,
+      `${base}/${prefix}manifest.json`,
       Buffer.from(JSON.stringify(manifest, null, 2), 'utf8'),
       'application/json',
     );
@@ -264,6 +284,11 @@ async function writeInputSnapshot(args: {
       hasAudio: !!manifest.audio,
       hasText: !!args.userDescription,
     });
+  };
+  try {
+    if (args.privateSnapshot)
+      await withWhispererDraftAccess(args.privateSnapshot.authorId, args.storyId, write);
+    else await write();
   } catch (e) {
     logger.warn('Failed to write story input snapshot', {
       storyId: args.storyId,
@@ -299,14 +324,34 @@ async function generateStoryStructureLocked(
   }
   const authorId = storyContext.story.authorId;
 
+  const inputPaths = params.imageObjectPaths ?? [];
+  const privateImagePaths = inputPaths.filter(isWhispererPrivateInput);
+  if (params.audioObjectPath && isWhispererPrivateInput(params.audioObjectPath))
+    throw new StructureError('Invalid Story Whisperer audio path', 400);
+  if (
+    (params.storyWhisperer && !params.structureRequestId) ||
+    (privateImagePaths.length > 0 &&
+      (!params.storyWhisperer ||
+        inputPaths.length > 3 ||
+        privateImagePaths.some(
+          (path) => !isScopedWhispererPhoto(storyId, path, params.structureRequestId),
+        ) ||
+        references.some(({ imageObjectPath }) => isWhispererPrivateInput(imageObjectPath))))
+  ) {
+    throw new StructureError('Invalid Story Whisperer photo input', 400);
+  }
+  const privateFiles = params.storyWhisperer ? getWhispererPrivateStorage() : undefined;
+  const privatePaths = new Set(privateImagePaths);
+
   // Relocate staged inputs (uploaded author-scoped in step 2, before the story
   // existed) into this story's own `{storyId}/inputs/` folder. All downstream
   // work — metadata, cropping, cover references — then uses the story-scoped
   // paths, so the story owns a self-contained copy of its inputs.
-  const { imageObjectPaths, audioObjectPath } = await relocateInputsToStory(
+  const { imageObjectPaths: allImagePaths, audioObjectPath } = await relocateInputsToStory(
     storyId,
     authorId,
-    params.imageObjectPaths ?? [],
+    inputPaths,
+    privatePaths,
     params.audioObjectPath,
     params.signal,
   );
@@ -328,9 +373,18 @@ async function generateStoryStructureLocked(
   // Gather per-image metadata (reusing persisted .json, analysing on demand).
   const storage = getStorageService();
   const imageMetas: ImageMetaWithPath[] = [];
-  for (const path of imageObjectPaths) {
-    const meta = await loadOrAnalyzeMetadata(path, analysisLocale, { authorId });
+  for (const path of allImagePaths) {
+    const privateStorage = privatePaths.has(path) ? privateFiles?.storage : undefined;
+    const meta = await loadOrAnalyzeMetadata(path, analysisLocale, {
+      authorId,
+      ...(privateStorage && {
+        storage: privateStorage,
+        privateContent: true,
+        accessPrivateInput: (action) => withWhispererDraftAccess(authorId, storyId, action),
+      }),
+    });
     if (meta) imageMetas.push({ path, ...meta });
+    else if (privateStorage) throw new StructureError('Story Whisperer photo unavailable', 422);
   }
 
   let resolvedReferences: ReturnType<typeof resolveCharacterReferences>;
@@ -338,8 +392,8 @@ async function generateStoryStructureLocked(
   try {
     resolvedReferences = resolveCharacterReferences(
       references,
-      params.imageObjectPaths ?? [],
-      imageObjectPaths,
+      inputPaths,
+      allImagePaths,
       imageMetas,
     );
     // Fail before model calls or story/character writes if the selected subject cannot be cropped.
@@ -374,8 +428,8 @@ async function generateStoryStructureLocked(
     .map((m) => ({
       path: m.path,
       overallImageContent: m.overallImageContent,
-      description: m.description,
-      text: m.text,
+      description: privatePaths.has(m.path) ? '' : m.description,
+      text: privatePaths.has(m.path) ? '' : m.text,
       characters: m.characters.map((c, index) => ({
         index,
         type: c.type,
@@ -396,6 +450,9 @@ async function generateStoryStructureLocked(
         : '',
       params.factuality === 'memory' ? MEMORY_INSTRUCTION : '',
       referenceInstructions,
+      privateImagePaths.length
+        ? 'Story Whisperer photographs are visual references. Their visible appearance can inform illustrations. Use the author’s captions and interview for factual details.'
+        : '',
     ]
       .filter(Boolean)
       .join('\n'),
@@ -447,7 +504,9 @@ async function generateStoryStructureLocked(
     const structureModel = process.env.GOOGLE_GENAI_MODEL || 'gemini-3.6-flash';
     aiResponse = await aiGateway.getTextService(aiContext).complete(userPrompt, {
       ...(params.signal && { signal: params.signal }),
-      privateContent: Boolean(params.storyPreferences || params.factuality || references.length),
+      privateContent: Boolean(
+        params.storyWhisperer || params.storyPreferences || params.factuality || references.length,
+      ),
       model: structureModel,
       jsonSchema: structSchema,
       ...(mediaParts.length ? { mediaParts } : {}),
@@ -459,7 +518,9 @@ async function generateStoryStructureLocked(
     const model = process.env.OPENAI_BASE_MODEL || process.env.OPENAI_TEXT_MODEL || 'gpt-5.5';
     aiResponse = await aiGateway.getTextService(aiContext).complete(finalPrompt, {
       ...(params.signal && { signal: params.signal }),
-      privateContent: Boolean(params.storyPreferences || params.factuality || references.length),
+      privateContent: Boolean(
+        params.storyWhisperer || params.storyPreferences || params.factuality || references.length,
+      ),
       temperature: 0.8,
       model,
       jsonSchema: structSchema,
@@ -506,13 +567,16 @@ async function generateStoryStructureLocked(
 
   // Cover reference URIs: only photo-type inputs that were actually provided.
   const bucket = process.env.STORAGE_BUCKET_NAME;
-  const providedPaths = new Set(imageObjectPaths);
+  const providedPaths = new Set(allImagePaths);
   const photoPaths = new Set(
     imageMetas
       .filter((m) => m.overallImageContent === 'photo' && !characterOnlyPaths.has(m.path))
       .map((m) => m.path),
   );
-  const toUri = (p: string) => (bucket ? `https://storage.googleapis.com/${bucket}/${p}` : p);
+  const toUri = (path: string) => {
+    if (privateFiles && privatePaths.has(path)) return `gs://${privateFiles.bucket}/${path}`;
+    return bucket ? `https://storage.googleapis.com/${bucket}/${path}` : path;
+  };
   const flaggedPaths = [
     ...(Array.isArray(parsed.story.coverReferenceImages) ? parsed.story.coverReferenceImages : []),
     ...(Array.isArray(parsed.story.backCoverReferenceImages)
@@ -521,7 +585,9 @@ async function generateStoryStructureLocked(
   ].filter(
     (p: unknown): p is string => typeof p === 'string' && providedPaths.has(p) && photoPaths.has(p),
   );
-  const coverReferenceUris = Array.from(new Set(flaggedPaths)).map(toUri);
+  const coverReferenceUris = Array.from(
+    new Set([...flaggedPaths, ...privateImagePaths.filter((path) => photoPaths.has(path))]),
+  ).map(toUri);
   updates.coverReferenceUris = coverReferenceUris.length ? coverReferenceUris : null;
 
   try {
@@ -548,7 +614,8 @@ async function generateStoryStructureLocked(
     (m) =>
       m.overallImageContent === 'photo' &&
       m.characters.length > 0 &&
-      !characterOnlyPaths.has(m.path),
+      !characterOnlyPaths.has(m.path) &&
+      !privatePaths.has(m.path),
   );
   const modelLinkedAnyCharacter = (parsed.characters as any[]).some(
     (c) => typeof c.sourceImagePath === 'string' && Number.isInteger(c.sourceCharacterIndex),
@@ -616,7 +683,7 @@ async function generateStoryStructureLocked(
     }
 
     // Crop a character photo from the source input image when available
-    if (!record.photoUrl && cropPath && cropIndex !== null) {
+    if (!record.photoUrl && cropPath && !privatePaths.has(cropPath) && cropIndex !== null) {
       try {
         assertActive();
         const url = await cropCharacterPhoto(
@@ -690,12 +757,20 @@ async function generateStoryStructureLocked(
       ({ detected: _detected, ...reference }) => reference,
     ),
     audioObjectPath,
+    ...(privateFiles &&
+      params.structureRequestId && {
+        privateSnapshot: {
+          storage: privateFiles.storage,
+          requestId: params.structureRequestId,
+          authorId,
+        },
+      }),
   });
 
   return {
     storyId,
     story: { ...updates, storyId },
     characters: processedCharacters,
-    originalInput: userDescription ?? '',
+    originalInput: params.storyWhisperer ? '' : (userDescription ?? ''),
   };
 }

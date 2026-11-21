@@ -9,6 +9,8 @@ export const historyTurn = z.object({
 });
 export const projectContext = z.object({
   projectTitle: z.string().max(500).optional(),
+  storyBrief: z.string().max(40000).optional(),
+  characterNames: z.array(z.string().max(200)).max(50).optional(),
   subject: z.string().max(1000).optional(),
   purpose: z.string().max(2000).optional(),
   places: z.array(z.string().max(200)).max(20).optional(),
@@ -76,3 +78,44 @@ export type ProposalRequest = z.infer<typeof proposalRequest>;
 export function requireBiographer(): void {
   if (process.env.BIOGRAPHER_ENABLED !== 'true') throw new Error('BIOGRAPHER_DISABLED');
 }
+
+export const whispererRequest = z.object({
+  authorId: z.string().uuid(),
+  projectId: z.string().uuid(),
+  locale: biographerLocale,
+  turns: z
+    .array(historyTurn.pick({ role: true, text: true }))
+    .max(300)
+    .refine(
+      (turns) => turns.reduce((sum, turn) => sum + turn.text.length, 0) <= 400000,
+      'Interview context exceeds supported budget',
+    ),
+  photos: z.array(z.object({ caption: z.string().max(4000) })).max(20),
+  requestQuestion: z.boolean(),
+  context: z
+    .object({
+      brief: z.string().max(40000).optional(),
+      characterNames: z.array(z.string().max(200)).max(50).optional(),
+      imageCount: z.number().int().nonnegative().max(20).optional(),
+      hasAudio: z.boolean().optional(),
+    })
+    .optional(),
+});
+
+export const whispererCondenseRequest = whispererRequest
+  .pick({
+    authorId: true,
+    projectId: true,
+    locale: true,
+  })
+  .extend({
+    entries: z
+      .array(z.string().trim().min(1).max(40000))
+      .min(1)
+      .max(1000)
+      .refine(
+        (entries) => entries.reduce((sum, entry) => sum + entry.length, 0) <= 60000,
+        'Story seed context exceeds supported budget',
+      ),
+    maxLength: z.number().int().min(1000).max(40000),
+  });

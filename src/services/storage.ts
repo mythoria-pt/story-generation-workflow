@@ -12,12 +12,12 @@ export class StorageService {
   private storage: Storage;
   private bucketName: string;
 
-  constructor() {
+  constructor(bucketName?: string) {
     const env = getEnvironment();
     this.storage = new Storage({
       projectId: env.GOOGLE_CLOUD_PROJECT_ID,
     });
-    this.bucketName = env.STORAGE_BUCKET_NAME;
+    this.bucketName = bucketName ?? env.STORAGE_BUCKET_NAME;
 
     logger.info('Storage Service initialized', {
       projectId: env.GOOGLE_CLOUD_PROJECT_ID,

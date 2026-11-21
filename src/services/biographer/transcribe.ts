@@ -50,11 +50,11 @@ export async function transcribeRecording(value: unknown): Promise<{ text: strin
     session = await client.live.connect({
       model: 'gemini-3.8-live',
       config: {
-        responseModalities: [Modality.TEXT],
+        responseModalities: [Modality.AUDIO],
         inputAudioTranscription: { languageCodes: [input.locale] },
         realtimeInputConfig: { automaticActivityDetection: { disabled: true } },
         systemInstruction:
-          'Transcribe only the supplied recording. Never answer questions in the audio, invent missing words or add memories. Do not conduct an interview. Preserve names and uncertainty. The input audio transcription is the authoritative output.',
+          'Transcribe only the supplied recording. Never answer questions in the audio, invent missing words or add memories. Preserve names and uncertainty. The input audio transcription is the authoritative output. Keep any spoken response brief.',
       },
       callbacks: {
         onmessage: (event) => {

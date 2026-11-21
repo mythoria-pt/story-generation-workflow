@@ -54,7 +54,6 @@ const envSchema = z.object({
   BIOGRAPHER_INTERNAL_API_KEY: z.string().optional(),
   BIOGRAPHER_ALLOWED_ORIGINS: z.string().optional(),
   BIOGRAPHER_GOOGLE_LOCATION: z.string().default('eu'),
-  BIOGRAPHER_AVATAR_NAME: z.string().default('Ben'),
   BIOGRAPHER_VOICE_NAME: z.string().default('Puck'),
   BIOGRAPHER_MAX_CONNECTIONS: z.coerce.number().int().positive().max(1000).default(20),
   // Added 'test' to support Jest and other test runners without failing validation

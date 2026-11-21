@@ -6,7 +6,9 @@ const mockCreateCharacter = jest.fn();
 const mockPhoto = jest.fn();
 const mockLink = jest.fn();
 const mockUpdate = jest.fn();
+const mockDraftLockQuery = jest.fn();
 const mockUpload = jest.fn();
+const mockPrivateUpload = jest.fn();
 const mockDownload = jest.fn();
 const mockMetadata = jest.fn();
 const mockCrop = jest.fn();
@@ -57,6 +59,9 @@ jest.mock('@/services/storage-singleton.js', () => ({
     uploadFile: mockUpload,
   }),
 }));
+jest.mock('@/services/storage.js', () => ({
+  StorageService: jest.fn(() => ({ uploadFile: mockPrivateUpload })),
+}));
 jest.mock('@/services/image-analysis.js', () => ({
   loadOrAnalyzeMetadata: (...args: unknown[]) => mockMetadata(...args),
   metadataPathFor: (path: string) => path.replace(/\.jpg$/, '.json'),
@@ -67,6 +72,7 @@ jest.mock('@/utils/imageProcessing.js', () => ({
 jest.mock('@/db/connection.js', () => ({
   getDatabase: () => ({
     update: () => ({ set: (updates: unknown) => ({ where: () => mockUpdate(updates) }) }),
+    transaction: (action: (tx: unknown) => unknown) => action({ execute: mockDraftLockQuery }),
   }),
 }));
 
@@ -120,6 +126,7 @@ describe('story structure confirmed protagonist reference', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     process.env.TEXT_PROVIDER = 'google-genai';
+    mockDraftLockQuery.mockResolvedValue({ rows: [{ active: true }] });
     mockGetStoryContext.mockResolvedValue({ story: { authorId: 'author' } });
     mockMetadata.mockResolvedValue(metadata);
     mockDownload.mockResolvedValue(Buffer.from('original photo'));
@@ -191,5 +198,85 @@ describe('story structure confirmed protagonist reference', () => {
     expect(result.story.coverReferenceUris).toEqual([
       expect.stringContaining('story/inputs/photo.jpg'),
     ]);
+  });
+  it('uses private Whisperer assets without storing originals, crops or interview text in ordinary storage', async () => {
+    const previousBucket = process.env.BIOGRAPHER_STORAGE_BUCKET;
+    process.env.BIOGRAPHER_STORAGE_BUCKET = 'whisperer-private-test';
+    const structureRequestId = '0621c74a-fb9f-82ec-9a40-2d481fd931ef';
+    const photoId = '551300fc-5a34-4735-b9f3-3f770e12ff06';
+    const path = `story/inputs/whisperer-${structureRequestId}-${photoId}.jpg`;
+    mockComplete.mockResolvedValue(JSON.stringify(response()));
+    try {
+      const result = await generateStoryStructure({
+        storyId: 'story',
+        userDescription: 'Interview notes',
+        storyWhisperer: true,
+        structureRequestId,
+        imageObjectPaths: [path],
+      });
+      expect(mockMetadata).toHaveBeenCalledWith(path, 'en-US', {
+        authorId: 'author',
+        privateContent: true,
+        storage: expect.objectContaining({ uploadFile: mockPrivateUpload }),
+        accessPrivateInput: expect.any(Function),
+      });
+      const [prompt, options] = mockComplete.mock.calls[0];
+      expect(options.privateContent).toBe(true);
+      expect(prompt).not.toContain('Secret birthday');
+      expect(prompt).not.toContain('Private OCR');
+      expect(mockCrop).not.toHaveBeenCalled();
+      expect(mockUpload).not.toHaveBeenCalled();
+      expect(mockPrivateUpload).toHaveBeenCalledWith(
+        `story/inputs/whisperer-${structureRequestId}-description.txt`,
+        expect.any(Buffer),
+        'text/plain; charset=utf-8',
+      );
+      expect(result.story.coverReferenceUris).toEqual([`gs://whisperer-private-test/${path}`]);
+      expect(result.originalInput).toBe('');
+      mockPrivateUpload.mockClear();
+      mockDraftLockQuery.mockResolvedValue({ rows: [] });
+      const metadataWrite = jest.fn();
+      await mockMetadata.mock.calls[0][2].accessPrivateInput(metadataWrite);
+      expect(metadataWrite).not.toHaveBeenCalled();
+      await generateStoryStructure({
+        storyId: 'story',
+        userDescription: 'Interview notes',
+        storyWhisperer: true,
+        structureRequestId,
+      });
+      expect(mockPrivateUpload).not.toHaveBeenCalled();
+    } finally {
+      if (previousBucket === undefined) delete process.env.BIOGRAPHER_STORAGE_BUCKET;
+      else process.env.BIOGRAPHER_STORAGE_BUCKET = previousBucket;
+    }
+  });
+
+  it('rejects reserved paths for ordinary jobs and other story or handoff scopes', async () => {
+    const requestId = '0621c74a-fb9f-82ec-9a40-2d481fd931ef';
+    const photoId = '551300fc-5a34-4735-b9f3-3f770e12ff06';
+    const file = `whisperer-${requestId}-${photoId}.jpg`;
+    await expect(
+      generateStoryStructure({
+        storyId: 'story',
+        imageObjectPaths: [`story/inputs/${file}`],
+      }),
+    ).rejects.toThrow('Invalid Story Whisperer photo input');
+    await expect(
+      generateStoryStructure({
+        storyId: 'story',
+        storyWhisperer: true,
+        structureRequestId: requestId,
+        imageObjectPaths: [`another-story/inputs/${file}`],
+      }),
+    ).rejects.toThrow('Invalid Story Whisperer photo input');
+    await expect(
+      generateStoryStructure({
+        storyId: 'story',
+        storyWhisperer: true,
+        structureRequestId: photoId,
+        imageObjectPaths: [`story/inputs/${file}`],
+      }),
+    ).rejects.toThrow('Invalid Story Whisperer photo input');
+    expect(mockMetadata).not.toHaveBeenCalled();
   });
 });

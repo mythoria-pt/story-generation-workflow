@@ -117,3 +117,5 @@ See [docs/audio-narration-system.md](docs/audio-narration-system.md) for the ful
 ## AI Biographer Phase 1
 
 See [docs/biographer.md](docs/biographer.md). Owner projects and archival durability are WebApp-owned; the dedicated live gateway uses single-use participant admission and server-side Gemini 3.8 Live credentials. Preserve approved source snapshots, persona and outline. Flags default off; no production migration, paid provider call or deployment is implied by local implementation.
+
+See [Story Whisperer voice and structure contracts](docs/biographer.md) for authenticated voice admission and private image handling in ordinary wizard stories.

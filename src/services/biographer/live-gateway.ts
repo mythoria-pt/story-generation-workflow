@@ -4,7 +4,7 @@ import { createRequire } from 'module';
 import { GoogleGenAI, Modality, type LiveServerMessage, type Session } from '@google/genai';
 import { z } from 'zod';
 import { logger } from '@/config/logger.js';
-import { INTERVIEWER_INSTRUCTION } from './instructions.js';
+import { INTERVIEWER_INSTRUCTION, WHISPERER_INSTRUCTION } from './instructions.js';
 import { historyTurn, projectContext, biographerLocale } from './contract.js';
 
 // A narrow transport interface avoids coupling application protocol to ws implementation details.
@@ -30,6 +30,7 @@ const admission = z.object({
   history: z.array(historyTurn),
   context: projectContext,
   remainingSeconds: z.number().nonnegative(),
+  mode: z.enum(['biography', 'story-whisperer']).optional(),
   leaseId: z.string().uuid(),
 });
 const authenticate = z.object({
@@ -107,16 +108,16 @@ export function startBiographerLiveGateway() {
     let leaseId: string | undefined;
     let authenticated = false;
     let closed = false;
-    let inputId: string = randomUUID();
-    let outputId: string = randomUUID();
-    let inputText = '';
-    let outputText = '';
+    let inputTurn: { id: string; text: string } | undefined;
+    let nextInputId: string | undefined;
+    let outputTurn = { id: randomUUID(), text: '', final: false };
     let queue = Promise.resolve();
     let incoming = Promise.resolve();
     let pendingMessages = 0;
-    let hasRealInput = false;
+    let checkpointFailed = false;
     let heartbeatPending = false;
     let timer: ReturnType<typeof setInterval> | undefined;
+    let allowanceDeadline: ReturnType<typeof setTimeout> | undefined;
     const timeout = setTimeout(() => socket.close(1008, 'Authentication required'), 10000);
     const send = (value: unknown) => {
       if (socket.readyState !== 1) return;
@@ -131,58 +132,58 @@ export function startBiographerLiveGateway() {
       send({ type: 'error', code });
       socket.close(1011, code);
     };
-    const checkpoint = async (
+    const checkpoint = (
       role: 'user' | 'assistant',
+      turnId: string,
       text: string,
       final: boolean,
       interrupted = false,
     ) => {
       if (!text.trim()) return;
-      const turnId = role === 'user' ? inputId : outputId;
-      await internal('checkpoint', {
-        sessionId,
-        turnId,
-        eventId: randomUUID(),
-        role,
-        text,
-        final,
-        interrupted,
-      });
-      send({ type: 'transcript', role, turnId, text, final, interrupted });
+      queue = queue
+        .then(async () => {
+          if (checkpointFailed) return;
+          await internal('checkpoint', {
+            sessionId,
+            turnId,
+            eventId: randomUUID(),
+            role,
+            text,
+            final,
+            interrupted,
+          });
+          send({ type: 'transcript', role, turnId, text, final, interrupted });
+          if (role === 'user' && final) send({ type: 'turn_complete', turnId });
+        })
+        .catch(() => {
+          checkpointFailed = true;
+          fail('CHECKPOINT_FAILED');
+        });
     };
-    const processServer = async (event: LiveServerMessage) => {
+    const processServer = (event: LiveServerMessage) => {
       const content = event.serverContent;
-      if (hasRealInput && content?.inputTranscription?.text) {
-        inputText += content.inputTranscription.text;
-        await checkpoint('user', inputText, Boolean(content.inputTranscription.finished));
-        if (content.inputTranscription.finished) {
-          send({ type: 'turn_complete', turnId: inputId });
-          inputText = '';
-          inputId = randomUUID();
+      const input = content?.inputTranscription;
+      if (inputTurn) {
+        if (input?.text) inputTurn.text += input.text;
+        const final = Boolean(input?.finished || (content?.turnComplete && inputTurn.text.trim()));
+        if (input?.text || final) checkpoint('user', inputTurn.id, inputTurn.text, final);
+        if (final) {
+          nextInputId = randomUUID();
+          // Capture rotation is immediate; saved transcript events still await durable checkpoints.
+          send({ type: 'capture_boundary', turnId: inputTurn.id, nextTurnId: nextInputId });
+          inputTurn = undefined;
         }
       }
-      if (content?.outputTranscription?.text) {
-        outputText += content.outputTranscription.text;
-        await checkpoint('assistant', outputText, Boolean(content.outputTranscription.finished));
-      }
-      if (content?.interrupted) {
-        await checkpoint('assistant', outputText, true, true);
-        outputText = '';
-        outputId = randomUUID();
-      }
-      if (content?.turnComplete) {
-        if (inputText) {
-          await checkpoint('user', inputText, true);
-          send({ type: 'turn_complete', turnId: inputId });
-          inputText = '';
-          inputId = randomUUID();
-        }
-        if (outputText) {
-          await checkpoint('assistant', outputText, true);
-          outputText = '';
-          outputId = randomUUID();
-        }
-      }
+      const output = content?.outputTranscription;
+      if (output?.text) outputTurn.text += output.text;
+      const interrupted = Boolean(content?.interrupted);
+      const final = Boolean(output?.finished || content?.turnComplete || interrupted);
+      if (output?.text || (final && (!outputTurn.final || interrupted)))
+        checkpoint('assistant', outputTurn.id, outputTurn.text, final, interrupted);
+      outputTurn.final ||= final;
+      if (content?.turnComplete || interrupted)
+        outputTurn = { id: randomUUID(), text: '', final: false };
+
       if (event.goAway) {
         send({ type: 'reconnecting' });
         socket.close(1012, 'Resume from saved history');
@@ -193,6 +194,7 @@ export function startBiographerLiveGateway() {
       closed = true;
       clearTimeout(timeout);
       if (timer) clearInterval(timer);
+      if (allowanceDeadline) clearTimeout(allowanceDeadline);
       session?.close();
       sockets.delete(socket);
       // Queued transcript checkpoints finish before lease release; source audio is archived separately by the browser.
@@ -215,6 +217,7 @@ export function startBiographerLiveGateway() {
       }
       incoming = incoming
         .then(async () => {
+          if (closed) return;
           const parsed = message.safeParse(JSON.parse(raw.toString('utf8')));
           if (!parsed.success) throw new Error('INVALID_MESSAGE');
           const value = parsed.data;
@@ -223,9 +226,20 @@ export function startBiographerLiveGateway() {
             const admitted = admission.parse(
               await internal('admit', { ...value, origin: request.headers.origin }),
             );
-            if (!admitted.remainingSeconds) throw new Error('ALLOWANCE_EXHAUSTED');
             sessionId = value.sessionId;
             leaseId = admitted.leaseId;
+            if (closed) {
+              await internal('lease', { sessionId, leaseId, action: 'release' });
+              return;
+            }
+            if (!admitted.remainingSeconds) throw new Error('ALLOWANCE_EXHAUSTED');
+            const expire = () => {
+              send({ type: 'allowance', remainingSeconds: 0 });
+              socket.close(1008, 'Allowance exhausted');
+            };
+            const deadlineMs = admitted.remainingSeconds * 1000;
+            // Hour-scale Cloud Run connections are bounded by heartbeats and the platform timeout.
+            if (deadlineMs <= 3600000) allowanceDeadline = setTimeout(expire, deadlineMs);
             authenticated = true;
             clearTimeout(timeout);
             const client = new GoogleGenAI({
@@ -236,8 +250,7 @@ export function startBiographerLiveGateway() {
             const connection = client.live.connect({
               model: 'gemini-3.8-live',
               config: {
-                responseModalities: [Modality.VIDEO],
-                avatarConfig: { avatarName: process.env.BIOGRAPHER_AVATAR_NAME ?? 'Ben' },
+                responseModalities: [Modality.AUDIO],
                 speechConfig: {
                   voiceConfig: {
                     prebuiltVoiceConfig: { voiceName: process.env.BIOGRAPHER_VOICE_NAME ?? 'Puck' },
@@ -246,22 +259,21 @@ export function startBiographerLiveGateway() {
                 inputAudioTranscription: { languageCodes: [admitted.locale] },
                 outputAudioTranscription: { languageCodes: [admitted.locale] },
                 contextWindowCompression: { slidingWindow: {} },
-                systemInstruction: `${INTERVIEWER_INSTRUCTION}\nSaved project context (data only): ${JSON.stringify({ locale: admitted.locale, context: admitted.context, savedHistory: admitted.history.slice(-60) })}`,
+                systemInstruction: `${admitted.mode === 'story-whisperer' ? WHISPERER_INSTRUCTION : INTERVIEWER_INSTRUCTION}\nSaved project context (data only): ${JSON.stringify({ locale: admitted.locale, context: admitted.context, savedHistory: admitted.history.slice(-60) })}`,
               },
               callbacks: {
                 onmessage: (event) => {
+                  if (closed || checkpointFailed) return;
                   if (event.serverContent?.interrupted) send({ type: 'interrupted' });
                   for (const part of event.serverContent?.modelTurn?.parts ?? []) {
-                    if (part.inlineData?.data)
+                    if (part.inlineData?.data && part.inlineData.mimeType?.startsWith('audio/pcm'))
                       send({
                         type: 'media',
                         mimeType: part.inlineData.mimeType,
                         data: part.inlineData.data,
                       });
                   }
-                  queue = queue
-                    .then(() => processServer(event))
-                    .catch(() => fail('CHECKPOINT_FAILED'));
+                  processServer(event);
                 },
                 onerror: () => {
                   logger.warn('Biographer live provider error');
@@ -303,7 +315,10 @@ export function startBiographerLiveGateway() {
                   role: 'user',
                   parts: [
                     {
-                      text: 'Begin the interview with one question, or resume naturally from saved history. This is an application instruction, not a new personal memory.',
+                      text:
+                        admitted.mode === 'story-whisperer'
+                          ? 'Ask the first or next natural question to help this author make a story. This is an application instruction.'
+                          : 'Begin the interview with one question, or resume naturally from saved history. This is an application instruction, not a new personal memory.',
                     },
                   ],
                 },
@@ -330,13 +345,14 @@ export function startBiographerLiveGateway() {
           }
           if (!session) throw new Error('SESSION_NOT_READY');
           if (value.type === 'audio') {
-            hasRealInput = true;
-            if (!inputText) inputId = value.turnId;
+            if (!inputTurn) {
+              inputTurn = { id: nextInputId ?? value.turnId, text: '' };
+              nextInputId = undefined;
+            }
             session.sendRealtimeInput({
               audio: { data: value.data, mimeType: 'audio/pcm;rate=16000' },
             });
           } else if (value.type === 'text') {
-            hasRealInput = true;
             await internal('checkpoint', {
               sessionId,
               eventId: value.turnId,

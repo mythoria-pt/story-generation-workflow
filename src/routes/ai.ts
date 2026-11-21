@@ -3,6 +3,12 @@ import {
   approvedOutline,
   chapterEvidence,
 } from '@/services/biographer/snapshot.js';
+import {
+  getWhispererPrivateStorage,
+  isScopedWhispererPhoto,
+  withWhispererDraftAccess,
+  isWhispererPrivateInput,
+} from '@/services/biographer/whisperer-photos.js';
 /**
  * AI Gateway API Routes
  * Provider-agnostic endpoints for text and image generation
@@ -1589,7 +1595,7 @@ router.post('/image', async (req, res) => {
     const seenReferenceFiles = new Set<string>();
     const MAX_REFERENCE_IMAGES = 5;
     try {
-      const storyRecord = await storyService.getStory(storyId); // includes cover/backcover URIs
+      const storyRecord = await storyService.getStory(storyId, { includeCoverReferences: true });
       const storage = getStorageService();
       const bucketName = process.env.STORAGE_BUCKET_NAME;
 
@@ -1630,7 +1636,8 @@ router.post('/image', async (req, res) => {
         if (!uri) return;
         if (referenceImages.length >= MAX_REFERENCE_IMAGES) return;
         const filename = getSupportedGcsObjectPath(uri);
-        if (!filename || seenReferenceFiles.has(filename)) return;
+        if (!filename || seenReferenceFiles.has(filename) || isWhispererPrivateInput(filename))
+          return;
         const lower = filename.toLowerCase();
         if (!lower.endsWith('.jpg') && !lower.endsWith('.jpeg')) return;
         try {
@@ -1649,6 +1656,41 @@ router.post('/image', async (req, res) => {
           });
         }
       };
+
+      const coverRefs =
+        storyRecord && (imageType === 'front_cover' || imageType === 'back_cover')
+          ? (storyRecord.coverReferenceUris ?? [])
+          : [];
+      const privatePrefix = `gs://${process.env.BIOGRAPHER_STORAGE_BUCKET?.trim()}/`;
+      const privateCoverRefs = coverRefs
+        .filter((uri) => typeof uri === 'string' && uri.startsWith(privatePrefix))
+        .map((uri) => uri.slice(privatePrefix.length))
+        .filter(isWhispererPrivateInput);
+      if (privateCoverRefs.length) {
+        privateImage = true;
+        const { storage: privateStorage } = getWhispererPrivateStorage();
+        for (const path of privateCoverRefs) {
+          if (referenceImages.length >= MAX_REFERENCE_IMAGES) break;
+          if (!isScopedWhispererPhoto(storyId, path))
+            throw new Error('Invalid private cover reference');
+          if (seenReferenceFiles.has(path)) continue;
+          const original = await withWhispererDraftAccess(
+            storyContext.story.authorId,
+            storyId,
+            () => privateStorage.downloadFileAsBuffer(path),
+          );
+          if (!original) continue;
+          const { buffer } = await normalizeToJpeg(original);
+          referenceImages.push({
+            buffer,
+            mimeType: 'image/jpeg',
+            source: 'cover_reference',
+            label:
+              'Author-provided Story Whisperer photograph. Use visible appearance for the illustration.',
+          });
+          seenReferenceFiles.add(path);
+        }
+      }
 
       // Only approved, owner-scoped Biographer assets enter the reference pipeline.
       if (storyRecord) {
@@ -1751,19 +1793,14 @@ router.post('/image', async (req, res) => {
       // Cover-relevant user photos: original input photos that the structure
       // step flagged as relevant for the cover. Applied only to cover images;
       // chapters rely on the cover + previous-chapter images for continuity.
-      if (storyRecord && (imageType === 'front_cover' || imageType === 'back_cover')) {
-        const coverRefs = (storyRecord as { coverReferenceUris?: string[] | null })
-          .coverReferenceUris;
-        if (Array.isArray(coverRefs)) {
-          for (const uri of coverRefs) {
-            if (referenceImages.length >= MAX_REFERENCE_IMAGES) break;
-            await addRef(
-              uri,
-              'cover_reference',
-              'Original photo relevant to the cover - use for likeness and details',
-            );
-          }
-        }
+      for (const uri of coverRefs) {
+        if (referenceImages.length >= MAX_REFERENCE_IMAGES) break;
+        if (typeof uri !== 'string' || uri.startsWith(privatePrefix)) continue;
+        await addRef(
+          uri,
+          'cover_reference',
+          'Original photo relevant to the cover - use for likeness and details',
+        );
       }
 
       // Secondary preference: existing cover/back/previous chapter references
@@ -1813,16 +1850,11 @@ router.post('/image', async (req, res) => {
         }
       }
     } catch (refCollectErr) {
-      if (storyContext.story.additionalRequests?.includes('[MYTHORIA_BIOGRAPHER_V1]'))
-        throw refCollectErr;
+      if (privateImage) throw refCollectErr;
       logger.warn('Reference image collection failed', {
         error: refCollectErr instanceof Error ? refCollectErr.message : String(refCollectErr),
       });
     }
-
-    privateImage = Boolean(
-      storyContext.story.additionalRequests?.includes('[MYTHORIA_BIOGRAPHER_V1]'),
-    );
 
     // Helper function to attempt image generation with in-process transient retry.
     // Uses withRetry for quick retries (2 attempts, 5s delay) on transient errors
