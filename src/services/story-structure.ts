@@ -1,3 +1,5 @@
+import { WHISPERER_STRUCTURE_INSTRUCTION } from './biographer/instructions.js';
+import { STORY_WHISPERER_TEXT_MODEL } from './biographer/whisperer-model.js';
 import { withStructureLock } from './structure-lock.js';
 import { relocateStructureInput } from './structure-inputs.js';
 import {
@@ -439,7 +441,19 @@ async function generateStoryStructureLocked(
     }));
 
   // Build prompt + schema
-  const promptTemplate = await PromptService.loadPrompt('en-US', 'text-structure');
+  const basePrompt = await PromptService.loadPrompt('en-US', 'text-structure');
+  const promptTemplate = params.storyWhisperer
+    ? {
+        ...basePrompt,
+        systemPrompt: [
+          basePrompt.systemPrompt,
+          params.factuality === 'memory' ? MEMORY_INSTRUCTION : '',
+          WHISPERER_STRUCTURE_INSTRUCTION,
+        ]
+          .filter(Boolean)
+          .join('\n'),
+      }
+    : basePrompt;
   const defaultPersona = storyContext.story.literaryPersona || 'classic-novelist';
   const templateVars = {
     authorName: '',
@@ -448,7 +462,7 @@ async function generateStoryStructureLocked(
       params.storyPreferences
         ? `Confirmed story preferences: ${JSON.stringify(params.storyPreferences)}`
         : '',
-      params.factuality === 'memory' ? MEMORY_INSTRUCTION : '',
+      !params.storyWhisperer && params.factuality === 'memory' ? MEMORY_INSTRUCTION : '',
       referenceInstructions,
       privateImagePaths.length
         ? 'Story Whisperer photographs are visual references. Their visible appearance can inform illustrations. Use the author’s captions and interview for factual details.'
@@ -494,15 +508,22 @@ async function generateStoryStructureLocked(
     }
   }
 
-  const textProvider = process.env.TEXT_PROVIDER || 'google-genai';
+  const textProvider = params.storyWhisperer
+    ? 'google-genai'
+    : process.env.TEXT_PROVIDER || 'google-genai';
   let aiResponse: string;
   if (textProvider === 'google-genai') {
     const { systemInstruction, userPrompt } = PromptService.buildParts(
       promptTemplate,
       templateVars,
     );
-    const structureModel = process.env.GOOGLE_GENAI_MODEL || 'gemini-3.6-flash';
-    aiResponse = await aiGateway.getTextService(aiContext).complete(userPrompt, {
+    const structureModel = params.storyWhisperer
+      ? STORY_WHISPERER_TEXT_MODEL
+      : process.env.GOOGLE_GENAI_MODEL || 'gemini-3.6-flash';
+    const service = params.storyWhisperer
+      ? aiGateway.getTextServiceForProvider('google-genai', aiContext, { allowFallback: false })
+      : aiGateway.getTextService(aiContext);
+    aiResponse = await service.complete(userPrompt, {
       ...(params.signal && { signal: params.signal }),
       privateContent: Boolean(
         params.storyWhisperer || params.storyPreferences || params.factuality || references.length,
@@ -747,6 +768,7 @@ async function generateStoryStructureLocked(
         ? `Confirmed story preferences: ${JSON.stringify(params.storyPreferences)}`
         : '',
       params.factuality === 'memory' ? MEMORY_INSTRUCTION : '',
+      params.storyWhisperer ? WHISPERER_STRUCTURE_INSTRUCTION : '',
       referenceInstructions,
     ]
       .filter(Boolean)

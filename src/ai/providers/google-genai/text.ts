@@ -164,7 +164,10 @@ export class GoogleGenAITextService implements ITextGenerationService {
       config.systemInstruction = systemInstruction;
     }
 
-    if (targetModel.startsWith('gemini-3') && options?.thinkingLevel) {
+    if (
+      (targetModel.startsWith('gemini-3') || targetModel === 'gemini-4-hydrogen') &&
+      options?.thinkingLevel
+    ) {
       const thinkingLevels = {
         minimal: ThinkingLevel.MINIMAL,
         low: ThinkingLevel.LOW,

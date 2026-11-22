@@ -1,13 +1,25 @@
 import { z } from 'zod';
 
 export const biographerLocale = z.enum(['en-US', 'pt-PT', 'es-ES', 'fr-FR', 'de-DE']);
+const choices = z.array(z.string().trim().min(1).max(250)).max(6).optional();
 export const historyTurn = z.object({
   role: z.enum(['user', 'assistant']),
+  choices,
   text: z.string().max(40000),
   contributorName: z.string().max(200).optional(),
   participantId: z.string().uuid().optional(),
 });
+const whispererContinuity = {
+  primaryIntent: z.string().trim().min(1).max(80).optional(),
+  opening: z
+    .object({
+      question: z.string().trim().min(1).max(1200),
+      choices: z.array(z.string().trim().min(1).max(200)).max(5),
+    })
+    .optional(),
+};
 export const projectContext = z.object({
+  ...whispererContinuity,
   projectTitle: z.string().max(500).optional(),
   storyBrief: z.string().max(40000).optional(),
   characterNames: z.array(z.string().max(200)).max(50).optional(),
@@ -37,7 +49,11 @@ export const interviewRequest = z.object({
     .array(historyTurn)
     .max(300)
     .refine(
-      (turns) => turns.reduce((sum, turn) => sum + turn.text.length, 0) <= 400000,
+      (turns) =>
+        turns.reduce(
+          (sum, turn) => sum + turn.text.length + (turn.choices?.join('').length ?? 0),
+          0,
+        ) <= 400000,
       'Interview context exceeds supported budget',
     ),
   context: projectContext,
@@ -84,16 +100,21 @@ export const whispererRequest = z.object({
   projectId: z.string().uuid(),
   locale: biographerLocale,
   turns: z
-    .array(historyTurn.pick({ role: true, text: true }))
+    .array(historyTurn.pick({ role: true, text: true, choices: true }))
     .max(300)
     .refine(
-      (turns) => turns.reduce((sum, turn) => sum + turn.text.length, 0) <= 400000,
+      (turns) =>
+        turns.reduce(
+          (sum, turn) => sum + turn.text.length + (turn.choices?.join('').length ?? 0),
+          0,
+        ) <= 400000,
       'Interview context exceeds supported budget',
     ),
   photos: z.array(z.object({ caption: z.string().max(4000) })).max(20),
   requestQuestion: z.boolean(),
   context: z
     .object({
+      ...whispererContinuity,
       brief: z.string().max(40000).optional(),
       characterNames: z.array(z.string().max(200)).max(50).optional(),
       imageCount: z.number().int().nonnegative().max(20).optional(),
@@ -110,11 +131,30 @@ export const whispererCondenseRequest = whispererRequest
   })
   .extend({
     entries: z
-      .array(z.string().trim().min(1).max(40000))
+      .array(
+        z.union([
+          z.string().trim().min(1).max(40000),
+          z.object({
+            choices,
+            question: z.string().trim().min(1).max(1200).optional(),
+            text: z.string().trim().min(1).max(40000),
+          }),
+        ]),
+      )
       .min(1)
       .max(1000)
       .refine(
-        (entries) => entries.reduce((sum, entry) => sum + entry.length, 0) <= 60000,
+        (entries) =>
+          entries.reduce(
+            (sum, entry) =>
+              sum +
+              (typeof entry === 'string'
+                ? entry.length
+                : entry.text.length +
+                  (entry.question?.length ?? 0) +
+                  (entry.choices?.join('').length ?? 0)),
+            0,
+          ) <= 60000,
         'Story seed context exceeds supported budget',
       ),
     maxLength: z.number().int().min(1000).max(40000),
