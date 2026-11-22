@@ -441,6 +441,7 @@ const StoryStructureJobSchema = z
   .object({
     storyId: z.string().uuid(),
     structureRequestId: z.string().uuid().optional(),
+    storyWhisperer: z.literal(true).optional(),
     userDescription: z.string().optional(),
     imageObjectPaths: z.array(z.string()).optional(),
     audioObjectPath: z.string().optional(),
@@ -475,6 +476,10 @@ router.post('/story-structure', async (req, res) => {
       storyId: params.storyId,
       imageObjectPaths: params.imageObjectPaths ?? [],
     };
+    if (params.storyWhisperer) {
+      jobParams.storyWhisperer = true;
+      jobParams.structureRequestId = params.structureRequestId;
+    }
     if (params.userDescription !== undefined) jobParams.userDescription = params.userDescription;
     if (params.audioObjectPath !== undefined) jobParams.audioObjectPath = params.audioObjectPath;
     if (params.characterIds !== undefined) jobParams.characterIds = params.characterIds;

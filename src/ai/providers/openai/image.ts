@@ -143,7 +143,11 @@ export class OpenAIImageService implements IImageGenerationService {
             );
           } catch (promptError) {
             logger.warn('Failed to load image prompt template, using default', {
-              error: promptError instanceof Error ? promptError.message : String(promptError),
+              error: options?.privateContent
+                ? '[omitted]'
+                : promptError instanceof Error
+                  ? promptError.message
+                  : String(promptError),
               imageType: options?.imageType,
             });
 
@@ -173,7 +177,11 @@ export class OpenAIImageService implements IImageGenerationService {
               systemMessage += `\n${styleConfig.systemPrompt}`;
             } catch (styleError) {
               logger.warn('Failed to load style configuration for image generation', {
-                error: styleError instanceof Error ? styleError.message : String(styleError),
+                error: options?.privateContent
+                  ? '[omitted]'
+                  : styleError instanceof Error
+                    ? styleError.message
+                    : String(styleError),
                 graphicalStyle: options.graphicalStyle,
               });
               // Fallback to a generic style instruction
@@ -188,7 +196,11 @@ export class OpenAIImageService implements IImageGenerationService {
         }
       } catch (error) {
         logger.error('Error preparing image generation prompt', {
-          error: error instanceof Error ? error.message : String(error),
+          error: options?.privateContent
+            ? '[omitted]'
+            : error instanceof Error
+              ? error.message
+              : String(error),
         });
 
         // Ultimate fallback
@@ -214,7 +226,7 @@ export class OpenAIImageService implements IImageGenerationService {
           toolConfig,
           temperature: 1,
           maxOutputTokens: 8192,
-          store: true,
+          store: options?.privateContent ? false : true,
         });
       }
 
@@ -276,7 +288,7 @@ export class OpenAIImageService implements IImageGenerationService {
         tools: [toolConfig],
         temperature: 1,
         max_output_tokens: 8192,
-        store: true,
+        store: options?.privateContent ? false : true,
         // Chain sequential image generations for implicit style continuity
         ...(this.lastResponseId ? { previous_response_id: this.lastResponseId } : {}),
       });
@@ -369,7 +381,7 @@ export class OpenAIImageService implements IImageGenerationService {
       return augmented;
     } catch (error) {
       // If it's an OpenAI API error, log the response body
-      if (error instanceof Error && 'response' in error) {
+      if (!options?.privateContent && error instanceof Error && 'response' in error) {
         const apiError = error as Error & {
           response?: {
             status?: number;
@@ -391,10 +403,14 @@ export class OpenAIImageService implements IImageGenerationService {
       }
 
       // Also log the full error for debugging
-      console.error('OpenAI Image Generation Error:', error);
+      if (!options?.privateContent) console.error('OpenAI Image Generation Error:', error);
 
       logger.error('OpenAI: Image generation failed', {
-        error: error instanceof Error ? error.message : String(error),
+        error: options?.privateContent
+          ? '[omitted]'
+          : error instanceof Error
+            ? error.message
+            : String(error),
         model: this.model,
         promptLength: prompt.length,
         service: 'story-generation-workflow',
@@ -481,7 +497,7 @@ export class OpenAIImageService implements IImageGenerationService {
         ],
         temperature: 1,
         max_output_tokens: 8192,
-        store: true,
+        store: options?.privateContent ? false : true,
       });
 
       const response = await this.client.responses.create(buildEditRequest() as any);
@@ -537,7 +553,7 @@ export class OpenAIImageService implements IImageGenerationService {
       return augmentedEdit;
     } catch (error) {
       // If it's an OpenAI API error, log the response body
-      if (error instanceof Error && 'response' in error) {
+      if (!options?.privateContent && error instanceof Error && 'response' in error) {
         const apiError = error as Error & {
           response?: {
             status?: number;
@@ -559,10 +575,14 @@ export class OpenAIImageService implements IImageGenerationService {
       }
 
       // Also log the full error for debugging
-      console.error('OpenAI Image Editing Error:', error);
+      if (!options?.privateContent) console.error('OpenAI Image Editing Error:', error);
 
       logger.error('OpenAI: Image editing failed', {
-        error: error instanceof Error ? error.message : String(error),
+        error: options?.privateContent
+          ? '[omitted]'
+          : error instanceof Error
+            ? error.message
+            : String(error),
         model: this.model,
         promptLength: prompt.length,
         originalImageSize: originalImage.length,

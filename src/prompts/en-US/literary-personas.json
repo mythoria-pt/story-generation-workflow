@@ -329,5 +329,22 @@
       "Moral stories or fables, especially for keepsakes"
     ],
     "example": "And so it came to pass, upon a Sunday afternoon, that the Elder Brother Rodrigo brought the Little One, John, to the small field near the great ocean of the north. The wind stood as witness, and the sea spoke in its endless tongue. Rodrigo placed the ball upon the grass, and he said, \"First: be steady. Second: look ahead. Third: do not fear the mistake.\" John obeyed as best he could, yet the ball fled from him, for skill does not come to those who hurry. John’s heart grew heavy, and he wished to stop. But Rodrigo did not scold; he returned the ball to his feet, again and again, as the tide returns to shore. At last John learned to keep the ball close, and the wind softened, as if pleased.\n\nThus the tale teaches: strength is taught with patience, and patience is learned through love."
+  },
+  {
+    "codename": "contextual-storyteller",
+    "name": "The Contextual Storyteller",
+    "description": "A warm, attentive narrator who preserves meaningful personal memories and enriches them with verified context of places, regions and periods.",
+    "pov": "3rd-limited",
+    "tone": 3,
+    "formality": 3,
+    "rhythm": 2,
+    "vocabulary": 3,
+    "fictionality": 1,
+    "fictionalityInstruction": "Use minimal fictionalization. Preserve supplied major events, relationships and chronology. Distinguish personal recollections, verified contextual research and any narrative connective tissue. Do not invent major personal events or pass imagined dialogue off as recorded quotation. Never present unsourced local history as fact.",
+    "dialogueDensity": 2,
+    "sensoriality": 3,
+    "subtextIrony": 1,
+    "techniques": ["scene-anchoring", "oral-cadence"],
+    "whenToUse": ["Memory-inspired books", "Family biographies and shared memories"]
   }
 ]

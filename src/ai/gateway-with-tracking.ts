@@ -92,14 +92,21 @@ export class AIGatewayWithTokenTracking {
    * Build a tracked text service for an explicitly requested provider
    * ('google-genai' | 'openai'). Used by features (e.g. image analysis) that
    * select their provider independently of TEXT_PROVIDER. Falls back to the
-   * default text service if the requested provider's credentials are missing.
+   * default text service if the requested provider's credentials are missing
+   * unless the caller requires the explicit provider.
    */
-  getTextServiceForProvider(provider: string, context: AICallContext): ITextGenerationService {
+  getTextServiceForProvider(
+    provider: string,
+    context: AICallContext,
+    { allowFallback = true }: { allowFallback?: boolean } = {},
+  ): ITextGenerationService {
     const normalized = (provider || 'google-genai').toLowerCase();
 
     if (normalized === 'openai') {
       const openaiKey = process.env.OPENAI_API_KEY;
       if (!openaiKey) {
+        if (!allowFallback)
+          throw new Error('OpenAI API key missing for the requested text provider');
         console.warn(
           `OpenAI API key missing; falling back to default text service for provider "${provider}".`,
         );
@@ -112,6 +119,8 @@ export class AIGatewayWithTokenTracking {
     // Default: google-genai
     const googleKey = process.env.GOOGLE_GENAI_API_KEY;
     if (!googleKey) {
+      if (!allowFallback)
+        throw new Error('Google GenAI API key missing for the requested text provider');
       console.warn(
         `Google GenAI API key missing; falling back to default text service for provider "${provider}".`,
       );

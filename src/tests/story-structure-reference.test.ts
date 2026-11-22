@@ -1,12 +1,15 @@
 import { generateStoryStructure } from '@/services/story-structure.js';
 
 const mockComplete = jest.fn();
+const mockExplicitTextService = jest.fn((..._args: unknown[]) => ({ complete: mockComplete }));
 const mockGetStoryContext = jest.fn();
 const mockCreateCharacter = jest.fn();
 const mockPhoto = jest.fn();
 const mockLink = jest.fn();
 const mockUpdate = jest.fn();
+const mockDraftLockQuery = jest.fn();
 const mockUpload = jest.fn();
+const mockPrivateUpload = jest.fn();
 const mockDownload = jest.fn();
 const mockMetadata = jest.fn();
 const mockCrop = jest.fn();
@@ -36,19 +39,11 @@ jest.mock('@/services/characters.js', () => ({
     getCharacterById: (...args: unknown[]) => mockGetCharacters(...args),
   })),
 }));
-jest.mock('@/services/prompt.js', () => ({
-  PromptService: {
-    loadPrompt: jest.fn(async () => ({})),
-    buildParts: (_template: unknown, variables: unknown) => ({
-      systemInstruction: 'structure',
-      userPrompt: JSON.stringify(variables),
-    }),
-    buildPrompt: (_template: unknown, variables: unknown) => JSON.stringify(variables),
-  },
-}));
-jest.mock('@/services/schema.js', () => ({ SchemaService: { loadSchema: async () => ({}) } }));
 jest.mock('@/ai/gateway-with-tracking.js', () => ({
-  getAIGatewayWithTokenTracking: () => ({ getTextService: () => ({ complete: mockComplete }) }),
+  getAIGatewayWithTokenTracking: () => ({
+    getTextService: () => ({ complete: mockComplete }),
+    getTextServiceForProvider: (...args: unknown[]) => mockExplicitTextService(...args),
+  }),
 }));
 jest.mock('@/services/storage-singleton.js', () => ({
   getStorageService: () => ({
@@ -56,6 +51,9 @@ jest.mock('@/services/storage-singleton.js', () => ({
     fileExists: async () => false,
     uploadFile: mockUpload,
   }),
+}));
+jest.mock('@/services/storage.js', () => ({
+  StorageService: jest.fn(() => ({ uploadFile: mockPrivateUpload })),
 }));
 jest.mock('@/services/image-analysis.js', () => ({
   loadOrAnalyzeMetadata: (...args: unknown[]) => mockMetadata(...args),
@@ -67,6 +65,7 @@ jest.mock('@/utils/imageProcessing.js', () => ({
 jest.mock('@/db/connection.js', () => ({
   getDatabase: () => ({
     update: () => ({ set: (updates: unknown) => ({ where: () => mockUpdate(updates) }) }),
+    transaction: (action: (tx: unknown) => unknown) => action({ execute: mockDraftLockQuery }),
   }),
 }));
 
@@ -120,6 +119,7 @@ describe('story structure confirmed protagonist reference', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     process.env.TEXT_PROVIDER = 'google-genai';
+    mockDraftLockQuery.mockResolvedValue({ rows: [{ active: true }] });
     mockGetStoryContext.mockResolvedValue({ story: { authorId: 'author' } });
     mockMetadata.mockResolvedValue(metadata);
     mockDownload.mockResolvedValue(Buffer.from('original photo'));
@@ -144,6 +144,7 @@ describe('story structure confirmed protagonist reference', () => {
     expect(prompt).not.toContain('Private OCR');
     expect(prompt).not.toContain('Unselected person');
     expect(mockComplete.mock.calls[0][1].privateContent).toBe(true);
+    expect(mockExplicitTextService).not.toHaveBeenCalled();
     expect(mockCrop).toHaveBeenCalledTimes(1);
     expect(mockCrop).toHaveBeenCalledWith(Buffer.from('original photo'), selected.box_2d);
     expect(mockPhoto).toHaveBeenCalledWith(
@@ -191,5 +192,197 @@ describe('story structure confirmed protagonist reference', () => {
     expect(result.story.coverReferenceUris).toEqual([
       expect.stringContaining('story/inputs/photo.jpg'),
     ]);
+  });
+  it('uses private Whisperer assets without storing originals, crops or interview text in ordinary storage', async () => {
+    const previousBucket = process.env.BIOGRAPHER_STORAGE_BUCKET;
+    const previousTextProvider = process.env.TEXT_PROVIDER;
+    process.env.BIOGRAPHER_STORAGE_BUCKET = 'whisperer-private-test';
+    process.env.TEXT_PROVIDER = 'openai';
+    const structureRequestId = '0621c74a-fb9f-82ec-9a40-2d481fd931ef';
+    const photoId = '551300fc-5a34-4735-b9f3-3f770e12ff06';
+    const path = `story/inputs/whisperer-${structureRequestId}-${photoId}.jpg`;
+    mockComplete.mockResolvedValue(JSON.stringify(response()));
+    try {
+      const result = await generateStoryStructure({
+        storyId: 'story',
+        userDescription: 'Interview notes',
+        storyWhisperer: true,
+        structureRequestId,
+        imageObjectPaths: [path],
+      });
+      expect(mockMetadata).toHaveBeenCalledWith(path, 'en-US', {
+        authorId: 'author',
+        privateContent: true,
+        storage: expect.objectContaining({ uploadFile: mockPrivateUpload }),
+        accessPrivateInput: expect.any(Function),
+      });
+      const [prompt, options] = mockComplete.mock.calls[0];
+      expect(mockExplicitTextService).toHaveBeenCalledWith(
+        'google-genai',
+        { authorId: 'author', storyId: 'story', action: 'story_structure' },
+        { allowFallback: false },
+      );
+      expect(options).toMatchObject({
+        model: 'gemini-4-hydrogen',
+        privateContent: true,
+        thinkingLevel: 'high',
+      });
+      expect(prompt).not.toContain('Secret birthday');
+      expect(prompt).not.toContain('Private OCR');
+      expect(mockCrop).not.toHaveBeenCalled();
+      expect(mockUpload).not.toHaveBeenCalled();
+      expect(mockPrivateUpload).toHaveBeenCalledWith(
+        `story/inputs/whisperer-${structureRequestId}-description.txt`,
+        expect.any(Buffer),
+        'text/plain; charset=utf-8',
+      );
+      expect(result.story.coverReferenceUris).toEqual([`gs://whisperer-private-test/${path}`]);
+      expect(result.originalInput).toBe('');
+      mockPrivateUpload.mockClear();
+      mockDraftLockQuery.mockResolvedValue({ rows: [] });
+      const metadataWrite = jest.fn();
+      await mockMetadata.mock.calls[0][2].accessPrivateInput(metadataWrite);
+      expect(metadataWrite).not.toHaveBeenCalled();
+      await generateStoryStructure({
+        storyId: 'story',
+        userDescription: 'Interview notes',
+        storyWhisperer: true,
+        structureRequestId,
+      });
+      expect(mockPrivateUpload).not.toHaveBeenCalled();
+    } finally {
+      if (previousTextProvider === undefined) delete process.env.TEXT_PROVIDER;
+      else process.env.TEXT_PROVIDER = previousTextProvider;
+      if (previousBucket === undefined) delete process.env.BIOGRAPHER_STORAGE_BUCKET;
+      else process.env.BIOGRAPHER_STORAGE_BUCKET = previousBucket;
+    }
+  });
+
+  it('builds the Step 4 story from the paired interview brief and stores the source privately', async () => {
+    const previousBucket = process.env.BIOGRAPHER_STORAGE_BUCKET;
+    process.env.BIOGRAPHER_STORAGE_BUCKET = 'whisperer-private-test';
+    const structureRequestId = '0621c74a-fb9f-82ec-9a40-2d481fd931ef';
+    const source = [
+      {
+        interviewerQuestion: 'Sobre quem gostaria de escrever?',
+        interviewerChoices: ['Sobre alguém importante', 'Sobre mim'],
+        authorReply: 'Quero escrever sobre a minha mulher.',
+      },
+      {
+        interviewerQuestion: 'Como prefere chamar-lhe nesta história?',
+        authorReply: 'Chama-se Inês. Conhecemo-nos na escola.',
+      },
+      {
+        interviewerQuestion: 'Em que escola conheceu a Inês?',
+        authorReply: 'Na Escola Secundária de Camões, em Lisboa.',
+      },
+      {
+        interviewerQuestion: 'Que momento recorda dessa altura?',
+        authorReply: 'Talvez em 1998. Ela emprestou-me um livro.',
+      },
+      {
+        interviewerQuestion: 'Recorda-se de que livro era?',
+        authorReply: 'O Principezinho. Tinha um bilhete lá dentro.',
+      },
+    ]
+      .map((entry) => JSON.stringify(entry))
+      .join('\n\n');
+    const unansweredQuestion = 'Recorda-se do que dizia o bilhete?';
+    const plotDescription =
+      'Na Escola Secundária de Camões, em Lisboa, talvez em 1998, Inês empresta O Principezinho à pessoa que viria a casar consigo. Dentro do livro havia um bilhete.';
+    const synopsis = 'Uma recordação de como o autor conheceu Inês, centrada num livro emprestado.';
+    mockComplete.mockResolvedValue(
+      JSON.stringify({
+        story: { title: 'O bilhete no livro', plotDescription, synopsis, storyLanguage: 'pt-PT' },
+        characters: [
+          { name: 'Inês', type: 'person', role: 'protagonist' },
+          { name: 'Pessoa que narra', type: 'person', role: 'narrator' },
+        ],
+      }),
+    );
+    mockCreateCharacter.mockImplementation(async (input) => ({
+      ...input,
+      characterId: input.name === 'Inês' ? 'ines-id' : 'narrator-id',
+    }));
+
+    try {
+      const result = await generateStoryStructure({
+        storyId: 'story',
+        locale: 'pt-PT',
+        userDescription: source,
+        factuality: 'memory',
+        storyWhisperer: true,
+        structureRequestId,
+      });
+
+      expect(mockComplete).toHaveBeenCalledTimes(1);
+      const [prompt, options] = mockComplete.mock.calls[0];
+      expect(prompt).toContain(source);
+      expect(prompt).not.toContain(unansweredQuestion);
+      expect(options.privateContent).toBe(true);
+      expect(options.systemInstruction).toContain('Preserve only user-supplied real facts');
+      expect(options.systemInstruction).toContain('an approximate date stays approximate');
+      expect(options.systemInstruction).toContain('the contents of a note) remains open');
+      expect(options.systemInstruction).toContain(
+        'interviewerChoices supply context for authorReply',
+      );
+
+      expect(mockUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ plotDescription, synopsis, storyLanguage: 'pt-PT' }),
+      );
+      expect(mockLink).toHaveBeenCalledWith('story', 'ines-id', 'protagonist');
+      expect(mockLink).toHaveBeenCalledWith('story', 'narrator-id', 'narrator');
+      expect(result.story).toMatchObject({ plotDescription, synopsis, storyLanguage: 'pt-PT' });
+      expect(result.characters).toEqual([
+        expect.objectContaining({ characterId: 'ines-id', name: 'Inês', role: 'protagonist' }),
+        expect.objectContaining({
+          characterId: 'narrator-id',
+          name: 'Pessoa que narra',
+          role: 'narrator',
+        }),
+      ]);
+      expect(result.originalInput).toBe('');
+      expect(mockUpload).not.toHaveBeenCalled();
+      const prefix = `story/inputs/whisperer-${structureRequestId}-`;
+      const snapshots = new Map<string, Buffer>(mockPrivateUpload.mock.calls);
+      expect(snapshots.get(`${prefix}description.txt`)?.toString('utf8')).toContain(source);
+      const manifest = snapshots.get(`${prefix}manifest.json`);
+      expect(JSON.parse(manifest!.toString('utf8'))).toMatchObject({
+        userDescription: expect.stringContaining(source),
+        locale: 'pt-PT',
+      });
+    } finally {
+      if (previousBucket === undefined) delete process.env.BIOGRAPHER_STORAGE_BUCKET;
+      else process.env.BIOGRAPHER_STORAGE_BUCKET = previousBucket;
+    }
+  });
+
+  it('rejects reserved paths for ordinary jobs and other story or handoff scopes', async () => {
+    const requestId = '0621c74a-fb9f-82ec-9a40-2d481fd931ef';
+    const photoId = '551300fc-5a34-4735-b9f3-3f770e12ff06';
+    const file = `whisperer-${requestId}-${photoId}.jpg`;
+    await expect(
+      generateStoryStructure({
+        storyId: 'story',
+        imageObjectPaths: [`story/inputs/${file}`],
+      }),
+    ).rejects.toThrow('Invalid Story Whisperer photo input');
+    await expect(
+      generateStoryStructure({
+        storyId: 'story',
+        storyWhisperer: true,
+        structureRequestId: requestId,
+        imageObjectPaths: [`another-story/inputs/${file}`],
+      }),
+    ).rejects.toThrow('Invalid Story Whisperer photo input');
+    await expect(
+      generateStoryStructure({
+        storyId: 'story',
+        storyWhisperer: true,
+        structureRequestId: photoId,
+        imageObjectPaths: [`story/inputs/${file}`],
+      }),
+    ).rejects.toThrow('Invalid Story Whisperer photo input');
+    expect(mockMetadata).not.toHaveBeenCalled();
   });
 });

@@ -285,6 +285,13 @@ export const MODEL_PRICING: ModelPricing[] = [
 
   // ---------------------------------------------------------------- Google text
   {
+    match: ['gemini-4-hydrogen'],
+    provider: 'google-genai',
+    kind: 'text',
+    billing: 'tokens',
+    tiers: [{ inputPer1M: 1.5, cachedInputPer1M: 0.075, outputPer1M: 7.5 }],
+  },
+  {
     match: ['gemini-4-argon'],
     provider: 'google-genai',
     kind: 'text',

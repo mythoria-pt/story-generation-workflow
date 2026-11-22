@@ -1,0 +1,37 @@
+# Run only after the Biographer rollout gates in docs/biographer.md pass.
+# Uses the normal SGW image; this service has its own instance and socket limits.
+steps:
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk:latest
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - '${_SERVICE_NAME}'
+      - '--image=${_IMAGE}'
+      - '--region=${_REGION}'
+      - '--service-account=${_SERVICE_ACCOUNT}'
+      - '--command=node'
+      - '--args=dist/biographer-live.js'
+      - '--port=8080'
+      - '--timeout=3600'
+      - '--concurrency=10'
+      - '--max-instances=5'
+      - '--min-instances=0'
+      - '--cpu=1'
+      - '--memory=512Mi'
+      - '--no-use-http2'
+      - '--allow-unauthenticated'
+      - '--set-env-vars=NODE_ENV=production,BIOGRAPHER_LIVE_ENABLED=true,BIOGRAPHER_WEBAPP_URL=${_WEBAPP_URL},BIOGRAPHER_ALLOWED_ORIGINS=${_WEBAPP_ORIGIN},GOOGLE_CLOUD_PROJECT_ID=$PROJECT_ID,BIOGRAPHER_GOOGLE_LOCATION=eu,BIOGRAPHER_MAX_CONNECTIONS=10,BIOGRAPHER_VOICE_NAME=Puck'
+      - '--set-secrets=BIOGRAPHER_INTERNAL_API_KEY=${_INTERNAL_KEY_SECRET}:latest'
+      - '--quiet'
+substitutions:
+  _SERVICE_NAME: biographer-live
+  _REGION: europe-west9
+  # Required substitutions intentionally have no usable defaults.
+  _IMAGE: REQUIRED_SGW_IMAGE_DIGEST
+  _SERVICE_ACCOUNT: REQUIRED_LEAST_PRIVILEGE_SERVICE_ACCOUNT
+  _WEBAPP_URL: https://required-webapp-host.invalid
+  _WEBAPP_ORIGIN: https://required-webapp-host.invalid
+  _INTERNAL_KEY_SECRET: REQUIRED_SECRET_NAME
+options:
+  logging: CLOUD_LOGGING_ONLY

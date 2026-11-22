@@ -108,6 +108,18 @@ describe('GoogleGenAITextService Gemini 3.6 requests', () => {
     expect(request.config.tools).toBeUndefined();
   });
 
+  it.each([
+    ['low', 'LOW'],
+    ['high', 'HIGH'],
+  ] as const)('sends %s thinking with Gemini 4 Hydrogen', async (level, expected) => {
+    const service = new GoogleGenAITextService({ apiKey: 'test-key' });
+    await service.complete('Test prompt', { model: 'gemini-4-hydrogen', thinkingLevel: level });
+    expect(mockModelsGenerateContent.mock.calls[0][0]).toMatchObject({
+      model: 'gemini-4-hydrogen',
+      config: { thinkingConfig: { thinkingLevel: expected } },
+    });
+  });
+
   it('uses cached context with structured multimodal generation', async () => {
     mockGetContext.mockResolvedValue({
       systemPrompt: 'System context',

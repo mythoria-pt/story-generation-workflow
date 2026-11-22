@@ -164,7 +164,7 @@ export class StoryService {
   /**
    * Get basic story information
    */
-  async getStory(storyId: string) {
+  async getStory(storyId: string, options?: { includeCoverReferences?: boolean }) {
     try {
       const [story] = await this.db
         .select({
@@ -188,6 +188,9 @@ export class StoryService {
           customAuthor: stories.customAuthor,
           dedicationMessage: stories.dedicationMessage,
           audiobookUri: stories.audiobookUri,
+          ...(options?.includeCoverReferences
+            ? { coverReferenceUris: stories.coverReferenceUris }
+            : {}),
           coverUri: stories.coverUri,
           backcoverUri: stories.backcoverUri,
           slug: stories.slug,
