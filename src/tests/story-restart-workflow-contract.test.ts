@@ -65,8 +65,19 @@ describe('story generation workflow contract', () => {
 
     expect(chapterBranch).toBeDefined();
     expect(coverBranch).toBeDefined();
-    expect(findNamedStep(chapterBranch as WorkflowNode, 'saveChapter')).toMatchObject({
-      result: 'savedChapterResp',
+    expect(findNamedStep(chapterBranch as WorkflowNode, 'chapterRequest')).toMatchObject({
+      call: 'advanceText',
+      args: {
+        runId: '${runId}',
+        chapterNumber: '${chapterNum}',
+      },
+      result: 'chapterRespTemp',
+    });
+    expect(findNamedStep(chapterBranch as WorkflowNode, 'saveChapterTextResponse')).toMatchObject({
+      assign: expect.arrayContaining([{ chapterResp: '${chapterRespTemp}' }]),
+    });
+    expect(findNamedStep(chapterBranch as WorkflowNode, 'usePersistedChapter')).toMatchObject({
+      assign: [{ savedChapterResp: '${chapterResp}' }],
     });
     expect(findNamedStep(chapterBranch as WorkflowNode, 'chapterImageRequest')).toMatchObject({
       args: {
