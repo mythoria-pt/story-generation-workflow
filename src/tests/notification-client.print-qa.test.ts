@@ -29,11 +29,35 @@ describe('sendPrintQaCriticalEmail', () => {
     process.env = { ...originalEnv };
   });
 
-  it('posts the print QA alert through the template endpoint', async () => {
-    fetchMock.mockResolvedValue({
-      ok: true,
-      text: async () => 'ok',
-    });
+  const first = { recipient: 'admin1@example.com', success: true };
+  const second = { recipient: 'admin2@example.com', success: true };
+  const legacy = (results: (typeof first)[], successful: number, idempotent = false) => ({
+    success: successful > 0,
+    data: { results, summary: { total: 2, successful, failed: 2 - successful }, idempotent },
+  });
+
+  it.each([
+    [200, { success: true, data: { deliveryStatus: 'sent' } }, 'sent'],
+    [202, { success: true, data: { deliveryStatus: 'pending' } }, 'accepted'],
+    [202, { success: true, data: { deliveryStatus: 'unknown' } }, 'unknown'],
+    [200, legacy([first, second], 2), 'sent'],
+    [200, legacy([first, second], 2, true), 'sent'],
+    [200, legacy([first, { ...second, success: false }], 1), 'partial'],
+    [
+      500,
+      legacy(
+        [first, second].map((r) => ({ ...r, success: false })),
+        0,
+      ),
+      'failed',
+    ],
+    [200, legacy([first, first], 2), 'unknown'],
+    [200, { success: true, data: { messageId: 'ambiguous-for-batch' } }, 'unknown'],
+    [502, null, 'unknown'],
+    [undefined, undefined, 'unknown'],
+  ])('posts a run-scoped alert and handles HTTP %s (%j)', async (status, response, expected) => {
+    if (status === undefined) fetchMock.mockRejectedValue(new Error('connection lost'));
+    else fetchMock.mockResolvedValue({ status, json: async () => response });
 
     const { sendPrintQaCriticalEmail } = await import('@/services/notification-client.js');
     const sent = await sendPrintQaCriticalEmail({
@@ -65,7 +89,7 @@ describe('sendPrintQaCriticalEmail', () => {
       },
     });
 
-    expect(sent).toBe(true);
+    expect(sent).toBe(expected);
     expect(fetchMock).toHaveBeenCalledWith(
       'https://notify.example.com/email/template',
       expect.objectContaining({
@@ -73,6 +97,7 @@ describe('sendPrintQaCriticalEmail', () => {
         headers: expect.objectContaining({
           Authorization: 'Bearer notify-key',
           'X-API-Key': 'notify-key',
+          'Idempotency-Key': 'print-qa-critical:run-1',
         }),
         body: expect.any(String),
       }),
@@ -83,5 +108,63 @@ describe('sendPrintQaCriticalEmail', () => {
     expect(payload.templateId).toBe('print-qa-critical');
     expect(payload.recipients).toHaveLength(2);
     expect(payload.variables.criticalErrors).toHaveLength(1);
+  });
+});
+
+describe('sendStoryPrintInstructionsEmail delivery status', () => {
+  const originalEnv = { ...process.env };
+  const originalFetch = global.fetch;
+
+  beforeEach(() => {
+    jest.resetModules();
+    process.env = {
+      ...originalEnv,
+      NODE_ENV: 'test',
+      NOTIFICATION_ENGINE_URL: 'https://notify.example.com',
+    };
+  });
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+    global.fetch = originalFetch;
+  });
+
+  it.each([
+    [{ success: true, result: { success: true, data: { deliveryStatus: 'sent' } } }, 'sent'],
+    [{ success: true, data: { deliveryStatus: 'pending' } }, 'accepted'],
+    [{ success: true, data: { deliveryStatus: 'unknown' } }, 'unknown'],
+    [{ success: true, data: { status: 'sent', provider: 'Gmail', messageId: 'abc' } }, 'sent'],
+    [{ success: true, data: { status: 'sent', provider: 'Gmail', messageId: '' } }, 'unknown'],
+    [{ success: true, data: { status: 'sent', provider: 'mock', messageId: 'abc' } }, 'unknown'],
+    [
+      {
+        success: true,
+        data: { deliveryStatus: 'unknown', status: 'sent', provider: 'Gmail', messageId: 'abc' },
+      },
+      'unknown',
+    ],
+    [{ success: true, result: { success: false } }, 'failed'],
+    [{ success: true }, 'unknown'],
+  ])('maps a successful HTTP response with body %j to %s', async (response, expected) => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => response,
+    }) as unknown as typeof global.fetch;
+    const { sendStoryPrintInstructionsEmail } = await import('@/services/notification-client.js');
+
+    await expect(
+      sendStoryPrintInstructionsEmail({
+        storyId: 'story-1',
+        storyTitle: 'The Hidden Valley',
+        workflowId: 'run-1',
+        recipient: { email: 'reader@example.com' },
+        pdfs: {
+          coverPdfUrl: 'gs://test-bucket/cover.pdf',
+          interiorPdfUrl: 'gs://test-bucket/interior.pdf',
+          interiorCmykPdfUrl: 'gs://test-bucket/interior_cmyk.pdf',
+          coverCmykPdfUrl: 'gs://test-bucket/cover_cmyk.pdf',
+        },
+      }),
+    ).resolves.toBe(expected);
   });
 });

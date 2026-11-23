@@ -284,13 +284,13 @@ export class StorageService {
       const [exists] = await file.exists();
       return exists;
     } catch (error) {
-      const errorDetails = handleGCSError(error, {
-        filename,
+      const code = error && typeof error === 'object' && 'code' in error ? error.code : undefined;
+      if (Number(code) === 404) return false;
+      logger.error('Storage existence check failed', {
         operation: 'fileExists',
+        status: typeof code === 'number' ? code : undefined,
       });
-
-      logger.error('Failed to check file existence', errorDetails);
-      return false;
+      throw error;
     }
   }
 

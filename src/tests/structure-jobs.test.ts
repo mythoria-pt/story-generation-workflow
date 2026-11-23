@@ -1,18 +1,22 @@
 import { createHash } from 'crypto';
+import { generateStoryStructure } from '@/services/story-structure.js';
+import { FallbackTextGenerationService } from '@/ai/fallback-text-service.js';
 import {
   claimStructureJob,
   getDurableStructureJob,
+  runDurableStructureJob,
   StructureRequestConflict,
 } from '@/services/structure-jobs.js';
 const mockReturning = jest.fn();
 const mockRead = jest.fn();
 const mockWrite = jest.fn();
+const mockSet = jest.fn(() => ({ where: mockWrite }));
 const mockValues = jest.fn(() => ({ onConflictDoNothing: () => ({ returning: mockReturning }) }));
 jest.mock('@/db/workflows-db.js', () => ({
   getWorkflowsDatabase: () => ({
     insert: () => ({ values: mockValues }),
     select: () => ({ from: () => ({ where: mockRead }) }),
-    update: () => ({ set: () => ({ where: mockWrite }) }),
+    update: () => ({ set: mockSet }),
   }),
 }));
 jest.mock('@/services/story-structure.js', () => ({ generateStoryStructure: jest.fn() }));
@@ -50,6 +54,42 @@ describe('persisted structure identity', () => {
       claimStructureJob('request', { ...params, storyId: 'another' }, 100),
     ).rejects.toBeInstanceOf(StructureRequestConflict);
   });
+  it.each([
+    ['invalid_json_schema', 400, 'Story structuring failed'],
+    ['content_policy_violation', 422, 'STORY_CONTENT_DECLINED'],
+  ])('records the final outcome after a provider refusal and %s', async (code, status, message) => {
+    const blocked = Object.assign(new Error('Primary declined'), {
+      code: 'PROHIBITED_CONTENT',
+      status: 422,
+    });
+    const primary = { complete: jest.fn().mockRejectedValue(blocked) };
+    const fallback = {
+      complete: jest
+        .fn()
+        .mockRejectedValue(Object.assign(new Error('Fallback rejected'), { code, status })),
+    };
+    const service = new FallbackTextGenerationService({
+      primary,
+      fallback,
+      primaryName: 'google',
+      fallbackName: 'openai',
+      fallbackModel: 'test',
+    });
+    mockWrite.mockReturnValueOnce({
+      returning: async () => [{ expiresAt: new Date(Date.now() + 60000) }],
+    });
+    jest.mocked(generateStoryStructure).mockImplementationOnce(async () => {
+      await service.complete('A fictional garden adventure.', { privateContent: true });
+      throw new Error('Expected provider rejection');
+    });
+    await runDurableStructureJob('request', params);
+    expect(mockSet).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'failed', error: message }),
+    );
+    expect(primary.complete).toHaveBeenCalledTimes(1);
+    expect(fallback.complete).toHaveBeenCalledTimes(1);
+  });
+
   it('polls persisted results with story ownership metadata after local memory disappears', async () => {
     mockRead.mockResolvedValue([
       {

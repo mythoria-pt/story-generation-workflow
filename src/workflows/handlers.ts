@@ -12,6 +12,8 @@ import { PrintService } from '@/services/print.js';
 import { logger } from '@/config/logger.js';
 import { PromptService } from '@/services/prompt.js';
 import { tmpdir } from 'os';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { logPrintMemory } from '@/services/print-memory.js';
 import { join } from 'path';
 
 // Workflow step parameter types
@@ -408,6 +410,8 @@ export class PrintGenerationHandler implements WorkflowStepHandler<
   private storageService = getStorageService();
 
   async execute(params: PrintGenerationParams): Promise<PrintGenerationResult> {
+    const tempDir = await mkdtemp(join(tmpdir(), 'mythoria-print-'));
+    const context = { storyId: params.storyId, runId: params.workflowId };
     try {
       logger.info(`Starting print generation for story ${params.storyId}`, {
         generateCMYK: params.generateCMYK || false,
@@ -427,32 +431,32 @@ export class PrintGenerationHandler implements WorkflowStepHandler<
       });
 
       // Generate temporary file paths
-      const interiorPath = join(tmpdir(), `interior-${params.storyId}.pdf`);
-      const coverPath = join(tmpdir(), `cover-${params.storyId}.pdf`);
+      const interiorPath = join(tempDir, 'interior.pdf');
+      const coverPath = join(tempDir, 'cover.pdf');
 
       // Use the new generatePrintSet method that handles both RGB and CMYK
       const printResult = await this.printService.generatePrintSet(
         storyData,
         interiorPath,
         coverPath,
-        { generateCMYK: params.generateCMYK !== false },
+        {
+          generateCMYK: params.generateCMYK !== false,
+          onStage: (stage) => logPrintMemory(stage, context),
+        },
       );
 
       // Upload RGB PDFs to storage
-      const fs = await import('fs');
-      const interiorBuffer = fs.readFileSync(printResult.interiorPdfPath);
-      const coverBuffer = fs.readFileSync(printResult.coverPdfPath);
-
+      await logPrintMemory('pdf_upload_started', context);
       // Upload post-processed interior PDF
       const interiorPdfUrl = await this.storageService.uploadFile(
         `${params.storyId}/print/interior.pdf`,
-        interiorBuffer,
+        await readFile(printResult.interiorPdfPath),
         'application/pdf',
       );
 
       const coverPdfUrl = await this.storageService.uploadFile(
         `${params.storyId}/print/cover.pdf`,
-        coverBuffer,
+        await readFile(printResult.coverPdfPath),
         'application/pdf',
       );
 
@@ -468,16 +472,14 @@ export class PrintGenerationHandler implements WorkflowStepHandler<
 
       // Upload CMYK PDFs if they were generated
       if (printResult.interiorCmykPdfPath && printResult.coverCmykPdfPath) {
-        const interiorCmykBuffer = fs.readFileSync(printResult.interiorCmykPdfPath);
-        const coverCmykBuffer = fs.readFileSync(printResult.coverCmykPdfPath);
         const interiorCmykUrl = await this.storageService.uploadFile(
           `${params.storyId}/print/interior_cmyk.pdf`,
-          interiorCmykBuffer,
+          await readFile(printResult.interiorCmykPdfPath),
           'application/pdf',
         );
         const coverCmykUrl = await this.storageService.uploadFile(
           `${params.storyId}/print/cover_cmyk.pdf`,
-          coverCmykBuffer,
+          await readFile(printResult.coverCmykPdfPath),
           'application/pdf',
         );
         result.interiorCmykPdfUrl = interiorCmykUrl;
@@ -520,10 +522,15 @@ export class PrintGenerationHandler implements WorkflowStepHandler<
         htmlFilesGenerated: true,
       });
 
+      await logPrintMemory('pdf_upload_completed', context);
       return result;
     } catch (error) {
       logger.error(`Print generation failed for story ${params.storyId}:`, error);
       throw error;
+    } finally {
+      await rm(tempDir, { recursive: true, force: true }).catch((error: unknown) => {
+        logger.warn('Failed to clean temporary print files', { ...context, error });
+      });
     }
   }
 

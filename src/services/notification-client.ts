@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { logger } from '@/config/logger.js';
 import { getEnvironment } from '@/config/environment.js';
 
@@ -156,7 +157,7 @@ function buildHeaders(env: ReturnType<typeof getEnvironment>): Record<string, st
   return headers;
 }
 
-async function sendTemplateEmail(payload: {
+type TemplateEmailPayload = {
   templateId: string;
   recipients: Array<{ email: string; name?: string; language?: string }>;
   variables: Record<string, unknown>;
@@ -165,7 +166,25 @@ async function sendTemplateEmail(payload: {
   storyId?: string;
   entityId?: string;
   runId?: string;
-}): Promise<boolean> {
+};
+
+function postTemplateEmail(
+  url: string,
+  env: ReturnType<typeof getEnvironment>,
+  payload: TemplateEmailPayload,
+  signal?: AbortSignal,
+) {
+  const headers = buildHeaders(env);
+  if (payload.entityId) headers['Idempotency-Key'] = `${payload.templateId}:${payload.entityId}`;
+  return fetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(payload),
+    ...(signal && { signal }),
+  });
+}
+
+async function sendTemplateEmail(payload: TemplateEmailPayload): Promise<boolean> {
   const env = getEnvironment();
   if (!env.NOTIFICATION_ENGINE_URL) {
     logger.warn('Notification Engine URL not configured; skipping templated email', {
@@ -177,15 +196,7 @@ async function sendTemplateEmail(payload: {
   const url = `${env.NOTIFICATION_ENGINE_URL.replace(/\/$/, '')}/email/template`;
 
   try {
-    const headers = buildHeaders(env);
-    if (payload.entityId) headers['Idempotency-Key'] = `${payload.templateId}:${payload.entityId}`;
-    const body = JSON.stringify(payload);
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers,
-      body,
-    });
+    const response = await postTemplateEmail(url, env, payload);
 
     if (!response.ok) {
       const text = await response.text();
@@ -214,13 +225,15 @@ export async function sendStoryCreatedEmail(payload: StoryCreatedEmailPayload): 
   return sendTemplateEmail(payload);
 }
 
+export type StoryPrintDeliveryStatus = 'sent' | 'accepted' | 'failed' | 'not_requested' | 'unknown';
+
 export async function sendStoryPrintInstructionsEmail(
   payload: StoryPrintInstructionsEmailPayload,
-): Promise<boolean> {
+): Promise<StoryPrintDeliveryStatus> {
   const env = getEnvironment();
   if (!env.NOTIFICATION_ENGINE_URL) {
     logger.warn('Notification Engine URL not configured; skipping story-print email');
-    return false;
+    return 'failed';
   }
 
   const baseUrl = env.NOTIFICATION_ENGINE_URL.replace(/\/$/, '');
@@ -239,7 +252,7 @@ export async function sendStoryPrintInstructionsEmail(
       storyId: payload.storyId,
       workflowId: payload.workflowId,
     });
-    return false;
+    return 'failed';
   }
 
   const requestBody: Record<string, unknown> = {
@@ -285,7 +298,6 @@ export async function sendStoryPrintInstructionsEmail(
     url,
     storyId: payload.storyId,
     workflowId: payload.workflowId,
-    recipient: payload.recipient.email,
   });
 
   try {
@@ -296,42 +308,128 @@ export async function sendStoryPrintInstructionsEmail(
     });
 
     if (!response.ok) {
-      const text = await response.text();
       logger.error('Failed to send story-print email', {
         status: response.status,
-        statusText: response.statusText,
-        body: text,
+        storyId: payload.storyId,
+        workflowId: payload.workflowId,
       });
-      return false;
+      return 'failed';
     }
 
-    logger.info('story-print email dispatched successfully', {
-      storyId: payload.storyId,
-      workflowId: payload.workflowId,
-    });
-    return true;
+    type Outcome = {
+      success?: boolean;
+      deliveryStatus?: string;
+      data?: {
+        deliveryStatus?: string;
+        reason?: string;
+        status?: string;
+        provider?: string;
+        messageId?: string;
+      };
+    };
+    const result = (await response.json()) as Outcome & { result?: Outcome };
+    const outcome = result.result ?? result;
+    if (result.success === false || outcome.success === false) return 'failed';
+    if (outcome.data?.reason === 'suppressed_for_admin_origin') return 'not_requested';
+
+    const status = outcome.data?.deliveryStatus ?? outcome.deliveryStatus;
+    if (status === 'sent') return 'sent';
+    if (status === 'pending' || status === 'sending') return 'accepted';
+    const receipt = outcome.data;
+    if (
+      status === undefined &&
+      outcome.success === true &&
+      receipt?.status === 'sent' &&
+      receipt.provider === 'Gmail' &&
+      typeof receipt.messageId === 'string' &&
+      receipt.messageId.trim()
+    ) {
+      return 'sent';
+    }
+    return status === 'failed' ? 'failed' : 'unknown';
   } catch (error) {
     logger.error('Error calling notification engine for story-print email', {
       error: error instanceof Error ? error.message : String(error),
       storyId: payload.storyId,
       workflowId: payload.workflowId,
     });
-    return false;
+    return 'unknown';
   }
+}
+
+export type PrintQaAlertStatus = 'sent' | 'accepted' | 'partial' | 'failed' | 'unknown';
+
+const printQaAlertResponse = z.object({
+  success: z.boolean(),
+  data: z
+    .object({
+      deliveryStatus: z.string().optional(),
+      summary: z
+        .object({
+          total: z.number().int().nonnegative(),
+          successful: z.number().int().nonnegative(),
+          failed: z.number().int().nonnegative(),
+        })
+        .optional(),
+      results: z.array(z.object({ recipient: z.string(), success: z.boolean() })).optional(),
+    })
+    .optional(),
+});
+
+function classifyPrintQaAlert(
+  status: number,
+  body: unknown,
+  recipients: PrintQaCriticalEmailPayload['recipients'],
+): PrintQaAlertStatus {
+  const parsed = printQaAlertResponse.safeParse(body);
+  if (!parsed.success) return 'unknown';
+
+  const { success, data } = parsed.data;
+  const deliveryStatus = data?.deliveryStatus;
+  if (deliveryStatus !== undefined) {
+    if (success && status === 200 && deliveryStatus === 'sent') return 'sent';
+    if (success && status < 300 && ['pending', 'sending'].includes(deliveryStatus))
+      return 'accepted';
+    return deliveryStatus === 'failed' ? 'failed' : 'unknown';
+  }
+
+  // The legacy engine responds 200 when any recipient succeeds. Validate the
+  // per-recipient results before treating all managers as notified.
+  const summary = data?.summary;
+  const results = data?.results;
+  if (
+    !summary ||
+    !results ||
+    summary.total !== recipients.length ||
+    summary.successful + summary.failed !== summary.total ||
+    results.filter((result) => result.success).length !== summary.successful
+  )
+    return 'unknown';
+
+  if (!success && summary.successful === 0) return 'failed';
+  if (!success || status !== 200) return 'unknown';
+  if (summary.failed) return 'partial';
+
+  const expected = recipients.map(({ email }) => email.toLowerCase()).sort();
+  const delivered = results.map(({ recipient }) => recipient.toLowerCase()).sort();
+  return expected.length === delivered.length &&
+    expected.every((email, i) => email === delivered[i])
+    ? 'sent'
+    : 'unknown';
 }
 
 export async function sendPrintQaCriticalEmail(
   payload: PrintQaCriticalEmailPayload,
-): Promise<boolean> {
+): Promise<PrintQaAlertStatus> {
   if (payload.recipients.length === 0) {
     logger.warn('No recipients available for print QA critical email', {
       storyId: payload.storyId,
       runId: payload.runId,
     });
-    return false;
+    return 'failed';
   }
 
-  return sendTemplateEmail({
+  const email: TemplateEmailPayload = {
     templateId: 'print-qa-critical',
     recipients: payload.recipients,
     storyId: payload.storyId,
@@ -356,5 +454,16 @@ export async function sendPrintQaCriticalEmail(
       criticalErrors: payload.criticalErrors,
       fixesApplied: payload.fixesApplied ?? [],
     },
-  });
+  };
+
+  const env = getEnvironment();
+  if (!env.NOTIFICATION_ENGINE_URL) return 'failed';
+  const url = `${env.NOTIFICATION_ENGINE_URL.replace(/\/$/, '')}/email/template`;
+  try {
+    const response = await postTemplateEmail(url, env, email, AbortSignal.timeout(30_000));
+    return classifyPrintQaAlert(response.status, await response.json(), payload.recipients);
+  } catch {
+    // Losing the response gives no evidence that the legacy provider did not send.
+    return 'unknown';
+  }
 }

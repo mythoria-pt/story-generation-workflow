@@ -5,7 +5,21 @@
 import { ITextGenerationService, TextGenerationOptions } from '../../interfaces.js';
 import { getMaxOutputTokens } from '@/ai/model-limits.js';
 import { contextManager } from '../../context-manager.js';
+import { toResponseSchema } from './response-schema.js';
 import { logger } from '@/config/logger.js';
+
+class ResponsesError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code?: string,
+  ) {
+    super('Private text generation failed');
+  }
+}
+
+function safeDiagnostic(value: unknown): string | undefined {
+  return typeof value === 'string' && /^[a-zA-Z0-9._[\]-]{1,128}$/.test(value) ? value : undefined;
+}
 
 export interface OpenAITextConfig {
   apiKey: string;
@@ -31,9 +45,8 @@ interface OpenAIResponsesRequestBody {
     };
   };
   reasoning: Record<string, unknown>;
-  temperature: number;
+  temperature?: number;
   max_output_tokens: number;
-  top_p: number;
   store: boolean;
   tools?: Array<{
     type: string;
@@ -143,7 +156,7 @@ export class OpenAITextService implements ITextGenerationService {
     } catch (error) {
       if (options?.privateContent) {
         logger.error('Private OpenAI text generation failed', { model: options.model });
-        throw new Error('Private text generation failed');
+        throw error instanceof ResponsesError ? error : new Error('Private text generation failed');
       }
       logger.error('OpenAI text generation failed', {
         error: error instanceof Error ? error.message : String(error),
@@ -206,9 +219,11 @@ export class OpenAITextService implements ITextGenerationService {
         },
       },
       reasoning: {},
-      temperature: options?.temperature || 1,
+      ...(options?.temperature !== undefined &&
+      !/^gpt-5\.6-terra(?:-|$)/.test(options.model ?? this.model)
+        ? { temperature: options.temperature }
+        : {}),
       max_output_tokens: maxOut,
-      top_p: 1,
       store: !options?.privateContent,
     };
     // Configure JSON schema if provided
@@ -217,7 +232,7 @@ export class OpenAITextService implements ITextGenerationService {
         type: 'json_schema',
         name: 'story_outline',
         strict: true,
-        schema: options.jsonSchema as Record<string, unknown>,
+        schema: toResponseSchema(options.jsonSchema),
       };
     }
 
@@ -260,21 +275,17 @@ export class OpenAITextService implements ITextGenerationService {
     });
 
     if (!response.ok) {
-      const errorData = await response.text();
-      logger.error('OpenAI Responses API Debug - Request Failed', {
+      const body = await response.json?.().catch(() => null);
+      const code = safeDiagnostic(body?.error?.code);
+      logger.error('OpenAI Responses request rejected', {
+        model: requestBody.model,
+        provider: 'openai',
         status: response.status,
-        statusText: response.statusText,
-        errorData: options?.privateContent ? '[omitted]' : errorData,
-        requestPreview: options?.privateContent
-          ? '[omitted]'
-          : JSON.stringify(requestBody).substring(0, 500),
-        contextId: options?.contextId,
+        code,
+        param: safeDiagnostic(body?.error?.param),
+        requestId: safeDiagnostic(response.headers?.get('x-request-id')),
       });
-      throw new Error(
-        options?.privateContent
-          ? `OpenAI Responses API error: ${response.status}`
-          : `OpenAI Responses API error: ${response.status} - ${errorData}`,
-      );
+      throw new ResponsesError(response.status, code);
     }
 
     const data: OpenAIResponseData = await response.json();
@@ -300,6 +311,9 @@ export class OpenAITextService implements ITextGenerationService {
     const outputMessage = data.output?.find((item) => item.type === 'message');
     const textContent = outputMessage?.content?.find((content) => content.type === 'output_text');
     const result = textContent?.text;
+    if (outputMessage?.content?.some((content) => content.type === 'refusal')) {
+      throw new ResponsesError(422, 'content_policy_violation');
+    }
 
     if (!result) {
       logger.error('OpenAI Responses API Debug - No text in response', {

@@ -25,6 +25,10 @@ main:
           - initiatedBy: ${default(map.get(payload, "initiatedBy"), "printOrder")}
           - delivery: ${default(map.get(payload, "delivery"), null)}
           - qaAlertSent: false
+          - qaAlertFailureReason: null
+          - qaCriticalErrors: []
+          - originGuess: 'admin'
+          - printDeliveryStatus: 'not_requested'
           - qaSkip: ${default(map.get(payload, "skipQA"), false)}
           - activePrintResult: null
           - qaStatus: 'skipped'
@@ -110,71 +114,119 @@ main:
                     skipQA: ${qaSkip}
                 result: printGenerationResult
 
-            # 3. Decide whether to run QA
+            # Preserve generated assets before calling QA, including when its instance terminates.
+            - saveGeneratedAssets:
+                assign:
+                  - activePrintResult: ${printGenerationResult.body}
+
             - checkShouldRunQA:
                 switch:
                   - condition: ${qaSkip == true}
-                    next: skipQualityCheck
-                next: setQaStage
-
-            - skipQualityCheck:
-                assign:
-                  - activePrintResult: ${printGenerationResult.body}
-                next: markRunCompleted
-
-            - setQaStage:
-                assign:
-                  - currentStage: 'qa'
+                    next: initializeDeliveryStatus
 
             - qualityCheckPDF:
-                call: http.request
-                args:
-                  url: ${baseUrl + "/internal/print/quality-check"}
-                  method: POST
-                  auth: { type: OIDC }
-                  body:
-                    storyId: ${storyId}
-                    runId: ${runId}
-                    printResult: ${printGenerationResult.body}
-                result: qaResult
+                try:
+                  steps:
+                    - callQualityCheck:
+                        call: http.request
+                        args:
+                          url: ${baseUrl + "/internal/print/quality-check"}
+                          method: POST
+                          auth: { type: OIDC }
+                          body:
+                            storyId: ${storyId}
+                            runId: ${runId}
+                            printResult: ${activePrintResult}
+                        result: qaResult
+                    - setActivePrintResultFromQa:
+                        assign:
+                          - qaStatus: ${qaResult.body.qaStatus}
+                          - qaReportUrl: ${qaResult.body.reportUrl}
+                          - qaCriticalCount: ${qaResult.body.criticalCount}
+                          - qaWarningCount: ${qaResult.body.warningCount}
+                          - qaFixesApplied: ${qaResult.body.fixesApplied}
+                          - qaCriticalErrors: ${qaResult.body.criticalErrors}
+                          - activePrintResult: ${qaResult.body.printResult}
+                except:
+                  as: qaError
+                  steps:
+                    - recordUnavailableQa:
+                        assign:
+                          - qaStatus: 'review_failed'
+                          - qaReportUrl: null
+                          - qaWarningCount: 0
+                          - qaCriticalCount: 1
+                          - qaFixesApplied: []
+                          - qaCriticalErrors:
+                              - code: 'print_qa_unavailable'
+                                severity: 'critical'
+                                message: 'The print QA service did not return a report.'
+                                suggestedFix: 'Inspect the QA service logs and rerun QA for the generated PDFs.'
+                    - logUnavailableQa:
+                        call: sys.log
+                        args:
+                          severity: ERROR
+                          data:
+                            event: 'print_qa_unavailable'
+                            storyId: ${storyId}
+                            runId: ${runId}
+                            tags: ${map.get(qaError, "tags")}
+                            httpStatus: ${map.get(qaError, "code")}
 
-            - setActivePrintResultFromQa:
-                assign:
-                  - activePrintResult: ${qaResult.body.printResult}
-                  - qaStatus: ${qaResult.body.qaStatus}
-                  - qaReportUrl: ${qaResult.body.reportUrl}
-                  - qaCriticalCount: ${qaResult.body.criticalCount}
-                  - qaWarningCount: ${qaResult.body.warningCount}
-                  - qaFixesApplied: ${qaResult.body.fixesApplied}
-
-            # 4. Notify admins if critical QA issues remain
             - checkShouldAlertAdmins:
                 switch:
-                  - condition: ${qaResult.body.alertNeeded == true}
+                  - condition: ${qaCriticalCount > 0}
                     next: notifyPrintQaAdmins
-                next: markRunCompleted
+                next: initializeDeliveryStatus
 
             - notifyPrintQaAdmins:
-                call: http.request
-                args:
-                  url: ${baseUrl + "/internal/print/quality-alert"}
-                  method: POST
-                  auth: { type: OIDC }
-                  body:
-                    storyId: ${storyId}
-                    runId: ${runId}
-                    reportUrl: ${qaResult.body.reportUrl}
-                    criticalErrors: ${qaResult.body.criticalErrors}
-                    fixesApplied: ${qaResult.body.fixesApplied}
-                    printResult: ${qaResult.body.printResult}
-                result: qaAlertResult
+                try:
+                  steps:
+                    - callQualityAlert:
+                        try:
+                          call: http.request
+                          args:
+                            url: ${baseUrl + "/internal/print/quality-alert"}
+                            method: POST
+                            timeout: 50
+                            auth: { type: OIDC }
+                            body:
+                              storyId: ${storyId}
+                              runId: ${runId}
+                              reportUrl: ${qaReportUrl}
+                              criticalErrors: ${qaCriticalErrors}
+                              fixesApplied: ${qaFixesApplied}
+                              printResult: ${activePrintResult}
+                          result: qaAlertResult
+                        retry:
+                          predicate: ${retryPrintQaAlertBeforeDispatch}
+                          max_retries: 2
+                          backoff:
+                            initial_delay: 2
+                            max_delay: 5
+                            multiplier: 2
+                    - recordQaAlertResult:
+                        assign:
+                          - qaAlertSent: ${default(map.get(qaAlertResult.body, "sent"), false)}
+                          - qaAlertFailureReason: ${map.get(qaAlertResult.body, "reason")}
+                except:
+                  as: alertError
+                  steps:
+                    - recordQaAlertError:
+                        assign:
+                          - qaAlertFailureReason: ${default(map.get(alertError, ["body", "reason"]), "alert_service_unavailable")}
 
-            - setQaAlertSent:
-                assign:
-                  - qaAlertSent: ${default(qaAlertResult.body.sent, false)}
+            - initializeDeliveryStatus:
+                switch:
+                  - condition: ${origin == "self-service" and delivery != null}
+                    next: markDeliveryPending
                 next: markRunCompleted
 
-            # 5. PDFs and QA are the product completion boundary.
+            - markDeliveryPending:
+                assign:
+                  - printDeliveryStatus: 'pending'
+
+            # Persist the generated PDFs and QA outcome before customer delivery.
             - markRunCompleted:
                 call: http.request
                 args:
@@ -189,8 +241,8 @@ main:
                     metadata:
                       interiorPdfUrl: ${activePrintResult.interiorPdfUrl}
                       coverPdfUrl: ${activePrintResult.coverPdfUrl}
-                      interiorCmykPdfUrl: ${activePrintResult.interiorCmykPdfUrl}
-                      coverCmykPdfUrl: ${activePrintResult.coverCmykPdfUrl}
+                      interiorCmykPdfUrl: ${map.get(activePrintResult, "interiorCmykPdfUrl")}
+                      coverCmykPdfUrl: ${map.get(activePrintResult, "coverCmykPdfUrl")}
                       printQaSkipped: ${qaSkip}
                       printQaStatus: ${qaStatus}
                       printQaReportUrl: ${qaReportUrl}
@@ -198,37 +250,98 @@ main:
                       printQaWarningCount: ${qaWarningCount}
                       printQaFixesApplied: ${qaFixesApplied}
                       printQaAlertSent: ${qaAlertSent}
+                      printQaAlertFailureReason: ${qaAlertFailureReason}
+                      printDeliveryStatus: ${printDeliveryStatus}
+
+            - setCompletedStage:
+                assign:
+                  - currentStage: 'completed'
 
             # 6. Delivery is best-effort and never changes the completed product state.
             - checkShouldNotify:
                 switch:
                   - condition: ${origin == "self-service" and delivery != null}
                     next: notifySelfPrintCustomers
-                next: returnSuccess
+                next: checkQaAlertFailure
 
             - notifySelfPrintCustomers:
                 try:
-                  call: http.request
-                  args:
-                    url: ${baseUrl + "/internal/print/self-service/notify"}
-                    method: POST
-                    auth: { type: OIDC }
-                    body:
-                      storyId: ${storyId}
-                      runId: ${runId}
-                      delivery: ${delivery}
-                      initiatedBy: ${initiatedBy}
-                      origin: ${origin}
-                      printResult: ${activePrintResult}
-                  result: notificationResult
+                  steps:
+                    - callCustomerNotification:
+                        call: http.request
+                        args:
+                          url: ${baseUrl + "/internal/print/self-service/notify"}
+                          method: POST
+                          auth: { type: OIDC }
+                          body:
+                            storyId: ${storyId}
+                            runId: ${runId}
+                            delivery: ${delivery}
+                            initiatedBy: ${initiatedBy}
+                            origin: ${origin}
+                            printResult: ${activePrintResult}
+                        result: notificationResult
+                    - readDeliveryStatus:
+                        assign:
+                          - printDeliveryStatus: ${default(map.get(notificationResult.body, "deliveryStatus"), "unknown")}
                 except:
                   as: deliveryError
                   steps:
+                    - recordDeliveryUncertainty:
+                        assign:
+                          - printDeliveryStatus: 'unknown'
                     - logDeliveryFailure:
                         call: sys.log
                         args:
                           severity: ERROR
-                          text: '${"Self-print delivery failed after PDF completion: " + deliveryError.message}'
+                          data:
+                            event: 'self_print_delivery_unconfirmed'
+                            storyId: ${storyId}
+                            runId: ${runId}
+                            tags: ${map.get(deliveryError, "tags")}
+
+            - persistDeliveryOutcome:
+                try:
+                  call: http.request
+                  args:
+                    url: ${baseUrl + "/internal/runs/" + runId}
+                    method: PATCH
+                    auth: { type: OIDC }
+                    body:
+                      storyId: ${storyId}
+                      metadata:
+                        printDeliveryStatus: ${printDeliveryStatus}
+                retry: ${http.default_retry}
+                except:
+                  as: persistenceError
+                  steps:
+                    - logDeliveryOutcomePersistenceFailure:
+                        call: sys.log
+                        args:
+                          severity: ERROR
+                          data:
+                            event: 'self_print_delivery_status_write_failed'
+                            storyId: ${storyId}
+                            runId: ${runId}
+                            printDeliveryStatus: ${printDeliveryStatus}
+                            tags: ${map.get(persistenceError, "tags")}
+
+            - checkQaAlertFailure:
+                switch:
+                  - condition: ${qaCriticalCount == 0 or qaAlertSent}
+                    next: returnSuccess
+
+            - logQaAlertDeliveryFailure:
+                call: sys.log
+                args:
+                  severity: ERROR
+                  data:
+                    event: 'print_qa_alert_delivery_failed'
+                    message: 'Print QA alert delivery failed'
+                    storyId: ${storyId}
+                    runId: ${runId}
+                    qaStatus: ${qaStatus}
+                    reason: ${qaAlertFailureReason}
 
             - returnSuccess:
                 return:
@@ -236,11 +349,16 @@ main:
                   storyId: ${storyId}
                   runId: ${runId}
                   qaStatus: ${qaStatus}
+                  printDeliveryStatus: ${printDeliveryStatus}
 
         except:
           as: e
           steps:
-            # Mark run → failed
+            - protectCompletedRun:
+                switch:
+                  - condition: ${currentStage == "completed"}
+                    next: raiseError
+
             - markRunFailed:
                 call: http.request
                 args:
@@ -258,3 +376,10 @@ main:
             # Re-raise the exception
             - raiseError:
                 raise: ${e}
+
+# A lost or ambiguous POST response can conceal a completed legacy email send.
+retryPrintQaAlertBeforeDispatch:
+  params: [error]
+  steps:
+    - checkReason:
+        return: ${map.get(error, "code") == 502 and map.get(error, ["body", "reason"]) == "manager_lookup_failed"}

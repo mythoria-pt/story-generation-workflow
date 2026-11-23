@@ -48,6 +48,23 @@ async function createSamplePdf(filePath: string) {
 }
 
 describe('PDFPageProcessor', () => {
+  it('detects images nested in a page embedded as a form', async () => {
+    const { findPrintImagePages } = await import('@/services/pdf-page-processor.js');
+    const source = await PDFDocument.create();
+    const illustration = source.addPage();
+    const image = await source.embedPng(Buffer.from(SAMPLE_PNG, 'base64'));
+    illustration.drawImage(image, { width: 100, height: 100 });
+    await source.flush();
+
+    const output = await PDFDocument.create();
+    output.addPage().drawText('Text page');
+    const embedded = await output.embedPage(illustration);
+    output.addPage().drawPage(embedded);
+
+    const reloaded = await PDFDocument.load(await output.save());
+    expect([...findPrintImagePages(reloaded)]).toEqual([2]);
+  });
+
   it('reorders odd-positioned chapter images so text starts on odd pages', async () => {
     process.env.DB_PASSWORD = process.env.DB_PASSWORD ?? 'test';
     process.env.GOOGLE_CLOUD_PROJECT_ID = process.env.GOOGLE_CLOUD_PROJECT_ID ?? 'test-project';

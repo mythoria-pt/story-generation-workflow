@@ -133,6 +133,7 @@ export function startBiographerLiveGateway() {
       return;
     }
     sockets.add(socket);
+    const connectedAt = performance.now();
     let session: Session | undefined;
     let sessionId: string | undefined;
     let leaseId: string | undefined;
@@ -153,7 +154,8 @@ export function startBiographerLiveGateway() {
     let outline:
       | { callId: string; turnId: string; sent: boolean; timer: ReturnType<typeof setTimeout> }
       | undefined;
-    let prepareOutline: { requestId: string; turnId: string | undefined } | undefined;
+    let prepareOutline:
+      { requestId: string; turnId: string | undefined; startedAt: number } | undefined;
     let outlinePrepared = false;
     let prepareTimer: ReturnType<typeof setTimeout> | undefined;
     let heartbeatPending = false;
@@ -202,6 +204,9 @@ export function startBiographerLiveGateway() {
           outlinePrepared = true;
           outputTurn = { id: randomUUID(), text: '', final: false };
           send({ type: 'outline_prepared', requestId: prepareOutline.requestId });
+          logger.info('Story Whisperer voice outline preparation', {
+            elapsedMs: Math.round(performance.now() - prepareOutline.startedAt),
+          });
           prepareOutline = undefined;
         }
       });
@@ -214,9 +219,11 @@ export function startBiographerLiveGateway() {
       interrupted = false,
     ) => {
       if (!text.trim()) return;
+      const queuedAt = performance.now();
       queue = queue
         .then(async () => {
           if (checkpointFailed) return;
+          const startedAt = performance.now();
           await internal('checkpoint', {
             sessionId,
             turnId,
@@ -228,6 +235,11 @@ export function startBiographerLiveGateway() {
           });
           send({ type: 'transcript', role, turnId, text, final, interrupted });
           if (role === 'user' && final) {
+            if (whisperer)
+              logger.info('Story Whisperer final voice checkpoint', {
+                queueMs: Math.round(startedAt - queuedAt),
+                saveMs: Math.round(performance.now() - startedAt),
+              });
             durableUserTurnId = turnId;
             send({ type: 'turn_complete', turnId });
           }
@@ -518,6 +530,10 @@ export function startBiographerLiveGateway() {
               return;
             }
             send({ type: 'ready', remainingSeconds: admitted.remainingSeconds });
+            if (whisperer)
+              logger.info('Story Whisperer voice ready', {
+                elapsedMs: Math.round(performance.now() - connectedAt),
+              });
             if (!waitingForAnswer) {
               session.sendClientContent({
                 turns: [
@@ -585,7 +601,11 @@ export function startBiographerLiveGateway() {
             });
           } else if (value.type === 'prepare_outline' && whisperer) {
             if (prepareTimer) clearTimeout(prepareTimer);
-            prepareOutline = { requestId: value.requestId, turnId: inputTurn?.id };
+            prepareOutline = {
+              requestId: value.requestId,
+              turnId: inputTurn?.id,
+              startedAt: performance.now(),
+            };
             if (inputTurn) {
               session.sendRealtimeInput({ audioStreamEnd: true });
               // Continuous capture can leave a silence-only tail which Gemini never finalizes.

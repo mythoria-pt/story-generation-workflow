@@ -631,16 +631,13 @@ export class PrintService {
     options: {
       generateCMYK?: boolean;
       chapterLayoutOverrides?: Record<number, ChapterLayoutOverride>;
+      onStage?: (stage: string) => Promise<void>;
     } = {},
   ): Promise<PrintSetResult> {
     const pageCount = storyData.chapters?.length * 4 + 8; // Rough estimate
     const dimensions = this.calculateDimensions(pageCount);
     const coverHTML = this.generateCoverHTML(storyData, dimensions);
-    const coverRenderPromise = this.renderPDF(coverHTML, {
-      width: dimensions.coverSpreadWMM,
-      height: dimensions.coverSpreadHMM,
-      outputPath: coverOutputPath,
-    });
+    await options.onStage?.('rgb_interior_started');
     const interiorResult = await this.generateInteriorVariant(
       storyData,
       interiorOutputPath,
@@ -648,7 +645,12 @@ export class PrintService {
         ? { chapterLayoutOverrides: options.chapterLayoutOverrides }
         : {},
     );
-    await coverRenderPromise;
+    await options.onStage?.('rgb_cover_started');
+    await this.renderPDF(coverHTML, {
+      width: dimensions.coverSpreadWMM,
+      height: dimensions.coverSpreadHMM,
+      outputPath: coverOutputPath,
+    });
 
     const result: PrintSetResult = {
       interiorPdfPath: interiorResult.interiorPdfPath,
@@ -660,6 +662,7 @@ export class PrintService {
     // Generate CMYK versions if requested (using post-processed PDF)
     if (options.generateCMYK !== false) {
       try {
+        await options.onStage?.('cmyk_started');
         const cmykResult = await this.convertToCMYK(
           interiorResult.interiorPdfPath,
           coverOutputPath,
