@@ -441,6 +441,7 @@ export class StoryService {
       const [storyData] = await this.db
         .select({
           storyId: stories.storyId,
+          authorId: stories.authorId,
           title: stories.title,
           customAuthor: stories.customAuthor,
           dedicationMessage: stories.dedicationMessage,

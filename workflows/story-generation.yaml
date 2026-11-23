@@ -207,21 +207,12 @@ main:
                                                         try:
                                                           steps:
                                                             - chapterRequest:
-                                                                call: http.request
+                                                                call: advanceText
                                                                 args:
-                                                                  url: ${baseUrl + "/ai/text/chapter/" + string(chapterNum)}
-                                                                  method: POST
-                                                                  auth: { type: OIDC }
-                                                                  headers:
-                                                                    x-api-key: ${apiKey}
-                                                                  body:
-                                                                    storyId: ${storyId}
-                                                                    runId: ${runId}
-                                                                    chapterNumber: ${chapterNum}
-                                                                    chapterTitle: ${chapterTitle}
-                                                                    chapterSynopses: ${chapterSynopses}
-                                                                    chapterCount: ${chapters}
-                                                                    outline: ${outlineResp.body.outline}
+                                                                  baseUrl: ${baseUrl}
+                                                                  apiKey: ${apiKey}
+                                                                  runId: ${runId}
+                                                                  chapterNumber: ${chapterNum}
                                                                 result: chapterRespTemp
                                                             - saveChapterTextResponse:
                                                                 assign:
@@ -233,6 +224,10 @@ main:
                                                             - saveChapterTextError:
                                                                 assign:
                                                                   - chapterTextLastError: ${chapterTextAttemptError}
+                                                            - stopTerminalTextError:
+                                                                switch:
+                                                                  - condition: ${default(map.get(chapterTextAttemptError, "code"), 0) == 422 or default(map.get(chapterTextAttemptError, "code"), 0) == 400 or default(map.get(chapterTextAttemptError, "code"), 0) == 401 or default(map.get(chapterTextAttemptError, "code"), 0) == 403}
+                                                                    raise: ${chapterTextAttemptError}
                                                             - logChapterTextRetry:
                                                                 call: sys.log
                                                                 args:
@@ -247,16 +242,9 @@ main:
                                                 switch:
                                                   - condition: ${chapterTextSuccess}
                                                     steps:
-                                                      - saveChapter:
-                                                          call: http.request
-                                                          args:
-                                                            url: ${baseUrl + "/internal/runs/" + runId + "/chapter/" + string(chapterNum)}
-                                                            method: POST
-                                                            auth: { type: OIDC }
-                                                            body:
-                                                              chapter: ${chapterResp.body.chapter}
-                                                              chapterTitle: ${chapterTitle}
-                                                          result: savedChapterResp
+                                                      - usePersistedChapter:
+                                                          assign:
+                                                            - savedChapterResp: ${chapterResp}
 
                                                       - getChapterImagePrompt:
                                                           call: http.request
@@ -678,9 +666,41 @@ main:
                   method: PATCH
                   auth: { type: OIDC }
                   body:
-                    status: 'failed'
+                    status: '${if(default(map.get(wfError, "code"), 0) == 422, "blocked", "failed")}'
                     errorMessage: ${wfError.message}
                     endedAt: ${time.format(sys.now())}
 
             - rethrow:
                 raise: ${wfError}
+
+# One HTTP request advances at most one provider segment. Manuscripts stay in GCS/DB.
+advanceText:
+  params: [baseUrl, apiKey, runId, chapterNumber]
+  steps:
+    - initTextLoop:
+        assign:
+          - hops: 0
+    - advanceSegment:
+        call: http.post
+        args:
+          url: ${baseUrl + "/internal/runs/" + runId + "/text/advance"}
+          timeout: 1800
+          auth: { type: OIDC }
+          headers:
+            x-api-key: ${apiKey}
+          body:
+            chapterNumber: ${chapterNumber}
+        result: textResult
+    - countHop:
+        assign:
+          - hops: ${hops + 1}
+    - checkTextResult:
+        switch:
+          - condition: ${textResult.body.status == "completed"}
+            next: returnTextReceipt
+          - condition: ${hops < 66}
+            next: advanceSegment
+    - textLimitExceeded:
+        raise: 'Text continuation limit exceeded'
+    - returnTextReceipt:
+        return: ${textResult}

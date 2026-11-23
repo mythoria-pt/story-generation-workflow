@@ -21,6 +21,8 @@ pwsh -NoProfile -Command "npm run deploy"   # immutable Cloud Run container/revi
 
 `npm run deploy` wraps `scripts/deploy.ps1`: requires a clean commit, repeats the quality gates, builds and pushes the container, deploys Cloud Run, then verifies the deployed SHA and 100% traffic. `npm run deploy:fast` skips only the local quality gates. Workflow YAML is deployed separately when it changes; the Cloud Build policy deliberately forbids workflow deployment steps.
 
+Story Whisperer voice has a separate Cloud Run deployment. Follow the [gateway release runbook](biographer.md#private-gateway-staging) to deploy the approved SGW image digest to `biographer-live`, verify it privately and coordinate activation with the WebApp.
+
 ## Cloud Run configuration
 
 | Setting           | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                            |

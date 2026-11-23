@@ -1,24 +1,12 @@
-/**
- * Centralised model token/output limits.
- * Values based on publicly available provider documentation (Sept 2025) and widely reported defaults.
- * If a model isn't listed we fall back to a conservative default (8192 output tokens).
- * NOTE: Keep this file updated as providers raise limits.
- */
+/** Default request ceilings. Hydrogen long-decode budgets are configured per story operation. */
 
 interface ModelLimits {
   maxOutputTokens: number; // per single response candidate
 }
 
-// Heuristic / documented limits (output token caps, not context window sizes)
+// Request defaults; the Hydrogen adapter separately enforces its unified context limit.
 const LIMITS: Record<string, ModelLimits> = {
-  // Google Gemini text output caps
-  'gemini-3.6-flash': { maxOutputTokens: 65536 },
-  'gemini-3.5-flash': { maxOutputTokens: 64000 },
-  'gemini-3.1-pro': { maxOutputTokens: 65535 },
-  'gemini-3-pro': { maxOutputTokens: 65535 },
-  'gemini-2.5-flash': { maxOutputTokens: 65535 },
-  'gemini-2.5-pro': { maxOutputTokens: 65535 },
-  'gemini-2.5-flash-lite': { maxOutputTokens: 65535 },
+  'gemini-4-hydrogen': { maxOutputTokens: 65536 },
   // Image preview model still returns textual prompt refinements / JSON; use same cap
   'gemini-2.5-flash-image-preview': { maxOutputTokens: 32768 },
   'gemini-3.1-flash-image': { maxOutputTokens: 32768 },

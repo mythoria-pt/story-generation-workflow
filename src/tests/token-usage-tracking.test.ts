@@ -430,11 +430,11 @@ describe('TokenUsageTrackingService', () => {
       });
     });
 
-    it('falls back to gemini-3.8-flash rates and warns once for unknown Google models', () => {
+    it('falls back to gemini-4-hydrogen rates and warns once for unknown Google models', () => {
       const model = 'gemini-unknown-warn-once';
       const first = cost('google-genai', model, { timestamp: NOW });
       const second = cost('google-genai', model, { timestamp: NOW });
-      expect(first).toBeCloseTo(eur(0.75 + 3.75), 6);
+      expect(first).toBeCloseTo(eur(1.5 + 7.5), 6);
       expect(second).toBeCloseTo(first, 10);
       const warns = (logger.warn as jest.Mock).mock.calls.filter(
         (call) => (call[1] as any)?.model === model,
@@ -443,7 +443,7 @@ describe('TokenUsageTrackingService', () => {
       expect(warns[0]?.[1]).toMatchObject({
         model,
         provider: 'google-genai',
-        fallback: 'gemini-3.8-flash',
+        fallback: 'gemini-4-hydrogen',
       });
     });
 

@@ -80,7 +80,8 @@ export class ImageSafetyService {
         .getTextService(textContext)
         .complete(rewritePrompt, {
           temperature: 0.7,
-          maxTokens: 65535,
+          maxTokens: 2048,
+          thinkingLevel: 'low',
           ...(context.privateContent ? { privateContent: true } : {}),
         });
 

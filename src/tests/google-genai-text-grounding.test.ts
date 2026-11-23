@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 const mockGetContext = jest.fn();
 const mockUpdateProviderData = jest.fn();
-const mockGetMaxOutputTokens = jest.fn(() => 2048);
 const mockLogger = {
   info: jest.fn(),
   warn: jest.fn(),
@@ -10,15 +9,11 @@ const mockLogger = {
 };
 
 const mockModelsGenerateContent = jest.fn<any>();
-const mockChatsCreate = jest.fn<any>();
-const mockCachesCreate = jest.fn<any>();
-const mockCachesDelete = jest.fn<any>();
+const mockCountTokens = jest.fn<any>();
 
 jest.mock('@google/genai', () => ({
   GoogleGenAI: jest.fn().mockImplementation(() => ({
-    models: { generateContent: mockModelsGenerateContent },
-    chats: { create: mockChatsCreate },
-    caches: { create: mockCachesCreate, delete: mockCachesDelete },
+    models: { generateContent: mockModelsGenerateContent, countTokens: mockCountTokens },
   })),
   MediaResolution: {
     MEDIA_RESOLUTION_LOW: 'MEDIA_RESOLUTION_LOW',
@@ -31,10 +26,6 @@ jest.mock('@google/genai', () => ({
     MEDIUM: 'MEDIUM',
     HIGH: 'HIGH',
   },
-}));
-
-jest.mock('@/ai/model-limits.js', () => ({
-  getMaxOutputTokens: mockGetMaxOutputTokens,
 }));
 
 jest.mock('@/config/logger.js', () => ({
@@ -54,18 +45,18 @@ function buildTextResponse(text: string) {
   return {
     candidates: [
       {
-        content: {
-          parts: [{ text }],
-        },
+        content: { parts: [{ text }] },
+        finishReason: 'STOP',
       },
     ],
   };
 }
 
-describe('GoogleGenAITextService Gemini 3.6 requests', () => {
+describe('GoogleGenAITextService Hydrogen requests', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockGetContext.mockResolvedValue(null);
+    mockCountTokens.mockResolvedValue({ totalTokens: 17 });
     mockModelsGenerateContent.mockResolvedValue(buildTextResponse('stateless'));
   });
 
@@ -84,7 +75,7 @@ describe('GoogleGenAITextService Gemini 3.6 requests', () => {
     });
 
     const request = mockModelsGenerateContent.mock.calls[0][0];
-    expect(request.model).toBe('gemini-3.6-flash');
+    expect(request.model).toBe('gemini-4-hydrogen');
     expect(request.config.tools).toEqual([{ googleSearch: {} }]);
     expect(request.config.responseMimeType).toBe('application/json');
     expect(request.config.responseJsonSchema).toEqual({
@@ -120,13 +111,12 @@ describe('GoogleGenAITextService Gemini 3.6 requests', () => {
     });
   });
 
-  it('uses cached context with structured multimodal generation', async () => {
+  it('uses saved context with structured multimodal generation', async () => {
     mockGetContext.mockResolvedValue({
       systemPrompt: 'System context',
       providerSpecificData: {
         googleGenAI: {
-          chatInstance: { sendMessage: jest.fn() },
-          cachedContentName: 'cache-1',
+          history: [{ role: 'user', parts: [{ text: 'Earlier chapter' }] }],
         },
       },
     });
@@ -147,9 +137,12 @@ describe('GoogleGenAITextService Gemini 3.6 requests', () => {
 
     const request = mockModelsGenerateContent.mock.calls[0][0];
     expect(request.config.tools).toEqual([{ googleSearch: {} }]);
-    expect(request.config.cachedContent).toBe('cache-1');
-    expect(request.config.systemInstruction).toBeUndefined();
-    expect(request.contents).toEqual({
+    expect(request.config.systemInstruction).toBe('System context');
+    expect(request.contents[0]).toEqual({
+      role: 'user',
+      parts: [{ text: 'Earlier chapter' }],
+    });
+    expect(request.contents[1]).toEqual({
       role: 'user',
       parts: expect.arrayContaining([
         { text: 'Describe and cite this image' },
@@ -161,91 +154,60 @@ describe('GoogleGenAITextService Gemini 3.6 requests', () => {
         },
       ]),
     });
+    expect(mockCountTokens.mock.calls[0][0].contents[0].parts[0].text).toContain('System context');
   });
 
-  it('keeps grounding in stateless fallback after an empty chat output', async () => {
-    const mockChat = {
-      sendMessage: jest.fn<any>().mockResolvedValue({
+  it('retains grounding across continuation segments and omits private thoughts', async () => {
+    mockModelsGenerateContent
+      .mockResolvedValueOnce({
         candidates: [
           {
-            content: { parts: [] },
-            finishReason: 'STOP',
+            content: { parts: [{ text: 'private thought', thought: true }, { text: 'First' }] },
+            finishReason: 'CONTINUATION',
+            continuationToken: 'resume-token',
           },
         ],
-      }),
-    };
-    mockGetContext.mockResolvedValue({
-      systemPrompt: 'System context',
-      providerSpecificData: {
-        googleGenAI: { chatInstance: mockChat },
-      },
-    });
-    mockModelsGenerateContent.mockResolvedValue(buildTextResponse('fallback'));
-
+      })
+      .mockResolvedValueOnce(buildTextResponse(' part'));
     const service = new GoogleGenAITextService({ apiKey: 'test-key' });
-
-    await service.complete('What happened this week?', {
-      contextId: 'ctx-fallback',
-      googleSearchGrounding: true,
+    const usageObserver = jest.fn();
+    await expect(
+      service.complete('What happened this week?', { googleSearchGrounding: true, usageObserver }),
+    ).resolves.toBe('First part');
+    expect(mockModelsGenerateContent).toHaveBeenCalledTimes(2);
+    expect(mockModelsGenerateContent.mock.calls[1][0].config).toMatchObject({
+      continuationToken: 'resume-token',
+      tools: [{ googleSearch: {} }],
     });
-
-    expect(mockChat.sendMessage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        message: [{ text: 'What happened this week?' }],
-        config: expect.objectContaining({
-          systemInstruction: 'System context',
-          tools: [{ googleSearch: {} }],
-        }),
-      }),
-    );
-    expect(mockModelsGenerateContent.mock.calls[0][0].config.tools).toEqual([{ googleSearch: {} }]);
+    expect(usageObserver).toHaveBeenCalledTimes(2);
   });
 
-  it('initializes native chat/cache without a prefilled model turn', async () => {
-    const chat = { sendMessage: jest.fn() };
-    mockChatsCreate.mockReturnValue(chat);
-    mockCachesCreate.mockResolvedValue({ name: 'cache-native' });
-    mockGetContext.mockResolvedValue({
-      systemPrompt: 'System context',
-      providerSpecificData: {},
-    });
-
+  it('initializes local context without a prefilled model turn', async () => {
     const service = new GoogleGenAITextService({ apiKey: 'test-key' });
     await service.initializeContext('ctx-native', 'System context', [
       'Earlier user material',
       'Earlier generated material',
     ]);
 
-    const cacheRequest = mockCachesCreate.mock.calls[0][0];
-    expect(cacheRequest.config.contents).toEqual([
-      {
-        role: 'user',
-        parts: [{ text: 'Earlier user material\n\nEarlier generated material' }],
+    expect(mockUpdateProviderData).toHaveBeenCalledWith('ctx-native', {
+      googleGenAI: {
+        history: [
+          {
+            role: 'user',
+            parts: [{ text: 'Earlier user material\n\nEarlier generated material' }],
+          },
+        ],
       },
-    ]);
-    expect(cacheRequest.config.contents.at(-1)?.role).toBe('user');
-    expect(mockChatsCreate).toHaveBeenCalledWith({
-      model: 'gemini-3.6-flash',
-      config: {
-        maxOutputTokens: 2048,
-        cachedContent: 'cache-native',
-      },
-      history: [],
     });
-    expect(mockUpdateProviderData).toHaveBeenCalledWith(
-      'ctx-native',
-      expect.objectContaining({
-        googleGenAI: expect.objectContaining({ chatInstance: chat }),
-      }),
-    );
   });
   it('forwards cancellation and omits private provider errors and prompt previews', async () => {
-    const service = new GoogleGenAITextService({ apiKey: 'test-key', model: 'gemini-3.6-flash' });
+    const service = new GoogleGenAITextService({ apiKey: 'test-key', model: 'gemini-4-hydrogen' });
     const signal = new AbortController().signal;
     mockModelsGenerateContent.mockRejectedValue(new Error('PRIVATE PROVIDER CONTENT'));
     await expect(
       service.complete('PRIVATE USER CONTENT', { privateContent: true, signal }),
     ).rejects.toThrow('Private text generation failed');
+    expect(mockCountTokens.mock.calls[0][0].config.abortSignal).toBe(signal);
     expect(mockModelsGenerateContent.mock.calls[0][0].config.abortSignal).toBe(signal);
     expect(JSON.stringify(mockLogger.error.mock.calls)).not.toContain('PRIVATE');
   });

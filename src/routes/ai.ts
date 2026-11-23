@@ -470,7 +470,7 @@ router.post('/text/outline', async (req, res) => {
     if (textProvider === 'openai') {
       outlineModel = process.env.OPENAI_BASE_MODEL || process.env.OPENAI_TEXT_MODEL || 'gpt-5.5';
     } else if (textProvider === 'google-genai') {
-      outlineModel = process.env.GOOGLE_GENAI_MODEL || 'gemini-3.6-flash';
+      outlineModel = process.env.GOOGLE_GENAI_MODEL || 'gemini-4-hydrogen';
     } else {
       outlineModel = 'gpt-5.5';
     }
@@ -1213,43 +1213,18 @@ router.post('/text/chapter/:chapterNumber', async (req, res) => {
       literaryPersonaGuidance: personaGuidance,
     };
 
-    // Build dynamic memory (previous chapters) heuristic: fetch saved chapters < current
-    // Build Full Story History (Dynamic Memory)
-    // We fetch all previous chapters and include their full text to ensure perfect continuity.
-    // Given Gemini 3.6 Flash's 1M context window, this is the most effective approach.
-    let fullHistory = '';
-    try {
-      if (chapterNumber > 1) {
-        const { ChaptersService } = await import('@/services/chapters.js');
-        const chaptersService = new ChaptersService();
-        const existing = await chaptersService.getStoryChapters(storyId);
-        const prior = existing.filter((c) => c.chapterNumber < chapterNumber);
-        prior.sort((a, b) => a.chapterNumber - b.chapterNumber);
-
-        if (prior.length > 0) {
-          const toPlainText = (html: string) =>
-            html
-              .replace(/<[^>]+>/g, ' ')
-              .replace(/\s+/g, ' ')
-              .trim();
-
-          const historyEntries = prior.map((chapter) => {
-            return `### Chapter ${chapter.chapterNumber}: ${chapter.title}\n${toPlainText(
-              chapter.htmlContent,
-            )}`;
-          });
-
-          fullHistory = historyEntries.join('\n\n---\n\n');
-        }
-      }
-    } catch (memErr) {
-      logger.warn('Failed building chapter memory history', {
-        storyId,
-        runId,
-        chapterNumber,
-        error: memErr instanceof Error ? memErr.message : String(memErr),
-      });
+    // The current run is the source of truth; never mix chapters from another generation.
+    const priorSteps = runId ? await runsService.getRunSteps(runId) : [];
+    const historyEntries: string[] = [];
+    for (let number = 1; number < chapterNumber; number++) {
+      const step = priorSteps.find(
+        (item) => item.stepName === `write_chapter_${number}` && item.status === 'completed',
+      );
+      const detail = step?.detailJson as { chapter?: string; chapterTitle?: string } | undefined;
+      if (!detail?.chapter) throw new Error('Previous chapter history unavailable for this run');
+      historyEntries.push(`Chapter ${number}: ${detail.chapterTitle ?? ''}\n${detail.chapter}`);
     }
+    const fullHistory = historyEntries.join('\n\n');
 
     // Prepare template variables with full history
     const finalTemplateVariables = {
@@ -1286,6 +1261,7 @@ router.post('/text/chapter/:chapterNumber', async (req, res) => {
 
     // Generate chapter content
     const chapterText = await aiGateway.getTextService(chapterContext).complete(chapterPrompt, {
+      maxTokens: Number(process.env.STORY_CHAPTER_MAX_OUTPUT_TOKENS || 131072),
       temperature: 1,
       contextId,
       thinkingLevel: 'high',

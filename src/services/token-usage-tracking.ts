@@ -24,6 +24,7 @@ const warnedUnknownModels = new Set<string>();
 export type ImageQualityInput = 'standard' | 'hd' | 'auto' | ImageQualityLevel;
 
 export interface TokenUsageRequest {
+  tokenUsageId?: string;
   authorId: string;
   storyId: string;
   action:
@@ -74,7 +75,7 @@ export class TokenUsageTrackingService {
   /**
    * Record token usage from an AI API call
    */
-  async recordUsage(request: TokenUsageRequest): Promise<void> {
+  async recordUsage(request: TokenUsageRequest, required = false): Promise<void> {
     try {
       const costEstimationParams: CostEstimation = {
         provider: this.getProviderFromModel(request.aiModel),
@@ -108,6 +109,7 @@ export class TokenUsageTrackingService {
       };
 
       const usageRecord: InsertTokenUsage = {
+        ...(request.tokenUsageId && { tokenUsageId: request.tokenUsageId }),
         authorId: request.authorId,
         storyId: request.storyId,
         action: request.action,
@@ -118,7 +120,10 @@ export class TokenUsageTrackingService {
         inputPromptJson: enrichedInputPromptJson,
       };
 
-      await this.db.insert(tokenUsageTracking).values(usageRecord);
+      const insert = this.db.insert(tokenUsageTracking).values(usageRecord);
+      if (request.tokenUsageId)
+        await insert.onConflictDoNothing({ target: tokenUsageTracking.tokenUsageId });
+      else await insert;
 
       logger.info('Token usage recorded', {
         authorId: request.authorId,
@@ -139,14 +144,15 @@ export class TokenUsageTrackingService {
         action: request.action,
         model: request.aiModel,
       });
-      // Don't throw - we don't want to break AI operations due to tracking failures
+      if (required) throw error;
     }
   }
 
   /**
    * Calculate estimated cost based on provider and model.
    *
-   * Rates live in `model-pricing.ts` (ordered, dated tiers). Supported models (reviewed 2026-10-27):
+   * Rates live in `model-pricing.ts` (ordered, dated tiers). Older entries are historical accounting data,
+   * not runtime Gemini text compatibility. Pricing catalog:
    * - OpenAI Text:  gpt-6.1-sol, gpt-6.1-terra, gpt-6-luna / gpt-6.1-luna, gpt-5.5, gpt-5.5-pro,
    *                 gpt-5.4, gpt-5.4-mini, gpt-5.4-nano
    * - OpenAI Image: gpt-image-2.5-flare / -sunburst (approximated with gpt-image-2 per-image
@@ -160,7 +166,7 @@ export class TokenUsageTrackingService {
    *                 (historic records only)
    * GPT-6.x requests above 272K input tokens use the long-context surcharge (2x in, 1.5x out).
    * Unknown Google TTS models fall back to gemini-3.8-flash-tts rates, never text rates.
-   * Other unknown Google models fall back to gemini-3.8-flash rates (warned once per model);
+   * Other unknown Google models fall back to Hydrogen rates (warned once per model);
    * unknown OpenAI models cost 0 (warned once per model).
    *
    * Sources:

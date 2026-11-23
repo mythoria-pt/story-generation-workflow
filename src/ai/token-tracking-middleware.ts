@@ -54,6 +54,7 @@ export class TextGenerationMiddleware implements ITextGenerationService {
 
   async complete(prompt: string, options?: TextGenerationOptions): Promise<string> {
     const startTime = Date.now();
+    let observedUsage: TextGenerationUsage | undefined;
 
     try {
       logger.info('Starting text generation with token tracking', {
@@ -63,26 +64,28 @@ export class TextGenerationMiddleware implements ITextGenerationService {
       });
 
       const baseOptions: TextGenerationOptions = options ? { ...options } : {};
-      let observedUsage: TextGenerationUsage | undefined;
 
-      if (baseOptions.usageObserver) {
-        const originalObserver = baseOptions.usageObserver;
-        baseOptions.usageObserver = (usage) => {
-          observedUsage = usage;
-          try {
-            originalObserver(usage);
-          } catch (observerError) {
-            logger.warn('Usage observer failed, continuing without interruption', {
-              error: observerError instanceof Error ? observerError.message : String(observerError),
-              context: this.context,
-            });
-          }
+      const originalObserver = baseOptions.usageObserver;
+      baseOptions.usageObserver = (usage) => {
+        const add = (
+          key: 'inputTokens' | 'outputTokens' | 'cachedInputTokens' | 'thinkingTokens',
+        ) => (usage[key] == null ? observedUsage?.[key] : (observedUsage?.[key] ?? 0) + usage[key]);
+        observedUsage = {
+          ...usage,
+          inputTokens: add('inputTokens'),
+          outputTokens: add('outputTokens'),
+          cachedInputTokens: add('cachedInputTokens'),
+          thinkingTokens: add('thinkingTokens'),
         };
-      } else {
-        baseOptions.usageObserver = (usage) => {
-          observedUsage = usage;
-        };
-      }
+        try {
+          originalObserver?.(usage);
+        } catch (observerError) {
+          logger.warn('Usage observer failed, continuing without interruption', {
+            error: observerError instanceof Error ? observerError.message : String(observerError),
+            context: this.context,
+          });
+        }
+      };
 
       // Make the actual AI call
       const result = await this.baseService.complete(prompt, baseOptions);
@@ -98,7 +101,8 @@ export class TextGenerationMiddleware implements ITextGenerationService {
         authorId: this.context.authorId,
         storyId: this.context.storyId,
         action: this.context.action,
-        aiModel: this.determineModel(baseOptions),
+        aiModel: observedUsage?.model ?? this.determineModel(baseOptions),
+        cachedInputTokens: observedUsage?.cachedInputTokens ?? 0,
         inputTokens: tokenUsage.inputTokens,
         outputTokens: tokenUsage.outputTokens,
         inputPromptJson: {
@@ -117,11 +121,31 @@ export class TextGenerationMiddleware implements ITextGenerationService {
           timestamp: new Date().toISOString(),
           processingTimeMs,
           resultLength: result.length,
+          usageSource: observedUsage?.inputTokens == null ? 'estimate' : 'api',
+          thinkingTokens: observedUsage?.thinkingTokens ?? 0,
         },
       });
 
       return result;
     } catch (error) {
+      if (observedUsage?.inputTokens != null && observedUsage.outputTokens != null) {
+        this.recordUsageAsync({
+          authorId: this.context.authorId,
+          storyId: this.context.storyId,
+          action: this.context.action,
+          aiModel: observedUsage.model ?? this.determineModel(options),
+          inputTokens: observedUsage.inputTokens,
+          outputTokens: observedUsage.outputTokens,
+          cachedInputTokens: observedUsage.cachedInputTokens ?? 0,
+          inputPromptJson: {
+            operation: this.context.operation ?? this.context.action,
+            status: 'failed',
+            usageSource: 'api',
+            processingTimeMs: Date.now() - startTime,
+            thinkingTokens: observedUsage.thinkingTokens ?? 0,
+          },
+        });
+      }
       if (options?.privateContent) {
         logger.error('Private text generation failed with token tracking', {
           context: this.context,
@@ -263,7 +287,7 @@ export class TextGenerationMiddleware implements ITextGenerationService {
     if (provider === 'openai') {
       return process.env.OPENAI_BASE_MODEL || process.env.OPENAI_TEXT_MODEL || 'gpt-5.5';
     } else if (provider === 'google-genai') {
-      return process.env.GOOGLE_GENAI_MODEL || 'gemini-3.6-flash';
+      return process.env.GOOGLE_GENAI_MODEL || 'gemini-4-hydrogen';
     }
 
     return 'unknown';

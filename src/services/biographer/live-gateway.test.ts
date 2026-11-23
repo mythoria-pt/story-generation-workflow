@@ -215,13 +215,13 @@ describe('Biographer live gateway protocol', () => {
     });
 
     socket.send(JSON.stringify({ type: 'cancel' }));
-    await waitFor(() => mockClose.mock.calls.length === 1);
+    await closed;
+    expect(mockClose).toHaveBeenCalled();
     expect(mockSendAudio).toHaveBeenCalledTimes(2);
     expect(leaseBodies).toHaveLength(0);
     serverEvent({ serverContent: { turnComplete: true } });
     resolveCheckpoint(success);
     await waitFor(() => leaseBodies.length === 1);
-    await closed;
 
     expect(checkpointBodies).toEqual([
       expect.objectContaining({ turnId, final: true }),

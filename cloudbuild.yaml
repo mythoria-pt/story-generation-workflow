@@ -17,21 +17,35 @@ steps:
     entrypoint: 'gcloud'
     args:
       - 'run'
-      - 'deploy'
+      - 'services'
+      - 'update'
       - '${_SERVICE_NAME}'
       - '--image'
       - 'gcr.io/$PROJECT_ID/${_SERVICE_NAME}:${_GIT_SHA}'
       - '--region'
       - '${_REGION}'
+      - '--project'
+      - '$PROJECT_ID'
       - '--revision-suffix'
       - '${_REVISION_SUFFIX}'
       - '--update-labels'
       - 'git-sha=${_GIT_SHA},cloud-build-id=$BUILD_ID'
-      # Existing production bindings verified on 2026-07-30 are retained by this incremental deploy.
-      # env-parity-preserved: NODE_ENV,DB_HOST,DB_PORT,DB_USER,DB_PASSWORD,DB_NAME,WORKFLOWS_DB,GOOGLE_CLOUD_PROJECT_ID,GOOGLE_CLOUD_REGION,STORAGE_BUCKET_NAME,STORY_GENERATION_WORKFLOW_API_KEY,ANALYTICS_SCHEDULER_SERVICE_ACCOUNT
       - '--update-env-vars'
-      - 'DEPLOY_GIT_SHA=${_GIT_SHA},DEPLOY_BUILD_ID=$BUILD_ID,TEXT_PROVIDER=google-genai,IMAGE_PROVIDER=google-genai,IMAGE_ANALYZER_PROVIDER=google-genai,OPENAI_IMAGE_TOOL_MODEL=gpt-image-2.5-flare,GOOGLE_GENAI_MODEL=gemini-3.8-flash,GOOGLE_GENAI_IMAGE_MODEL=gemini-nano-banana-2.1,TTS_PROVIDER=google-genai,TTS_MODEL=gemini-3.8-flash-tts,TTS_EXPRESSIVE_DIRECTION_ENABLED=true,TTS_DIRECTION_MODEL=gemini-3.8-flash,BACKGROUND_MUSIC_VOLUME=0.07,BACKGROUND_MUSIC_FADE_IN=0.5,BACKGROUND_MUSIC_FADE_OUT=0.5'
+      - 'DEPLOY_GIT_SHA=${_GIT_SHA},DEPLOY_BUILD_ID=$BUILD_ID'
       - '--quiet'
+      # Existing Cloud Run environment variables.
+      # env-parity-preserved: NODE_ENV,DB_PORT,DB_NAME,WORKFLOWS_DB,GOOGLE_CLOUD_PROJECT_ID,GOOGLE_CLOUD_REGION
+      # env-parity-preserved: STORAGE_BUCKET_NAME,TEXT_PROVIDER,IMAGE_PROVIDER,GOOGLE_GENAI_MODEL,GOOGLE_GENAI_IMAGE_MODEL
+      # env-parity-preserved: OPENAI_BASE_MODEL,OPENAI_IMAGE_TOOL_MODEL,OPENAI_IMAGE_QUALITY,OPENAI_TEXT_MODEL,TTS_PROVIDER
+      # env-parity-preserved: TTS_MODEL,TTS_VOICE,TTS_SPEED,TTS_LANGUAGE,BACKGROUND_MUSIC_VOLUME,NARRATOR_VOLUME
+      # env-parity-preserved: BACKGROUND_MUSIC_FADE_IN,BACKGROUND_MUSIC_FADE_OUT,DEBUG_AI_FULL_PROMPTS,DEBUG_AI_FULL_RESPONSES
+      # env-parity-preserved: DEBUG_PERSIST_PROMPTS,LOG_LEVEL,NOTIFICATION_ENGINE_URL,WEBAPP_WEBHOOK_URL,STORY_CONTEXT_MAX_CHARS
+      # env-parity-preserved: ANALYTICS_SCHEDULER_SERVICE_ACCOUNT,IMAGE_ANALYZER_PROVIDER,TTS_EXPRESSIVE_DIRECTION_ENABLED
+      # env-parity-preserved: TTS_DIRECTION_MODEL,GOOGLE_GENAI_API_VERSION,STORY_TEXT_GENERATION_MODE,STORY_SEQUENTIAL_AUDIENCES
+      # env-parity-preserved: STORY_SEQUENTIAL_MIN_CHAPTERS,STORY_WHOLE_MAX_OUTPUT_TOKENS,STORY_CHAPTER_MAX_OUTPUT_TOKENS
+      # Existing Secret Manager bindings.
+      # env-parity-preserved: DB_HOST,DB_USER,DB_PASSWORD,OPENAI_API_KEY,GOOGLE_GENAI_API_KEY,STORY_GENERATION_WORKFLOW_API_KEY
+      # env-parity-preserved: NOTIFICATION_ENGINE_API_KEY,WEBAPP_WEBHOOK_SECRET
 
 images:
   - 'gcr.io/$PROJECT_ID/${_SERVICE_NAME}:${_GIT_SHA}'
@@ -39,6 +53,8 @@ images:
 substitutions:
   _SERVICE_NAME: 'story-generation-workflow'
   _REGION: 'europe-west9'
+  _GIT_SHA: 'unknown'
+  _REVISION_SUFFIX: 'git-unknown'
   _NODE_VERSION: '24.18.1'
 
 options:
