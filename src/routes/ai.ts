@@ -1045,7 +1045,7 @@ router.post('/media/upload', async (req, res) => {
     });
 
     res.json({ success: true, authorId, kind, objectPath, publicUrl });
-  } catch (error) {
+  } catch {
     logger.warn('Story input upload failed', { requestId, stage });
     res.status(stage === 'storage' ? 502 : 400).json({
       success: false,
