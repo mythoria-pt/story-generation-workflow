@@ -133,6 +133,16 @@ describe('sendStoryPrintInstructionsEmail delivery status', () => {
     [{ success: true, result: { success: true, data: { deliveryStatus: 'sent' } } }, 'sent'],
     [{ success: true, data: { deliveryStatus: 'pending' } }, 'accepted'],
     [{ success: true, data: { deliveryStatus: 'unknown' } }, 'unknown'],
+    [{ success: true, data: { status: 'sent', provider: 'Gmail', messageId: 'abc' } }, 'sent'],
+    [{ success: true, data: { status: 'sent', provider: 'Gmail', messageId: '' } }, 'unknown'],
+    [{ success: true, data: { status: 'sent', provider: 'mock', messageId: 'abc' } }, 'unknown'],
+    [
+      {
+        success: true,
+        data: { deliveryStatus: 'unknown', status: 'sent', provider: 'Gmail', messageId: 'abc' },
+      },
+      'unknown',
+    ],
     [{ success: true, result: { success: false } }, 'failed'],
     [{ success: true }, 'unknown'],
   ])('maps a successful HTTP response with body %j to %s', async (response, expected) => {

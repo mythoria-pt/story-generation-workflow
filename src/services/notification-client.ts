@@ -298,7 +298,6 @@ export async function sendStoryPrintInstructionsEmail(
     url,
     storyId: payload.storyId,
     workflowId: payload.workflowId,
-    recipient: payload.recipient.email,
   });
 
   try {
@@ -309,11 +308,10 @@ export async function sendStoryPrintInstructionsEmail(
     });
 
     if (!response.ok) {
-      const text = await response.text();
       logger.error('Failed to send story-print email', {
         status: response.status,
-        statusText: response.statusText,
-        body: text,
+        storyId: payload.storyId,
+        workflowId: payload.workflowId,
       });
       return 'failed';
     }
@@ -321,7 +319,13 @@ export async function sendStoryPrintInstructionsEmail(
     type Outcome = {
       success?: boolean;
       deliveryStatus?: string;
-      data?: { deliveryStatus?: string; reason?: string };
+      data?: {
+        deliveryStatus?: string;
+        reason?: string;
+        status?: string;
+        provider?: string;
+        messageId?: string;
+      };
     };
     const result = (await response.json()) as Outcome & { result?: Outcome };
     const outcome = result.result ?? result;
@@ -331,6 +335,17 @@ export async function sendStoryPrintInstructionsEmail(
     const status = outcome.data?.deliveryStatus ?? outcome.deliveryStatus;
     if (status === 'sent') return 'sent';
     if (status === 'pending' || status === 'sending') return 'accepted';
+    const receipt = outcome.data;
+    if (
+      status === undefined &&
+      outcome.success === true &&
+      receipt?.status === 'sent' &&
+      receipt.provider === 'Gmail' &&
+      typeof receipt.messageId === 'string' &&
+      receipt.messageId.trim()
+    ) {
+      return 'sent';
+    }
     return status === 'failed' ? 'failed' : 'unknown';
   } catch (error) {
     logger.error('Error calling notification engine for story-print email', {
