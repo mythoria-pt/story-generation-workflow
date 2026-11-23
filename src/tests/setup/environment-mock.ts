@@ -17,7 +17,7 @@ jest.mock('@/config/environment.js', () => ({
     TEXT_PROVIDER: 'google-genai',
     IMAGE_PROVIDER: 'google-genai',
     GOOGLE_GENAI_API_KEY: 'test-key',
-    GOOGLE_GENAI_MODEL: 'gemini-3.6-flash',
+    GOOGLE_GENAI_MODEL: 'gemini-4-hydrogen',
     GOOGLE_GENAI_IMAGE_MODEL: 'gemini-3.1-flash-image',
     OPENAI_API_KEY: 'test-key',
     TTS_PROVIDER: 'openai',

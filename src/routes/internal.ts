@@ -18,6 +18,7 @@ import { analyticsReconciliationService } from '@/services/analytics.js';
 import { schedulerAuth } from '@/middleware/schedulerAuth.js';
 import { apiKeyAuth } from '@/middleware/apiKeyAuth.js';
 import { getTTSHttpError, isTTSGenerationError } from '@/services/tts-errors.js';
+import { StoryTextService } from '@/services/story-text.js';
 
 const router = Router();
 const analyticsReference = (value: string) =>
@@ -29,6 +30,34 @@ const ttsService = new TTSService();
 const progressTracker = new ProgressTrackerService();
 const storyService = new StoryService();
 const chaptersService = new ChaptersService();
+
+const textRunSchema = z.object({ runId: z.string().uuid() });
+router.post('/runs/:runId/text/:operation', apiKeyAuth, async (req, res) => {
+  try {
+    const { runId } = textRunSchema.parse(req.params);
+    const operation = z.enum(['plan', 'advance']).parse(req.params.operation);
+    const service = new StoryTextService();
+    if (operation === 'plan') {
+      res.json(await service.plan(runId));
+      return;
+    }
+    const { chapterNumber } = z
+      .object({ chapterNumber: z.number().int().positive() })
+      .strict()
+      .parse(req.body);
+    res.json(await service.advance(runId, chapterNumber));
+  } catch (error) {
+    const status =
+      error instanceof z.ZodError ? 400 : ((error as { status?: number }).status ?? 500);
+    logger.error('Story text advancement failed', { status, runId: req.params.runId });
+    res.status(status).json({
+      success: false,
+      error:
+        status === 422 ? 'Story text blocked by safety policy' : 'Story text advancement failed',
+      code: (error as { code?: string }).code,
+    });
+  }
+});
 
 // Request schemas
 const UpdateRunRequestSchema = z.object({
@@ -247,6 +276,8 @@ router.patch('/runs/:runId', async (req: Request<{ runId: string }>, res: Respon
       return;
     }
 
+    // Parallel Workflows errors wrap the original HTTP code; retain a recorded safety block.
+    if (run.status === 'blocked' && updates.status === 'failed') updates.status = 'blocked';
     const updatedRun = await runsService.updateRun(runId, updates);
 
     if (updatedRun.status === 'completed' || updatedRun.status === 'failed') {

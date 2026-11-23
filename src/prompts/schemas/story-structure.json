@@ -4,11 +4,21 @@
     "story": {
       "type": "object",
       "properties": {
-        "title": { "type": "string" },
-        "plotDescription": { "type": "string" },
-        "synopsis": { "type": "string" },
-        "place": { "type": "string" },
-        "additionalRequests": { "type": "string" },
+        "title": {
+          "type": "string"
+        },
+        "plotDescription": {
+          "type": "string"
+        },
+        "synopsis": {
+          "type": "string"
+        },
+        "place": {
+          "type": "string"
+        },
+        "additionalRequests": {
+          "type": "string"
+        },
         "targetAudience": {
           "type": "string",
           "enum": [
@@ -87,12 +97,16 @@
         },
         "coverReferenceImages": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "description": "Paths (the `path` field from the provided input image metadata) of `photo`-type input images that are visually relevant to depict on the FRONT cover (e.g. the main subject/scenery). Empty array if none apply."
         },
         "backCoverReferenceImages": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "description": "Paths of `photo`-type input images relevant to the BACK cover. Empty array if none apply."
         }
       },
@@ -103,8 +117,12 @@
       "items": {
         "type": "object",
         "properties": {
-          "characterId": { "type": ["string", "null"] },
-          "name": { "type": "string" },
+          "characterId": {
+            "type": ["string", "null"]
+          },
+          "name": {
+            "type": "string"
+          },
           "type": {
             "type": "string",
             "enum": [
@@ -190,8 +208,12 @@
               ]
             }
           },
-          "characteristics": { "type": "string" },
-          "physicalDescription": { "type": "string" },
+          "characteristics": {
+            "type": "string"
+          },
+          "physicalDescription": {
+            "type": "string"
+          },
           "sourceImagePath": {
             "type": ["string", "null"],
             "description": "If this character is derived from a person/animal detected in a user-uploaded input photo, set this to the exact `path` of that image (from the provided image metadata). Otherwise null."
@@ -217,11 +239,7 @@
         },
         "required": ["name"]
       }
-    },
-    "thought_process": {
-      "type": "string",
-      "description": "Your internal reasoning and plan for this story structure. Analyze the user's input, detect the language, and plan the story beats and character archetypes before generating the structured JSON."
     }
   },
-  "required": ["story", "characters", "thought_process"]
+  "required": ["story", "characters"]
 }

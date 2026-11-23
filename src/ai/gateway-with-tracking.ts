@@ -63,7 +63,7 @@ export class AIGatewayWithTokenTracking {
       }
 
       try {
-        const fallbackModel = process.env.GOOGLE_GENAI_MODEL || 'gemini-3.6-flash';
+        const fallbackModel = process.env.GOOGLE_GENAI_MODEL || 'gemini-4-hydrogen';
         const fallback = new GoogleGenAITextService({
           apiKey: googleKey,
           model: fallbackModel,
@@ -126,7 +126,7 @@ export class AIGatewayWithTokenTracking {
       );
       return this.getTextService(context);
     }
-    const model = process.env.GOOGLE_GENAI_MODEL || 'gemini-3.6-flash';
+    const model = process.env.GOOGLE_GENAI_MODEL || 'gemini-4-hydrogen';
     return withTokenTracking(new GoogleGenAITextService({ apiKey: googleKey, model }), context);
   }
 

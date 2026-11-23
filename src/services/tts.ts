@@ -341,7 +341,15 @@ export class TTSService {
       // Optional per-chunk narration direction (Gemini only, behind a flag). Any failure
       // falls back to the base style for that chunk; narration is never blocked.
       const directionEnabled = shouldDirectNarration(effectiveProvider);
-      const directionStats = { directedChunks: 0, fallbackChunks: 0 };
+      const directionStats = {
+        directedChunks: 0,
+        fallbackChunks: 0,
+        insertedTags: 0,
+        discardedTags: 0,
+        adaptedChunks: 0,
+        styledSegments: 0,
+        fallbackReasons: {} as Record<string, number>,
+      };
       const synthesizeChunk = async (text: string, chunkIndex: number): Promise<TTSResult> => {
         if (directionEnabled) {
           const direction = await directNarration({
@@ -355,6 +363,12 @@ export class TTSService {
           });
           if (direction.source === 'llm') {
             directionStats.directedChunks += 1;
+            directionStats.insertedTags += direction.insertedTags;
+            directionStats.discardedTags += direction.discardedTags;
+            directionStats.adaptedChunks += direction.adaptedText ? 1 : 0;
+            directionStats.styledSegments += direction.segments.filter(
+              (segment) => segment.mood,
+            ).length;
             return synthesizeWithFallback(text, {
               ...ttsOptions,
               segments: direction.segments.map((segment) => {
@@ -364,6 +378,8 @@ export class TTSService {
             });
           }
           directionStats.fallbackChunks += 1;
+          directionStats.fallbackReasons[direction.reason] =
+            (directionStats.fallbackReasons[direction.reason] ?? 0) + 1;
         }
         const chunkStyle = resolveChunkStyle(baseStyle, chunkIndex);
         return synthesizeWithFallback(text, {

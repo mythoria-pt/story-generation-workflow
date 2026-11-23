@@ -107,7 +107,7 @@ See the [referral implementation and operations guide](docs/referrals.md) for th
 See [docs/audio-narration-system.md](docs/audio-narration-system.md) for the full pipeline. Key rules:
 
 - Default provider is `google-genai` with `gemini-3.8-flash-tts` as the only accepted Gemini TTS model. OpenAI (`gpt-4o-mini-tts`) is the alternative. Rollback to an older model means redeploying the previous Cloud Run revision.
-- Expressive narration (`TTS_EXPRESSIVE_DIRECTION_ENABLED`) defaults to off in code, but `cloudbuild.yaml` and `.env.local` enable it with `TTS_DIRECTION_MODEL=gemini-3.8-flash`. When off, chunks are sent with the plain per-locale base style.
+- Expressive narration (`TTS_EXPRESSIVE_DIRECTION_ENABLED`) defaults to off in code, but the production Cloud Run environment enables it with `TTS_DIRECTION_MODEL=gemini-4-hydrogen`. When off, chunks are sent with the plain per-locale base style.
 - Voice resolution lives in `src/services/voice-registry.ts`. It must stay in sync with `mythoria-webapp/src/lib/voice-options.ts` and `mythoria_admin/src/lib/voice-options.ts` across the three repos.
 
 ## Story-created notification recovery

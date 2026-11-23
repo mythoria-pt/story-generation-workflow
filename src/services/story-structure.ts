@@ -519,7 +519,7 @@ async function generateStoryStructureLocked(
     );
     const structureModel = params.storyWhisperer
       ? STORY_WHISPERER_TEXT_MODEL
-      : process.env.GOOGLE_GENAI_MODEL || 'gemini-3.6-flash';
+      : process.env.GOOGLE_GENAI_MODEL || 'gemini-4-hydrogen';
     const service = params.storyWhisperer
       ? aiGateway.getTextServiceForProvider('google-genai', aiContext, { allowFallback: false })
       : aiGateway.getTextService(aiContext);

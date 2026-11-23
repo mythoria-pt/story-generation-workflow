@@ -353,7 +353,7 @@ export class GoogleGenAITTSService implements ITTSService {
   private defaultVoice: string;
 
   constructor(config: GoogleGenAITTSConfig) {
-    this.client = new GoogleGenAI({ apiKey: config.apiKey });
+    this.client = new GoogleGenAI({ apiKey: config.apiKey, apiVersion: 'v1beta' });
     this.model = config.model || DEFAULT_GEMINI_TTS_MODEL;
     if (!isSupportedGeminiTTSModel(this.model)) {
       throw new Error(

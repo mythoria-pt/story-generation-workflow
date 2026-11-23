@@ -4,7 +4,7 @@ import { tmpdir } from 'os';
 import { PDFParse } from 'pdf-parse';
 import { getEnvironment } from '@/config/environment.js';
 import { logger } from '@/config/logger.js';
-import { GoogleGenAITextService } from '@/ai/providers/google-genai/text.js';
+import { getAIGatewayWithTokenTracking } from '@/ai/gateway-with-tracking.js';
 import { PromptService } from '@/services/prompt.js';
 import { PrintService } from '@/services/print.js';
 import {
@@ -1108,10 +1108,15 @@ export class PrintQualityService {
         previewCatalog,
       });
 
-      const textService = new GoogleGenAITextService({
-        apiKey: env.GOOGLE_GENAI_API_KEY,
-        model: env.GOOGLE_GENAI_MODEL,
-      });
+      const textService = getAIGatewayWithTokenTracking().getTextServiceForProvider(
+        'google-genai',
+        {
+          authorId: params.storyData.authorId,
+          storyId: params.storyId,
+          action: 'content_validation',
+          operation: 'print_qa_review',
+        },
+      );
 
       const mediaParts = await Promise.all(
         previews.map(async (preview) => ({
