@@ -2,14 +2,22 @@ import { randomUUID } from 'crypto';
 import { createServer, type IncomingMessage } from 'http';
 import { createRequire } from 'module';
 import { GoogleGenAI, Modality, type LiveServerMessage, type Session } from '@google/genai';
+import winston from 'winston';
 import { z } from 'zod';
-import { logger } from '@/config/logger.js';
 import {
   INTERVIEWER_INSTRUCTION,
   WHISPERER_INSTRUCTION,
   WHISPERER_LIVE_OUTLINE_INSTRUCTION,
 } from './instructions.js';
 import { historyTurn, projectContext, biographerLocale } from './contract.js';
+
+// The gateway runs without the main workflow service's database and storage configuration.
+const logger = winston.createLogger({
+  level: process.env.LOG_LEVEL || 'info',
+  defaultMeta: { service: 'biographer-live' },
+  format: winston.format.combine(winston.format.timestamp(), winston.format.json()),
+  transports: [new winston.transports.Console()],
+});
 
 // A narrow transport interface avoids coupling application protocol to ws implementation details.
 interface Socket {

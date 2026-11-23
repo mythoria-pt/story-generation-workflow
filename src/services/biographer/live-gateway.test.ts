@@ -31,6 +31,25 @@ const authorId = '44444444-4444-4444-8444-444444444444';
 const leaseId = '55555555-5555-4555-8555-555555555555';
 const turnId = '66666666-6666-4666-8666-666666666666';
 
+it('loads the live gateway with only its dedicated production configuration', async () => {
+  const environment = jest.replaceProperty(process, 'env', {
+    NODE_ENV: 'production',
+    GOOGLE_CLOUD_PROJECT_ID: 'fixture-project',
+    BIOGRAPHER_LIVE_ENABLED: 'true',
+    BIOGRAPHER_ALLOWED_ORIGINS: 'https://mythoria.test',
+    BIOGRAPHER_WEBAPP_URL: 'https://mythoria.test',
+    BIOGRAPHER_INTERNAL_API_KEY: 'fixture-callback-key',
+  });
+  try {
+    await jest.isolateModulesAsync(async () => {
+      const gateway = await import('./live-gateway.js');
+      expect(gateway.startBiographerLiveGateway).toEqual(expect.any(Function));
+    });
+  } finally {
+    environment.restore();
+  }
+});
+
 describe('Biographer live gateway protocol', () => {
   const originalFetch = global.fetch;
   let gateway: ReturnType<typeof startBiographerLiveGateway>;
