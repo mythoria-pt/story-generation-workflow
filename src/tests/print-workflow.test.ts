@@ -32,6 +32,10 @@ describe('print-generation workflow', () => {
     expect(workflow).toMatch(
       /- notifyPrintQaAdmins:[\s\S]*?except:\s+as: alertError[\s\S]*?- markRunCompleted:/,
     );
+    expect(workflow).toContain('predicate: ${retryPrintQaAlertBeforeDispatch}');
+    expect(workflow).toContain(
+      'return: ${map.get(error, "code") == 502 and map.get(error, ["body", "reason"]) == "manager_lookup_failed"}',
+    );
     expect(workflow).toContain('printQaAlertFailureReason: ${qaAlertFailureReason}');
     expect(workflow).toContain("event: 'print_qa_alert_delivery_failed'");
     expect(workflow).toContain('/internal/runs/" + runId + "/claim');

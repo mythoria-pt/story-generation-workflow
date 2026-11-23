@@ -457,7 +457,7 @@ internalPrintRouter.post('/quality-alert', async (req, res) => {
       return;
     }
 
-    const sent = await sendPrintQaCriticalEmail({
+    const deliveryStatus = await sendPrintQaCriticalEmail({
       storyId,
       storyTitle: story.title,
       runId,
@@ -482,21 +482,27 @@ internalPrintRouter.post('/quality-alert', async (req, res) => {
       },
     });
 
-    if (!sent) {
-      logger.error('Print QA notification dispatch failed', {
-        event: 'print_qa_alert_attempt_failed',
-        reason: 'dispatch_failed',
-        storyId,
-        runId,
-        recipientCount: recipients.length,
-      });
-      res
-        .status(502)
-        .json({ sent: false, recipientCount: recipients.length, reason: 'dispatch_failed' });
+    if (deliveryStatus === 'sent') {
+      res.json({ sent: true, recipientCount: recipients.length });
       return;
     }
 
-    res.json({ sent, recipientCount: recipients.length });
+    const reason = {
+      accepted: 'dispatch_accepted',
+      partial: 'dispatch_partial',
+      failed: 'dispatch_failed',
+      unknown: 'dispatch_unknown',
+    }[deliveryStatus];
+    logger.error('Print QA notification delivery was not confirmed for every recipient', {
+      event: 'print_qa_alert_attempt_failed',
+      reason,
+      storyId,
+      runId,
+      recipientCount: recipients.length,
+    });
+    // The engine can have delivered to some managers even when its response
+    // is inconclusive. Retrying the whole request can resend their alerts.
+    res.json({ sent: false, recipientCount: recipients.length, reason });
   } catch (error) {
     logger.error('Failed to dispatch print QA alert', {
       event: 'print_qa_alert_attempt_failed',

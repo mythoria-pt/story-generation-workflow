@@ -43,7 +43,7 @@ When `skipQA` is `true`, `print-generation.yaml` skips the `qualityCheckPDF` and
 ### Delivery and alert outcomes
 
 - `printDeliveryStatus` starts as `pending` for customer delivery and `not_requested` for direct generation. The workflow persists `sent` after an explicit Notification Engine sent result, `accepted` while the engine reports pending or sending, `failed` after an explicit failure, and `unknown` when confirmation is unavailable. Provider completion is separate from PDF completion.
-- The QA alert uses the stable `Idempotency-Key: print-qa-critical:<runId>`. The workflow retries transient alert failures with the same key. Durable deduplication requires Notification Engine’s delivery ledger schema and migration to be active. Roll out the ledger before enabling the workflow retry path.
+- The QA alert sends the run ID as the legacy entity ID and uses the stable `Idempotency-Key: print-qa-critical:<runId>`. The deployed legacy Notification Engine reports per-recipient outcomes and can return HTTP 200 for a partial send. The workflow retries only a confirmed manager lookup failure, which happens before dispatch. It records partial, accepted and unknown delivery separately from confirmed sends, and a lost response does not trigger a resend. This path also accepts explicit delivery status from a ledger-enabled engine.
 - Manager lookup and notification dispatch failures return structured reasons. After the final unsuccessful alert attempt, the workflow logs an ERROR with event `print_qa_alert_delivery_failed`, story and run IDs, QA status and reason. This also covers a successful manager lookup with an empty recipient list.
 
 ### Memory profiling

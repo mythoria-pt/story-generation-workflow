@@ -264,7 +264,12 @@ describe('print quality routes', () => {
     expect(sendPrintQaCriticalEmailMock).not.toHaveBeenCalled();
   });
 
-  it('returns sent false when notification delivery fails', async () => {
+  it.each([
+    ['failed', 'dispatch_failed'],
+    ['partial', 'dispatch_partial'],
+    ['unknown', 'dispatch_unknown'],
+    ['accepted', 'dispatch_accepted'],
+  ])('returns a nonretryable response when the dispatch outcome is %s', async (status, reason) => {
     storyServiceMock.getStory.mockResolvedValue({
       storyId: '00000000-0000-4000-8000-000000000501',
       title: 'Admin Alert Story',
@@ -276,7 +281,7 @@ describe('print quality routes', () => {
         email: 'admin1@example.com',
       },
     ]);
-    sendPrintQaCriticalEmailMock.mockResolvedValue(false);
+    sendPrintQaCriticalEmailMock.mockResolvedValue(status);
 
     const response = await request(app)
       .post('/internal/print/quality-alert')
@@ -297,8 +302,8 @@ describe('print quality routes', () => {
         ],
       });
 
-    expect(response.status).toBe(502);
-    expect(response.body).toEqual({ sent: false, recipientCount: 1, reason: 'dispatch_failed' });
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ sent: false, recipientCount: 1, reason });
   });
 
   it('reports manager lookup errors separately from an empty manager list', async () => {
@@ -349,7 +354,7 @@ describe('print quality routes', () => {
         email: 'admin2@example.com',
       },
     ]);
-    sendPrintQaCriticalEmailMock.mockResolvedValue(true);
+    sendPrintQaCriticalEmailMock.mockResolvedValue('sent');
 
     const response = await request(app)
       .post('/internal/print/quality-alert')

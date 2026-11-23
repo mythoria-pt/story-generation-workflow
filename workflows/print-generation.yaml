@@ -199,7 +199,7 @@ main:
                               printResult: ${activePrintResult}
                           result: qaAlertResult
                         retry:
-                          predicate: ${http.default_retry_predicate}
+                          predicate: ${retryPrintQaAlertBeforeDispatch}
                           max_retries: 2
                           backoff:
                             initial_delay: 2
@@ -376,3 +376,10 @@ main:
             # Re-raise the exception
             - raiseError:
                 raise: ${e}
+
+# A lost or ambiguous POST response can conceal a completed legacy email send.
+retryPrintQaAlertBeforeDispatch:
+  params: [error]
+  steps:
+    - checkReason:
+        return: ${map.get(error, "code") == 502 and map.get(error, ["body", "reason"]) == "manager_lookup_failed"}

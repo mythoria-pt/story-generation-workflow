@@ -29,71 +29,86 @@ describe('sendPrintQaCriticalEmail', () => {
     process.env = { ...originalEnv };
   });
 
+  const first = { recipient: 'admin1@example.com', success: true };
+  const second = { recipient: 'admin2@example.com', success: true };
+  const legacy = (results: (typeof first)[], successful: number, idempotent = false) => ({
+    success: successful > 0,
+    data: { results, summary: { total: 2, successful, failed: 2 - successful }, idempotent },
+  });
+
   it.each([
-    [200, 'sent', true],
-    [202, 'pending', false],
-    [202, 'unknown', false],
-  ])(
-    'posts a run-scoped alert and handles HTTP %i (%s)',
-    async (status, deliveryStatus, expected) => {
-      fetchMock.mockResolvedValue({
-        ok: true,
-        status,
-        json: async () => ({ success: true, data: { deliveryStatus } }),
-      });
+    [200, { success: true, data: { deliveryStatus: 'sent' } }, 'sent'],
+    [202, { success: true, data: { deliveryStatus: 'pending' } }, 'accepted'],
+    [202, { success: true, data: { deliveryStatus: 'unknown' } }, 'unknown'],
+    [200, legacy([first, second], 2), 'sent'],
+    [200, legacy([first, second], 2, true), 'sent'],
+    [200, legacy([first, { ...second, success: false }], 1), 'partial'],
+    [
+      500,
+      legacy(
+        [first, second].map((r) => ({ ...r, success: false })),
+        0,
+      ),
+      'failed',
+    ],
+    [200, legacy([first, first], 2), 'unknown'],
+    [200, { success: true, data: { messageId: 'ambiguous-for-batch' } }, 'unknown'],
+    [502, null, 'unknown'],
+    [undefined, undefined, 'unknown'],
+  ])('posts a run-scoped alert and handles HTTP %s (%j)', async (status, response, expected) => {
+    if (status === undefined) fetchMock.mockRejectedValue(new Error('connection lost'));
+    else fetchMock.mockResolvedValue({ status, json: async () => response });
 
-      const { sendPrintQaCriticalEmail } = await import('@/services/notification-client.js');
-      const sent = await sendPrintQaCriticalEmail({
-        storyId: 'story-1',
-        storyTitle: 'The Hidden Valley',
-        runId: 'run-1',
-        reportUrl: 'https://storage.googleapis.com/test-bucket/story-1/print/qa/report.json',
-        recipientCount: 2,
-        recipients: [
-          { email: 'admin1@example.com', name: 'Admin One', language: 'en-US' },
-          { email: 'admin2@example.com', name: 'Admin Two', language: 'en-US' },
-        ],
-        criticalErrors: [
-          {
-            code: 'chapter_sparse_last_page',
-            message: 'Chapter 4 ends on an almost empty page.',
-            chapterNumber: 4,
-            pageNumbers: [51],
-            suggestedFix: 'Reflow the last two pages of chapter 4.',
-          },
-        ],
-        fixesApplied: [{ chapterNumber: 4, strategy: 'tighten-chapter-spacing-soft' }],
-        printResult: {
-          interiorPdfUrl: 'https://storage.googleapis.com/test-bucket/story-1/print/interior.pdf',
-          coverPdfUrl: 'https://storage.googleapis.com/test-bucket/story-1/print/cover.pdf',
-          interiorCmykPdfUrl:
-            'https://storage.googleapis.com/test-bucket/story-1/print/interior_cmyk.pdf',
-          coverCmykPdfUrl:
-            'https://storage.googleapis.com/test-bucket/story-1/print/cover_cmyk.pdf',
+    const { sendPrintQaCriticalEmail } = await import('@/services/notification-client.js');
+    const sent = await sendPrintQaCriticalEmail({
+      storyId: 'story-1',
+      storyTitle: 'The Hidden Valley',
+      runId: 'run-1',
+      reportUrl: 'https://storage.googleapis.com/test-bucket/story-1/print/qa/report.json',
+      recipientCount: 2,
+      recipients: [
+        { email: 'admin1@example.com', name: 'Admin One', language: 'en-US' },
+        { email: 'admin2@example.com', name: 'Admin Two', language: 'en-US' },
+      ],
+      criticalErrors: [
+        {
+          code: 'chapter_sparse_last_page',
+          message: 'Chapter 4 ends on an almost empty page.',
+          chapterNumber: 4,
+          pageNumbers: [51],
+          suggestedFix: 'Reflow the last two pages of chapter 4.',
         },
-      });
+      ],
+      fixesApplied: [{ chapterNumber: 4, strategy: 'tighten-chapter-spacing-soft' }],
+      printResult: {
+        interiorPdfUrl: 'https://storage.googleapis.com/test-bucket/story-1/print/interior.pdf',
+        coverPdfUrl: 'https://storage.googleapis.com/test-bucket/story-1/print/cover.pdf',
+        interiorCmykPdfUrl:
+          'https://storage.googleapis.com/test-bucket/story-1/print/interior_cmyk.pdf',
+        coverCmykPdfUrl: 'https://storage.googleapis.com/test-bucket/story-1/print/cover_cmyk.pdf',
+      },
+    });
 
-      expect(sent).toBe(expected);
-      expect(fetchMock).toHaveBeenCalledWith(
-        'https://notify.example.com/email/template',
-        expect.objectContaining({
-          method: 'POST',
-          headers: expect.objectContaining({
-            Authorization: 'Bearer notify-key',
-            'X-API-Key': 'notify-key',
-            'Idempotency-Key': 'print-qa-critical:run-1',
-          }),
-          body: expect.any(String),
+    expect(sent).toBe(expected);
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://notify.example.com/email/template',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer notify-key',
+          'X-API-Key': 'notify-key',
+          'Idempotency-Key': 'print-qa-critical:run-1',
         }),
-      );
+        body: expect.any(String),
+      }),
+    );
 
-      const [, request] = fetchMock.mock.calls[0] as [string, { body: string }];
-      const payload = JSON.parse(request.body);
-      expect(payload.templateId).toBe('print-qa-critical');
-      expect(payload.recipients).toHaveLength(2);
-      expect(payload.variables.criticalErrors).toHaveLength(1);
-    },
-  );
+    const [, request] = fetchMock.mock.calls[0] as [string, { body: string }];
+    const payload = JSON.parse(request.body);
+    expect(payload.templateId).toBe('print-qa-critical');
+    expect(payload.recipients).toHaveLength(2);
+    expect(payload.variables.criticalErrors).toHaveLength(1);
+  });
 });
 
 describe('sendStoryPrintInstructionsEmail delivery status', () => {
