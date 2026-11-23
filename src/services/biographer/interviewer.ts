@@ -105,9 +105,10 @@ export async function whisper(input: z.infer<typeof whispererRequest>) {
     },
     { allowFallback: false },
   );
+  const request = JSON.stringify(input);
   const startedAt = performance.now();
   const text = await service
-    .complete(JSON.stringify(input), {
+    .complete(request, {
       systemInstruction: `${WHISPERER_INSTRUCTION}
 Assess characters, setting and plot from the author's own answers, brief, character names and captions. Mark each missing when absent, developing when present but still too vague to use, or ready when sufficient to start writing:
 - characters: an identifiable focal person, fictional character or group, plus at least one usable distinguishing story detail about them, such as a specific action, trait, goal, habit, shared ritual or relationship dynamic. A name, alias, role or relationship can identify the subject. A team name, a family relationship or a broad quality such as “team spirit” alone leaves characters developing. A concrete action in a scene can satisfy both characters and plot. An unnamed subject can be ready if their role or description identifies them and there is a distinguishing detail.
@@ -128,6 +129,8 @@ An explicitly delegated decision satisfies the area it covers. For characters, d
     .finally(() => {
       logger.info('Story Whisperer interview model timing', {
         requestQuestion: input.requestQuestion,
+        turnCount: input.turns.length,
+        payloadBytes: Buffer.byteLength(request),
         durationMs: Math.round(performance.now() - startedAt),
       });
     });
