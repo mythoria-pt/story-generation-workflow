@@ -104,14 +104,23 @@ export async function runDurableStructureJob(
         ),
       );
   } catch (error) {
+    const refusalCodes = [
+      'PROHIBITED_CONTENT',
+      'SAFETY',
+      'moderation_blocked',
+      'content_policy_violation',
+    ];
+    const declined =
+      error instanceof Error && 'code' in error && refusalCodes.includes(String(error.code));
+    const failure = declined ? 'STORY_CONTENT_DECLINED' : 'Story structuring failed';
     logger.error('Durable structure job failed', {
       jobId: id,
       storyId: params.storyId,
-      error: error instanceof Error ? error.message : String(error),
+      error: failure,
     });
     await db
       .update(structureJobs)
-      .set({ status: 'failed', error: 'Story structuring failed', updatedAt: new Date() })
+      .set({ status: 'failed', error: failure, updatedAt: new Date() })
       .where(eq(structureJobs.id, id));
   }
 }

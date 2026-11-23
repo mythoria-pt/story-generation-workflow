@@ -933,7 +933,13 @@ router.post('/media/analyze-character-photo', async (req, res) => {
  * sibling `.json` metadata next to it. Idempotent: re-calling overwrites the JSON.
  * Body: { objectPath: string, locale?: string, authorId?: uuid }
  */
+function mediaRequestId(value: string | undefined) {
+  return value && z.string().uuid().safeParse(value).success ? value : randomUUID();
+}
+
 router.post('/media/analyze-image', async (req, res) => {
+  const requestId = mediaRequestId(req.get('x-request-id'));
+  res.set('x-request-id', requestId);
   try {
     const Schema = z.object({
       objectPath: z.string().min(1),
@@ -942,11 +948,10 @@ router.post('/media/analyze-image', async (req, res) => {
     });
     const { objectPath, locale, authorId } = Schema.parse(req.body);
 
-    const metadata = await analyzeInputImage(
-      objectPath,
-      locale || 'en-US',
-      authorId ? { authorId } : undefined,
-    );
+    const metadata = await analyzeInputImage(objectPath, locale || 'en-US', {
+      ...(authorId ? { authorId } : {}),
+      requestId,
+    });
 
     res.json({ success: true, objectPath, metadata });
   } catch (error) {
@@ -956,7 +961,10 @@ router.post('/media/analyze-image', async (req, res) => {
     }
 
     const errorMessage = error instanceof Error ? error.message : String(error);
-    logger.error('Failed to analyze input image', { error: errorMessage });
+    logger.error('Failed to analyze input image', {
+      requestId,
+      timeout: errorMessage.includes('timed out'),
+    });
 
     if (errorMessage.includes('timed out')) {
       res
@@ -976,6 +984,10 @@ router.post('/media/analyze-image', async (req, res) => {
  * Body: { authorId: uuid, kind: 'image'|'audio', contentType: string, dataUrl: string }
  */
 router.post('/media/upload', async (req, res) => {
+  const requestId = mediaRequestId(req.get('x-request-id'));
+  res.set('x-request-id', requestId);
+  const started = performance.now();
+  let stage = 'validation';
   try {
     const Schema = z.object({
       authorId: z.string().uuid(),
@@ -986,6 +998,7 @@ router.post('/media/upload', async (req, res) => {
     const { authorId, kind, contentType, dataUrl } = Schema.parse(req.body);
 
     // Decode data URL or raw base64
+    stage = 'decode';
     let mime = contentType;
     let b64 = dataUrl;
     const match = /^data:([^;]+);base64,(.*)$/.exec(dataUrl);
@@ -995,6 +1008,8 @@ router.post('/media/upload', async (req, res) => {
     }
     const rawBuffer = Buffer.from(b64, 'base64');
 
+    const decoded = performance.now();
+    stage = 'normalize';
     // Store under the author's inputs folder with a unique id
     const id = randomUUID();
     const folder = `${authorId}/inputs`;
@@ -1016,13 +1031,25 @@ router.post('/media/upload', async (req, res) => {
       objectPath = `${folder}/${id}.${audioExtFromMime(mime)}`;
     }
 
+    const normalized = performance.now();
+    stage = 'storage';
     const publicUrl = await storageService.uploadFile(objectPath, buffer, storedMime);
+    logger.info('Story input upload timings', {
+      requestId,
+      kind,
+      inputBytes: rawBuffer.length,
+      storedBytes: buffer.length,
+      decodeMs: Math.round(decoded - started),
+      normalizeMs: Math.round(normalized - decoded),
+      storageMs: Math.round(performance.now() - normalized),
+    });
 
     res.json({ success: true, authorId, kind, objectPath, publicUrl });
   } catch (error) {
-    res.status(400).json({
+    logger.warn('Story input upload failed', { requestId, stage });
+    res.status(stage === 'storage' ? 502 : 400).json({
       success: false,
-      error: error instanceof Error ? error.message : String(error),
+      error: stage === 'storage' ? 'Storage unavailable' : 'Invalid media upload',
     });
   }
 });

@@ -19,6 +19,7 @@ import type { Box2d } from '@/utils/imageProcessing.js';
 
 const aiGateway = getAIGatewayWithTokenTracking();
 type ImageAnalysisOptions = {
+  requestId?: string;
   authorId?: string;
   storage?: ReturnType<typeof getStorageService>;
   privateContent?: boolean;
@@ -93,6 +94,7 @@ export async function analyzeInputImage(
 ): Promise<ImageMetadata> {
   const storage = opts?.storage ?? getStorageService();
 
+  const started = performance.now();
   const readPhoto = async () => {
     const meta = await storage
       .getFileMetadata(objectPath)
@@ -106,6 +108,7 @@ export async function analyzeInputImage(
   if (!photo) throw new Error('Story draft is unavailable');
   const { buffer, mimeType } = photo;
 
+  const downloaded = performance.now();
   const languageName = getLanguageName(locale);
   const promptTemplate = await PromptService.loadSharedPrompt('image-analysis');
   const { systemInstruction, userPrompt } = PromptService.buildParts(promptTemplate, {
@@ -120,8 +123,13 @@ export async function analyzeInputImage(
     action: 'image_analysis',
   });
 
+  const modelStarted = performance.now();
+  let timer: ReturnType<typeof setTimeout> | undefined;
   const timeoutPromise = new Promise<never>((_, reject) => {
-    setTimeout(() => reject(new Error('Image analysis request timed out')), ANALYSIS_TIMEOUT_MS);
+    timer = setTimeout(
+      () => reject(new Error('Image analysis request timed out')),
+      ANALYSIS_TIMEOUT_MS,
+    );
   });
 
   const analysisPromise = service.complete(userPrompt, {
@@ -136,7 +144,10 @@ export async function analyzeInputImage(
     ...(opts?.privateContent ? { privateContent: true } : {}),
   });
 
-  const raw = await Promise.race([analysisPromise, timeoutPromise]);
+  const raw = await Promise.race([analysisPromise, timeoutPromise]).finally(() =>
+    clearTimeout(timer),
+  );
+  const modelFinished = performance.now();
   const parsed = parseAIResponse(raw);
   if (!parsed || typeof parsed !== 'object') {
     throw new Error('Invalid image metadata response from AI');
@@ -157,8 +168,11 @@ export async function analyzeInputImage(
   else await writeMetadata();
 
   logger.info('Image analysis complete', {
-    objectPath,
-    jsonPath,
+    requestId: opts?.requestId,
+    downloadMs: Math.round(downloaded - started),
+    inferenceMs: Math.round(modelFinished - modelStarted),
+    persistMs: Math.round(performance.now() - modelFinished),
+    inputBytes: buffer.length,
     provider,
     type: metadata.overallImageContent,
     characterCount: metadata.characters.length,
