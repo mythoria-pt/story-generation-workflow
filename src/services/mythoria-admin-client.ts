@@ -28,11 +28,11 @@ export class MythoriaAdminClient {
 
   async getManagers(): Promise<MythoriaAdminManager[]> {
     if (!this.baseUrl || !this.apiKey) {
-      logger.warn('Mythoria admin client not configured; skipping manager fetch', {
+      logger.error('Mythoria admin client is missing configuration', {
         hasBaseUrl: !!this.baseUrl,
         hasApiKey: !!this.apiKey,
       });
-      return [];
+      throw new Error('Mythoria Admin client is not configured');
     }
 
     const url = `${this.baseUrl}/api/admin/managers`;
@@ -43,23 +43,19 @@ export class MythoriaAdminClient {
     };
 
     try {
-      const response = await fetch(url, { method: 'GET', headers });
+      const response = await fetch(url, {
+        method: 'GET',
+        headers,
+        signal: AbortSignal.timeout(15_000),
+      });
       if (!response.ok) {
-        const body = await response.text();
-        logger.error('Failed to fetch Mythoria admin managers', {
-          status: response.status,
-          statusText: response.statusText,
-          body,
-        });
-        return [];
+        await response.body?.cancel();
+        throw new Error(`Mythoria Admin managers request failed with HTTP ${response.status}`);
       }
 
       const payload = (await response.json()) as ManagersResponse;
       if (!payload || !Array.isArray(payload.data)) {
-        logger.error('Unexpected Mythoria admin managers payload', {
-          payloadType: typeof payload,
-        });
-        return [];
+        throw new Error('Mythoria Admin returned an invalid managers payload');
       }
 
       return payload.data.filter(
@@ -71,7 +67,7 @@ export class MythoriaAdminClient {
         error: error instanceof Error ? error.message : String(error),
         url,
       });
-      return [];
+      throw error;
     }
   }
 }

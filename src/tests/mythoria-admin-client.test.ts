@@ -61,7 +61,7 @@ describe('MythoriaAdminClient', () => {
     );
   });
 
-  it('returns an empty list when the admin API call fails', async () => {
+  it('surfaces a failed manager lookup', async () => {
     fetchMock.mockResolvedValue({
       ok: false,
       status: 500,
@@ -71,8 +71,6 @@ describe('MythoriaAdminClient', () => {
 
     const { MythoriaAdminClient } = await import('@/services/mythoria-admin-client.js');
     const client = new MythoriaAdminClient();
-    const managers = await client.getManagers();
-
-    expect(managers).toEqual([]);
+    await expect(client.getManagers()).rejects.toThrow('HTTP 500');
   });
 });

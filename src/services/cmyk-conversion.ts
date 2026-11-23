@@ -486,18 +486,16 @@ export class CMYKConversionService {
         subject: `${normalizedMetadata.subject || 'Story'} - Interior`,
       };
 
-      await Promise.all([
-        this.convertToCMYK({
-          inputPath: interiorPath,
-          outputPath: colorPath,
-          metadata: interiorMetadata,
-        }),
-        this.convertToGrayscale({
-          inputPath: interiorPath,
-          outputPath: grayPath,
-          metadata: normalizedMetadata,
-        }),
-      ]);
+      await this.convertToCMYK({
+        inputPath: interiorPath,
+        outputPath: colorPath,
+        metadata: interiorMetadata,
+      });
+      await this.convertToGrayscale({
+        inputPath: interiorPath,
+        outputPath: grayPath,
+        metadata: normalizedMetadata,
+      });
 
       await this.mergeSelectivePages(colorPath, grayPath, sortedImagePageNumbers, interiorCMYKPath);
       return interiorCMYKPath;
@@ -534,18 +532,19 @@ export class CMYKConversionService {
       selectiveConversionEnabled: sortedImagePageNumbers.length > 0,
     });
 
-    // Convert both PDFs in parallel for efficiency
-    const [interiorResult, coverResult] = await Promise.all([
-      this.convertInteriorToCMYK(interiorPath, normalizedMetadata, sortedImagePageNumbers),
-      this.convertToCMYK({
-        inputPath: coverPath,
-        outputPath: coverCMYKPath,
-        metadata: {
-          ...normalizedMetadata,
-          subject: `${normalizedMetadata.subject || 'Story'} - Cover`,
-        },
-      }),
-    ]);
+    const interiorResult = await this.convertInteriorToCMYK(
+      interiorPath,
+      normalizedMetadata,
+      sortedImagePageNumbers,
+    );
+    const coverResult = await this.convertToCMYK({
+      inputPath: coverPath,
+      outputPath: coverCMYKPath,
+      metadata: {
+        ...normalizedMetadata,
+        subject: `${normalizedMetadata.subject || 'Story'} - Cover`,
+      },
+    });
 
     return {
       interiorCMYK: interiorResult as string,

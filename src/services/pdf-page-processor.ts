@@ -1,7 +1,6 @@
 import { PDFDict, PDFDocument, PDFName, PDFStream } from 'pdf-lib';
 import { readFileSync, writeFileSync } from 'fs';
 import { logger } from '@/config/logger.js';
-import { PDFParse } from 'pdf-parse';
 import { PRINT_FRONT_MATTER_PAGE_COUNT } from '@/services/print-layout-constants.js';
 
 export interface PageProcessingResult {
@@ -15,78 +14,38 @@ export interface PageProcessingResult {
   imagePagesDetected: number[];
 }
 
+function hasImageResource(resources: PDFDict | undefined, visited: Set<PDFDict>): boolean {
+  if (!resources || visited.has(resources)) return false;
+  visited.add(resources);
+
+  const xObjects = resources.lookupMaybe(PDFName.of('XObject'), PDFDict);
+  if (!xObjects) return false;
+
+  return xObjects.keys().some((key) => {
+    const stream = xObjects.lookupMaybe(key, PDFStream);
+    if (!stream) return false;
+
+    const subtype = stream.dict.lookupMaybe(PDFName.of('Subtype'), PDFName)?.asString();
+    return (
+      subtype === '/Image' ||
+      (subtype === '/Form' &&
+        hasImageResource(stream.dict.lookupMaybe(PDFName.of('Resources'), PDFDict), visited))
+    );
+  });
+}
+
+/** Chrome's printed images are PDF XObjects. Inspect their resources without decoding pixels. */
+export function findPrintImagePages(pdfDoc: PDFDocument): Set<number> {
+  const pagesWithImages = new Set<number>();
+  for (const [index, page] of pdfDoc.getPages().entries()) {
+    if (hasImageResource(page.node.Resources(), new Set())) {
+      pagesWithImages.add(index + 1);
+    }
+  }
+  return pagesWithImages;
+}
+
 export class PDFPageProcessor {
-  private detectImagePagesWithPdfLib(pdfDoc: PDFDocument): Set<number> {
-    const imagePages = new Set<number>();
-    const pages = pdfDoc.getPages();
-
-    for (let i = 0; i < pages.length; i++) {
-      const page = pages[i];
-      const node = (page as any).node;
-      if (!node || typeof node.Resources !== 'function') continue;
-
-      const resources = node.Resources();
-      const xObject = resources?.lookupMaybe(PDFName.of('XObject'), PDFDict);
-      if (!xObject) continue;
-
-      for (const key of xObject.keys()) {
-        const xObj = xObject.lookupMaybe(key, PDFStream);
-        const subtype = xObj?.dict?.lookupMaybe(PDFName.of('Subtype'), PDFName);
-        const subtypeName = subtype?.asString();
-        if (subtypeName === '/Image' || subtypeName === 'Image') {
-          imagePages.add(i + 1);
-          break;
-        }
-      }
-    }
-
-    return imagePages;
-  }
-
-  private async getImagePageNumbers(parser: PDFParse, pdfDoc: PDFDocument): Promise<Set<number>> {
-    logger.debug('Starting image detection', {
-      totalPages: pdfDoc.getPageCount(),
-      method: 'pdf-parse',
-    });
-
-    try {
-      const images = await parser.getImage({
-        imageThreshold: 0,
-        imageBuffer: false,
-        imageDataUrl: false,
-      });
-      const pagesWithImages = images.pages
-        .filter((page) => page.images.length > 0)
-        .map((page) => page.pageNumber);
-      if (pagesWithImages.length > 0) {
-        logger.info('Images detected with pdf-parse', {
-          imagePages: pagesWithImages.sort((a, b) => a - b),
-          imageCount: pagesWithImages.length,
-          totalPages: pdfDoc.getPageCount(),
-        });
-        return new Set(pagesWithImages);
-      }
-    } catch (error) {
-      logger.warn('Failed to detect images with pdf-parse', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-
-    const fallbackPages = this.detectImagePagesWithPdfLib(pdfDoc);
-    if (fallbackPages.size > 0) {
-      logger.info('Images detected with pdf-lib fallback', {
-        imagePages: [...fallbackPages].sort((a, b) => a - b),
-        imageCount: fallbackPages.size,
-        totalPages: pdfDoc.getPageCount(),
-      });
-    } else {
-      logger.warn('No images detected by either method', {
-        totalPages: pdfDoc.getPageCount(),
-      });
-    }
-    return fallbackPages;
-  }
-
   private buildInitialOrder(totalPages: number): number[] {
     return Array.from({ length: totalPages }, (_, index) => index);
   }
@@ -151,64 +110,56 @@ export class PDFPageProcessor {
 
     const pdfBytes = readFileSync(inputPath);
     const sourcePdf = await PDFDocument.load(pdfBytes);
-    const parser = new PDFParse({ data: pdfBytes });
+    const originalPageCount = sourcePdf.getPageCount();
+    logger.info('PDF loaded for processing', {
+      totalPages: originalPageCount,
+      filePath: inputPath,
+    });
 
-    try {
-      const originalPageCount = sourcePdf.getPageCount();
-      logger.info('PDF loaded for processing', {
-        totalPages: originalPageCount,
-        filePath: inputPath,
-      });
+    const imagePages = findPrintImagePages(sourcePdf);
 
-      const imagePages = await this.getImagePageNumbers(parser, sourcePdf);
+    const initialOrder = this.buildInitialOrder(originalPageCount);
+    const { updatedOrder, swaps } = this.reorderOddImagePages(initialOrder, imagePages);
 
-      const initialOrder = this.buildInitialOrder(originalPageCount);
-      const { updatedOrder, swaps } = this.reorderOddImagePages(initialOrder, imagePages);
-
-      // Calculate final image page positions after reordering
-      const finalImagePages: number[] = [];
-      for (let newPosition = 0; newPosition < updatedOrder.length; newPosition++) {
-        const originalPageIndex = updatedOrder[newPosition];
-        if (originalPageIndex === undefined) continue;
-        const originalPageNumber = originalPageIndex + 1; // Convert to 1-based
-        if (imagePages.has(originalPageNumber)) {
-          finalImagePages.push(newPosition + 1); // Store as 1-based page number
-        }
-      }
-
-      logger.info('Image pages mapped after reordering', {
-        imagePagesBeforeReorder: [...imagePages].sort((a, b) => a - b),
-        imagePagesAfterReorder: finalImagePages.sort((a, b) => a - b),
-        reorderingApplied: swaps.length > 0,
-      });
-
-      const outputPdf = await PDFDocument.create();
-      const copiedPages = await outputPdf.copyPages(sourcePdf, updatedOrder);
-      copiedPages.forEach((page) => outputPdf.addPage(page));
-
-      const processedPdfBytes = await outputPdf.save();
-      writeFileSync(outputPath, processedPdfBytes);
-
-      const result: PageProcessingResult = {
-        originalPageCount,
-        finalPageCount: originalPageCount,
-        pagesDeleted: 0,
-        deletedPageNumbers: [],
-        processedFilePath: outputPath,
-        pagesReordered: swaps.length * 2,
-        reorderedPairs: swaps,
-        imagePagesDetected: finalImagePages.sort((a, b) => a - b),
-      };
-      logger.info('PDF page processing done', {
-        ...result,
-        note: 'imagePagesDetected contains FINAL positions after reordering',
-      });
-      return result;
-    } finally {
-      if (typeof parser.destroy === 'function') {
-        await parser.destroy();
+    // Calculate final image page positions after reordering
+    const finalImagePages: number[] = [];
+    for (let newPosition = 0; newPosition < updatedOrder.length; newPosition++) {
+      const originalPageIndex = updatedOrder[newPosition];
+      if (originalPageIndex === undefined) continue;
+      const originalPageNumber = originalPageIndex + 1; // Convert to 1-based
+      if (imagePages.has(originalPageNumber)) {
+        finalImagePages.push(newPosition + 1); // Store as 1-based page number
       }
     }
+
+    logger.info('Image pages mapped after reordering', {
+      imagePagesBeforeReorder: [...imagePages].sort((a, b) => a - b),
+      imagePagesAfterReorder: finalImagePages.sort((a, b) => a - b),
+      reorderingApplied: swaps.length > 0,
+    });
+
+    const outputPdf = await PDFDocument.create();
+    const copiedPages = await outputPdf.copyPages(sourcePdf, updatedOrder);
+    copiedPages.forEach((page) => outputPdf.addPage(page));
+
+    const processedPdfBytes = await outputPdf.save();
+    writeFileSync(outputPath, processedPdfBytes);
+
+    const result: PageProcessingResult = {
+      originalPageCount,
+      finalPageCount: originalPageCount,
+      pagesDeleted: 0,
+      deletedPageNumbers: [],
+      processedFilePath: outputPath,
+      pagesReordered: swaps.length * 2,
+      reorderedPairs: swaps,
+      imagePagesDetected: finalImagePages.sort((a, b) => a - b),
+    };
+    logger.info('PDF page processing done', {
+      ...result,
+      note: 'imagePagesDetected contains FINAL positions after reordering',
+    });
+    return result;
   }
 
   /**

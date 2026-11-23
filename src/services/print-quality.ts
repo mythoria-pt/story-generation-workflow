@@ -1,7 +1,10 @@
 import { mkdir, mkdtemp, readFile, rm } from 'fs/promises';
-import { join } from 'path';
+import { dirname, join } from 'path';
 import { tmpdir } from 'os';
 import { PDFParse } from 'pdf-parse';
+import { PDFDocument } from 'pdf-lib';
+import { findPrintImagePages } from '@/services/pdf-page-processor.js';
+import { logPrintMemory } from '@/services/print-memory.js';
 import { getEnvironment } from '@/config/environment.js';
 import { logger } from '@/config/logger.js';
 import { getAIGatewayWithTokenTracking } from '@/ai/gateway-with-tracking.js';
@@ -191,6 +194,8 @@ export class PrintQualityService {
     printResult: PrintQaAssetUrls;
   }): Promise<PrintQaCheckResult> {
     const tempDir = await mkdtemp(join(tmpdir(), 'mythoria-print-qa-'));
+    const context = { storyId: params.storyId, runId: params.runId };
+    let deliverable = params.printResult;
 
     try {
       const storyData = await this.storyService.getStoryForPrint(params.storyId);
@@ -198,10 +203,13 @@ export class PrintQualityService {
         throw new Error(`Story not found for print QA: ${params.storyId}`);
       }
 
+      await logPrintMemory('qa_asset_download_started', context);
       let assets = await this.downloadAssets(storyData, params.storyId, params.printResult);
+      await logPrintMemory('qa_deterministic_started', context);
       let deterministic = await this.runDeterministicChecks(storyData, assets);
       let fixesApplied: PrintQaFixApplied[] = [];
 
+      await logPrintMemory('qa_auto_fix_started', context);
       const autoFixResult = await this.tryAutoFixSparsePages({
         tempDir,
         storyId: params.storyId,
@@ -211,6 +219,7 @@ export class PrintQualityService {
       });
 
       if (autoFixResult) {
+        const baselineInteriorPdfBuffer = assets.interiorPdfBuffer;
         assets = {
           ...assets,
           interiorPdfBuffer: autoFixResult.interiorPdfBuffer,
@@ -234,9 +243,7 @@ export class PrintQualityService {
 
         await this.archiveAndPromoteAcceptedFix({
           storyId: params.storyId,
-          originalInteriorPdfBuffer: params.printResult.interiorPdfUrl
-            ? await this.storageService.downloadFileAsBuffer(`${params.storyId}/print/interior.pdf`)
-            : assets.interiorPdfBuffer,
+          originalInteriorPdfBuffer: baselineInteriorPdfBuffer,
           originalInteriorCmykBuffer: params.printResult.interiorCmykPdfUrl
             ? await this.storageService.downloadFileAsBuffer(
                 `${params.storyId}/print/interior_cmyk.pdf`,
@@ -245,6 +252,7 @@ export class PrintQualityService {
           acceptedAttempt: autoFixResult,
         });
 
+        deliverable = autoFixResult.printResult;
         await this.storyService.updateStoryPrintUrls(params.storyId, {
           interiorPdfUri:
             autoFixResult.printResult.interiorCmykPdfUrl ??
@@ -254,6 +262,7 @@ export class PrintQualityService {
         });
       }
 
+      await logPrintMemory('qa_visual_review_started', context);
       const aiReview = await this.runVisualAiReview({
         storyId: params.storyId,
         storyData,
@@ -282,6 +291,7 @@ export class PrintQualityService {
 
       const reportUrl = await this.uploadQaReport(params.storyId, report);
       const qaStatus = derivePrintQaStatus(report);
+      await logPrintMemory('qa_completed', context);
 
       return {
         qaStatus,
@@ -322,10 +332,12 @@ export class PrintQualityService {
           },
         ],
         warnings: [],
-        printResult: params.printResult,
+        printResult: deliverable,
       };
     } finally {
-      await rm(tempDir, { recursive: true, force: true });
+      await rm(tempDir, { recursive: true, force: true }).catch((error: unknown) => {
+        logger.warn('Failed to clean temporary print QA files', { ...context, error });
+      });
     }
   }
 
@@ -396,6 +408,7 @@ export class PrintQualityService {
     imagePages: Set<number>;
     totalPages: number;
   }> {
+    const imagePages = findPrintImagePages(await PDFDocument.load(buffer));
     const parser = new PDFParse({ data: buffer });
 
     try {
@@ -406,17 +419,9 @@ export class PrintQualityService {
       logger.debug('Print QA text extraction completed', {
         totalPages: textResult.total,
       });
-      const imageResult = await parser.getImage({
-        imageThreshold: 0,
-        imageBuffer: false,
-        imageDataUrl: false,
-      });
-      const imagePages = imageResult.pages
-        .filter((page) => page.images.length > 0)
-        .map((page) => page.pageNumber);
       logger.debug('Print QA image extraction completed', {
-        imagePageCount: imagePages.length,
-        imagePages,
+        imagePageCount: imagePages.size,
+        imagePages: [...imagePages],
       });
 
       return {
@@ -424,7 +429,7 @@ export class PrintQualityService {
           num: page.num,
           text: page.text,
         })),
-        imagePages: new Set(imagePages),
+        imagePages,
         totalPages: textResult.total,
       };
     } finally {
@@ -774,6 +779,7 @@ export class PrintQualityService {
             baselineSparseChapters: unresolvedSparseChapterNumbers,
             candidateSparseChapters: evaluation.candidate.sparseChapterNumbers,
           });
+          await rm(attemptDir, { recursive: true, force: true });
           continue;
         }
 
@@ -806,6 +812,7 @@ export class PrintQualityService {
             ),
             remainingRenderBudget,
           });
+          await rm(attemptDir, { recursive: true, force: true });
           const finalizedAttempt = await this.finalizeAcceptedAttempt({
             storyId: params.storyId,
             storyData: params.storyData,
@@ -816,6 +823,12 @@ export class PrintQualityService {
           return finalizedAttempt?.attemptIndex ? finalizedAttempt : null;
         }
 
+        if (currentAcceptedAttempt.interiorPdfPath) {
+          await rm(dirname(currentAcceptedAttempt.interiorPdfPath), {
+            recursive: true,
+            force: true,
+          });
+        }
         currentAcceptedAttempt = nextAcceptedAttempt;
         seenBaselineSignatures.add(nextBaselineSignature);
         acceptedCandidateThisPass = true;
@@ -963,16 +976,7 @@ export class PrintQualityService {
         error: error instanceof Error ? error.message : String(error),
       });
 
-      const printResult = await this.buildStablePrintUrls(params.storyId, {
-        interiorCmykGenerated: false,
-        coverCmykGenerated: params.coverCmykGenerated,
-      });
-
-      return {
-        ...params.acceptedAttempt,
-        printResult,
-        interiorCmykBuffer: null,
-      };
+      throw error;
     }
   }
 
@@ -1265,20 +1269,11 @@ export class PrintQualityService {
     return previews;
   }
 
-  private async uploadQaReport(storyId: string, report: PrintQaReport): Promise<string | null> {
-    try {
-      const reportPath = `${storyId}/print/qa/report.json`;
-      return await this.storageService.uploadFile(
-        reportPath,
-        Buffer.from(JSON.stringify(report, null, 2), 'utf-8'),
-        'application/json',
-      );
-    } catch (error) {
-      logger.error('Failed to upload print QA report', {
-        storyId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return null;
-    }
+  private async uploadQaReport(storyId: string, report: PrintQaReport): Promise<string> {
+    return this.storageService.uploadFile(
+      `${storyId}/print/qa/report.json`,
+      Buffer.from(JSON.stringify(report, null, 2), 'utf-8'),
+      'application/json',
+    );
   }
 }

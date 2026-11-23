@@ -384,9 +384,11 @@ internalPrintRouter.post('/quality-check', async (req, res) => {
     res.json(result);
   } catch (error) {
     logger.error('Unexpected error in print quality-check route', {
+      storyId: parsed.data.storyId,
+      runId: parsed.data.runId,
       error: error instanceof Error ? error.message : String(error),
     });
-    res.status(500).json({
+    res.json({
       qaStatus: 'review_failed',
       reportUrl: null,
       passCount: 0,
@@ -420,12 +422,26 @@ internalPrintRouter.post('/quality-alert', async (req, res) => {
   try {
     const [story, managers] = await Promise.all([
       storyService.getStory(storyId),
-      mythoriaAdminClient.getManagers(),
+      mythoriaAdminClient.getManagers().catch((error: unknown) => {
+        logger.error('Print QA manager lookup failed', {
+          event: 'print_qa_alert_attempt_failed',
+          reason: 'manager_lookup_failed',
+          storyId,
+          runId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return null;
+      }),
     ]);
 
     if (!story) {
       logger.warn('Story not found for print QA alert', { storyId, runId });
       res.json({ sent: false, recipientCount: 0, reason: 'story_not_found' });
+      return;
+    }
+
+    if (managers === null) {
+      res.status(502).json({ sent: false, recipientCount: 0, reason: 'manager_lookup_failed' });
       return;
     }
 
@@ -466,17 +482,30 @@ internalPrintRouter.post('/quality-alert', async (req, res) => {
       },
     });
 
-    res.json({
-      sent,
-      recipientCount: recipients.length,
-    });
+    if (!sent) {
+      logger.error('Print QA notification dispatch failed', {
+        event: 'print_qa_alert_attempt_failed',
+        reason: 'dispatch_failed',
+        storyId,
+        runId,
+        recipientCount: recipients.length,
+      });
+      res
+        .status(502)
+        .json({ sent: false, recipientCount: recipients.length, reason: 'dispatch_failed' });
+      return;
+    }
+
+    res.json({ sent, recipientCount: recipients.length });
   } catch (error) {
     logger.error('Failed to dispatch print QA alert', {
+      event: 'print_qa_alert_attempt_failed',
+      reason: 'unexpected_error',
       storyId,
       runId,
       error: error instanceof Error ? error.message : String(error),
     });
-    res.json({ sent: false, recipientCount: 0, reason: 'unexpected_error' });
+    res.status(500).json({ sent: false, recipientCount: 0, reason: 'unexpected_error' });
   }
 });
 
@@ -530,7 +559,7 @@ internalPrintRouter.post('/self-service/notify', async (req, res) => {
     if (!story) {
       logger.error('Story not found for self-print notification', { storyId, runId });
       await updateSelfPrintDeliveryStatus(runId, 'failed');
-      res.json({ success: false, reason: 'story_not_found' });
+      res.json({ success: false, deliveryStatus: 'failed', reason: 'story_not_found' });
       return;
     }
 
@@ -553,6 +582,7 @@ internalPrintRouter.post('/self-service/notify', async (req, res) => {
       });
       res.json({
         success: true,
+        deliveryStatus: 'not_requested',
         reason: resolvedOrigin === 'admin' ? 'suppressed_for_admin' : 'no_recipients',
       });
       return;
@@ -563,7 +593,7 @@ internalPrintRouter.post('/self-service/notify', async (req, res) => {
     if (!primaryRecipient) {
       logger.error('No primary recipient found for self-print notification', { storyId, runId });
       await updateSelfPrintDeliveryStatus(runId, 'failed');
-      res.json({ success: false, reason: 'no_recipients' });
+      res.json({ success: false, deliveryStatus: 'failed', reason: 'no_recipients' });
       return;
     }
     const normalizedRecipient: { email: string; name?: string; language?: string } = {
@@ -606,7 +636,7 @@ internalPrintRouter.post('/self-service/notify', async (req, res) => {
 
     const ccRecipients = dedupeRecipients([...ccFromRecipients, ...ccFromDeliveryEmails]);
 
-    const sendResult = await sendStoryPrintInstructionsEmail({
+    const deliveryStatus = await sendStoryPrintInstructionsEmail({
       storyId,
       storyTitle: story.title,
       workflowId: runId,
@@ -637,14 +667,29 @@ internalPrintRouter.post('/self-service/notify', async (req, res) => {
       storyId,
       runId,
       executionId,
-      sent: sendResult,
+      deliveryStatus,
       recipientCount: 1,
       ccCount: ccRecipients.length,
     });
 
-    await updateSelfPrintDeliveryStatus(runId, sendResult ? 'delivered' : 'failed');
+    const storedDeliveryStatuses = {
+      sent: 'delivered',
+      accepted: 'pending',
+      failed: 'failed',
+      not_requested: 'not_required',
+      unknown: 'unknown',
+    };
+    await updateSelfPrintDeliveryStatus(runId, storedDeliveryStatuses[deliveryStatus]).catch(
+      (error: unknown) => {
+        logger.error('Failed to persist self-print delivery status', { storyId, runId, error });
+      },
+    );
 
-    res.json({ success: sendResult, recipients: recipients.length });
+    res.json({
+      success: deliveryStatus === 'sent' || deliveryStatus === 'accepted',
+      deliveryStatus,
+      recipients: recipients.length,
+    });
   } catch (error) {
     await updateSelfPrintDeliveryStatus(runId, 'failed').catch(() => undefined);
     logger.error('Failed to send self-print notification', {
@@ -652,6 +697,6 @@ internalPrintRouter.post('/self-service/notify', async (req, res) => {
       runId,
       error: error instanceof Error ? error.message : String(error),
     });
-    res.json({ success: false, reason: 'unexpected_error' });
+    res.json({ success: false, deliveryStatus: 'failed', reason: 'unexpected_error' });
   }
 });

@@ -185,6 +185,9 @@ async function sendTemplateEmail(payload: {
       method: 'POST',
       headers,
       body,
+      ...(payload.templateId === 'print-qa-critical'
+        ? { signal: AbortSignal.timeout(30_000) }
+        : {}),
     });
 
     if (!response.ok) {
@@ -196,6 +199,16 @@ async function sendTemplateEmail(payload: {
         body: text,
       });
       return false;
+    }
+
+    if (payload.templateId === 'print-qa-critical') {
+      const result = (await response.json()) as {
+        success?: boolean;
+        data?: { deliveryStatus?: string };
+      };
+      return (
+        response.status === 200 && result.success === true && result.data?.deliveryStatus === 'sent'
+      );
     }
 
     await response.text();
@@ -214,13 +227,15 @@ export async function sendStoryCreatedEmail(payload: StoryCreatedEmailPayload): 
   return sendTemplateEmail(payload);
 }
 
+export type StoryPrintDeliveryStatus = 'sent' | 'accepted' | 'failed' | 'not_requested' | 'unknown';
+
 export async function sendStoryPrintInstructionsEmail(
   payload: StoryPrintInstructionsEmailPayload,
-): Promise<boolean> {
+): Promise<StoryPrintDeliveryStatus> {
   const env = getEnvironment();
   if (!env.NOTIFICATION_ENGINE_URL) {
     logger.warn('Notification Engine URL not configured; skipping story-print email');
-    return false;
+    return 'failed';
   }
 
   const baseUrl = env.NOTIFICATION_ENGINE_URL.replace(/\/$/, '');
@@ -239,7 +254,7 @@ export async function sendStoryPrintInstructionsEmail(
       storyId: payload.storyId,
       workflowId: payload.workflowId,
     });
-    return false;
+    return 'failed';
   }
 
   const requestBody: Record<string, unknown> = {
@@ -302,21 +317,30 @@ export async function sendStoryPrintInstructionsEmail(
         statusText: response.statusText,
         body: text,
       });
-      return false;
+      return 'failed';
     }
 
-    logger.info('story-print email dispatched successfully', {
-      storyId: payload.storyId,
-      workflowId: payload.workflowId,
-    });
-    return true;
+    type Outcome = {
+      success?: boolean;
+      deliveryStatus?: string;
+      data?: { deliveryStatus?: string; reason?: string };
+    };
+    const result = (await response.json()) as Outcome & { result?: Outcome };
+    const outcome = result.result ?? result;
+    if (result.success === false || outcome.success === false) return 'failed';
+    if (outcome.data?.reason === 'suppressed_for_admin_origin') return 'not_requested';
+
+    const status = outcome.data?.deliveryStatus ?? outcome.deliveryStatus;
+    if (status === 'sent') return 'sent';
+    if (status === 'pending' || status === 'sending') return 'accepted';
+    return status === 'failed' ? 'failed' : 'unknown';
   } catch (error) {
     logger.error('Error calling notification engine for story-print email', {
       error: error instanceof Error ? error.message : String(error),
       storyId: payload.storyId,
       workflowId: payload.workflowId,
     });
-    return false;
+    return 'unknown';
   }
 }
 

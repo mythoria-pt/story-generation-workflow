@@ -27,8 +27,8 @@ When `skipQA` is `true`, `print-generation.yaml` skips the `qualityCheckPDF` and
 ### Self-print workflow hooks
 
 - `POST /print/self-service` receives requests from the web app, dedupes recipients (author auto-added when possible), reserves the supplied workflow ID, and launches `print-generation` only once.
-- The workflow payload contains `delivery` metadata (locale, requestedBy, etc.) so `print-generation.yaml` can call `/internal/print/self-service/notify` only after QA finishes. Customer emails therefore always reference the post-QA assets, including any accepted interior reflow fix.
-- Self-print delivery is never blocked by a completed QA report with critical findings. SGW promotes the best safe PDF set, keeps the findings internal/admin-only, and records an operational alert. A technical QA failure that cannot produce a trustworthy report fails the run.
+- The workflow payload contains `delivery` metadata (locale, requestedBy, etc.) so `print-generation.yaml` can call `/internal/print/self-service/notify` only after QA finishes. Customer emails use the generated assets or the set promoted by QA, including any accepted interior reflow fix.
+- Generated PDFs remain deliverable after critical QA findings, an internal QA failure, a QA timeout, or an instance termination. QA reports `review_failed` when it cannot complete. The workflow uses the generated PDFs if QA returns no result, and calls the operational alert endpoint with a synthetic finding.
 - `RunsService` persists `gcpWorkflowExecution` (Cloud Workflows execution id) allowing Notification Engine to echo the identifier back inside `metadata.workflowExecutionId` for observability dashboards.
 
 ### QA checks and auto-fix scope
@@ -38,7 +38,33 @@ When `skipQA` is `true`, `print-generation.yaml` skips the `qualityCheckPDF` and
 - Intermediate QA attempts render only the RGB interior PDF needed for deterministic checks. Cover PDFs are reused unchanged, and CMYK work is deferred until the final accepted interior so the search does not waste time regenerating cover or CMYK assets for rejected candidates.
 - If the bounded search removes every sparse-ending critical, QA returns `passed_with_fixes`. If the search safely improves some chapters but leaves others unresolved, QA still promotes the best safe partial baseline, returns `critical_issues_remaining`, keeps `fixesApplied` populated, and includes the promoted PDF URLs in `printResult`. When the original run requested CMYK output, SGW regenerates the interior CMYK file once for the final accepted interior only.
 - Visual review is layered on top of the deterministic checks. QA uploads cover and chapter-opening preview PNGs, then asks Google GenAI for a JSON-only pre-press review focused on title visibility, logo/QR placement, bleed/composition, and obvious interior visual issues.
-- If critical issues remain after QA, the workflow still finishes as `completed`, but run metadata is enriched with `printQaStatus`, `printQaReportUrl`, counts, applied fixes, and whether an admin alert email was sent. PDF storage plus QA is the `self_print_completed` boundary; customer delivery runs afterwards and records delivery status without changing the completed product state.
+- The workflow records the PDFs and QA outcome on the completed run before customer email. Run metadata includes `printQaStatus`, `printQaReportUrl`, counts, applied fixes, `printQaAlertSent`, and `printQaAlertFailureReason`.
+
+### Delivery and alert outcomes
+
+- `printDeliveryStatus` starts as `pending` for customer delivery and `not_requested` for direct generation. The workflow persists `sent` after an explicit Notification Engine sent result, `accepted` while the engine reports pending or sending, `failed` after an explicit failure, and `unknown` when confirmation is unavailable. Provider completion is separate from PDF completion.
+- The QA alert uses the stable `Idempotency-Key: print-qa-critical:<runId>`. The workflow retries transient alert failures with the same key. Durable deduplication requires Notification Engine’s delivery ledger schema and migration to be active. Roll out the ledger before enabling the workflow retry path.
+- Manager lookup and notification dispatch failures return structured reasons. After the final unsuccessful alert attempt, the workflow logs an ERROR with event `print_qa_alert_delivery_failed`, story and run IDs, QA status and reason. This also covers a successful manager lookup with an empty recipient list.
+
+### Memory profiling
+
+During generation, the worker renders the interior and cover serially, converts them in sequence and uploads one PDF buffer at a time. It removes the per-run working directory on exit. QA keeps only the active candidate files and cleans its own working directory on exit.
+
+Filter SGW logs for `event=print_memory_sample` and the run ID to compare generation, PDF upload, QA downloads, deterministic checks, reflow, visual review and completion. Node fields are bytes. Linux cgroup v2 fields expose current usage, instance peak, limit and memory events when available. Peak values cover the lifetime of the process or cgroup, so compare neighboring samples and correlate with Cloud Run memory termination logs. Application code cannot log a final snapshot after the instance is killed.
+
+A local Node 24.18.1 macOS probe used a 24-page synthetic PDF with twelve 1,536×2,048 JPEG images alternating with text pages. The image extraction and resource scan found the same twelve pages. Stage results are independent runs.
+
+| Stage                                             |                           Measured peak |
+| ------------------------------------------------- | --------------------------------------: |
+| PDF.js text extraction                            |                        193 MiB Node RSS |
+| PDF.js image discovery with image output disabled |                        630 MiB Node RSS |
+| XObject resource inspection                       |                        157 MiB Node RSS |
+| Six 1,200-pixel visual previews                   |                        434 MiB Node RSS |
+| Ghostscript full-CMYK conversion                  | 197 MiB summed Node and Ghostscript RSS |
+| Chromium interior and cover rendering in parallel |  1,635 MiB summed Node and Chromium RSS |
+| Chromium interior and cover rendering serially    |  1,111 MiB summed Node and Chromium RSS |
+
+The Chromium comparison used four synthetic 1,536×2,048 illustrations and a separate single-image cover. Process-tree sampling ran every 50 ms. Summed RSS can count shared pages more than once. macOS has no Linux cgroup accounting, so these measurements do not establish a Cloud Run memory limit or reproduce an instance-level OOM.
 
 ## Configuration checklist
 
@@ -52,8 +78,7 @@ When `skipQA` is `true`, `print-generation.yaml` skips the `qualityCheckPDF` and
 
 ## Page layout processing (interior)
 
-- **Image detection:** `src/services/pdf-page-processor.ts` uses `pdf-parse@2.x` `getImage()` output to locate full-bleed chapter images (large embedded images starting at page 6 to skip front matter). No hidden `EMPTY-PAGE-MARKER` tags are required anymore. Image detection logs show which pages contain images in the original PDF.
-- **Blank page removal:** Pages with no extracted text or images are dropped to avoid accidental blank spreads (including the legacy trailing blank page in the template).
+- **Image detection:** Generation and deterministic QA inspect image XObject resources in the PDFs generated by Chromium, including images inside forms. This finds illustrated pages without decoding or rasterizing their pixels. Page reordering ignores front matter.
 - **Recto rule:** Chapters must open on an odd page. When the chapter image would land on an odd page, the processor flips the sequence so text comes first and the image moves after the chapter text. If the image is already on an even page, the existing image→text order is kept. Debug logs track both the original and final positions of image pages.
 - **Outputs:** `processPages` returns the reordered page map and the final image-page numbers (after reordering) so downstream CMYK conversion can keep art in color while grayscaling text pages. The `imagePagesDetected` array contains page numbers in their **final positions after reordering**, not their original positions.
 

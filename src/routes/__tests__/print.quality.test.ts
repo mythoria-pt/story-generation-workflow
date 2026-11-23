@@ -207,7 +207,7 @@ describe('print quality routes', () => {
     expect(response.body.criticalCount).toBe(2);
   });
 
-  it('fails the workflow contract when QA cannot produce a report', async () => {
+  it('returns the generated assets and requests an alert when QA throws', async () => {
     printQualityServiceMock.execute.mockRejectedValue(new Error('qa storage unavailable'));
 
     const response = await request(app)
@@ -221,8 +221,15 @@ describe('print quality routes', () => {
         },
       });
 
-    expect(response.status).toBe(500);
-    expect(response.body.qaStatus).toBe('review_failed');
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      qaStatus: 'review_failed',
+      alertNeeded: true,
+      printResult: {
+        interiorPdfUrl: 'https://storage.googleapis.com/bucket/interior.pdf',
+        coverPdfUrl: 'https://storage.googleapis.com/bucket/cover.pdf',
+      },
+    });
   });
 
   it('returns sent false when no admin recipients are available', async () => {
@@ -290,9 +297,39 @@ describe('print quality routes', () => {
         ],
       });
 
-    expect(response.status).toBe(200);
-    expect(response.body.sent).toBe(false);
-    expect(response.body.recipientCount).toBe(1);
+    expect(response.status).toBe(502);
+    expect(response.body).toEqual({ sent: false, recipientCount: 1, reason: 'dispatch_failed' });
+  });
+
+  it('reports manager lookup errors separately from an empty manager list', async () => {
+    storyServiceMock.getStory.mockResolvedValue({ title: 'Admin Alert Story' });
+    mythoriaAdminClientMock.getManagers.mockRejectedValue(new Error('manager API timed out'));
+
+    const response = await request(app)
+      .post('/internal/print/quality-alert')
+      .send({
+        storyId: '00000000-0000-4000-8000-000000000501',
+        runId: '00000000-0000-4000-8000-000000000502',
+        printResult: {
+          interiorPdfUrl: 'https://storage.googleapis.com/bucket/interior.pdf',
+          coverPdfUrl: 'https://storage.googleapis.com/bucket/cover.pdf',
+        },
+        criticalErrors: [
+          {
+            code: 'print_qa_unavailable',
+            severity: 'critical',
+            message: 'The print QA service did not return a report.',
+          },
+        ],
+      });
+
+    expect(response.status).toBe(502);
+    expect(response.body).toEqual({
+      sent: false,
+      recipientCount: 0,
+      reason: 'manager_lookup_failed',
+    });
+    expect(sendPrintQaCriticalEmailMock).not.toHaveBeenCalled();
   });
 
   it('dispatches the admin alert when recipients and notification delivery succeed', async () => {

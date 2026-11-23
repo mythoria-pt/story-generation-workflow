@@ -196,7 +196,7 @@ describe('print routers', () => {
       storyLanguage: 'pt-PT',
     });
     resolveMock(runsGetRunMock, { gcpWorkflowExecution: 'exec-321' });
-    resolveMock(sendInstructionsMock, true);
+    resolveMock(sendInstructionsMock, 'sent');
 
     const response = await request(app)
       .post('/internal/print/self-service/notify')
@@ -218,6 +218,7 @@ describe('print routers', () => {
 
     expect(response.status).toBe(200);
     expect(response.body.success).toBe(true);
+    expect(response.body.deliveryStatus).toBe('sent');
     expect(runsUpdateRunMock).toHaveBeenCalledWith(
       '00000000-0000-4000-8000-000000000987',
       expect.objectContaining({
@@ -251,7 +252,7 @@ describe('print routers', () => {
       storyLanguage: 'en-US',
     });
     resolveMock(runsGetRunMock, { gcpWorkflowExecution: 'exec-cc' });
-    resolveMock(sendInstructionsMock, true);
+    resolveMock(sendInstructionsMock, 'sent');
 
     const response = await request(app)
       .post('/internal/print/self-service/notify')
@@ -317,6 +318,7 @@ describe('print routers', () => {
 
     expect(response.status).toBe(200);
     expect(response.body.reason).toBe('suppressed_for_admin');
+    expect(response.body.deliveryStatus).toBe('not_requested');
     expect(sendStoryPrintInstructionsEmailMock).not.toHaveBeenCalled();
     expect(runsUpdateRunMock).toHaveBeenCalledWith(
       '00000000-0000-4000-8000-000000000999',

@@ -22,7 +22,18 @@ describe('print-generation workflow', () => {
     expect(workflow).toMatch(
       /- setOriginAdmin:[\s\S]*?- originGuess: 'admin'\s+next: setOriginDefault/,
     );
-    expect(workflow).toContain('printResult: ${qaResult.body.printResult}');
+    expect(workflow).toContain('printResult: ${activePrintResult}');
+    expect(workflow.indexOf('- saveGeneratedAssets:')).toBeLessThan(
+      workflow.indexOf('- qualityCheckPDF:'),
+    );
+    expect(workflow).toMatch(
+      /- qualityCheckPDF:[\s\S]*?except:\s+as: qaError[\s\S]*?qaStatus: 'review_failed'/,
+    );
+    expect(workflow).toMatch(
+      /- notifyPrintQaAdmins:[\s\S]*?except:\s+as: alertError[\s\S]*?- markRunCompleted:/,
+    );
+    expect(workflow).toContain('printQaAlertFailureReason: ${qaAlertFailureReason}');
+    expect(workflow).toContain("event: 'print_qa_alert_delivery_failed'");
     expect(workflow).toContain('/internal/runs/" + runId + "/claim');
     expect(workflow.indexOf('- markRunCompleted:')).toBeLessThan(
       workflow.indexOf('- notifySelfPrintCustomers:'),
