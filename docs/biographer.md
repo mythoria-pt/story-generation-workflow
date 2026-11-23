@@ -50,6 +50,37 @@ New proposals use saved memories and creator-provided context without external r
 
 New keys are in `.env.schema.json` and `src/config/environment.ts`: `BIOGRAPHER_ENABLED`, `BIOGRAPHER_LIVE_ENABLED`, `BIOGRAPHER_WEBAPP_URL`, `BIOGRAPHER_STORAGE_BUCKET`, `BIOGRAPHER_INTERNAL_API_KEY`, `BIOGRAPHER_ALLOWED_ORIGINS`, `BIOGRAPHER_GOOGLE_LOCATION`, `BIOGRAPHER_VOICE_NAME`, `BIOGRAPHER_MAX_CONNECTIONS`.
 
-Deploy the same built SGW image as a **separate Cloud Run service** with command `node`, argument `dist/biographer-live.js`, exact allowed origin and Secret Manager binding for the internal key. Choose request timeout/concurrency/max-instances after a bounded pilot; Cloud Run sockets expire and clients reconnect. Enable ADC only for required model/storage access. Do not enable the normal SGW process for browser access, alter existing service IAM, apply migrations or switch flags as part of a code-only release. Prepare required WebApp additive migration on an isolated DB first.
+### Private gateway staging
+
+The dedicated `biographer-live` service runs the approved SGW image digest in `europe-west9` with the entrypoint `node dist/biographer-live.js`. Keep the Cloud Run Invoker IAM check enabled and restrict invocation to authorized identities during staging. The manifest preserves the existing invoker policy on redeploy. Verify that policy before and after deploying. Private staging does not establish end-to-end browser, audio or Vertex readiness.
+
+The gateway logger is independent of the main SGW environment schema. Its startup check must pass without SQL credentials or the main SGW storage configuration. The gateway sends transcript and lease updates through the authenticated WebApp callbacks.
+
+On 2026-11-23, Cloud Run revision `biographer-live-00002-mcm` was staged privately at `https://biographer-live-x2qrlilyyq-od.a.run.app`. It uses the corrected image `gcr.io/oceanic-beach-460916-n5/story-generation-workflow@sha256:e0367adcb855d3a8a36d62208adc8f3ebec9ac2cf36327d8df52301fe87328a6` from build `f023f038-626b-4bf8-bbae-65236889c78d`. The image overlays the compiled gateway logger fix from `2d5f9bf` on the image built from `1afc824`. Future builds can compile the fixed source with the standard SGW Dockerfile. The private smoke test returned HTTP 403 without an identity and HTTP 200 with an authorized identity. With that identity the WebSocket handshake returned 101 for `https://mythoria.pt` and 401 for an unlisted origin. An admitted Gemini session and transcript persistence remain pilot checks.
+
+| Setting                 | Production staging value                                                                                                                                                                             |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Billing and capacity    | Request-based billing, 0 minimum and 5 maximum instances, 10 concurrent requests and 10 sockets per instance. An open socket keeps a request active.                                                 |
+| Transport               | HTTP/1 WebSocket upgrade on `/live`, container port 8080, 3,600-second request timeout. Clients reconnect after disconnection.                                                                       |
+| Runtime identity        | `biographer-live@oceanic-beach-460916-n5.iam.gserviceaccount.com`                                                                                                                                    |
+| Vertex access           | Project custom role `mythoriaBiographerLivePredict`, containing only `aiplatform.endpoints.predict`. The gateway requests `gemini-3.8-live` in `eu` using ADC.                                       |
+| WebApp callbacks        | Set `BIOGRAPHER_WEBAPP_URL` to the existing WebApp HTTPS `run.app` service URL. Set `BIOGRAPHER_ALLOWED_ORIGINS` to the exact pilot browser origin on both the WebApp and gateway.                   |
+| Callback authentication | Bind `BIOGRAPHER_INTERNAL_API_KEY` to Secret Manager version `1`. Grant the gateway identity secret accessor on this secret. Configure the same version on the WebApp for admission and checkpoints. |
+
+The normal SGW deployment and the gateway deployment are separate Cloud Run releases. Build a new SGW image when updating code, and use its digest to roll the gateway separately. To stage a revision, set `SGW_IMAGE_DIGEST` to the approved fully qualified image reference including `@sha256:…`, `WEBAPP_URL` to the WebApp Cloud Run service URL, and `WEBAPP_ORIGIN` to the public-facing HTTPS origin. Run from the SGW checkout. The build deploys the existing image without uploading source.
+
+```sh
+gcloud builds submit --no-source --config=cloudbuild.biographer.yaml \
+  --project=oceanic-beach-460916-n5 \
+  --substitutions="_IMAGE=${SGW_IMAGE_DIGEST},_SERVICE_ACCOUNT=biographer-live@oceanic-beach-460916-n5.iam.gserviceaccount.com,_WEBAPP_URL=${WEBAPP_URL},_WEBAPP_ORIGIN=${WEBAPP_ORIGIN},_INTERNAL_KEY_SECRET=BIOGRAPHER_INTERNAL_API_KEY,_INTERNAL_KEY_VERSION=1"
+```
+
+### Pilot activation and rollback
+
+1. Keep public admission disabled in the WebApp. Verify the WebApp-owned schema and runtime grants, and drain any legacy live leases before cutover. Deploy the normal SGW assessment endpoint before the matching WebApp revision.
+2. Configure the WebApp gateway URL as `wss://<gateway-host>/live`. The gateway process needs `BIOGRAPHER_LIVE_ENABLED=true` to start even in private staging. Verify private Cloud Run invocation, the allowed origin, the shared callback key and Vertex entitlement in `eu`.
+3. Keep the recovery-audio Scheduler job paused during staging. Follow the WebApp retention runbook to verify its OIDC audience, storage permissions and cleanup behavior before enabling the schedule. The cleanup endpoint can delete expired audio while public admission is disabled.
+4. For the approved pilot, open browser invocation on the dedicated gateway, retain application-level origin and ticket checks, and enable the WebApp pilot configuration. Verify a real-device voice turn, transcript checkpoint, reconnect, allowance enforcement and audio retention. On an otherwise idle instance, also test cancellation and forced disconnection of the last socket. Check that completed turns stay saved, user audio remains recoverable after an unexpected drop, and the voice allowance settles correctly. With request-based billing, work scheduled after the last request can be suspended.
+5. To roll back, disable new WebApp admissions first and allow existing sockets to drain. Restore private gateway invocation if ending the pilot. If a revision introduced the issue, direct gateway traffic back to the last approved image revision and verify its secret version remains available. Keep retention operating for captured audio unless the cleanup job itself requires rollback.
 
 Story Whisperer submits a standard wizard structure job and uses regular book pricing. Before a pilot, test provider entitlement and voice quality in the deployment region, real-device PCM playback, private photo access, retention, and author-wide allowance enforcement. The historical book proposal APIs remain available for compatibility.

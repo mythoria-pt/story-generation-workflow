@@ -1,4 +1,4 @@
-# Run only after the Biographer rollout gates in docs/biographer.md pass.
+# Stage the gateway privately. See docs/biographer.md for pilot activation.
 # Uses the normal SGW image; this service has its own instance and socket limits.
 steps:
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk:latest
@@ -20,9 +20,10 @@ steps:
       - '--cpu=1'
       - '--memory=512Mi'
       - '--no-use-http2'
-      - '--allow-unauthenticated'
+      # Preserve the service's invoker policy across revision deployments.
+      - '--cpu-throttling'
       - '--set-env-vars=NODE_ENV=production,BIOGRAPHER_LIVE_ENABLED=true,BIOGRAPHER_WEBAPP_URL=${_WEBAPP_URL},BIOGRAPHER_ALLOWED_ORIGINS=${_WEBAPP_ORIGIN},GOOGLE_CLOUD_PROJECT_ID=$PROJECT_ID,BIOGRAPHER_GOOGLE_LOCATION=eu,BIOGRAPHER_MAX_CONNECTIONS=10,BIOGRAPHER_VOICE_NAME=Puck'
-      - '--set-secrets=BIOGRAPHER_INTERNAL_API_KEY=${_INTERNAL_KEY_SECRET}:latest'
+      - '--set-secrets=BIOGRAPHER_INTERNAL_API_KEY=${_INTERNAL_KEY_SECRET}:${_INTERNAL_KEY_VERSION}'
       - '--quiet'
 substitutions:
   _SERVICE_NAME: biographer-live
@@ -33,5 +34,6 @@ substitutions:
   _WEBAPP_URL: https://required-webapp-host.invalid
   _WEBAPP_ORIGIN: https://required-webapp-host.invalid
   _INTERNAL_KEY_SECRET: REQUIRED_SECRET_NAME
+  _INTERNAL_KEY_VERSION: '1'
 options:
   logging: CLOUD_LOGGING_ONLY
