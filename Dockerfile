@@ -30,6 +30,8 @@ FROM node:${NODE_VERSION}-bookworm-slim
 # Install system dependencies for PDF processing
 RUN apt-get update && apt-get install -y \
     ffmpeg \
+    poppler-utils \
+    icc-profiles-free \
     ghostscript \
     wget \
     gnupg \
@@ -42,6 +44,9 @@ RUN apt-get update && apt-get install -y \
 
 # Gemini TTS conversion and audiobook mixing require a modern amix filter.
 RUN ffmpeg -hide_banner -h filter=amix 2>&1 | grep -q 'normalize'
+
+# Paid Lulu proofs use the Debian sRGB profile and Poppler inspection tools.
+RUN test -r /usr/share/color/icc/sRGB.icc && command -v pdffonts && command -v pdfimages
 
 # Set working directory
 WORKDIR /app

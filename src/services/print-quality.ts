@@ -437,9 +437,9 @@ export class PrintQualityService {
     }
   }
 
-  private async runDeterministicChecks(
+  async runDeterministicChecks(
     storyData: any,
-    assets: RuntimeAssets,
+    assets: Pick<RuntimeAssets, 'interiorPdfBuffer' | 'interiorHtml' | 'coverHtml'>,
   ): Promise<DeterministicAnalysis> {
     logger.debug('Print QA deterministic checks started', {
       chapterCount: storyData.chapters?.length ?? 0,
@@ -732,7 +732,6 @@ export class PrintQualityService {
           ...params.baselineAssets,
           interiorPdfBuffer,
           interiorHtml: interiorVariant.interiorHtml,
-          printResult: attemptPrintResult,
         });
 
         const candidateAssessment: AutoFixCandidateAssessment = {

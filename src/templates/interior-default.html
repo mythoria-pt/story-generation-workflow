@@ -3,15 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-profile" content="CMYK" />
+    <meta name="color-profile" content="{{colourProfile}}" />
     <title>{{title}}</title>
-    <link rel="stylesheet" href="https://use.typekit.net/lda8yth.css" />
+    {{typekitStyles}}
     <style>
       @page {
         size: {{pageWidthMM}}mm {{pageHeightMM}}mm;
         margin: 0;
-        bleed: 3mm;
-        marks: crop cross;
+        bleed: {{cssBleed}};
+        marks: {{printerMarks}};
       }
 
       /* Named page for chapter content with consistent margins */
@@ -441,10 +441,7 @@
           <div class="mythoria-promotion">
             <p>{{promotionText}}</p>
             <div class="qr-code">
-              <img
-                src="https://storage.googleapis.com/mythoria-generated-stories/qr-code.png"
-                alt="QR Code to Mythoria website"
-              />
+              <img src="{{qrCodeImage}}" alt="QR Code to Mythoria website" />
             </div>
           </div>
         </div>

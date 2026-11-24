@@ -119,3 +119,7 @@ See [docs/audio-narration-system.md](docs/audio-narration-system.md) for the ful
 See [docs/biographer.md](docs/biographer.md). Owner projects and archival durability are WebApp-owned; the dedicated live gateway uses single-use participant admission and server-side Gemini 3.8 Live credentials. Preserve approved source snapshots, persona and outline. Flags default off; no production migration, paid provider call or deployment is implied by local implementation.
 
 See [Story Whisperer voice and structure contracts](docs/biographer.md) for authenticated voice admission and private image handling in ordinary wizard stories.
+
+## Paid physical-order proofs
+
+Paid physical-order proof generation uses the API-key-protected `POST /internal/print/order-proof` contract and private `PRINT_PROOF_BUCKET` described in [print.md](docs/print.md#paid-physical-order-proofs). Use immutable order artifacts and the actual interior page count on both sides of the Lulu cover-dimensions call.

@@ -3,13 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-profile" content="CMYK" />
+    <meta name="color-profile" content="{{colourProfile}}" />
     <title>{{title}} - Cover</title>
     <style>
       @page {
         size: {{coverSpreadWMM}}mm {{coverSpreadHMM}}mm;
         margin: 0;
-        bleed: {{coverBleedMM}}mm;
+        bleed: {{cssBleed}};
       }
 
       body {
@@ -40,7 +40,7 @@
 
       .info-rectangle {
         position: absolute;
-        left: -{{coverBleedMM}}mm; /* Include bleed area */
+        left: {{coverInfoInsetMM}}mm;
         bottom: 10%;
         width: calc(40% + {{coverBleedMM}}mm);
         height: 11%;
@@ -98,6 +98,7 @@
         background-position: center;
         background-repeat: no-repeat;
       }
+      {{bindingStyles}}
     </style>
   </head>
   <body>
@@ -105,17 +106,9 @@
       <div class="back-cover">
         <div class="info-rectangle">
           <div class="info-content">
-            <img
-              class="logo-img"
-              src="https://storage.googleapis.com/mythoria-generated-stories/logo/{{graphicalStyle}}.jpg"
-              alt="Mythoria Logo"
-            />
+            <img class="logo-img" src="{{logoImage}}" alt="Mythoria Logo" />
             <div class="separator-line"></div>
-            <img
-              class="qr-img"
-              src="https://storage.googleapis.com/mythoria-generated-stories/qr-code.png"
-              alt="QR Code"
-            />
+            <img class="qr-img" src="{{qrCodeImage}}" alt="QR Code" />
           </div>
         </div>
       </div>

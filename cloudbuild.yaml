@@ -43,6 +43,8 @@ steps:
       # env-parity-preserved: ANALYTICS_SCHEDULER_SERVICE_ACCOUNT,IMAGE_ANALYZER_PROVIDER,TTS_EXPRESSIVE_DIRECTION_ENABLED
       # env-parity-preserved: TTS_DIRECTION_MODEL,GOOGLE_GENAI_API_VERSION,STORY_TEXT_GENERATION_MODE,STORY_SEQUENTIAL_AUDIENCES
       # env-parity-preserved: STORY_SEQUENTIAL_MIN_CHAPTERS,STORY_WHOLE_MAX_OUTPUT_TOKENS,STORY_CHAPTER_MAX_OUTPUT_TOKENS
+      # Provision the dedicated private bucket before enabling paid order proofs.
+      # env-parity-preserved: PRINT_PROOF_BUCKET
       # Existing Secret Manager bindings.
       # env-parity-preserved: DB_HOST,DB_USER,DB_PASSWORD,OPENAI_API_KEY,GOOGLE_GENAI_API_KEY,STORY_GENERATION_WORKFLOW_API_KEY
       # env-parity-preserved: NOTIFICATION_ENGINE_API_KEY,WEBAPP_WEBHOOK_SECRET

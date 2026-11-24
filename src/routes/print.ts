@@ -1,5 +1,6 @@
 import express from 'express';
 import { randomUUID } from 'crypto';
+import apiKeyAuth from '@/middleware/apiKeyAuth.js';
 import { z } from 'zod';
 import { PrintGenerationHandler } from '@/workflows/handlers.js';
 import { logger } from '@/config/logger.js';
@@ -24,6 +25,25 @@ import { productGenerationRequests } from '@/db/schema/index.js';
 
 export const printRouter = express.Router();
 export const internalPrintRouter = express.Router();
+
+internalPrintRouter.post('/order-proof', apiKeyAuth, async (req, res) => {
+  const { OrderProofRequest, prepareOrderProof } = await import('@/services/order-proof.js');
+  const parsed = OrderProofRequest.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid print proof request' });
+    return;
+  }
+  try {
+    res.json(await prepareOrderProof(parsed.data));
+  } catch (error) {
+    logger.error('Paid print proof preparation failed', {
+      orderId: parsed.data.orderId,
+      runId: parsed.data.runId,
+      errorType: error instanceof Error ? error.name : 'unknown',
+    });
+    res.status(500).json({ error: 'Print proof preparation failed' });
+  }
+});
 
 const storyService = new StoryService();
 const runsService = new RunsService();

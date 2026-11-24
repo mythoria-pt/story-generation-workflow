@@ -49,6 +49,20 @@ interface RenderOptions {
   outputPath: string;
 }
 
+export const PRINT_ASSET_BUCKET = 'mythoria-generated-stories';
+const printAssetBase = `https://storage.googleapis.com/${PRINT_ASSET_BUCKET}`;
+export const printQrUrl = `${printAssetBase}/qr-code.png`;
+export const printLogoUrl = (style?: string | null) =>
+  `${printAssetBase}/logo/${style || 'cartoon'}.jpg`;
+
+export interface PrintArtwork {
+  bytes: Buffer;
+  contentType: string;
+}
+
+const luluInsideMarginMM = 29;
+const luluOutsideMarginMM = 18;
+
 interface PrintLayoutOptions {
   chapterLayoutOverrides?: Record<number, ChapterLayoutOverride>;
 }
@@ -75,12 +89,23 @@ export class PrintService {
   private cmykService: CMYKConversionService;
   private pageProcessor: PDFPageProcessor;
 
-  constructor() {
+  constructor(
+    private readonly luluBinding?: 'paperback' | 'hardcover',
+    private readonly resolveArtwork?: (url: string) => Promise<PrintArtwork | undefined>,
+  ) {
     const configPath =
       process.env.NODE_ENV === 'production'
         ? join(process.cwd(), 'dist', 'config', 'paper-caliper.json')
         : join(process.cwd(), 'src', 'config', 'paper-caliper.json');
     this.paperConfig = JSON.parse(readFileSync(configPath, 'utf-8'));
+    if (luluBinding) {
+      this.paperConfig.trimSize = { width: (419.528 * 25.4) / 72, height: (595.276 * 25.4) / 72 };
+      this.paperConfig.bleedMM = {
+        interior: 3.175,
+        cover: luluBinding === 'hardcover' ? 19.05 : 3.175,
+      };
+      this.paperConfig.safeZoneMM = 12.7;
+    }
     this.cmykService = new CMYKConversionService();
     this.pageProcessor = new PDFPageProcessor();
   }
@@ -90,15 +115,12 @@ export class PrintService {
    */
   private loadTemplate(templateName: string, variables: Record<string, string>): string {
     const templatePath = join(getTemplatesPath(), templateName);
-    let template = readFileSync(templatePath, 'utf-8');
+    const template = readFileSync(templatePath, 'utf-8');
 
-    // Replace all {{variable}} placeholders with actual values
-    for (const [key, value] of Object.entries(variables)) {
-      const placeholder = `{{${key}}}`;
-      template = template.replace(new RegExp(placeholder, 'g'), value);
-    }
-
-    return template;
+    return template.replace(
+      /{{(\w+)}}/g,
+      (placeholder, key: string) => variables[key] ?? placeholder,
+    );
   }
 
   /**
@@ -258,7 +280,9 @@ export class PrintService {
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
-        '--disable-color-correct-rendering',
+        ...(this.luluBinding
+          ? ['--force-color-profile=srgb']
+          : ['--disable-color-correct-rendering']),
         '--disable-dev-shm-usage',
         '--disable-gpu',
         '--disable-extensions',
@@ -281,9 +305,51 @@ export class PrintService {
     try {
       const page = await browser.newPage();
 
+      let failedArtwork = false;
+      if (this.resolveArtwork) {
+        await page.setRequestInterception(true);
+        await page.setJavaScriptEnabled(false);
+        page.on('request', async (request) => {
+          if (request.resourceType() !== 'image') {
+            await request.abort();
+            return;
+          }
+          try {
+            const artwork = await this.resolveArtwork?.(request.url());
+            if (artwork) {
+              await request.respond({
+                status: 200,
+                contentType: artwork.contentType,
+                body: artwork.bytes,
+              });
+              return;
+            }
+          } catch {
+            failedArtwork = true;
+          }
+          await request.abort();
+        });
+        page.on('requestfailed', (request) => {
+          if (request.resourceType() === 'image') failedArtwork = true;
+        });
+        html = html.replace(
+          '<head>',
+          `<head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https://storage.googleapis.com; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">`,
+        );
+      }
       logger.debug('Setting page content for PDF generation');
       await page.setContent(html, { waitUntil: 'load' });
       await page.waitForNetworkIdle({ concurrency: 0, idleTime: 500 });
+
+      if (
+        this.resolveArtwork &&
+        (failedArtwork ||
+          !(await page.evaluate(() =>
+            Array.from(document.images).every((image) => image.complete && image.naturalWidth > 0),
+          )))
+      ) {
+        throw new Error('Unable to render all print artwork');
+      }
 
       logger.debug('Generating PDF', { outputPath: options.outputPath });
       await page.pdf({
@@ -349,6 +415,9 @@ export class PrintService {
       pageWidthMM: pageWidthMM.toString(),
       pageHeightMM: pageHeightMM.toString(),
       interiorBleedMM: bleedMM.interior.toString(),
+      colourProfile: this.luluBinding ? 'sRGB' : 'CMYK',
+      cssBleed: this.luluBinding ? '0' : '3mm',
+      printerMarks: this.luluBinding ? 'none' : 'crop cross',
       // Legacy variables (for backward compatibility with existing templates)
       safeZoneMM: safeZoneMM.toString(),
       totalMarginMM: ((bleedMM.interior + safeZoneMM) * 2).toString(),
@@ -362,12 +431,22 @@ export class PrintService {
       chapterTopMarginMM: chapterTopMarginMM.toString(),
       chapterBottomMarginMM: '20',
       chapterFirstPageTopMarginMM: chapterFirstPageTopMarginMM.toString(),
-      chapterLayoutStyles,
+      chapterLayoutStyles:
+        chapterLayoutStyles +
+        (this.luluBinding
+          ? `
+        @page chapter:right { margin-left: ${luluInsideMarginMM}mm; margin-right: ${luluOutsideMarginMM}mm; }
+        @page chapter:left { margin-right: ${luluInsideMarginMM}mm; margin-left: ${luluOutsideMarginMM}mm; }
+      `
+          : ''),
       dedicationMessage: storyData.dedicationMessage || '',
       customAuthor: storyData.customAuthor || 'Anonymous',
       publishDate: formatPublishDate(storyData.createdAt, storyLanguage),
       synopsis: storyData.synopsis || '',
-      qrCodeImage: 'https://storage.googleapis.com/mythoria-generated-stories/qr-code.png',
+      qrCodeImage: printQrUrl,
+      typekitStyles: this.resolveArtwork
+        ? ''
+        : '<link rel="stylesheet" href="https://use.typekit.net/lda8yth.css" />',
       tableOfContents: this.generateTableOfContents(storyData.chapters),
       chapters: this.generateChaptersHTML(
         storyData.chapters,
@@ -399,15 +478,42 @@ export class PrintService {
     const { coverSpreadWMM, coverSpreadHMM, spineWidthMM } = dimensions;
     const { bleedMM } = this.paperConfig;
 
+    // The cover illustration often includes the title. Keep the complete art
+    // inside the live front panel, including clearance from the casewrap hinge.
+    const frontArt = storyData.coverUri
+      ? `url("${convertToAbsoluteImagePath(storyData.coverUri)}")`
+      : 'none';
+    const outerInset = this.luluBinding === 'hardcover' ? 38.1 : 15.875;
+    const innerInset = this.luluBinding === 'hardcover' ? 25.4 : 12.7;
     const variables = {
       title: storyData.title || '',
+      colourProfile: this.luluBinding ? 'sRGB' : 'CMYK',
+      cssBleed: this.luluBinding ? '0' : `${bleedMM.cover}mm`,
+      bindingStyles: this.luluBinding
+        ? `
+        .front-cover { position: relative; background: #333; }
+        .front-cover::before { content: ''; position: absolute;
+          inset: ${outerInset}mm ${outerInset}mm ${outerInset}mm ${innerInset}mm;
+          background: ${frontArt} center / contain no-repeat; }
+        .back-cover { background-size: cover; }
+        .info-rectangle { bottom: ${outerInset}mm; width: 46%; }
+      `
+        : '',
       coverSpreadWMM: coverSpreadWMM.toString(),
       coverSpreadHMM: coverSpreadHMM.toString(),
       coverBleedMM: bleedMM.cover.toString(),
       spineWidthMM: spineWidthMM.toString(),
-      backcoverBackground: storyData.backcoverUri ? `url("${storyData.backcoverUri}")` : '#f5f5f5',
-      frontcoverBackground: storyData.coverUri ? `url("${storyData.coverUri}")` : '#e0e0e0',
-      graphicalStyle: storyData.graphicalStyle || 'cartoon',
+      coverInfoInsetMM: this.luluBinding
+        ? String(bleedMM.cover + (this.luluBinding === 'hardcover' ? 19.05 : 12.7))
+        : String(-bleedMM.cover),
+      backcoverBackground: storyData.backcoverUri
+        ? `url("${convertToAbsoluteImagePath(storyData.backcoverUri)}")`
+        : '#f5f5f5',
+      frontcoverBackground: storyData.coverUri
+        ? `url("${convertToAbsoluteImagePath(storyData.coverUri)}")`
+        : '#e0e0e0',
+      logoImage: printLogoUrl(storyData.graphicalStyle),
+      qrCodeImage: printQrUrl,
     };
 
     return this.loadTemplate('cover-default.html', variables);
@@ -474,7 +580,14 @@ export class PrintService {
       output: outputPath,
     });
 
-    const result = await this.pageProcessor.processPages(inputPath, outputPath);
+    const movedTextPageOffsetPt = this.luluBinding
+      ? ((luluInsideMarginMM - luluOutsideMarginMM) * 72) / 25.4
+      : 0;
+    const result = await this.pageProcessor.processPages(
+      inputPath,
+      outputPath,
+      movedTextPageOffsetPt,
+    );
 
     logger.info('PDF page processing completed', {
       originalPages: result.originalPageCount,

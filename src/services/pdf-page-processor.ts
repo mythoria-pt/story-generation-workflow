@@ -105,7 +105,11 @@ export class PDFPageProcessor {
    * Process PDF to ensure chapter text begins on odd pages
    * by moving odd-positioned chapter images after their first text page.
    */
-  async processPages(inputPath: string, outputPath: string): Promise<PageProcessingResult> {
+  async processPages(
+    inputPath: string,
+    outputPath: string,
+    movedTextPageOffsetPt = 0,
+  ): Promise<PageProcessingResult> {
     logger.info('PDF page processing start', { inputPath, outputPath });
 
     const pdfBytes = readFileSync(inputPath);
@@ -140,6 +144,12 @@ export class PDFPageProcessor {
 
     const outputPdf = await PDFDocument.create();
     const copiedPages = await outputPdf.copyPages(sourcePdf, updatedOrder);
+    if (movedTextPageOffsetPt !== 0) {
+      for (const { from, to } of swaps) {
+        // The text was laid out for a left page before being moved to a right page.
+        if (!imagePages.has(to)) copiedPages[from - 1]?.translateContent(movedTextPageOffsetPt, 0);
+      }
+    }
     copiedPages.forEach((page) => outputPdf.addPage(page));
 
     const processedPdfBytes = await outputPdf.save();

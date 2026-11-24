@@ -162,6 +162,13 @@ export const envManifest: EnvVarDescriptor[] = [
     source: 'substitution',
   },
   {
+    name: 'PRINT_PROOF_BUCKET',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    source: 'inline',
+    note: 'Dedicated private bucket for paid order proof snapshots and PDFs.',
+  },
+  {
     name: 'GOOGLE_GENAI_CLOUD_REGION',
     required: false,
     scopes: ['dev', 'runtime', 'prod'],

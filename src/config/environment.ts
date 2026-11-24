@@ -70,6 +70,7 @@ const envSchema = z.object({
   GOOGLE_CLOUD_REGION: z.string(),
   GOOGLE_GENAI_CLOUD_REGION: z.string().optional().default('global'),
   STORAGE_BUCKET_NAME: z.string(),
+  PRINT_PROOF_BUCKET: z.string().min(1).optional(),
   IMAGE_GENERATION_MODEL: z.string().optional(),
   LOG_LEVEL: z.enum(['error', 'warn', 'info', 'debug']).optional().default('info'),
   DEBUG_AI_FULL_PROMPTS: z.string().optional().default('false'),
