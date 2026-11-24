@@ -59,6 +59,7 @@ export interface RetryOptions {
   baseDelayMs?: number;
   maxDelayMs?: number;
   jitterMs?: number;
+  privateContent?: boolean;
   retryableErrors?: (error: unknown) => boolean;
   onRetry?: (attempt: number, error: unknown) => void | Promise<void>;
 }
@@ -77,6 +78,7 @@ const DEFAULT_RETRY_OPTIONS: Required<Omit<RetryOptions, 'onRetry'>> = {
   baseDelayMs: 60000, // 60 seconds
   maxDelayMs: 300000, // 5 minutes
   jitterMs: 5000, // +/- 5 seconds
+  privateContent: false,
   retryableErrors: isTransientError,
 };
 
@@ -300,7 +302,9 @@ export async function withRetry<T>(
         logger.warn('Retry: Safety block error detected, not retrying', {
           attempt,
           maxAttempts: config.maxAttempts,
-          error: error instanceof Error ? error.message : String(error),
+          ...(!config.privateContent && {
+            error: error instanceof Error ? error.message : String(error),
+          }),
         });
         throw error;
       }
@@ -315,11 +319,13 @@ export async function withRetry<T>(
           attempt,
           maxAttempts: config.maxAttempts,
           retryable: shouldRetry,
-          error: error instanceof Error ? error.message : String(error),
-          errorCode: signals.code,
           errorStatus: signals.status,
-          causeCode: signals.causeCode,
-          causeMessage: signals.causeMessage,
+          ...(!config.privateContent && {
+            error: error instanceof Error ? error.message : String(error),
+            errorCode: signals.code,
+            causeCode: signals.causeCode,
+            causeMessage: signals.causeMessage,
+          }),
         });
         throw error;
       }
@@ -337,7 +343,9 @@ export async function withRetry<T>(
         maxAttempts: config.maxAttempts,
         delayMs,
         delaySec: Math.round(delayMs / 1000),
-        error: error instanceof Error ? error.message : String(error),
+        ...(!config.privateContent && {
+          error: error instanceof Error ? error.message : String(error),
+        }),
       });
 
       // Call onRetry callback if provided

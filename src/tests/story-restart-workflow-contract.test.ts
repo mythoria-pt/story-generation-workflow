@@ -113,4 +113,67 @@ describe('story generation workflow contract', () => {
     expect(branchIndex).toBeGreaterThan(-1);
     expect(completionIndex).toBeGreaterThan(branchIndex);
   });
+
+  it('records terminal errors when the exception is a string or its map lacks a message', () => {
+    expect(findNamedStep(parsedWorkflow as WorkflowNode, 'markFailedRun')).toMatchObject({
+      args: {
+        body: {
+          errorMessage:
+            '${if(get_type(wfError) == "string", wfError, default(map.get(wfError, "message"), "Workflow execution failed"))}',
+        },
+      },
+    });
+  });
+
+  it.each([
+    [
+      'frontCover',
+      'tryFrontCoverGeneration',
+      'stopFrontCoverRetry',
+      'delayFrontCoverRetry',
+      'logFrontCoverSkip',
+    ],
+    [
+      'backCover',
+      'tryBackCoverGeneration',
+      'stopBackCoverRetry',
+      'delayBackCoverRetry',
+      'logBackCoverSkip',
+    ],
+    [
+      'chapterImage',
+      'tryChapterImageGeneration',
+      'stopNonRetryableChapterImage',
+      'delayChapterImageRetry',
+      'logChapterImageSkip',
+    ],
+  ])(
+    'only sleeps before another retryable %s request and safely logs a skipped image',
+    (image, attemptStep, guardStep, delayStep, skipStep) => {
+      const attempt = findNamedStep(parsedWorkflow as WorkflowNode, attemptStep) as {
+        except: { steps: unknown[] };
+      };
+      const steps = attempt.except.steps;
+      const guardIndex = namedStepIndex(steps, guardStep);
+      expect(guardIndex).toBeGreaterThan(-1);
+      expect(namedStepIndex(steps, delayStep)).toBeGreaterThan(guardIndex);
+      const code = `${image}ErrorCode`;
+      expect(findNamedStep(steps as WorkflowNode, guardStep)).toMatchObject({
+        switch: expect.arrayContaining([
+          {
+            condition: `\${attempt >= ${image}MaxAttempts or not(${code} == 0 or ${code} == 408 or ${code} == 422 or ${code} == 429 or ${code} >= 500)}`,
+            next: 'break',
+          },
+        ]),
+      });
+
+      const skipLog = findNamedStep(parsedWorkflow as WorkflowNode, skipStep) as {
+        call: string;
+        args: { text: string };
+      };
+      expect(skipLog.call).toBe('sys.log');
+      expect(skipLog.args.text).toContain(`default(map.get(${image}LastError, "code"), "unknown")`);
+      expect(skipLog.args.text).not.toContain('.message');
+    },
+  );
 });

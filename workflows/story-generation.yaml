@@ -323,19 +323,17 @@ main:
                                                                                       steps:
                                                                                         - raiseNonRetryableChapterImage:
                                                                                             raise: ${chapterImageAttemptError}
+                                                                                    - condition: ${attempt >= chapterImageMaxAttempts or not(chapterImageErrorCode == 0 or chapterImageErrorCode == 408 or chapterImageErrorCode == 422 or chapterImageErrorCode == 429 or chapterImageErrorCode >= 500)}
+                                                                                      next: break
                                                                               - logChapterImageRetry:
                                                                                   call: sys.log
                                                                                   args:
                                                                                     severity: WARNING
-                                                                                    text: '${"Chapter " + string(chapterNum) + " image attempt " + string(attempt) + " failed, retrying after " + string(chapterImageRetryDelay) + "s: " + chapterImageAttemptError.message}'
-                                                                              - maybeDelayChapterImageRetry:
-                                                                                  switch:
-                                                                                    - condition: ${attempt < chapterImageMaxAttempts}
-                                                                                      steps:
-                                                                                        - delayChapterImageRetry:
-                                                                                            call: sys.sleep
-                                                                                            args:
-                                                                                              seconds: ${chapterImageRetryDelay}
+                                                                                    text: '${"Chapter " + string(chapterNum) + " image attempt " + string(attempt) + " failed with code " + string(chapterImageErrorCode) + "; retrying"}'
+                                                                              - delayChapterImageRetry:
+                                                                                  call: sys.sleep
+                                                                                  args:
+                                                                                    seconds: ${chapterImageRetryDelay}
                                                           except:
                                                             as: chapterImageError
                                                             steps:
@@ -346,7 +344,7 @@ main:
                                                                   call: sys.log
                                                                   args:
                                                                     severity: WARNING
-                                                                    text: '${"Chapter " + string(chapterNum) + " image failed: " + chapterImageError.message}'
+                                                                    text: '${"Chapter " + string(chapterNum) + " image failed with code " + string(terminalChapterImageErrorCode)}'
                                                               - rethrowNonRetryableChapterImage:
                                                                   switch:
                                                                     - condition: ${terminalChapterImageErrorCode == 400 or terminalChapterImageErrorCode == 404 or terminalChapterImageErrorCode == 409}
@@ -388,7 +386,7 @@ main:
                                                                     call: sys.log
                                                                     args:
                                                                       severity: WARNING
-                                                                      text: '${"Skipping chapter " + string(chapterNum) + " image; last error: " + if(chapterImageLastError != null, chapterImageLastError.message, "unknown")}'
+                                                                      text: '${"Skipping chapter " + string(chapterNum) + " image; last error code: " + string(default(map.get(chapterImageLastError, "code"), "unknown"))}'
                                                   - condition: ${not(chapterTextSuccess)}
                                                     steps:
                                                       - logChapterTextFailure:
@@ -461,11 +459,16 @@ main:
                                                                           - saveFrontCoverError:
                                                                               assign:
                                                                                 - frontCoverLastError: ${frontCoverAttemptError}
+                                                                                - frontCoverErrorCode: ${default(map.get(frontCoverAttemptError, "code"), 0)}
+                                                                          - stopFrontCoverRetry:
+                                                                              switch:
+                                                                                - condition: ${attempt >= frontCoverMaxAttempts or not(frontCoverErrorCode == 0 or frontCoverErrorCode == 408 or frontCoverErrorCode == 422 or frontCoverErrorCode == 429 or frontCoverErrorCode >= 500)}
+                                                                                  next: break
                                                                           - logFrontCoverRetry:
                                                                               call: sys.log
                                                                               args:
                                                                                 severity: WARNING
-                                                                                text: '${"Front cover attempt " + string(attempt) + " failed, retrying after " + string(frontCoverRetryDelay) + "s: " + frontCoverAttemptError.message}'
+                                                                                text: '${"Front cover attempt " + string(attempt) + " failed with code " + string(frontCoverErrorCode) + "; retrying"}'
                                                                           - delayFrontCoverRetry:
                                                                               call: sys.sleep
                                                                               args:
@@ -478,7 +481,7 @@ main:
                                                               call: sys.log
                                                               args:
                                                                 severity: WARNING
-                                                                text: '${"Front cover generation failed after retries: " + frontCoverError.message}'
+                                                                text: '${"Front cover generation failed with code " + string(default(map.get(frontCoverError, "code"), "unknown"))}'
 
                                                   - handleFrontCoverOutcome:
                                                       switch:
@@ -503,7 +506,7 @@ main:
                                                                 call: sys.log
                                                                 args:
                                                                   severity: WARNING
-                                                                  text: '${"Front cover image unavailable after retries; continuing. Last error: " + if(frontCoverLastError != null, frontCoverLastError.message, "unknown")}'
+                                                                  text: '${"Front cover image unavailable; continuing. Last error code: " + string(default(map.get(frontCoverLastError, "code"), "unknown"))}'
 
                                             - backCoverBranch:
                                                 steps:
@@ -562,11 +565,16 @@ main:
                                                                           - saveBackCoverError:
                                                                               assign:
                                                                                 - backCoverLastError: ${backCoverAttemptError}
+                                                                                - backCoverErrorCode: ${default(map.get(backCoverAttemptError, "code"), 0)}
+                                                                          - stopBackCoverRetry:
+                                                                              switch:
+                                                                                - condition: ${attempt >= backCoverMaxAttempts or not(backCoverErrorCode == 0 or backCoverErrorCode == 408 or backCoverErrorCode == 422 or backCoverErrorCode == 429 or backCoverErrorCode >= 500)}
+                                                                                  next: break
                                                                           - logBackCoverRetry:
                                                                               call: sys.log
                                                                               args:
                                                                                 severity: WARNING
-                                                                                text: '${"Back cover attempt " + string(attempt) + " failed, retrying after " + string(backCoverRetryDelay) + "s: " + backCoverAttemptError.message}'
+                                                                                text: '${"Back cover attempt " + string(attempt) + " failed with code " + string(backCoverErrorCode) + "; retrying"}'
                                                                           - delayBackCoverRetry:
                                                                               call: sys.sleep
                                                                               args:
@@ -578,7 +586,7 @@ main:
                                                               call: sys.log
                                                               args:
                                                                 severity: WARNING
-                                                                text: '${"Back cover generation failed after retries: " + backCoverError.message}'
+                                                                text: '${"Back cover generation failed with code " + string(default(map.get(backCoverError, "code"), "unknown"))}'
 
                                                   - handleBackCoverOutcome:
                                                       switch:
@@ -603,7 +611,7 @@ main:
                                                                 call: sys.log
                                                                 args:
                                                                   severity: WARNING
-                                                                  text: '${"Back cover image unavailable after retries; continuing. Last error: " + if(backCoverLastError != null, backCoverLastError.message, "unknown")}'
+                                                                  text: '${"Back cover image unavailable; continuing. Last error code: " + string(default(map.get(backCoverLastError, "code"), "unknown"))}'
 
                   - condition: ${not(outlineSuccess)}
                     steps:
@@ -667,7 +675,7 @@ main:
                   auth: { type: OIDC }
                   body:
                     status: '${if(default(map.get(wfError, "code"), 0) == 422, "blocked", "failed")}'
-                    errorMessage: ${wfError.message}
+                    errorMessage: ${if(get_type(wfError) == "string", wfError, default(map.get(wfError, "message"), "Workflow execution failed"))}
                     endedAt: ${time.format(sys.now())}
 
             - rethrow:

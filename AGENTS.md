@@ -63,9 +63,9 @@ pwsh -NoProfile -Command "npm run dev"
 
 ### AI + retry troubleshooting
 
-- Safety blocks return 422 and set run status to `blocked`. Prompt rewrite template: `src/prompts/en-US/image-prompt-safety-rewrite.json`.
-- Retry helpers live in `src/shared/retry-utils.ts`. Workflow YAML loops through retries (3 attempts, 60s delay) before surfacing `failed`.
-- To inspect prompt rewrites, query `token_usage_tracking` for `action = 'prompt_rewrite'` or tail logs for `promptRewriteAttempted`.
+- Image safety recovery uses `src/prompts/en-US/image-prompt-safety-rewrite.json` and returns 422 when it cannot produce an image. The story workflow skips optional images after their retry budget is exhausted.
+- Retry helpers live in `src/shared/retry-utils.ts`. The story workflow issues at most two requests per image and waits 60 seconds before retrying an eligible failure. A chapter image request returning 400, 404, or 409 stops the run.
+- To inspect prompt rewrites, query `token_usage_tracking` for `action = 'prompt_rewrite'` or find image request and attempt logs by `imageRequestId`.
 
 ### Print + CMYK
 

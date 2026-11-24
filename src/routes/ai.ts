@@ -21,7 +21,12 @@ import { storyPreferencesSchema } from '@/services/story-guide-contract.js';
 import { Router } from 'express';
 import { and, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { validateImageRequest, generateImageFilename, formatImageError } from './ai-image-utils.js';
+import {
+  validateImageRequest,
+  generateImageFilename,
+  formatImageError,
+  type ImageRequest,
+} from './ai-image-utils.js';
 import { generateNextVersionFilename, extractFilenameFromUri } from '@/utils/imageUtils.js';
 import { StoryService } from '@/services/story.js';
 import { workflowErrorHandler } from '@/shared/workflow-error-handler.js';
@@ -1519,6 +1524,16 @@ router.post('/text/context/clear', async (req, res) => {
  */
 router.post('/image', async (req, res) => {
   let currentStep = 'parsing_request';
+  // A separate ID for each HTTP request correlates provider calls without hashing private inputs.
+  const imageRequestId = randomUUID();
+  let imageSlot:
+    | Pick<
+        ImageRequest,
+        'storyId' | 'runId' | 'imageType' | 'chapterNumber' | 'chapterId' | 'chapterVersion'
+      >
+    | undefined;
+  let providerAttemptCount = 0;
+  let transientRetryCount = 0;
   let privateImage = true;
   let promptRewriteAttempted = false;
   let promptRewriteApplied = false;
@@ -1542,6 +1557,8 @@ router.post('/image', async (req, res) => {
       style,
     } = validateImageRequest(req.body);
 
+    imageSlot = { storyId, runId, imageType, chapterNumber, chapterId, chapterVersion };
+    logger.info('Image generation requested', { imageRequestId, ...imageSlot });
     originalPrompt = prompt;
 
     if (imageType === 'chapter' && chapterNumber && chapterId && chapterVersion) {
@@ -1556,8 +1573,17 @@ router.post('/image', async (req, res) => {
     }
 
     // Get story context to extract authorId for token tracking
+    currentStep = 'loading_story_context';
     const storyContext = await storyService.getStoryContext(storyId);
     if (!storyContext) {
+      logger.warn('Image generation failed', {
+        imageRequestId,
+        ...imageSlot,
+        currentStep,
+        statusCode: 404,
+        providerAttemptCount,
+        transientRetryCount,
+      });
       res.status(404).json({
         success: false,
         error: 'Story not found',
@@ -1655,8 +1681,11 @@ router.post('/image', async (req, res) => {
           seenReferenceFiles.add(filename);
         } catch (refErr) {
           logger.warn('Failed to load reference image', {
-            source,
-            error: refErr instanceof Error ? refErr.message : String(refErr),
+            imageRequestId,
+            ...(!privateImage && {
+              source,
+              error: refErr instanceof Error ? refErr.message : String(refErr),
+            }),
           });
         }
       };
@@ -1787,10 +1816,13 @@ router.post('/image', async (req, res) => {
         }
       } catch (charRefErr) {
         logger.warn('Character reference collection failed', {
+          imageRequestId,
           storyId,
           runId,
           imageType,
-          error: charRefErr instanceof Error ? charRefErr.message : String(charRefErr),
+          ...(!privateImage && {
+            error: charRefErr instanceof Error ? charRefErr.message : String(charRefErr),
+          }),
         });
       }
 
@@ -1844,9 +1876,12 @@ router.post('/image', async (req, res) => {
               );
             } catch (dbErr) {
               logger.warn('Failed to fetch previous chapter image for reference', {
+                imageRequestId,
                 storyId,
                 chapterNumber,
-                error: dbErr instanceof Error ? dbErr.message : String(dbErr),
+                ...(!privateImage && {
+                  error: dbErr instanceof Error ? dbErr.message : String(dbErr),
+                }),
               });
             }
           }
@@ -1877,6 +1912,14 @@ router.post('/image', async (req, res) => {
 
       return await withRetry(
         async () => {
+          providerAttemptCount += 1;
+          logger.info('Image generation provider attempt', {
+            imageRequestId,
+            ...imageSlot,
+            currentStep,
+            providerAttemptCount,
+            transientRetryCount,
+          });
           return await aiGateway.getImageService(imageContext).generate(promptParts.userPrompt, {
             ...(imageWidth && { width: imageWidth }),
             ...(imageHeight && { height: imageHeight }),
@@ -1895,19 +1938,16 @@ router.post('/image', async (req, res) => {
           baseDelayMs: 5000,
           maxDelayMs: 10000,
           jitterMs: 1000,
-          onRetry: (attempt, error) => {
+          privateContent: privateImage,
+          onRetry: (attempt) => {
+            transientRetryCount += 1;
             logger.warn('Image generation transient retry', {
-              storyId,
-              runId,
-              imageType,
-              chapterNumber,
+              imageRequestId,
+              ...imageSlot,
+              currentStep,
               attempt,
-              error: privateImage
-                ? '[omitted]'
-                : error instanceof Error
-                  ? error.message
-                  : String(error),
-              errorCode: (error as any)?.code,
+              providerAttemptCount,
+              transientRetryCount,
             });
           },
         },
@@ -1931,6 +1971,7 @@ router.post('/image', async (req, res) => {
         logger.warn(
           'IMAGE_OTHER persisted after transient retries, escalating to safety block flow',
           {
+            imageRequestId,
             storyId,
             runId,
             imageType,
@@ -1943,6 +1984,7 @@ router.post('/image', async (req, res) => {
 
       if (imageSafetyService.isSafetyBlock(effectiveError)) {
         logger.warn('Image generation blocked by safety system, attempting prompt rewrite', {
+          imageRequestId,
           storyId,
           runId,
           imageType,
@@ -1957,6 +1999,7 @@ router.post('/image', async (req, res) => {
         });
 
         currentStep = 'rewriting_prompt';
+        promptRewriteAttempted = true;
 
         const safetyContext = {
           storyId,
@@ -2072,6 +2115,18 @@ router.post('/image', async (req, res) => {
       },
     });
 
+    logger.info('Image generation completed', {
+      imageRequestId,
+      ...imageSlot,
+      providerAttemptCount,
+      transientRetryCount,
+      promptRewriteAttempted,
+      promptRewriteApplied,
+      fallbackPromptUsed,
+      referenceImageCount: referenceImages.length,
+      imageSizeBytes: imageBuffer.length,
+    });
+
     res.json({
       success: true,
       storyId,
@@ -2152,13 +2207,41 @@ router.post('/image', async (req, res) => {
     const { isSafetyBlockError } = await import('@/shared/retry-utils.js');
     const isSafetyBlock = isSafetyBlockError(error);
 
-    const statusCode = error instanceof ChapterNotPersistedError ? 409 : isSafetyBlock ? 422 : 500;
+    const invalidRequest = currentStep === 'parsing_request' && error instanceof z.ZodError;
+    const statusCode = invalidRequest
+      ? 400
+      : error instanceof ChapterNotPersistedError
+        ? 409
+        : isSafetyBlock
+          ? 422
+          : 500;
+    const recoveryError = error as {
+      promptRewriteError?: string;
+      fallbackAttempted?: boolean;
+      fallbackError?: string;
+    } | null;
+    const fallbackAttempted = recoveryError?.fallbackAttempted === true;
+    logger.warn('Image generation failed', {
+      imageRequestId,
+      ...imageSlot,
+      currentStep,
+      statusCode,
+      providerAttemptCount,
+      transientRetryCount,
+      promptRewriteAttempted,
+      promptRewriteApplied,
+      fallbackAttempted,
+      fallbackPromptUsed,
+      ...(error instanceof ChapterNotPersistedError && { errorCode: error.code }),
+      ...(isSafetyBlock && { errorCode: 'IMAGE_SAFETY_BLOCKED' }),
+    });
+
     const resp: any = {
       success: false,
-      error: errorDetails.message,
+      error: invalidRequest ? 'Invalid image request' : errorDetails.message,
       failedAt: currentStep,
       timestamp: errorDetails.timestamp,
-      requestId: req.body.runId || 'unknown',
+      requestId: imageSlot?.runId ?? 'unknown',
     };
     if (errorDetails.code) resp.code = errorDetails.code;
     if (error instanceof ChapterNotPersistedError) {
@@ -2173,10 +2256,12 @@ router.post('/image', async (req, res) => {
       resp.providerFinishReasons = errorDetails.providerFinishReasons;
     if (errorDetails.suggestions) resp.suggestions = errorDetails.suggestions;
     if (promptRewriteAttempted) resp.promptRewriteAttempted = true;
-    if ((error as any)?.promptRewriteError)
-      resp.promptRewriteError = (error as any).promptRewriteError;
-    if ((error as any)?.fallbackAttempted) resp.fallbackAttempted = true;
-    if ((error as any)?.fallbackError) resp.fallbackError = (error as any).fallbackError;
+    if (fallbackAttempted) resp.fallbackAttempted = true;
+    if (!privateImage) {
+      if (recoveryError?.promptRewriteError)
+        resp.promptRewriteError = recoveryError.promptRewriteError;
+      if (recoveryError?.fallbackError) resp.fallbackError = recoveryError.fallbackError;
+    }
     if (fallbackPromptUsed) resp.fallbackPromptUsed = true;
     res.status(statusCode).json(resp);
   }
