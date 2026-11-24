@@ -6,9 +6,11 @@ Mythoria chooses a layout for each story moment using the audience the family al
 
 The premium worker passes the output of [buildPremiumStoryboardPrompt](../src/services/premium-book-storyboard.ts) to the configured text model at the storyboard stage, before it requests any illustrations. The call also carries the [storyboard schema](../src/services/premium-book-contract.ts). The returned text is checked in the worker, and the print renderer checks the typeset boxes for overflow. A saved storyboard fixes the choices for subsequent illustration stages and retries.
 
+The prompt reserves page 33 of a new book for the publisher’s localized closing invitation and ends the narrative on page 32. The generator supplies the invitation text and link from the book’s locale. Older runs that froze a 32-page plan use the corresponding 32-page prompt.
+
 The current renderer supports one painting per spread with two possible text placements. In `right_only` the painting continues across the fold and the narrator speaks on the right. In `both_pages` each half has a complete spoken thought. The 110-character limit applies to each occupied narrative page and the actual text must also fit when typeset. That limit comes from the Mythoria format. The research below supports editorial choices about focus and shared reading and does not establish a character or word quota.
 
-The same storyboard call chooses one small line drawing and one light pastel for the opening pages. The generator looks for a recurring story detail and a colour that echoes its setting or mood. For Inês, a paper boat on warm cream recalls the folded paper. A leaf on sage could suit a garden story. The title and dedication carry the same drawing. The copyright and synopsis use the chosen background alone. A curated set of twelve motifs and eight pastels gives the reader and printer the same shapes and inks.
+The same storyboard call chooses one small recurring object and a light pastel for the opening pages. For Inês, a paper boat on warm cream recalls the folded paper. A leaf on sage could suit a garden story. A new book identifies the spread that shows the object best. The worker uses that illustration as a reference for one small ornament and retains the curated selection as a fallback if needed. The title and dedication carry the same drawing. The copyright and synopsis use the chosen background alone.
 
 ## How the photographs inform the decision
 

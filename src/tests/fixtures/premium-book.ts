@@ -5,6 +5,7 @@ import {
   PREMIUM_READING_PPI,
 } from '@/services/premium-book-artwork.js';
 import {
+  LEGACY_PREMIUM_PAGE_COUNT,
   PREMIUM_BOOK_TYPE,
   PREMIUM_FORMAT,
   PREMIUM_TEXT_BOX,
@@ -13,6 +14,7 @@ import {
   type PremiumPage,
 } from '@/services/premium-book-contract.js';
 import { premiumOpeningPages } from '@/services/premium-book-opening.js';
+import { premiumInvitationPage } from '@/services/premium-book-invitation.js';
 
 const storyId = 'e6ef0522-676b-4fa4-92d1-03fd3fc8c917';
 const ownerId = 'c9b56b72-df63-4596-8cea-2ebf603642b4';
@@ -105,7 +107,7 @@ export function premiumManifestFixture(mixed = true, dedication = '') {
     storyId,
     ownerId,
     revision,
-    format: PREMIUM_FORMAT,
+    format: { ...PREMIUM_FORMAT, pageCount: LEGACY_PREMIUM_PAGE_COUNT },
     opening,
     pages,
     spreads,
@@ -122,5 +124,14 @@ export function premiumManifestFixture(mixed = true, dedication = '') {
     inputHash: metadata('input', 'jpg').sha256,
     visualGuide: 'Watercolor kingfisher blue.',
     natives: {},
+  });
+}
+
+export function premiumInvitationManifestFixture() {
+  const legacy = premiumManifestFixture();
+  return premiumManifest.parse({
+    ...legacy,
+    format: PREMIUM_FORMAT,
+    pages: [...legacy.pages, premiumInvitationPage(legacy.opening.locale)],
   });
 }

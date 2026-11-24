@@ -67,6 +67,7 @@ COPY src/config/paper-caliper.json ./dist/config/
 
 # Copy local ICC profiles to the container
 COPY icc-profiles/ /app/icc-profiles/
+COPY print-assets/ /app/print-assets/
 
 # Copy background music files from the built dist folder
 COPY --from=builder /app/dist/backgroundMusics ./dist/backgroundMusics
