@@ -44,6 +44,7 @@ interface PrintDimensions {
 }
 
 interface RenderOptions {
+  checkTextFit?: boolean;
   width: number;
   height: number;
   outputPath: string;
@@ -350,6 +351,18 @@ export class PrintService {
       ) {
         throw new Error('Unable to render all print artwork');
       }
+
+      if (
+        options.checkTextFit &&
+        (await page.evaluate(() =>
+          Array.from(document.querySelectorAll<HTMLElement>('.fit')).some(
+            (element) =>
+              element.scrollHeight > element.clientHeight + 1 ||
+              element.scrollWidth > element.clientWidth + 1,
+          ),
+        ))
+      )
+        throw new Error('Premium text exceeds its safe area');
 
       logger.debug('Generating PDF', { outputPath: options.outputPath });
       await page.pdf({

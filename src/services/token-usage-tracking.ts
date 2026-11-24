@@ -50,6 +50,8 @@ export interface TokenUsageRequest {
   cachedInputTokens?: number;
   imageQuality?: ImageQualityInput;
   imageSize?: string;
+  /** Number of uncached input tokens used by reference images, when measured. */
+  imageInputTokens?: number;
   /** Output tokens that were image tokens (vs text/thinking), when the provider reports the split. */
   imageOutputTokens?: number;
   inputPromptJson: Record<string, unknown>;
@@ -63,6 +65,7 @@ export interface CostEstimation {
   cachedInputTokens?: number;
   imageQuality?: ImageQualityInput;
   imageSize?: string;
+  imageInputTokens?: number;
   imageOutputTokens?: number;
   /** Request time used to select dated pricing tiers; defaults to now. */
   timestamp?: Date;
@@ -97,6 +100,9 @@ export class TokenUsageTrackingService {
       if (request.imageOutputTokens !== undefined) {
         costEstimationParams.imageOutputTokens = request.imageOutputTokens;
       }
+      if (request.imageInputTokens !== undefined) {
+        costEstimationParams.imageInputTokens = request.imageInputTokens;
+      }
 
       const estimatedCost = this.calculateCost(costEstimationParams);
 
@@ -106,6 +112,12 @@ export class TokenUsageTrackingService {
         ...(request.cachedInputTokens ? { cachedInputTokens: request.cachedInputTokens } : {}),
         ...(request.imageQuality ? { imageQuality: request.imageQuality } : {}),
         ...(request.imageSize ? { imageSize: request.imageSize } : {}),
+        ...(request.imageInputTokens !== undefined && {
+          imageInputTokens: request.imageInputTokens,
+        }),
+        ...(request.imageOutputTokens !== undefined && {
+          imageOutputTokens: request.imageOutputTokens,
+        }),
       };
 
       const usageRecord: InsertTokenUsage = {
@@ -200,6 +212,7 @@ export class TokenUsageTrackingService {
     const { entry, tier } = resolved;
     const cachedTokens = estimation.cachedInputTokens || 0;
     const regularInputTokens = Math.max(0, estimation.inputTokens - cachedTokens);
+    const imageInputTokens = Math.min(regularInputTokens, estimation.imageInputTokens ?? 0);
     // Long-context surcharge applies to the whole request once input crosses the threshold.
     const longContext =
       tier.longContext && estimation.inputTokens > tier.longContext.inputTokensAbove
@@ -208,7 +221,9 @@ export class TokenUsageTrackingService {
     const inputMultiplier = longContext?.inputMultiplier ?? 1;
     const outputMultiplier = longContext?.outputMultiplier ?? 1;
     const inputCostUSD =
-      ((regularInputTokens * tier.inputPer1M + cachedTokens * tier.cachedInputPer1M) *
+      (((regularInputTokens - imageInputTokens) * tier.inputPer1M +
+        imageInputTokens * (tier.imageInputPer1M ?? tier.inputPer1M) +
+        cachedTokens * tier.cachedInputPer1M) *
         inputMultiplier) /
       1_000_000;
 

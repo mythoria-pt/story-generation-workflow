@@ -33,6 +33,45 @@ function namedStepIndex(steps: unknown[], stepName: string): number {
 }
 
 describe('story generation workflow contract', () => {
+  it('resolves the durable book type before chapter planning and fences failures to the claimant', () => {
+    const runPipeline = findNamedStep(parsedWorkflow as WorkflowNode, 'runPipeline') as {
+      try: { steps: unknown[] };
+      except: { steps: unknown[] };
+    };
+    const steps = runPipeline.try.steps;
+    expect(namedStepIndex(steps, 'resolveBookType')).toBeGreaterThan(
+      namedStepIndex(steps, 'recordClaim'),
+    );
+    expect(namedStepIndex(steps, 'runPremiumBook')).toBeLessThan(
+      namedStepIndex(steps, 'genOutline'),
+    );
+    expect(findNamedStep(parsedWorkflow as WorkflowNode, 'selectClaim')).toMatchObject({
+      switch: [{ condition: '${resumeUpdatedAt != null}', next: 'claimPremiumResume' }],
+    });
+    expect(findNamedStep(parsedWorkflow as WorkflowNode, 'claimPremiumResume')).toMatchObject({
+      args: {
+        body: expect.objectContaining({
+          storyId: '${storyId}',
+          updatedAt: '${resumeUpdatedAt}',
+          executionId: '${executionId}',
+        }),
+      },
+    });
+    for (const step of ['claimRun', 'claimPremiumResume', 'markFailedRun']) {
+      expect(findNamedStep(parsedWorkflow as WorkflowNode, step)).toMatchObject({
+        args: { headers: { 'x-api-key': '${apiKey}' } },
+      });
+    }
+    expect(findNamedStep(parsedWorkflow as WorkflowNode, 'completePremiumBook')).toMatchObject({
+      try: { args: { headers: { 'x-api-key': '${apiKey}' } } },
+    });
+    expect(namedStepIndex(runPipeline.except.steps, 'preserveUnclaimedRun')).toBeLessThan(
+      namedStepIndex(runPipeline.except.steps, 'markFailedRun'),
+    );
+    expect(findNamedStep(parsedWorkflow as WorkflowNode, 'preserveUnclaimedRun')).toMatchObject({
+      switch: [{ condition: '${not(runClaimed)}', raise: '${wfError}' }],
+    });
+  });
   it('claims the stable run id before starting generation', () => {
     const runPipeline = findNamedStep(parsedWorkflow as WorkflowNode, 'runPipeline') as {
       try: { steps: unknown[] };

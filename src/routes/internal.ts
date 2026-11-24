@@ -7,7 +7,7 @@ import { Router, Request, Response } from 'express';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { logger } from '@/config/logger.js';
-import { RunStoryConflictError, RunsService } from '@/services/runs.js';
+import { RunExecutionConflictError, RunStoryConflictError, RunsService } from '@/services/runs.js';
 import { TTSService } from '@/services/tts.js';
 import { ProgressTrackerService } from '@/services/progress-tracker.js';
 import { StoryService } from '@/services/story.js';
@@ -19,6 +19,17 @@ import { schedulerAuth } from '@/middleware/schedulerAuth.js';
 import { apiKeyAuth } from '@/middleware/apiKeyAuth.js';
 import { getTTSHttpError, isTTSGenerationError } from '@/services/tts-errors.js';
 import { StoryTextService } from '@/services/story-text.js';
+import {
+  hasPremiumStoryMarker,
+  markPremiumTerminalFailure,
+  resolvePremiumTerminalStatus,
+  verifyPremiumClaim,
+} from '@/services/premium-book.js';
+import {
+  hasPremiumMarker,
+  PremiumBookError,
+  PREMIUM_BOOK_TYPE,
+} from '@/services/premium-book-contract.js';
 
 const router = Router();
 const analyticsReference = (value: string) =>
@@ -70,12 +81,22 @@ const UpdateRunRequestSchema = z.object({
   storyId: z.string().uuid().optional(), // Added to support creating missing runs
   startedAt: z.string().optional(),
   endedAt: z.string().optional(),
+  expectedWorkflowExecution: z.string().max(255).optional(),
 });
 
 const ClaimRunRequestSchema = z.object({
   storyId: z.string().uuid(),
   gcpWorkflowExecution: z.string().max(255).optional(),
+  bookType: z.literal(PREMIUM_BOOK_TYPE).nullish(),
 });
+
+function authorizePremiumRunWrite(req: Request, res: Response): boolean {
+  let authorized = false;
+  apiKeyAuth(req, res, () => {
+    authorized = true;
+  });
+  return authorized;
+}
 
 const StoreOutlineRequestSchema = z.object({
   outline: z.record(z.string(), z.unknown()),
@@ -208,6 +229,14 @@ router.post('/runs/:runId/claim', async (req: Request, res: Response) => {
   try {
     const runId = z.string().uuid().parse(req.params.runId);
     const input = ClaimRunRequestSchema.parse(req.body);
+    if (input.bookType || (await hasPremiumStoryMarker(input.storyId))) {
+      if (!authorizePremiumRunWrite(req, res)) return;
+      if (!input.gcpWorkflowExecution) {
+        res.status(409).json({ error: 'Premium workflow claim requires an execution identity' });
+        return;
+      }
+      await verifyPremiumClaim(input.storyId, runId);
+    }
     const result = await runsService.claimRun(input.storyId, runId, input.gcpWorkflowExecution);
     if (result.claimed) {
       await analyticsReconciliationService.markProductRunRunning(runId);
@@ -219,6 +248,10 @@ router.post('/runs/:runId/claim', async (req: Request, res: Response) => {
       storyId: result.run.storyId,
     });
   } catch (error) {
+    if (error instanceof PremiumBookError) {
+      res.status(error.status).json({ error: error.message, code: error.code });
+      return;
+    }
     if (error instanceof z.ZodError) {
       res.status(400).json({ error: 'Invalid claim request', details: error.issues });
       return;
@@ -253,13 +286,29 @@ router.patch('/runs/:runId', async (req: Request<{ runId: string }>, res: Respon
 
     const updates = UpdateRunRequestSchema.parse(req.body);
 
+    // Read the durable story identity before creating or mutating a run.
+    let run = await runsService.getRun(runId);
+    const linkedStoryId = run?.storyId ?? updates.storyId;
+    const premium =
+      (run?.metadata as { premiumBook?: boolean } | null)?.premiumBook === true ||
+      Boolean(linkedStoryId && (await hasPremiumStoryMarker(linkedStoryId)));
+    if (premium || updates.metadata?.premiumBook !== undefined) {
+      if (!authorizePremiumRunWrite(req, res)) return;
+      if (
+        !run ||
+        !updates.expectedWorkflowExecution ||
+        (updates.storyId !== undefined && updates.storyId !== run.storyId)
+      ) {
+        res
+          .status(409)
+          .json({ error: 'Premium workflow write requires the claimed execution and story' });
+        return;
+      }
+    }
     logger.info('Internal API: Updating run', {
       runId,
-      updates,
+      ...(premium ? { status: updates.status } : { updates }),
     });
-
-    // First check if run exists, create if missing (defensive programming)
-    let run = await runsService.getRun(runId);
     if (!run && updates.storyId) {
       logger.warn('Run not found, creating new run', {
         runId,
@@ -276,11 +325,48 @@ router.patch('/runs/:runId', async (req: Request<{ runId: string }>, res: Respon
       return;
     }
 
+    if (
+      updates.expectedWorkflowExecution &&
+      run.gcpWorkflowExecution !== updates.expectedWorkflowExecution
+    ) {
+      res.status(409).json({ error: 'Workflow execution has been superseded' });
+      return;
+    }
+
     // Parallel Workflows errors wrap the original HTTP code; retain a recorded safety block.
     if (run.status === 'blocked' && updates.status === 'failed') updates.status = 'blocked';
+    if (
+      premium &&
+      (updates.status === 'completed' ||
+        updates.status === 'failed' ||
+        updates.status === 'blocked')
+    ) {
+      const outcome = await resolvePremiumTerminalStatus(run.storyId, runId, updates.status);
+      if (outcome === 'completed') {
+        updates.currentStep = 'done';
+        delete updates.errorMessage;
+      }
+      updates.status = outcome;
+      updates.metadata = { ...updates.metadata, premiumBook: true, serviceCode: 'storyGeneration' };
+    }
     const updatedRun = await runsService.updateRun(runId, updates);
 
-    if (updatedRun.status === 'completed' || updatedRun.status === 'failed') {
+    if (
+      premium &&
+      updates.expectedWorkflowExecution &&
+      (updatedRun.status === 'failed' || updatedRun.status === 'blocked')
+    ) {
+      await markPremiumTerminalFailure(run.storyId, runId, updates.expectedWorkflowExecution).catch(
+        () => logger.warn('Premium terminal story status needs reconciliation', { runId }),
+      );
+    }
+
+    if (
+      updatedRun.status === 'completed' ||
+      updatedRun.status === 'failed' ||
+      (updatedRun.status === 'blocked' &&
+        (updatedRun.metadata as { premiumBook?: boolean } | null)?.premiumBook === true)
+    ) {
       try {
         await analyticsReconciliationService.recordTerminalRun(updatedRun);
       } catch (analyticsError) {
@@ -316,6 +402,11 @@ router.patch('/runs/:runId', async (req: Request<{ runId: string }>, res: Respon
     });
     return;
   } catch (error) {
+    if (error instanceof RunExecutionConflictError || error instanceof PremiumBookError) {
+      const status = error instanceof PremiumBookError ? error.status : 409;
+      res.status(status).json({ error: error.message });
+      return;
+    }
     logger.error('Internal API: Failed to update run', {
       error: error instanceof Error ? error.message : String(error),
       runId: req.params.runId,
@@ -469,6 +560,11 @@ router.post('/runs/:runId/outline', async (req, res) => {
   try {
     const runId = req.params.runId;
     const { outline } = StoreOutlineRequestSchema.parse(req.body);
+    const run = await runsService.getRun(runId);
+    if (run && (await hasPremiumStoryMarker(run.storyId))) {
+      res.status(409).json({ error: 'Premium stories use their own storyboard' });
+      return;
+    }
 
     logger.info('Internal API: Storing outline', {
       runId,
@@ -545,6 +641,10 @@ router.post('/runs/:runId/chapter/:chapterNumber', async (req, res) => {
         success: false,
         error: 'Story not found',
       });
+      return;
+    }
+    if (hasPremiumMarker(story.features)) {
+      res.status(409).json({ error: 'Premium stories use illustrated pages' });
       return;
     }
 
@@ -700,6 +800,10 @@ router.post('/runs/:runId/image', async (req, res) => {
         success: false,
         error: 'Run not found',
       });
+      return;
+    }
+    if (await hasPremiumStoryMarker(run.storyId)) {
+      res.status(409).json({ error: 'Premium stories publish artwork by revision' });
       return;
     }
 
