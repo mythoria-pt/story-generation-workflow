@@ -19,6 +19,7 @@ import { Storage } from '@google-cloud/storage';
 import { storyGuideRouter } from './story-guide.js';
 import { storyPreferencesSchema } from '@/services/story-guide-contract.js';
 import { Router } from 'express';
+import { and, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { validateImageRequest, generateImageFilename, formatImageError } from './ai-image-utils.js';
 import { generateNextVersionFilename, extractFilenameFromUri } from '@/utils/imageUtils.js';
@@ -1827,7 +1828,6 @@ router.post('/image', async (req, res) => {
               // Query latest version of previous chapter
               const db = (await import('@/db/connection.js')).getDatabase();
               const { chapters } = await import('@/db/schema/index.js');
-              const { and, eq, desc } = await import('drizzle-orm');
               const prev = await db
                 .select({ imageUri: chapters.imageUri, version: chapters.version })
                 .from(chapters)

@@ -4,7 +4,7 @@ Email event identity, generation recovery and the coordinated delivery-ledger ro
 
 ## 1. Quick Context
 
-- **Runtime**: Node.js 24.18.1 LTS (ESM) + Express, compiled with `tsc` and path aliases (`@/...`).
+- **Runtime**: Node.js 24.18.1 LTS (ESM) + Express, compiled with TypeScript 7 and path aliases (`@/...`).
 - **Purpose**: Run Google Cloud Workflows, talk to Google GenAI/OpenAI, persist progress in PostgreSQL, and publish text, art, audio, and print assets for the Mythoria platform.
 - **Entrypoint**: `src/index.ts` registers middleware (notably `apiKeyAuth`), routes under `/ai`, `/audio`, `/api/*`, `/internal/*`, `/debug`, and performs graceful shutdowns.
 - **Auth**: Every external route requires `x-api-key` matching `STORY_GENERATION_WORKFLOW_API_KEY`. There is no JWT or session fallback.
@@ -44,8 +44,8 @@ pwsh -NoProfile -Command "npm run env:validate"
 pwsh -NoProfile -Command "npm run dev"
 ```
 
-- Want type safety? `npm run typecheck`.
-- Jest unit tests? `npm test` (see `src/tests/setup.ts`).
+- Want type safety? `npm run typecheck`. Build and type checking use the TypeScript 7 CLI via `typescript-native`. Keep the `typescript` package on TypeScript 6 while Jest and ESLint require its JavaScript compiler API.
+- Jest unit tests? `npm test` (see `src/tests/setup.ts`). The npm overrides for Jest and `test-exclude` pin patched `glob` and `minimatch` versions. Remove them once the upstream dependency ranges resolve to patched releases.
 - Lint/format? `npm run lint`, `npm run format`.
 
 ### Database + schema
