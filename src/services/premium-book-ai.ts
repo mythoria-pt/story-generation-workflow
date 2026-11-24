@@ -44,7 +44,7 @@ export function getPremiumConfiguration() {
   };
 }
 
-function openAI() {
+function openAI(timeout = 240_000) {
   const key = getEnvironment().OPENAI_API_KEY;
   if (!key) {
     throw new PremiumBookError(
@@ -53,7 +53,7 @@ function openAI() {
       'Premium OpenAI credential unavailable',
     );
   }
-  return new OpenAI({ apiKey: key, timeout: 240_000, maxRetries: 0 });
+  return new OpenAI({ apiKey: key, timeout, maxRetries: 0 });
 }
 
 function parseOutput<T>(schema: z.ZodType<T>, value: string): T {
@@ -161,7 +161,8 @@ export async function generatePremiumImage(
   reportUsage: (usage: TokenUsageRequest) => Promise<void> = (usage) =>
     new TokenUsageTrackingService().recordUsage(usage),
 ) {
-  const client = openAI();
+  const motif = phase === 'opening_motif';
+  const client = openAI(motif ? 90_000 : undefined);
   const params = {
     model: config.model,
     quality: config.quality,
@@ -169,7 +170,7 @@ export async function generatePremiumImage(
     prompt,
     n: 1,
     output_format: 'png' as const,
-    background: 'opaque' as const,
+    background: motif ? ('transparent' as const) : ('opaque' as const),
   };
   let output;
   const started = Date.now();

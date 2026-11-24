@@ -1,12 +1,25 @@
 import { z } from 'zod';
 import { SUPPORTED_LOCALES } from '@/config/locales.js';
 import { premiumOpeningColors, premiumOpeningMotifs } from './premium-opening-design.js';
+import {
+  premiumInvitationHref,
+  PREMIUM_INVITATION_PAGE_NUMBER,
+} from './premium-book-invitation.js';
 
 export const PREMIUM_BOOK_TYPE = 'premium_children';
-export const PREMIUM_PAGE_COUNT = 32;
+export const LEGACY_PREMIUM_PAGE_COUNT = 32;
+export const PREMIUM_PAGE_COUNT = PREMIUM_INVITATION_PAGE_NUMBER;
 export const PREMIUM_SPREAD_COUNT = 13;
 export const PREMIUM_TEXT_BOX = { x: 0.1, y: 0.09, width: 0.8, height: 0.2 };
-export const PREMIUM_FORMAT = { trimPoints: 612, bleedPoints: 9, pageCount: 32 } as const;
+export const PREMIUM_FORMAT = {
+  trimPoints: 612,
+  bleedPoints: 9,
+  pageCount: PREMIUM_PAGE_COUNT,
+} as const;
+export const premiumPageCount = z.union([
+  z.literal(LEGACY_PREMIUM_PAGE_COUNT),
+  z.literal(PREMIUM_PAGE_COUNT),
+]);
 export const premiumAudience = z.enum(['children_0-2', 'children_3-6']);
 
 export const premiumAsset = z.object({
@@ -87,6 +100,16 @@ export const premiumOpeningDesign = z.object({
   motif: z.enum(premiumOpeningMotifs),
   background: z.enum(premiumOpeningColors),
 });
+const premiumMotifBrief = z
+  .string()
+  .trim()
+  .min(1)
+  .max(320)
+  .refine(
+    (value) =>
+      !/[<>]/u.test(value) && [...value].every((character) => character.charCodeAt(0) >= 32),
+  );
+const premiumMotifSpread = z.number().int().min(1).max(PREMIUM_SPREAD_COUNT);
 export type PremiumTextLayout = z.infer<typeof premiumTextLayout>;
 
 export const premiumLeftDescription = z
@@ -111,6 +134,8 @@ function validLeftNarration({ textLayout, leftText }: z.infer<typeof boardSpread
 
 export const premiumBoard = z.object({
   openingDesign: premiumOpeningDesign.optional(),
+  motifBrief: premiumMotifBrief.optional(),
+  motifSpread: premiumMotifSpread.optional(),
   synopsis: openingPlan.shape.synopsis,
   visualGuide: z.string().min(1).max(1600),
   front: z.string().min(1).max(900),
@@ -120,20 +145,26 @@ export const premiumBoard = z.object({
   ending: z.object({ text: narrativeText, action: z.string().min(1).max(900) }),
 });
 // Provider structured output requires every key. An empty description means a narrated left page.
-export const generatedPremiumBoard = premiumBoard.extend({
-  openingDesign: premiumOpeningDesign,
-  spreads: z
-    .array(
-      boardSpread
-        .extend({
-          leftDescription: z.union([premiumLeftDescription, z.literal('')]),
-        })
-        .refine(validLeftNarration)
-        .refine(
-          (spread) => (spread.textLayout === 'right_only') === (spread.leftDescription !== ''),
-        ),
-    )
-    .length(PREMIUM_SPREAD_COUNT),
+export const historicalGeneratedPremiumBoard = premiumBoard
+  .omit({ motifBrief: true, motifSpread: true })
+  .extend({
+    openingDesign: premiumOpeningDesign,
+    spreads: z
+      .array(
+        boardSpread
+          .extend({
+            leftDescription: z.union([premiumLeftDescription, z.literal('')]),
+          })
+          .refine(validLeftNarration)
+          .refine(
+            (spread) => (spread.textLayout === 'right_only') === (spread.leftDescription !== ''),
+          ),
+      )
+      .length(PREMIUM_SPREAD_COUNT),
+  });
+export const generatedPremiumBoard = historicalGeneratedPremiumBoard.extend({
+  motifBrief: premiumMotifBrief,
+  motifSpread: premiumMotifSpread,
 });
 export type PremiumBoard = z.infer<typeof premiumBoard>;
 
@@ -148,9 +179,19 @@ const textBox = rect.refine(
     value.y + value.height <= 0.92,
 );
 export const premiumPage = z.object({
-  number: z.number().int().min(1).max(32),
-  kind: z.enum(['title', 'copyright', 'dedication', 'synopsis', 'opener', 'spread', 'ending']),
+  number: z.number().int().min(1).max(PREMIUM_PAGE_COUNT),
+  kind: z.enum([
+    'title',
+    'copyright',
+    'dedication',
+    'synopsis',
+    'opener',
+    'spread',
+    'ending',
+    'invitation',
+  ]),
   text: z.string(),
+  link: z.object({ label: z.string().trim().min(1).max(100), href: z.url() }).optional(),
   spreadId: z.string().optional(),
   artwork: premiumAsset.optional(),
   reading: premiumAsset.optional(),
@@ -197,10 +238,11 @@ export const premiumManifest = z
     format: z.object({
       trimPoints: z.literal(612),
       bleedPoints: z.literal(9),
-      pageCount: z.literal(32),
+      pageCount: premiumPageCount,
     }),
     opening: openingPlan,
     openingDesign: premiumOpeningDesign.optional(),
+    motifArtwork: premiumAsset.optional(),
     config: premiumImageConfig,
     textConfig: z.object({
       provider: z.enum(['openai', 'google-genai']),
@@ -211,14 +253,66 @@ export const premiumManifest = z
     reference: premiumAsset,
     covers: z.object({ front: premiumAsset, back: premiumAsset }),
     natives: z.record(z.string(), native),
-    pages: z.array(premiumPage).length(PREMIUM_PAGE_COUNT),
+    pages: z.array(premiumPage).min(LEGACY_PREMIUM_PAGE_COUNT).max(PREMIUM_PAGE_COUNT),
     spreads: z.array(premiumSpread).length(PREMIUM_SPREAD_COUNT),
     supersedes: z.string().optional(),
   })
   .superRefine((value, ctx) => {
-    const kinds = ['title', 'copyright', 'dedication', 'synopsis', 'opener'];
+    if (
+      value.motifArtwork &&
+      (!value.openingDesign ||
+        !value.motifArtwork.key.startsWith(`${value.storyId}/premium/revisions/`) ||
+        !value.motifArtwork.key.endsWith(`/assets/${value.motifArtwork.sha256}.png`))
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['motifArtwork'],
+        message: 'Invalid premium motif artwork',
+      });
+    }
+    if (value.pages.length !== value.format.pageCount) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['pages'],
+        message: 'Interior count does not match premium page plan',
+      });
+    }
+    const kinds = [
+      'title',
+      'copyright',
+      'dedication',
+      'synopsis',
+      'opener',
+      ...Array<string>(PREMIUM_SPREAD_COUNT * 2).fill('spread'),
+      'ending',
+      'invitation',
+    ];
     for (const [index, page] of value.pages.entries()) {
-      const kind = kinds[index] ?? (index === PREMIUM_PAGE_COUNT - 1 ? 'ending' : 'spread');
+      const kind = kinds[index];
+      const invitation = kind === 'invitation';
+      const orderMatches = page.number === index + 1 && page.kind === kind;
+      if (invitation) {
+        const paragraphs = page.text.split('\n\n');
+        if (
+          !orderMatches ||
+          paragraphs.length !== 2 ||
+          paragraphs.some((paragraph) => !paragraph.trim()) ||
+          page.link?.href !== premiumInvitationHref(value.opening.locale) ||
+          page.artwork ||
+          page.reading ||
+          page.textBox ||
+          page.spreadId ||
+          page.digitalCrop ||
+          page.printCrop
+        ) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['pages', index],
+            message: 'Invalid premium invitation page',
+          });
+        }
+        continue;
+      }
       const silent =
         kind === 'spread' &&
         page.number % 2 === 0 &&
@@ -227,8 +321,8 @@ export const premiumManifest = z
         ? page.text === '' && !page.textBox
         : Boolean(page.textBox && narrativeText.safeParse(page.text).success);
       if (
-        page.number !== index + 1 ||
-        page.kind !== kind ||
+        !orderMatches ||
+        page.link !== undefined ||
         (page.number >= 5 && (!page.artwork || !page.reading || !validText)) ||
         (page.number < 5 && Boolean(page.artwork || !page.text.trim()))
       ) {

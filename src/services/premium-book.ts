@@ -22,6 +22,8 @@ import {
 } from './biographer/whisperer-photos.js';
 import { RunsService } from './runs.js';
 import { premiumOpeningPages } from './premium-book-opening.js';
+import { premiumInvitationPage } from './premium-book-invitation.js';
+import { selectPremiumOpeningMotif } from './premium-book-motif.js';
 import { buildPremiumStoryboardPrompt } from './premium-book-storyboard.js';
 import {
   generatePremiumImage,
@@ -40,9 +42,11 @@ import {
   applyPremiumSpreadText,
   hasPremiumMarker,
   narrativeText,
+  LEGACY_PREMIUM_PAGE_COUNT,
   openingPlan,
   PREMIUM_BOOK_TYPE,
   PREMIUM_FORMAT,
+  PREMIUM_PAGE_COUNT,
   PREMIUM_SPREAD_COUNT,
   PREMIUM_TEXT_BOX,
   PremiumBookError,
@@ -50,9 +54,11 @@ import {
   premiumAudience,
   premiumBoard,
   generatedPremiumBoard,
+  historicalGeneratedPremiumBoard,
   premiumLeftDescription,
   premiumImageConfig,
   premiumManifest,
+  premiumPage,
   premiumRevisionPrefix,
   readPremiumMarker,
   premiumTextLayout,
@@ -116,6 +122,7 @@ const frozenSchema = z.object({
   referenceImages: z.array(premiumAsset).max(5),
   image: premiumImageConfig,
   text: premiumTextConfig,
+  invitation: premiumPage.optional(),
 });
 type FrozenBook = z.infer<typeof frozenSchema>;
 const artworkSchema = z.object({
@@ -431,13 +438,14 @@ async function freezeInput(bucket: Bucket, prefix: string, story: StoryRow, mark
       .toBuffer();
     photos.push(await savePremiumImage(bucket, prefix, photo, 'jpg'));
   }
+  const locale = normalizeLocale(story.storyLanguage);
   return {
     ...scope,
     audience: marker.audience,
     opening: {
       title: story.title,
       author: story.customAuthor?.trim() || author?.name?.trim() || 'Mythoria',
-      locale: normalizeLocale(story.storyLanguage),
+      locale,
       dedication: story.dedicationMessage ?? '',
       createdAt: story.createdAt.toISOString(),
     },
@@ -455,6 +463,7 @@ async function freezeInput(bucket: Bucket, prefix: string, story: StoryRow, mark
     characters: JSON.stringify(descriptions),
     referenceImages: photos,
     ...getPremiumConfiguration(),
+    invitation: premiumInvitationPage(locale),
   };
 }
 
@@ -704,6 +713,7 @@ async function publishManifest(
 async function verifyManifestArtwork(bucket: Bucket, manifest: PremiumManifest) {
   await validateAssets(bucket, manifest.storyId, [
     manifest.reference,
+    ...(manifest.motifArtwork ? [manifest.motifArtwork] : []),
     ...Object.values(manifest.covers),
     ...manifest.spreads.flatMap((spread) => [spread.master, spread.source]),
     ...manifest.pages.flatMap((page) =>
@@ -732,7 +742,7 @@ async function assemble(
       covers[phase] = pageArt(artwork, 0, false).artwork;
     } else if (phase === 'opener' || phase === 'ending') {
       pages.push({
-        number: phase === 'opener' ? 5 : 32,
+        number: phase === 'opener' ? 5 : LEGACY_PREMIUM_PAGE_COUNT,
         kind: phase,
         text: board[phase].text,
         textBox: PREMIUM_TEXT_BOX,
@@ -776,15 +786,35 @@ async function assemble(
       );
     }
   }
+  if (book.invitation) pages.push(book.invitation);
+  const motifSpread = board.motifSpread && spreads[board.motifSpread - 1];
+  const motifArtwork =
+    book.invitation && board.openingDesign && board.motifBrief && motifSpread
+      ? await selectPremiumOpeningMotif({
+          bucket,
+          prefix,
+          scope: book,
+          bookInputHash: inputHash,
+          config: book.image,
+          brief: board.motifBrief,
+          guide: board.visualGuide,
+          spread: motifSpread.master,
+          background: board.openingDesign.background,
+        })
+      : undefined;
   return premiumManifest.parse({
     version: 1,
     type: PREMIUM_BOOK_TYPE,
     storyId: book.storyId,
     ownerId: book.ownerId,
     revision: book.revision,
-    format: PREMIUM_FORMAT,
+    format: {
+      ...PREMIUM_FORMAT,
+      pageCount: book.invitation ? PREMIUM_PAGE_COUNT : LEGACY_PREMIUM_PAGE_COUNT,
+    },
     opening,
     ...(board.openingDesign && { openingDesign: board.openingDesign }),
+    ...(motifArtwork && { motifArtwork }),
     config: book.image,
     textConfig: book.text,
     inputHash,
@@ -853,8 +883,11 @@ export async function advancePremiumRun(
         book,
         book.text,
         phase,
-        buildPremiumStoryboardPrompt(book),
-        generatedPremiumBoard,
+        buildPremiumStoryboardPrompt({
+          ...book,
+          pageCount: book.invitation ? PREMIUM_PAGE_COUNT : LEGACY_PREMIUM_PAGE_COUNT,
+        }),
+        book.invitation ? generatedPremiumBoard : historicalGeneratedPremiumBoard,
       ),
     );
   } else {

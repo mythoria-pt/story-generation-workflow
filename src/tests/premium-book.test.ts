@@ -1,5 +1,4 @@
 import { describe, expect, it, jest } from '@jest/globals';
-import type { Bucket } from '@google-cloud/storage';
 import sharp from 'sharp';
 import { GoogleGenAITextService } from '@/ai/providers/google-genai/text.js';
 import { reviewPremiumImage } from '@/services/premium-book-ai.js';
@@ -29,49 +28,7 @@ import {
   withPremiumLease,
 } from '@/services/premium-book-storage.js';
 import { premiumManifestFixture } from './fixtures/premium-book.js';
-
-function fixtureBucket() {
-  type Object = { bytes: Buffer; metadata: Record<string, unknown> };
-  const objects = new Map<string, Object>();
-  let generation = 0;
-  const error = (code: number) => Object.assign(new Error('fixture storage failure'), { code });
-  const read = (key: string) => {
-    const stored = objects.get(key);
-    if (!stored) throw error(404);
-    return stored;
-  };
-  return {
-    objects,
-    bucket: {
-      file: (key: string) => ({
-        getMetadata: async () => [read(key).metadata],
-        download: async () => [read(key).bytes],
-        save: async (
-          data: Buffer | string,
-          options: {
-            preconditionOpts: { ifGenerationMatch: string | number };
-            metadata?: { metadata?: unknown };
-          },
-        ) => {
-          const current = String(objects.get(key)?.metadata.generation ?? '0');
-          if (current !== String(options.preconditionOpts.ifGenerationMatch)) throw error(412);
-          objects.set(key, {
-            bytes: Buffer.from(data),
-            metadata: {
-              generation: String(++generation),
-              updated: new Date().toISOString(),
-              metadata: options.metadata?.metadata,
-            },
-          });
-        },
-        delete: async (options: { ifGenerationMatch: string }) => {
-          if (options.ifGenerationMatch !== read(key).metadata.generation) throw error(412);
-          objects.delete(key);
-        },
-      }),
-    } as unknown as Bucket,
-  };
-}
+import { fixtureBucket } from './fixtures/premium-storage.js';
 
 async function scene(lineRows = 0) {
   const width = 1920;
@@ -148,6 +105,8 @@ describe('premium book generation contract', () => {
     const panel = { text: 'O barco flutua.', action: 'Um barco flutua.' };
     const board = {
       openingDesign: { motif: 'paper_boat', background: '#e1f0eb' },
+      motifBrief: 'Um barco de papel dobrado com traços azul-petróleo.',
+      motifSpread: 1,
       synopsis: 'Um passeio.',
       visualGuide: 'Aguarela.',
       front: 'O barco.',

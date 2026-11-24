@@ -43,6 +43,7 @@ export const OrderProofRequest = z
     provider: z.enum(['manual', 'lulu']),
     binding: z.enum(['paperback', 'hardcover']),
     premiumBook: publishedPremium.optional(),
+    premiumPageCount: z.union([z.literal(32), z.literal(33)]).optional(),
     podPackageId: z.enum([squarePackage, '0850X0850.FC.PRE.CW.080CW444.MXX']).optional(),
     coverDimensions: z
       .object({ width: z.number().min(800).max(1400), height: z.number().min(600).max(900) })
@@ -51,7 +52,7 @@ export const OrderProofRequest = z
   .strict()
   .refine(
     (v) =>
-      (!v.premiumBook && !v.podPackageId) ||
+      (!v.premiumBook && !v.podPackageId && !v.premiumPageCount) ||
       Boolean(
         v.premiumBook &&
         v.podPackageId &&
@@ -286,6 +287,9 @@ export async function renderOrderProof(
       request.storyId,
       pin.revision,
     );
+    const pageCount = manifest.format.pageCount;
+    if (request.premiumPageCount !== undefined && request.premiumPageCount !== pageCount)
+      throw new Error('Premium proof page count differs from the paid edition');
     const dir = await mkdtemp(join(tmpdir(), 'mythoria-square-proof-'));
     try {
       if (request.coverDimensions) assertSquareCasewrap(request.coverDimensions);
@@ -301,18 +305,20 @@ export async function renderOrderProof(
         const { bytes, issues } = await render('interior');
         return {
           interior: await saveArtifact(bucket, prefix, 'interior.pdf', bytes, 'application/pdf'),
-          pageCount: 32,
+          pageCount,
           imageIssues: issues,
         };
       });
-      if (!request.coverDimensions) return { interior: interior.interior, pageCount: 32 };
+      if (interior.pageCount !== pageCount)
+        throw new Error('Cached interior has a different page count');
+      if (!request.coverDimensions) return { interior: interior.interior, pageCount };
       return await stage<Required<Result>>(bucket, prefix + '/square-final.json', async () => {
         const { bytes, issues: coverIssues } = await render('cover');
         const issues = [...new Set([...interior.imageIssues, ...coverIssues])];
         return {
           interior: interior.interior,
           cover: await saveArtifact(bucket, prefix, 'cover.pdf', bytes, 'application/pdf'),
-          pageCount: 32,
+          pageCount,
           qaPassed: issues.length === 0,
           qaCriticalCount: issues.length,
           issues,

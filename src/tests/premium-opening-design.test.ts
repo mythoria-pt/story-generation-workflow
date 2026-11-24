@@ -26,6 +26,8 @@ function boardFixture() {
   const panel = { text: 'O barco flutua.', action: 'Um barco flutua.' };
   return {
     synopsis: book.opening.synopsis,
+    motifBrief: 'Um barco de papel dobrado com traços azul-petróleo.',
+    motifSpread: 1,
     visualGuide: book.visualGuide,
     front: 'O barco.',
     back: 'O mar.',

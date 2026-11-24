@@ -8,6 +8,8 @@ import { PrintQualityService } from '@/services/print-quality.js';
 import { StoryService } from '@/services/story.js';
 import { CMYKConversionService } from '@/services/cmyk-conversion.js';
 import { renderOrderProof, OrderProofRequest } from '@/services/order-proof.js';
+import { premiumInvitationManifestFixture } from './fixtures/premium-book.js';
+import { squarePackage } from '@/services/premium-order-proof.js';
 
 function storageFixture() {
   const objects = new Map<string, Buffer>();
@@ -44,6 +46,38 @@ const loadArtwork = jest.fn(async (url: string) => ({
 }));
 afterEach(() => jest.restoreAllMocks());
 describe('paid order PDF generations', () => {
+  it('stops before rendering if the pinned premium edition differs from the paid interior count', async () => {
+    const manifest = premiumInvitationManifestFixture();
+    const premium = storageFixture();
+    const proofs = storageFixture();
+    const key = `${manifest.storyId}/premium/revisions/${manifest.revision}/manifest.json`;
+    const bytes = Buffer.from(JSON.stringify(manifest));
+    premium.objects.set(key, bytes);
+    const request = OrderProofRequest.parse({
+      ...ids(),
+      storyId: manifest.storyId,
+      provider: 'lulu',
+      binding: 'hardcover',
+      podPackageId: squarePackage,
+      premiumPageCount: 32,
+      premiumBook: {
+        version: 1,
+        type: 'premium_children',
+        state: 'published',
+        revision: manifest.revision,
+        manifest: {
+          key,
+          generation: '123',
+          bytes: bytes.length,
+          sha256: createHash('sha256').update(bytes).digest('hex'),
+        },
+      },
+    });
+    await expect(
+      renderOrderProof(proofs.bucket, request, loadArtwork, premium.bucket),
+    ).rejects.toThrow('page count differs from the paid edition');
+    expect([...proofs.objects.keys()].every((object) => !object.endsWith('.pdf'))).toBe(true);
+  });
   it('rejects arbitrary storage paths or a caller-supplied PDF URL', () => {
     expect(OrderProofRequest.safeParse({ ...ids(), storyId: '../shared' }).success).toBe(false);
     expect(OrderProofRequest.safeParse({ ...ids(), pdfUrl: 'https://example.org' }).success).toBe(
