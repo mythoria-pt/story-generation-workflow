@@ -169,6 +169,26 @@ export const envManifest: EnvVarDescriptor[] = [
     note: 'Dedicated private bucket for paid order proof snapshots and PDFs.',
   },
   {
+    name: 'PREMIUM_BOOK_BUCKET',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    source: 'inline',
+    note: 'Dedicated private bucket for premium draft inputs and immutable published revisions.',
+  },
+  ...[
+    ['PREMIUM_IMAGE_PROVIDER', 'openai'],
+    ['PREMIUM_IMAGE_MODEL', 'gpt-image-2.6-sunburst'],
+    ['PREMIUM_IMAGE_QUALITY', 'high'],
+    ['PREMIUM_IMAGE_SPREAD_SIZE', '3840x1952'],
+    ['PREMIUM_IMAGE_SQUARE_SIZE', '1536x1536'],
+  ].map(([name, value]) => ({
+    name: name!,
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'] as EnvScope[],
+    source: 'inline' as const,
+    default: value!,
+  })),
+  {
     name: 'GOOGLE_GENAI_CLOUD_REGION',
     required: false,
     scopes: ['dev', 'runtime', 'prod'],

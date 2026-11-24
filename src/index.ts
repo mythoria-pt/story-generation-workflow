@@ -63,6 +63,7 @@ app.get('/', (_req, res) => {
 import { biographerRouter } from './routes/biographer.js';
 import { aiRouter } from './routes/ai.js';
 import { internalRouter } from './routes/internal.js';
+import { premiumBookRouter } from './routes/premium-book.js';
 import { storyEditRouter } from './routes/story-edit.js';
 import { audioRouter } from './routes/audio.js';
 import { printRouter, internalPrintRouter } from './routes/print.js';
@@ -84,6 +85,7 @@ app.use('/api/biographer', apiKeyAuth, biographerRouter);
 app.use('/ai', apiKeyAuth, aiRouter);
 app.use('/audio', apiKeyAuth, audioRouter);
 app.use('/internal', internalRouter); // keep internal open or handle separately
+app.use('/internal/premium', premiumBookRouter);
 app.use('/print', apiKeyAuth, printRouter);
 app.use('/internal/print', internalPrintRouter);
 app.use('/api/story-edit', apiKeyAuth, storyEditRouter);

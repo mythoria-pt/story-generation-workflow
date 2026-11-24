@@ -19,6 +19,13 @@ export interface RunUpdate {
   startedAt?: string | undefined;
   endedAt?: string | undefined;
   gcpWorkflowExecution?: string | undefined;
+  expectedWorkflowExecution?: string | undefined;
+}
+
+export class RunExecutionConflictError extends Error {
+  constructor() {
+    super('Workflow execution has been superseded');
+  }
 }
 
 export interface StepResult {
@@ -184,6 +191,36 @@ export class RunsService {
     return { claimed: false as const, run: existingRun };
   }
 
+  async claimPremiumResume(
+    storyId: string,
+    runId: string,
+    prior: { status: 'running' | 'failed' | 'blocked'; updatedAt: string },
+    gcpWorkflowExecution: string,
+  ) {
+    const [run] = await this.db
+      .update(storyGenerationRuns)
+      .set({
+        status: 'running',
+        currentStep: 'premium_storyboard',
+        gcpWorkflowExecution,
+        endedAt: null,
+        failureStage: null,
+        failureCode: null,
+        errorMessage: null,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(
+        and(
+          eq(storyGenerationRuns.storyId, storyId),
+          eq(storyGenerationRuns.runId, runId),
+          eq(storyGenerationRuns.status, prior.status),
+          eq(storyGenerationRuns.updatedAt, prior.updatedAt),
+        ),
+      )
+      .returning();
+    return run;
+  }
+
   /**
    * Create run if it doesn't exist, otherwise return existing run
    */
@@ -306,10 +343,18 @@ export class RunsService {
       const [updatedRun] = await this.db
         .update(storyGenerationRuns)
         .set(updateData)
-        .where(eq(storyGenerationRuns.runId, runId))
+        .where(
+          and(
+            eq(storyGenerationRuns.runId, runId),
+            updates.expectedWorkflowExecution
+              ? eq(storyGenerationRuns.gcpWorkflowExecution, updates.expectedWorkflowExecution)
+              : undefined,
+          ),
+        )
         .returning();
 
       if (!updatedRun) {
+        if (updates.expectedWorkflowExecution) throw new RunExecutionConflictError();
         throw new Error(`Run not found: ${runId}`);
       }
 

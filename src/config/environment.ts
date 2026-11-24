@@ -71,6 +71,12 @@ const envSchema = z.object({
   GOOGLE_GENAI_CLOUD_REGION: z.string().optional().default('global'),
   STORAGE_BUCKET_NAME: z.string(),
   PRINT_PROOF_BUCKET: z.string().min(1).optional(),
+  PREMIUM_BOOK_BUCKET: z.string().trim().min(1).optional(),
+  PREMIUM_IMAGE_PROVIDER: z.literal('openai').default('openai'),
+  PREMIUM_IMAGE_MODEL: z.string().trim().min(1).default('gpt-image-2.6-sunburst'),
+  PREMIUM_IMAGE_QUALITY: z.enum(['low', 'medium', 'high', 'xhigh', 'max', 'auto']).default('high'),
+  PREMIUM_IMAGE_SPREAD_SIZE: z.string().default('3840x1952'),
+  PREMIUM_IMAGE_SQUARE_SIZE: z.string().default('1536x1536'),
   IMAGE_GENERATION_MODEL: z.string().optional(),
   LOG_LEVEL: z.enum(['error', 'warn', 'info', 'debug']).optional().default('info'),
   DEBUG_AI_FULL_PROMPTS: z.string().optional().default('false'),
@@ -233,6 +239,40 @@ export const SUPPORTED_GEMINI_TTS_MODEL = 'gemini-3.8-flash-tts';
 
 // Cross-field rules. Kept separate so `envSchema.shape` stays available for parity tooling.
 const validatedEnvSchema = envSchema.superRefine((env, ctx) => {
+  for (const key of ['PREMIUM_IMAGE_SPREAD_SIZE', 'PREMIUM_IMAGE_SQUARE_SIZE'] as const) {
+    const raw = env[key];
+    const [width = 0, height = 0] = raw.split('x').map(Number);
+    const ratio = key === 'PREMIUM_IMAGE_SPREAD_SIZE' ? 17.25 / 8.75 : 1;
+    if (
+      !/^\d+x\d+$/.test(raw) ||
+      width <= 0 ||
+      height <= 0 ||
+      width < 768 ||
+      height < 768 ||
+      width > 3840 ||
+      height > 3840 ||
+      width % 16 ||
+      height % 16 ||
+      Math.abs(width / height - ratio) > 0.02 ||
+      width * height > 8_294_400
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: [key],
+        message: 'Invalid premium OpenAI image dimensions',
+      });
+    }
+  }
+  if (
+    env.PREMIUM_BOOK_BUCKET &&
+    (env.PREMIUM_BOOK_BUCKET === env.STORAGE_BUCKET_NAME || !env.OPENAI_API_KEY?.trim())
+  ) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['PREMIUM_BOOK_BUCKET'],
+      message: 'Premium generation requires a separate private bucket and OpenAI credentials',
+    });
+  }
   if (env.TTS_PROVIDER === 'google-genai' && env.TTS_MODEL !== SUPPORTED_GEMINI_TTS_MODEL) {
     ctx.addIssue({
       code: 'custom',

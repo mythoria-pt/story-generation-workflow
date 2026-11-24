@@ -46,6 +46,9 @@ jest.mock('@/services/progress-tracker.js', () => ({
 jest.mock('@/services/analytics.js', () => ({
   analyticsReconciliationService: { reconcileRecentTerminalRuns: jest.fn() },
 }));
+jest.mock('@/services/premium-book.js', () => ({
+  hasPremiumStoryMarker: jest.fn(async () => false),
+}));
 jest.mock('@/middleware/schedulerAuth.js', () => ({
   schedulerAuth: (_req: unknown, _res: unknown, next: () => void) => next(),
 }));

@@ -10,6 +10,13 @@ import { getEnvironment } from '@/config/environment.js';
 import { convertToAbsoluteImagePath } from '@/utils/imageUtils.js';
 import { StoryService } from './story.js';
 import {
+  publishedPremium,
+  squarePackage,
+  validatePremiumManifest,
+  renderSquarePdf,
+  assertSquareCasewrap,
+} from './premium-order-proof.js';
+import {
   PRINT_ASSET_BUCKET,
   PrintService,
   printLogoUrl,
@@ -26,6 +33,8 @@ import {
   luluSpinePoints,
 } from './lulu-print-profile.js';
 
+import { getPremiumBucket, readPremiumObject } from './premium-book-storage.js';
+
 export const OrderProofRequest = z
   .object({
     orderId: z.string().uuid(),
@@ -33,11 +42,28 @@ export const OrderProofRequest = z
     storyId: z.string().uuid(),
     provider: z.enum(['manual', 'lulu']),
     binding: z.enum(['paperback', 'hardcover']),
+    premiumBook: publishedPremium.optional(),
+    podPackageId: z.enum([squarePackage, '0850X0850.FC.PRE.CW.080CW444.MXX']).optional(),
     coverDimensions: z
       .object({ width: z.number().min(800).max(1400), height: z.number().min(600).max(900) })
       .optional(),
   })
   .strict()
+  .refine(
+    (v) =>
+      (!v.premiumBook && !v.podPackageId) ||
+      Boolean(
+        v.premiumBook &&
+        v.podPackageId &&
+        v.provider === 'lulu' &&
+        v.binding === 'hardcover' &&
+        v.premiumBook.manifest.key ===
+          v.storyId + '/premium/revisions/' + v.premiumBook.revision + '/manifest.json',
+      ),
+    {
+      message: 'Square orders require a published edition and the square hardcover package',
+    },
+  )
   .refine((value) => value.provider === 'lulu' || !value.coverDimensions, {
     message: 'Manual print uses local cover dimensions',
   });
@@ -207,25 +233,34 @@ export async function prepareOrderProof(request: Request): Promise<Result> {
     throw new Error('Private proof storage must be configured');
   const storage = new Storage({ projectId: env.GOOGLE_CLOUD_PROJECT_ID });
   const allowedBuckets = new Set([env.STORAGE_BUCKET_NAME, PRINT_ASSET_BUCKET]);
-  return renderOrderProof(storage.bucket(env.PRINT_PROOF_BUCKET), request, async (url) => {
-    const [, bucket, ...path] = new URL(url).pathname.split('/');
-    if (!bucket || !allowedBuckets.has(bucket) || !path.length)
-      throw new Error('Unexpected print artwork bucket');
-    const [bytes] = await storage
-      .bucket(bucket)
-      .file(decodeURIComponent(path.join('/')))
-      .download();
-    const { format } = await sharp(bytes).metadata();
-    if (format !== 'jpeg' && format !== 'png' && format !== 'webp')
-      throw new Error('Unsupported print artwork format');
-    return { bytes, contentType: 'image/' + format };
-  });
+  const premiumBucket = env.PREMIUM_BOOK_BUCKET;
+  if (request.premiumBook && (!premiumBucket || allowedBuckets.has(premiumBucket)))
+    throw new Error('Private premium storage must be configured');
+  return renderOrderProof(
+    storage.bucket(env.PRINT_PROOF_BUCKET),
+    request,
+    async (url) => {
+      const [, bucket, ...path] = new URL(url).pathname.split('/');
+      if (!bucket || !allowedBuckets.has(bucket) || !path.length)
+        throw new Error('Unexpected print artwork bucket');
+      const [bytes] = await storage
+        .bucket(bucket)
+        .file(decodeURIComponent(path.join('/')))
+        .download();
+      const { format } = await sharp(bytes).metadata();
+      if (format !== 'jpeg' && format !== 'png' && format !== 'webp')
+        throw new Error('Unsupported print artwork format');
+      return { bytes, contentType: 'image/' + format };
+    },
+    request.premiumBook ? await getPremiumBucket() : undefined,
+  );
 }
 
 export async function renderOrderProof(
   bucket: Bucket,
   request: Request,
   loadArtwork: (url: string) => Promise<PrintArtwork>,
+  premiumBucket?: Bucket,
 ): Promise<Result> {
   const prefix = [
     'print-orders',
@@ -236,6 +271,57 @@ export async function renderOrderProof(
     request.storyId,
   ].join('/');
   const lulu = request.provider === 'lulu';
+  if (request.premiumBook) {
+    const pin = request.premiumBook;
+    if (!premiumBucket) throw new Error('Missing premium storage');
+    const prior = await stage(bucket, prefix + '/premium-source.json', async () => pin);
+    if (
+      prior.revision !== pin.revision ||
+      prior.manifest.sha256 !== pin.manifest.sha256 ||
+      prior.manifest.generation !== pin.manifest.generation
+    )
+      throw new Error('Another edition is already pinned to this proof version');
+    const manifest = validatePremiumManifest(
+      JSON.parse((await readPremiumObject(premiumBucket, pin.manifest)).toString('utf8')),
+      request.storyId,
+      pin.revision,
+    );
+    const dir = await mkdtemp(join(tmpdir(), 'mythoria-square-proof-'));
+    try {
+      if (request.coverDimensions) assertSquareCasewrap(request.coverDimensions);
+      const render = (part: 'interior' | 'cover') =>
+        renderSquarePdf(
+          manifest,
+          dir,
+          part,
+          (ref) => readPremiumObject(premiumBucket, ref),
+          loadArtwork,
+        );
+      const interior = await stage<Interior>(bucket, prefix + '/square-interior.json', async () => {
+        const { bytes, issues } = await render('interior');
+        return {
+          interior: await saveArtifact(bucket, prefix, 'interior.pdf', bytes, 'application/pdf'),
+          pageCount: 32,
+          imageIssues: issues,
+        };
+      });
+      if (!request.coverDimensions) return { interior: interior.interior, pageCount: 32 };
+      return await stage<Required<Result>>(bucket, prefix + '/square-final.json', async () => {
+        const { bytes, issues: coverIssues } = await render('cover');
+        const issues = [...new Set([...interior.imageIssues, ...coverIssues])];
+        return {
+          interior: interior.interior,
+          cover: await saveArtifact(bucket, prefix, 'cover.pdf', bytes, 'application/pdf'),
+          pageCount: 32,
+          qaPassed: issues.length === 0,
+          qaCriticalCount: issues.length,
+          issues,
+        };
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
   const { story, artwork } = await stage(bucket, prefix + '/source.json', () =>
     freezeSource(bucket, prefix, request.storyId, loadArtwork),
   );

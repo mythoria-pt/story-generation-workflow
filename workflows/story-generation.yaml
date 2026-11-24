@@ -19,6 +19,9 @@ main:
           - payload: ${json.decode(base64.decode(event.data.message.data))}
           - storyId: ${payload.storyId}
           - runId: ${payload.runId}
+          - resumeUpdatedAt: ${map.get(payload, "resumeUpdatedAt")}
+          - executionId: ${sys.get_env("GOOGLE_CLOUD_WORKFLOW_EXECUTION_ID")}
+          - runClaimed: false
           - baseUrl: 'https://story-generation-workflow-803421888801.europe-west9.run.app'
           - now: ${time.format(sys.now())}
 
@@ -41,20 +44,110 @@ main:
         try:
           steps:
             # 1. Atomically claim the run before any AI work.
+            - selectClaim:
+                switch:
+                  - condition: ${resumeUpdatedAt != null}
+                    next: claimPremiumResume
             - claimRun:
                 call: http.request
                 args:
                   url: ${baseUrl + "/internal/runs/" + runId + "/claim"}
                   method: POST
                   auth: { type: OIDC }
+                  headers:
+                    x-api-key: ${apiKey}
                   body:
                     storyId: ${storyId}
+                    gcpWorkflowExecution: ${executionId}
+                    bookType: ${map.get(payload, "bookType")}
+                result: claimResp
+                next: stopDuplicateRun
+
+            - claimPremiumResume:
+                call: http.post
+                args:
+                  url: ${baseUrl + "/internal/premium/runs/" + runId + "/resume-claim"}
+                  auth: { type: OIDC }
+                  headers:
+                    x-api-key: ${apiKey}
+                  body:
+                    storyId: ${storyId}
+                    updatedAt: ${resumeUpdatedAt}
+                    executionId: ${executionId}
                 result: claimResp
 
             - stopDuplicateRun:
                 switch:
                   - condition: ${not(claimResp.body.claimed)}
                     return: ${claimResp.body}
+
+            - recordClaim:
+                assign:
+                  - runClaimed: true
+
+            - resolveBookType:
+                try:
+                  call: http.post
+                  args:
+                    url: ${baseUrl + "/internal/premium/runs/" + runId + "/resolve"}
+                    auth: { type: OIDC }
+                    headers:
+                      x-api-key: ${apiKey}
+                    body:
+                      storyId: ${storyId}
+                      bookType: ${map.get(payload, "bookType")}
+                      executionId: ${executionId}
+                  result: book
+                retry: ${http.default_retry}
+
+            - runPremiumBook:
+                switch:
+                  - condition: ${book.body.premium}
+                    steps:
+                      - stagePremiumBook:
+                          for:
+                            value: stage
+                            range: ${[0, book.body.lastStage]}
+                            steps:
+                              - advancePremiumBook:
+                                  try:
+                                    call: http.post
+                                    args:
+                                      url: ${baseUrl + "/internal/premium/runs/" + runId + "/advance"}
+                                      timeout: 540
+                                      auth: { type: OIDC }
+                                      headers:
+                                        x-api-key: ${apiKey}
+                                      body:
+                                        storyId: ${storyId}
+                                        stage: ${stage}
+                                        executionId: ${executionId}
+                                  retry:
+                                    predicate: ${retryPremiumStage}
+                                    max_retries: 3
+                                    backoff:
+                                      initial_delay: 60
+                                      max_delay: 360
+                                      multiplier: 3
+                      - completePremiumBook:
+                          try:
+                            call: http.patch
+                            args:
+                              url: ${baseUrl + "/internal/runs/" + runId}
+                              auth: { type: OIDC }
+                              headers:
+                                x-api-key: ${apiKey}
+                              body:
+                                status: 'completed'
+                                currentStep: 'done'
+                                endedAt: ${time.format(sys.now())}
+                                expectedWorkflowExecution: ${executionId}
+                          retry: ${http.default_retry}
+                      - returnPremiumBook:
+                          return:
+                            storyId: ${storyId}
+                            runId: ${runId}
+                            status: 'completed'
 
             # 2. Generate outline (AI-Gateway)
             - genOutline:
@@ -667,19 +760,35 @@ main:
         except:
           as: wfError
           steps:
+            - preserveUnclaimedRun:
+                switch:
+                  - condition: ${not(runClaimed)}
+                    raise: ${wfError}
             - markFailedRun:
                 call: http.request
                 args:
                   url: ${baseUrl + "/internal/runs/" + runId}
                   method: PATCH
                   auth: { type: OIDC }
+                  headers:
+                    x-api-key: ${apiKey}
                   body:
                     status: '${if(default(map.get(wfError, "code"), 0) == 422, "blocked", "failed")}'
                     errorMessage: ${if(get_type(wfError) == "string", wfError, default(map.get(wfError, "message"), "Workflow execution failed"))}
                     endedAt: ${time.format(sys.now())}
+                    expectedWorkflowExecution: ${executionId}
 
             - rethrow:
                 raise: ${wfError}
+
+retryPremiumStage:
+  params: [error]
+  steps:
+    - retryTransient:
+        assign:
+          - code: ${default(map.get(error, "code"), 0)}
+    - returnDecision:
+        return: ${code == 0 or code == 408 or code == 429 or code >= 500}
 
 # One HTTP request advances at most one provider segment. Manuscripts stay in GCS/DB.
 advanceText:

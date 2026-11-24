@@ -56,6 +56,8 @@ export interface PricingTier {
   outputPer1M: number;
   /** Image output token rate (image-split billing). */
   imageOutputPer1M?: number;
+  /** Uncached image inputs may be priced separately from text inputs. */
+  imageInputPer1M?: number;
   /** Flat price per generated image (standard quality / default). */
   perImage?: number;
   /** Flat price per image for `hd` quality. */
@@ -197,6 +199,21 @@ export const MODEL_PRICING: ModelPricing[] = [
   },
 
   // --------------------------------------------------------------- OpenAI image
+  {
+    match: ['gpt-image-2.6-sunburst', 'gpt-image-2.6-flare'],
+    provider: 'openai',
+    kind: 'image',
+    billing: 'image-split',
+    tiers: [
+      {
+        inputPer1M: 5.0,
+        cachedInputPer1M: 1.25,
+        imageInputPer1M: 8.0,
+        outputPer1M: 0,
+        imageOutputPer1M: 30.0,
+      },
+    ],
+  },
   {
     // Token rates are confirmed identical to gpt-image-2 (text in $5, cached text $1.25,
     // image in $8, cached image $2, image out $30 per 1M), but OpenAI publishes no fixed

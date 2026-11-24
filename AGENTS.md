@@ -123,3 +123,7 @@ See [Story Whisperer voice and structure contracts](docs/biographer.md) for auth
 ## Paid physical-order proofs
 
 Paid physical-order proof generation uses the API-key-protected `POST /internal/print/order-proof` contract and private `PRINT_PROOF_BUCKET` described in [print.md](docs/print.md#paid-physical-order-proofs). Use immutable order artifacts and the actual interior page count on both sides of the Lulu cover-dimensions call.
+
+## Premium illustrated books
+
+See [premium-books.md](docs/premium-books.md) for the saved book marker, private storage, image configuration, same-run operator recovery and spread correction contract. Keep each spread’s canonical text and artwork derivatives under the same immutable published revision.

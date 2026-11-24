@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { logger } from '@/config/logger.js';
 import { getDatabase } from '@/db/connection.js';
 import {
@@ -121,7 +121,9 @@ export class AnalyticsReconciliationService {
   }
 
   async recordTerminalRun(run: TerminalRun): Promise<TerminalAnalyticsOutcome> {
-    if (run.status !== 'completed' && run.status !== 'failed') return 'ignored';
+    const premium = (run.metadata as { premiumBook?: boolean } | null)?.premiumBook === true;
+    const premiumBlocked = run.status === 'blocked' && premium;
+    if (run.status !== 'completed' && run.status !== 'failed' && !premiumBlocked) return 'ignored';
 
     const [request] = await this.sharedDb
       .select()
@@ -135,6 +137,7 @@ export class AnalyticsReconciliationService {
       });
       return 'untracked';
     }
+    if (request.compensatedAt || request.status === 'delivery_failed') return 'ignored';
     const [requestedEvent] = await this.sharedDb
       .select({
         userId: analyticsOutbox.userId,
@@ -170,6 +173,35 @@ export class AnalyticsReconciliationService {
 
     let outcome: TerminalAnalyticsOutcome = 'not_eligible';
     await this.sharedDb.transaction(async (tx) => {
+      if (premium) {
+        const [accepted] = await tx
+          .select({
+            status: storyGenerationRequests.status,
+            compensatedAt: storyGenerationRequests.compensatedAt,
+          })
+          .from(storyGenerationRequests)
+          .where(eq(storyGenerationRequests.runId, run.runId))
+          .for('update');
+        // Queue compensation may run after the initial read. A resumed execution
+        // may also supersede this terminal callback before it acquires the lock.
+        const [current] = await this.workflowsDb
+          .select({
+            executionId: storyGenerationRuns.gcpWorkflowExecution,
+            status: storyGenerationRuns.status,
+          })
+          .from(storyGenerationRuns)
+          .where(eq(storyGenerationRuns.runId, run.runId));
+        if (
+          !accepted ||
+          accepted.compensatedAt ||
+          accepted.status === 'delivery_failed' ||
+          current?.executionId !== run.gcpWorkflowExecution ||
+          current.status !== run.status
+        ) {
+          outcome = 'ignored';
+          return;
+        }
+      }
       if (request.consent?.analyticsStorage === 'granted') {
         const [inserted] = await tx
           .insert(analyticsOutbox)
@@ -193,7 +225,7 @@ export class AnalyticsReconciliationService {
               ...(typeof requestedEvent?.params?.primary_intent === 'string'
                 ? { primary_intent: requestedEvent.params.primary_intent }
                 : {}),
-              ...(run.status === 'failed'
+              ...(run.status !== 'completed'
                 ? {
                     failure_stage: failureStage,
                     failure_code: failureCode,
@@ -354,7 +386,13 @@ export class AnalyticsReconciliationService {
             storyGenerationRuns.runId,
             requests.map((request) => request.runId),
           ),
-          inArray(storyGenerationRuns.status, ['completed', 'failed']),
+          or(
+            inArray(storyGenerationRuns.status, ['completed', 'failed']),
+            and(
+              eq(storyGenerationRuns.status, 'blocked'),
+              sql`${storyGenerationRuns.metadata}->'premiumBook' = 'true'::jsonb`,
+            ),
+          ),
         ),
       );
 
