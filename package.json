@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "node node_modules/typescript-native/bin/tsc && tsc-alias && copyfiles -u 1 \"src/**/*.json\" \"src/**/*.html\" \"src/**/*.icc\" \"src/**/*.mp3\" dist/",
+    "build": "node node_modules/typescript-native/bin/tsc && tsc-alias && node scripts/copy-build-assets.mjs",
     "start": "node dist/index.js",
     "lint": "eslint src/ --ext .ts",
     "lint:fix": "eslint src/ --ext .ts --fix",
@@ -80,7 +80,6 @@
     "@types/tmp": "^0.2.6",
     "@typescript-eslint/eslint-plugin": "^8.74.0",
     "@typescript-eslint/parser": "^8.74.0",
-    "copyfiles": "^2.4.1",
     "eslint": "^10.15.0",
     "jest": "^30.5.2",
     "prettier": "^3.10.1",
@@ -117,6 +116,14 @@
       "glob": "14.0.6",
       "minimatch": "11.0.9"
     }
+  },
+  "allowScripts": {
+    "@parcel/watcher@2.6.0": false,
+    "esbuild@0.25.12": true,
+    "esbuild@0.28.2": true,
+    "fsevents@2.3.3": false,
+    "protobufjs@7.6.6": false,
+    "puppeteer@25.18.1": true
   },
   "engines": {
     "node": "24.18.1"

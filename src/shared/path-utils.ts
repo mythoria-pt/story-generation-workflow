@@ -4,7 +4,7 @@ import { existsSync } from 'fs';
 /**
  * Gets the correct base path for static resources (prompts, messages)
  * In development: uses src/ folder
- * In production: uses dist/ folder (after build with copyfiles -u 1 which strips the src/ prefix)
+ * In production: the build copies static resources into dist/ with the same relative paths.
  */
 export function getResourceBasePath(): string {
   const cwd = process.cwd();
@@ -23,7 +23,6 @@ export function getResourceBasePath(): string {
 
   // If we're in production or running from dist, or if src doesn't exist but dist/prompts does
   if (isProduction || isRunningFromDist || (!srcExists && distPromptsExists)) {
-    // In production, static files are copied to dist/ (copyfiles -u 1 strips src/ prefix)
     return join(cwd, 'dist');
   } else {
     // In development, use the source folder directly
