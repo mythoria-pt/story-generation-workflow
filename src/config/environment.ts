@@ -29,7 +29,7 @@ if (nodeEnv === 'production') {
   if (fs.existsSync(`.env.${nodeEnv}`)) {
     loadEnvFile(`.env.${nodeEnv}`);
   }
-  if (fs.existsSync('.env')) {
+  if (nodeEnv !== 'test' && fs.existsSync('.env')) {
     loadEnvFile('.env');
   }
 }

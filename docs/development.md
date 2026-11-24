@@ -18,7 +18,7 @@ pwsh -NoProfile -Command "npm install"
 pwsh -NoProfile -Command "npm run env:validate"
 ```
 
-Config loader order: `.env.local` → `.env` for dev, `.env.test` via `src/tests/setup.ts` for Jest. Validate before running so missing secrets fail fast.
+Development loads `.env.local` followed by `.env`. Jest loads optional synthetic overrides from `.env.test` followed by the defaults in `src/tests/setup.ts`. Validate development configuration before running the service so missing secrets fail fast.
 
 ## Everyday commands
 

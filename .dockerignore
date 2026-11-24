@@ -6,6 +6,9 @@ Dockerfile
 .dockerignore
 .git
 .gitignore
-.env
+.env*
+!.env.schema.json
+coverage
+logs
 *.md
 *.tsbuildinfo

@@ -2,17 +2,15 @@
 import { jest } from '@jest/globals';
 import { config } from 'dotenv';
 
-// Load test environment variables (local overrides optional files)
+// Load only the dedicated test overrides.
 config({ path: '.env.test', quiet: true });
-config({ path: '.env', quiet: true });
-config({ path: '.env.local', quiet: true });
 
 // Set test environment if not already set
 if (!process.env.NODE_ENV) {
   process.env.NODE_ENV = 'test';
 }
 
-/** Zod + workflows DB require these when tests import app modules; CI may omit .env.local. */
+/** Zod and workflows DB require these when tests import app modules. */
 function applyTestEnvDefaults() {
   if (process.env.NODE_ENV !== 'test') return;
   const defaults: Record<string, string> = {
