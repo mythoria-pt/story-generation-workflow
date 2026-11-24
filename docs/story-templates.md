@@ -1,6 +1,6 @@
 # Story templates and optional guidance
 
-The WebApp owns recipes, user choices, fallback questions and authentication. Templates are available to all users. SGW offers an optional stateless guide using the configured text gateway. No story is created and no user credits are charged by guidance.
+The WebApp owns recipes, user choices, fallback questions and authentication. Templates are available to all authenticated authors. SGW offers an optional stateless guide using the configured text gateway. No story is created and no user credits are charged by guidance.
 
 Migrations 0008 and 0009 were applied on 2026-09-19; see the [historical operation record](../../docs/STORY_TEMPLATES_LOCAL_TEST_2026-09-19.md).
 
@@ -8,7 +8,7 @@ Migrations 0008 and 0009 were applied on 2026-09-19; see the [historical operati
 
 The response is `{revision, source: 'ai', question}`. A question has `id`, `text`, three or four `{id,label,value}` choices, and a nullable `suggestedChoiceId`. Null question means the guide is finished. Output is schema-validated; memory mode never preselects a choice. Earlier questions, including skipped questions, are context only. Confirmed answers remain distinct from proposals.
 
-SGW returns 400 for invalid requests, 404 while disabled, 429 for exhausted quota, 504 for the ten-second generation deadline, and 502 for unavailable/invalid model output. The WebApp supplies localized authored fallback questions and allows users to continue. It must ignore stale revisions and cancel obsolete requests. Abort signals reach both provider adapters; private calls omit content from logs/token telemetry and disable OpenAI response storage. Existing token accounting uses action `story_enhancement`, correlation `guide:<uuid>` and operation `story_guide`.
+SGW returns 400 for invalid requests, 401 for missing or invalid service API keys, 429 for exhausted quota, 504 for the ten-second generation deadline, and 502 for unavailable/invalid model output. The WebApp supplies localized authored fallback questions and allows users to continue. It must ignore stale revisions and cancel obsolete requests. Abort signals reach both provider adapters; private calls omit content from logs/token telemetry and disable OpenAI response storage. Existing token accounting uses action `story_enhancement`, correlation `guide:<uuid>` and operation `story_guide`.
 
 Workflows DB quota counters admit at most nine calls per author/journey and thirty per author/UTC day. Both counters update atomically; failed/timed-out admitted calls still count. The additive migration `0008_violet_proudstar.sql` was generated with `npm run workflows-db:generate` and applied through the authorized migration process on 2026-09-19. New environments require it before activation. Routine local validation must not apply migrations or run fixtures against the production-shared database. Counters store no answers or prompts; journey counters persist to prevent quota reset by day rollover.
 
@@ -20,7 +20,7 @@ Both structure endpoints accept optional `characterReferences` with at most one 
 
 Character-only photos are excluded from generic image metadata, OCR, background interpretation, cover-photo selection and heuristic character mapping. Only the selected subject's appearance and the confirmed answer inform the protagonist. Photos never establish biographical facts or events, including in memory mode. The model must return exactly one protagonist; SGW binds its appearance and selected crop explicitly, creates a new character rather than modifying a library character, and requires the photo and story association to persist. That character's JPEG `photoGcsUri` then uses the existing scene-character reference pipeline for covers and chapter illustrations. The original full photograph is not a cover/background reference. The confirmed association persists in the story input manifest and participates in the durable request hash. Omitting `characterReferences` retains the existing media behavior. No database migration or paid generation change is required.
 
-Rollout: deploy SGW first and then the compatible WebApp. Remove the obsolete environment binding from existing Cloud Run revisions during release cleanup. Roll back to compatible revisions that preserve accepted requests and job polling. Monitor errors, latency, quotas and token costs without logging private inputs.
+Rollout: deploy SGW first and then the compatible WebApp. Any legacy `STORY_TEMPLATES_ENABLED` binding has no effect on current SGW revisions. Roll back to compatible revisions that preserve accepted requests and job polling. Monitor errors, latency, quotas and token costs without logging private inputs.
 
 Local checks: format, lint, typecheck, build, mocked unit/contract tests and environment validation. Live provider output quality, distributed PostgreSQL contention and production journeys require separate isolated/authorized validation.
 
