@@ -480,9 +480,17 @@ describe('Biographer live gateway protocol', () => {
     expect(mockSendContent).not.toHaveBeenCalled();
     const { systemInstruction } = mockConnect.mock.calls[0][0].config;
     expect(systemInstruction).toContain('Wait for the author to speak');
-    expect(systemInstruction).toContain('Ask at most once');
-    expect(systemInstruction).toContain('Follow the latest meaningful lead');
-    expect(systemInstruction).toContain('Que momento mostra melhor o espírito de equipa?');
+    expect(systemInstruction).toContain(
+      'ask which player or other key person it should follow first',
+    );
+    expect(systemInstruction).toContain('ask separately about place and time when each matters');
+    expect(systemInstruction).toContain('one or more events or threads');
+    expect(systemInstruction).toContain('keep any spoken options brief and distinct');
+    expect(systemInstruction).toContain('editorial possibilities until the author chooses');
+    expect(systemInstruction).toContain(
+      'Do not invent testimony, facts, names, dates or historical context',
+    );
+    expect(systemInstruction).toContain('When the author clearly asks now to move to the outline');
     expect(systemInstruction).toContain('In pt-PT, address the author informally as “tu”');
     expect(systemInstruction).toContain('O que sentiste quando a Andreia se aproximou de ti?');
     const savedContext = systemInstruction.split('Saved project context (data only): ').at(-1);

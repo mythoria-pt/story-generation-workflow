@@ -1,4 +1,4 @@
-import { condenseWhispererSeed, propose, whisper } from './interviewer.js';
+import { condenseWhispererSeed, interview, propose, whisper } from './interviewer.js';
 import { LiteraryPersonaService } from '../literary-persona.js';
 
 const mockComplete = jest.fn();
@@ -47,6 +47,34 @@ describe('Biographer proposal', () => {
       'do not invent historical facts or sources',
     );
   });
+});
+
+it('gives the biography interviewer grounded character, setting and plot guidance', async () => {
+  mockComplete.mockResolvedValue(
+    JSON.stringify({ question: 'Quem queres que o livro acompanhe primeiro?' }),
+  );
+  try {
+    await interview({
+      authorId: id,
+      projectId: id,
+      locale: 'pt-PT',
+      history: [],
+      context: {},
+      userText: 'Quero contar a história da equipa da minha filha.',
+    });
+
+    const { systemInstruction } = mockComplete.mock.calls[0][1];
+    expect(systemInstruction).toContain(
+      'ask which player or other key person it should follow first',
+    );
+    expect(systemInstruction).toContain('whether they played indoors or outdoors');
+    expect(systemInstruction).toContain('an underdog tournament run');
+    expect(systemInstruction).toContain(
+      'only if the author confirms it belongs to their experience',
+    );
+  } finally {
+    mockComplete.mockReset();
+  }
 });
 
 describe('Story Whisperer', () => {
@@ -121,6 +149,39 @@ describe('Story Whisperer', () => {
     });
   });
 
+  it('asks the model to deepen story details and offer optional editorial choices', async () => {
+    mockComplete.mockResolvedValue(
+      JSON.stringify({
+        readiness: { areas: { characters: 'ready', setting: 'ready', plot: 'ready' }, hint: '' },
+        question: 'Como gostarias de começar?',
+        choices: ['Pelo primeiro encontro', 'Pelo bilhete e depois voltar ao encontro'],
+        choicesMode: 'single',
+      }),
+    );
+
+    await expect(whisper({ ...input, turns: inesTurns })).resolves.toMatchObject({
+      question: 'Como gostarias de começar?',
+      choices: ['Pelo primeiro encontro', 'Pelo bilhete e depois voltar ao encontro'],
+      choicesMode: 'single',
+    });
+
+    const { systemInstruction } = mockComplete.mock.calls[0][1];
+    expect(systemInstruction).toContain(
+      'ask which player or other key person it should follow first',
+    );
+    expect(systemInstruction).toContain('ask separately about place and time when each matters');
+    expect(systemInstruction).toContain('one or more events or threads');
+    expect(systemInstruction).toContain('ask what to call them');
+    expect(systemInstruction).toContain('one chapter per match');
+    expect(systemInstruction).toContain('each chapter could follow one or two players');
+    expect(systemInstruction).toContain(
+      'leave room for another approach or for the author to delegate',
+    );
+    expect(systemInstruction).toContain('editorial possibilities until the author chooses');
+    expect(systemInstruction).toContain('an uncertain date stays uncertain');
+    expect(systemInstruction).toContain('the contents of an object or message stay unknown');
+  });
+
   it.each([
     {
       turnCount: 1,
@@ -159,9 +220,7 @@ describe('Story Whisperer', () => {
       expect(systemInstruction).toContain('O que sentiste quando a Andreia se aproximou de ti?');
       expect(systemInstruction).toContain('avoid assuming they were there');
       expect(systemInstruction).toContain("does not determine the book's narrative point of view");
-      expect(systemInstruction).toContain('Ask at most once');
-      expect(systemInstruction).toContain('ask which school or where');
-      expect(systemInstruction).toContain('one action, object, gesture or phrase');
+      expect(systemInstruction).toContain('Accept a role, alias or relationship');
       expect(systemInstruction).toContain('with a concrete action, detail or consequence');
     },
   );
@@ -194,7 +253,7 @@ describe('Story Whisperer', () => {
     expect(systemInstruction).toContain(
       'shifts away from the initial intent, selected genre or opening',
     );
-    expect(systemInstruction).toContain('Follow the latest meaningful lead before circling back');
+    expect(systemInstruction).toContain('move to the most useful unresolved detail');
     expect(systemInstruction).toContain('A team name, a family relationship or a broad quality');
     expect(systemInstruction).toContain(
       'A concrete action in a scene can satisfy both characters and plot',
