@@ -7,8 +7,6 @@ import { PrintQualityService, buildAutoFixBaselineSignature } from '@/services/p
 import { StoryService } from '@/services/story.js';
 import type { PrintQaAssetUrls } from '@/types/print-quality.js';
 
-const tsxCliPath = join(process.cwd(), 'node_modules', 'tsx', 'dist', 'cli.mjs');
-
 const buildSparseIssue = (chapterNumber: number, pageNumber: number) => ({
   code: 'chapter_sparse_last_page',
   severity: 'critical' as const,
@@ -66,7 +64,7 @@ describe('PrintQualityService', () => {
   });
 
   it('extracts PDF text and images without concurrent parser transfer errors', async () => {
-    const stdout = execFileSync(process.execPath, [tsxCliPath, '-'], {
+    const stdout = execFileSync(process.execPath, ['--import', 'tsx', '--input-type=module', '-'], {
       cwd: process.cwd(),
       encoding: 'utf8',
       env: {

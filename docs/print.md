@@ -5,7 +5,7 @@ SGW produces two PDF sets per story—RGB (screen) and CMYK (print-ready)—and 
 ## Components & flow
 
 1. **Print service** (`src/services/print.ts`) renders HTML templates into `interior.pdf` and `cover.pdf` via Puppeteer using trim-size + paper-caliper data from `src/config/paper-caliper.json`. It now inserts soft hyphen opportunities into large-font chapter HTML (`children_0-2`, `children_3-6`, `children_7-10`) before rendering so justified child-reader layouts can break long words cleanly. It post-processes the interior PDF to enforce page ordering rules (see below) before any color work happens.
-2. **CMYK conversion service** (`src/services/cmyk-conversion.ts`) calls Ghostscript to turn each RGB PDF into PDF/X‑1a compliant CMYK variants (`*-cmyk.pdf`). Interior generation now creates a grayscale-only copy for text pages and merges it with full-CMYK image pages so non-art pages stay K-only.
+2. **CMYK conversion service** (`src/services/cmyk-conversion.ts`) calls Ghostscript to convert each RGB PDF to CMYK (`*-cmyk.pdf`). Interior generation now creates a grayscale-only copy for text pages and merges it with full-CMYK image pages so non-art pages stay K-only.
 3. **Print QA service** (`src/services/print-quality.ts`) runs immediately after generation. It downloads the freshly generated PDFs/HTML from GCS, applies deterministic layout checks, tries bounded interior-only reflow fixes for sparse chapter endings, renders preview images for multimodal review, and uploads `report.json` plus preview artifacts under `{storyId}/print/qa/`.
 4. **Workflow** (`workflows/print-generation.yaml`) now calls `POST /internal/print/quality-check` after `POST /internal/print/generate`. If critical issues remain, it then calls `POST /internal/print/quality-alert` before any customer-facing self-print notification.
 5. **Storage layout**: `{storyId}/print/interior.pdf`, `{storyId}/print/cover.pdf`, matching `*_cmyk.pdf` outputs, HTML debug files, and QA artifacts under `{storyId}/print/qa/`.
@@ -68,13 +68,13 @@ The Chromium comparison used four synthetic 1,536×2,048 illustrations and a sep
 
 ## Configuration checklist
 
-| Item           | Notes                                                                                                                                                                                |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Ghostscript    | Install locally or bake into Docker; point `GHOSTSCRIPT_BINARY` to `gs` (Linux) or `gswin64c.exe` (Windows).                                                                         |
-| Temp directory | `TEMP_DIR` defaults to system temp. Override (e.g., `/tmp/mythoria-print`) if the container needs a dedicated mount.                                                                 |
-| ICC profiles   | `npm run setup-icc-profiles` downloads CoatedFOGRA39, ISOcoated_v2_eci, etc. Production Docker builds copy files under `icc-profiles/` and reference `src/config/icc-profiles.json`. |
-| Paper config   | `paper-caliper.json` defines trim size (170×240mm), bleed, safe zones, and caliper used for spine width math.                                                                        |
-| Pub/Sub        | Print jobs can be triggered by webapp orders via topic `mythoria-print-requests`, which in turn calls the workflow.                                                                  |
+| Item           | Notes                                                                                                                             |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Ghostscript    | Install locally or bake into Docker; point `GHOSTSCRIPT_BINARY` to `gs` (Linux) or `gswin64c.exe` (Windows).                      |
+| Temp directory | `TEMP_DIR` defaults to system temp. Override (e.g., `/tmp/mythoria-print`) if the container needs a dedicated mount.              |
+| ICC profiles   | The Docker build copies the checked-in `icc-profiles/` directory. `src/config/icc-profiles.json` maps profile names to filenames. |
+| Paper config   | `paper-caliper.json` defines trim size (170×240mm), bleed, safe zones, and caliper used for spine width math.                     |
+| Pub/Sub        | Print jobs can be triggered by webapp orders via topic `mythoria-print-requests`, which in turn calls the workflow.               |
 
 ## Page layout processing (interior)
 
@@ -84,26 +84,10 @@ The Chromium comparison used four synthetic 1,536×2,048 illustrations and a sep
 
 ## CMYK conversion specifics
 
-- Default profile: **CoatedFOGRA39** (ISO 12647-2:2013). Placeholder files are detected by size; if missing, the service falls back to Ghostscript’s built-in CMYK strategy so jobs still complete.
-- Ghostscript command (simplified to avoid Windows quoting issues):
-
-  ```powershell
-  gswin64c.exe -dNOPAUSE -dBATCH -dSAFER -dQUIET `
-    -sDEVICE=pdfwrite `
-    -dCompatibilityLevel=1.4 `
-    -sColorConversionStrategy=CMYK `
-    -sProcessColorModel=DeviceCMYK `
-    -dOverrideICC=true `
-    -dRenderIntent=0 `
-    -dDeviceGrayToK=true `
-    -dPDFX=true `
-    -sOutputICCProfile=CoatedFOGRA39.icc `
-    -sOutputFile=output-cmyk.pdf `
-    metadata.ps input-rgb.pdf
-  ```
-
-- When an ICC profile is not available, the service skips `metadata.ps` and still emits CMYK output, logging `"Using built-in CMYK conversion (no ICC profile)"`.
-- Errors never break the workflow: failures log `"CMYK conversion failed, continuing with RGB only"` and the API still returns the RGB URLs.
+- The cover and color interior pages select `PSOCoatedNPscreen` by default. The converter passes the corresponding `PSO_Coated_NPscreen_ISO12647_eci.icc` to Ghostscript as `-sDefaultCMYKProfile`.
+- If the selected file is missing or detected as a placeholder, conversion uses Ghostscript’s built-in CMYK handling and logs `Using built-in CMYK conversion (no ICC profile)`.
+- The current Ghostscript invocation writes PDF 1.4 and does not configure PDF/X mode or a catalog output intent. Verify a printer’s PDF/X and output-intent requirements before using these files.
+- If CMYK conversion throws during print-set generation, the service logs `CMYK conversion failed, continuing with RGB only` and retains the RGB PDFs.
 
 ### Interior grayscale + color merge
 
@@ -117,35 +101,35 @@ The Chromium comparison used four synthetic 1,536×2,048 illustrations and a sep
 
 ## Testing & validation
 
-| Intent                         | Command                                                                                     |
-| ------------------------------ | ------------------------------------------------------------------------------------------- |
-| Verify Ghostscript presence    | `pwsh -NoProfile -Command "npm run test:ghostscript"`                                       |
-| Render sample PDFs & convert   | `pwsh -NoProfile -Command "npm run test:cmyk"`                                              |
-| Page layout + image detection  | `npm test -- pdf-page-processor`                                                            |
-| Check ICC + Ghostscript health | `pwsh -NoProfile -Command "npm run cmyk:status"`                                            |
-| Exercise API                   | Call `POST /internal/print/generate` with `generateCMYK: true` while running `npm run dev`. |
+| Intent                                    | Command                                                      |
+| ----------------------------------------- | ------------------------------------------------------------ |
+| Verify Ghostscript presence               | `gs --version` or `gswin64c.exe --version` on Windows        |
+| Run print-quality and page layout tests   | `npm test -- --runInBand print-quality pdf-page-processor`   |
+| Check the selected ICC profile is bundled | Compare `icc-profiles/` with `src/config/icc-profiles.json`. |
+
+Run print API smoke tests with synthetic PDFs and isolated database and storage configuration. The print generation route writes job state and uploads assets.
 
 ### Deployment tips
 
 - Allocate **2 vCPU / 2–4 GiB RAM** on Cloud Run; CMYK conversion peaks around ~500 MB per PDF.
 - Set request timeout ≥900 s; large interiors need time for Puppeteer + Ghostscript.
-- `npm run deploy` already installs Ghostscript and copies ICC profiles inside the image; rerun `npm run setup-icc-profiles` locally before baking new builds to avoid drifting artifacts.
+- The Docker build installs Ghostscript and copies the checked-in ICC profiles into the image.
 
 ## Troubleshooting
 
-| Symptom                                      | Likely cause                                                        | Fix                                                                                                                                                         |
-| -------------------------------------------- | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Command failed: gswin64c.exe ...`           | Ghostscript missing, wrong path, or placeholder ICC treated as real | Install Ghostscript, update `GHOSTSCRIPT_BINARY`, or rerun `npm run setup-icc-profiles`. Placeholder files are auto-detected but confirm file size >100 KB. |
-| `Using built-in CMYK conversion` log in prod | ICC not bundled into image                                          | Ensure Docker build copies `icc-profiles/` and `src/config/icc-profiles.json` points to valid filenames.                                                    |
-| Temp-file permission errors                  | `TEMP_DIR` unwritable inside container                              | Set `TEMP_DIR=/tmp/mythoria-print` and ensure the Cloud Run service account can write there.                                                                |
-| Cover alignment issues                       | Paper caliper or trim settings mismatched to provider spec          | Adjust `src/config/paper-caliper.json` and redeploy; confirm bleed = 3 mm and safe zone 10 mm per current assumptions.                                      |
+| Symptom                                      | Likely cause                                                        | Fix                                                                                                                         |
+| -------------------------------------------- | ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `Command failed: gswin64c.exe ...`           | Ghostscript missing, wrong path, or placeholder ICC treated as real | Install Ghostscript, update `GHOSTSCRIPT_BINARY`, and confirm the configured ICC profile is present and larger than 100 KB. |
+| `Using built-in CMYK conversion` log in prod | ICC not bundled into image                                          | Ensure Docker build copies `icc-profiles/` and `src/config/icc-profiles.json` points to valid filenames.                    |
+| Temp-file permission errors                  | `TEMP_DIR` unwritable inside container                              | Set `TEMP_DIR=/tmp/mythoria-print` and ensure the Cloud Run service account can write there.                                |
+| Cover alignment issues                       | Paper caliper or trim settings mismatched to provider spec          | Adjust `src/config/paper-caliper.json` and redeploy; confirm bleed = 3 mm and safe zone 10 mm per current assumptions.      |
 
 ## Reference outputs
 
 Each successful run uploads:
 
 - `interior.pdf` / `cover.pdf` – RGB reference versions for web preview.
-- `interior-cmyk.pdf` / `cover-cmyk.pdf` – PDF/X‑1a CMYK files ready for print submission.
+- `interior-cmyk.pdf` / `cover-cmyk.pdf` – CMYK variants when conversion succeeds.
 - `interior.html` / `cover.html` – Debug HTML snapshots.
 
 Review artifacts in Cloud Storage before shipping to printers, especially after updating templates or caliper data.

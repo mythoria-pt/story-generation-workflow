@@ -70,7 +70,7 @@ pwsh -NoProfile -Command "npm run dev"
 ### Print + CMYK
 
 - Ghostscript + ICC profiles are required before running `src/services/cmyk-conversion.ts`.
-- Setup scripts: `npm run setup-icc-profiles` (downloads profiles), `npm run test:cmyk` (local validation), `npm run cmyk:status` (health check).
+- The Docker build bundles the tracked profiles in `icc-profiles/`. For local checks, follow [the print validation guide](docs/print.md#testing--validation).
 - Print API entry: `/internal/print/generate` (see `src/routes/print.ts`). RGB + CMYK PDFs upload to the story folder in the storage bucket.
 - Print QA runs after PDF generation. Critical findings and technical QA failures alert operators while preserving the generated PDFs. The workflow records PDF completion and QA status before customer delivery, then records the delivery outcome separately.
 - QA artifacts live under `{storyId}/print/qa/` in GCS. The canonical implementation notes are in `docs/print.md`; `docs/printing.md` is a compatibility pointer for teams still using the older filename.

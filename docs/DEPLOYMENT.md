@@ -92,7 +92,7 @@ Keep the last known-good container tag (e.g., `:2025-11-15`) so you can redeploy
 
 1. **Database** – Mythoria webapp team manages point-in-time recovery; monitor `story_generation_runs` for backlog spikes post-restore.
 2. **Storage** – Bucket `mythoria-story-assets-backup-europe-west9` mirrors production via lifecycle rules. Restore with `gsutil -m rsync -r gs://backup gs://primary`.
-3. **Ghostscript/ICC assets** – The Docker image downloads ICC profiles during build; verify `npm run setup-icc-profiles` completes before baking new images.
+3. **Ghostscript/ICC assets** – The Docker build copies the checked-in `icc-profiles/` directory. Confirm the default filename in `src/config/icc-profiles.json` is present before building an image.
 
 ## Troubleshooting quick answers
 
