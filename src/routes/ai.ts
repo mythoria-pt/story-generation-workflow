@@ -60,7 +60,7 @@ import { RunsService } from '@/services/runs.js';
 import { ChapterNotPersistedError, ChaptersService } from '@/services/chapters.js';
 import { logPromptRefinementFailure, refineImagePrompt } from '@/services/image-prompt-utils.js';
 import { ImageSafetyService } from '@/services/image-safety-service.js';
-import { analyzeInputImage } from '@/services/image-analysis.js';
+import { ImageAnalysisError, recoverableImageAnalysis } from '@/services/image-analysis.js';
 import { normalizeToJpeg } from '@/utils/imageProcessing.js';
 import { generateStoryStructure, StructureError } from '@/services/story-structure.js';
 import {
@@ -945,6 +945,7 @@ function mediaRequestId(value: string | undefined) {
 
 router.post('/media/analyze-image', async (req, res) => {
   const requestId = mediaRequestId(req.get('x-request-id'));
+  const assetId = mediaRequestId(req.get('x-media-id'));
   res.set('x-request-id', requestId);
   try {
     const Schema = z.object({
@@ -954,9 +955,10 @@ router.post('/media/analyze-image', async (req, res) => {
     });
     const { objectPath, locale, authorId } = Schema.parse(req.body);
 
-    const metadata = await analyzeInputImage(objectPath, locale || 'en-US', {
+    const metadata = await recoverableImageAnalysis(objectPath, locale || 'en-US', {
       ...(authorId ? { authorId } : {}),
       requestId,
+      assetId,
     });
 
     res.json({ success: true, objectPath, metadata });
@@ -966,20 +968,18 @@ router.post('/media/analyze-image', async (req, res) => {
       return;
     }
 
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    logger.error('Failed to analyze input image', {
-      requestId,
-      timeout: errorMessage.includes('timed out'),
-    });
-
-    if (errorMessage.includes('timed out')) {
-      res
-        .status(504)
-        .json({ success: false, error: 'Image analysis timed out. Please try again.' });
-      return;
-    }
-
-    res.status(500).json({ success: false, error: 'Failed to analyze image' });
+    const code = error instanceof ImageAnalysisError ? error.code : 'analysis_failed';
+    const status =
+      code === 'timeout'
+        ? 504
+        : code === 'provider_busy'
+          ? 503
+          : code === 'content_rejected'
+            ? 422
+            : 500;
+    const recovery = code === 'content_rejected' || code === 'invalid_cache' ? 'replace' : 'retry';
+    logger.error('Failed to analyze input image', { requestId, assetId, code });
+    res.status(status).json({ success: false, error: 'Failed to analyze image', code, recovery });
   }
 });
 
@@ -1017,7 +1017,8 @@ router.post('/media/upload', async (req, res) => {
     const decoded = performance.now();
     stage = 'normalize';
     // Store under the author's inputs folder with a unique id
-    const id = randomUUID();
+    const assetId = req.get('x-media-id');
+    const id = assetId && z.string().uuid().safeParse(assetId).success ? assetId : randomUUID();
     const folder = `${authorId}/inputs`;
 
     let objectPath: string;
@@ -1039,9 +1040,13 @@ router.post('/media/upload', async (req, res) => {
 
     const normalized = performance.now();
     stage = 'storage';
-    const publicUrl = await storageService.uploadFile(objectPath, buffer, storedMime);
+    const publicUrl = await storageService.uploadFile(objectPath, buffer, storedMime, {
+      ifGenerationMatch: 0,
+      returnExistingOnConflict: true,
+    });
     logger.info('Story input upload timings', {
       requestId,
+      assetId: id,
       kind,
       inputBytes: rawBuffer.length,
       storedBytes: buffer.length,

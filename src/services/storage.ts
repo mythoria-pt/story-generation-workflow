@@ -99,7 +99,11 @@ export class StorageService {
     filename: string,
     buffer: Buffer,
     contentType: string,
-    options?: { cacheControl?: string },
+    options?: {
+      cacheControl?: string;
+      ifGenerationMatch?: number;
+      returnExistingOnConflict?: boolean;
+    },
   ): Promise<string> {
     try {
       const bucket = this.storage.bucket(this.bucketName);
@@ -112,6 +116,9 @@ export class StorageService {
 
       await file.save(buffer, {
         metadata,
+        ...(options?.ifGenerationMatch !== undefined
+          ? { preconditionOpts: { ifGenerationMatch: options.ifGenerationMatch } }
+          : {}),
         // Removed 'public: true' to avoid ACL conflicts with uniform bucket-level access
         // Public access should be configured at the bucket level via IAM policies
       });
@@ -127,6 +134,9 @@ export class StorageService {
 
       return publicUrl;
     } catch (error) {
+      if (options?.returnExistingOnConflict && (error as { code?: number })?.code === 412) {
+        return `https://storage.googleapis.com/${this.bucketName}/${filename}`;
+      }
       // Enhanced error logging with GCS-specific handling
       const errorDetails = handleGCSError(error, {
         filename,

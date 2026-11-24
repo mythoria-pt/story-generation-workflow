@@ -15,16 +15,58 @@ import { PromptService } from '@/services/prompt.js';
 import { SchemaService } from '@/services/schema.js';
 import { getLanguageName, parseAIResponse } from '@/shared/utils.js';
 import { logger } from '@/config/logger.js';
+import { z } from 'zod';
 import type { Box2d } from '@/utils/imageProcessing.js';
 
 const aiGateway = getAIGatewayWithTokenTracking();
 type ImageAnalysisOptions = {
   requestId?: string;
+  assetId?: string;
   authorId?: string;
   storage?: ReturnType<typeof getStorageService>;
   privateContent?: boolean;
+  createOnly?: boolean;
   accessPrivateInput?: <T>(action: () => Promise<T>) => Promise<T | undefined>;
 };
+
+export type ImageAnalysisCode =
+  | 'invalid_response'
+  | 'invalid_cache'
+  | 'content_rejected'
+  | 'provider_busy'
+  | 'timeout'
+  | 'storage_failure'
+  | 'analysis_failed';
+export class ImageAnalysisError extends Error {
+  constructor(public readonly code: ImageAnalysisCode) {
+    super(code);
+  }
+}
+
+const metadataSchema = z.object({
+  overallImageContent: z.enum(['photo', 'drawing', 'text']),
+  description: z.string(),
+  text: z.string(),
+  characters: z.array(
+    z.object({
+      label: z.string(),
+      type: z.string(),
+      age: z.string().optional(),
+      physicalDescription: z.string(),
+      box_2d: z.array(z.number().finite().int().min(0).max(1000)).length(4),
+    }),
+  ),
+});
+
+function providerError(error: unknown): ImageAnalysisError {
+  if (error instanceof ImageAnalysisError) return error;
+  const value = error as { status?: number; code?: number | string; message?: string } | null;
+  if (value?.status === 429 || value?.status === 503 || value?.code === 429 || value?.code === 503)
+    return new ImageAnalysisError('provider_busy');
+  if (/safety|blocked|content.?filter/i.test(value?.message ?? ''))
+    return new ImageAnalysisError('content_rejected');
+  return new ImageAnalysisError('analysis_failed');
+}
 
 const ANALYSIS_TIMEOUT_MS = 50000; // 50s, matching the character-photo analysis budget
 
@@ -102,9 +144,11 @@ export async function analyzeInputImage(
     const buffer = await storage.downloadFileAsBuffer(objectPath);
     return { buffer, mimeType: meta.contentType || 'image/jpeg' };
   };
-  const photo = opts?.accessPrivateInput
-    ? await opts.accessPrivateInput(readPhoto)
-    : await readPhoto();
+  const photo = await (
+    opts?.accessPrivateInput ? opts.accessPrivateInput(readPhoto) : readPhoto()
+  ).catch(() => {
+    throw new ImageAnalysisError('storage_failure');
+  });
   if (!photo) throw new Error('Story draft is unavailable');
   const { buffer, mimeType } = photo;
 
@@ -126,10 +170,7 @@ export async function analyzeInputImage(
   const modelStarted = performance.now();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeoutPromise = new Promise<never>((_, reject) => {
-    timer = setTimeout(
-      () => reject(new Error('Image analysis request timed out')),
-      ANALYSIS_TIMEOUT_MS,
-    );
+    timer = setTimeout(() => reject(new ImageAnalysisError('timeout')), ANALYSIS_TIMEOUT_MS);
   });
 
   const analysisPromise = service.complete(userPrompt, {
@@ -144,16 +185,21 @@ export async function analyzeInputImage(
     ...(opts?.privateContent ? { privateContent: true } : {}),
   });
 
-  const raw = await Promise.race([analysisPromise, timeoutPromise]).finally(() =>
-    clearTimeout(timer),
-  );
+  const raw = await Promise.race([analysisPromise, timeoutPromise])
+    .catch((error: unknown) => {
+      throw providerError(error);
+    })
+    .finally(() => clearTimeout(timer));
   const modelFinished = performance.now();
-  const parsed = parseAIResponse(raw);
-  if (!parsed || typeof parsed !== 'object') {
-    throw new Error('Invalid image metadata response from AI');
+  let parsed: unknown;
+  try {
+    parsed = parseAIResponse(raw);
+  } catch {
+    throw new ImageAnalysisError('invalid_response');
   }
-
-  const metadata = normalizeMetadata(parsed);
+  const validated = metadataSchema.safeParse(parsed);
+  if (!validated.success) throw new ImageAnalysisError('invalid_response');
+  const metadata = normalizeMetadata(validated.data);
 
   // Persist sibling metadata JSON
   const jsonPath = metadataPathFor(objectPath);
@@ -162,13 +208,32 @@ export async function analyzeInputImage(
       jsonPath,
       Buffer.from(JSON.stringify(metadata, null, 2)),
       'application/json',
+      opts?.createOnly ? { ifGenerationMatch: 0 } : undefined,
     );
   };
-  if (opts?.accessPrivateInput) await opts.accessPrivateInput(writeMetadata);
-  else await writeMetadata();
+  try {
+    if (opts?.accessPrivateInput) {
+      const result = await opts.accessPrivateInput(async () => {
+        await writeMetadata();
+        return true;
+      });
+      if (!result) throw new ImageAnalysisError('storage_failure');
+    } else await writeMetadata();
+  } catch (error) {
+    if (opts?.createOnly && (error as { code?: number })?.code === 412) {
+      try {
+        const winner = metadataSchema.safeParse(JSON.parse(await storage.downloadFile(jsonPath)));
+        if (winner.success) return normalizeMetadata(winner.data);
+      } catch {
+        /* report failed persistence below */
+      }
+    }
+    throw new ImageAnalysisError('storage_failure');
+  }
 
   logger.info('Image analysis complete', {
     requestId: opts?.requestId,
+    assetId: opts?.assetId,
     downloadMs: Math.round(downloaded - started),
     inferenceMs: Math.round(modelFinished - modelStarted),
     persistMs: Math.round(performance.now() - modelFinished),
@@ -219,5 +284,44 @@ export async function loadOrAnalyzeMetadata(
       error: error instanceof Error ? error.message : String(error),
     });
     return null;
+  }
+}
+
+// Reuse completed metadata after a lost response and coalesce simultaneous retries in this instance.
+const pendingAnalyses = new Map<string, Promise<ImageMetadata>>();
+export async function recoverableImageAnalysis(
+  objectPath: string,
+  locale: string,
+  opts?: ImageAnalysisOptions,
+): Promise<ImageMetadata> {
+  const existing = pendingAnalyses.get(objectPath);
+  if (existing) return existing;
+  const work = (async () => {
+    const storage = opts?.storage ?? getStorageService();
+    try {
+      const path = metadataPathFor(objectPath);
+      if (await storage.fileExists(path)) {
+        const data = await storage.downloadFile(path);
+        let cached: unknown;
+        try {
+          cached = JSON.parse(data);
+        } catch {
+          throw new ImageAnalysisError('invalid_cache');
+        }
+        const valid = metadataSchema.safeParse(cached);
+        if (valid.success) return normalizeMetadata(valid.data);
+        throw new ImageAnalysisError('invalid_cache');
+      }
+    } catch (error) {
+      if (error instanceof ImageAnalysisError) throw error;
+      throw new ImageAnalysisError('storage_failure');
+    }
+    return analyzeInputImage(objectPath, locale, { ...opts, createOnly: true });
+  })();
+  pendingAnalyses.set(objectPath, work);
+  try {
+    return await work;
+  } finally {
+    if (pendingAnalyses.get(objectPath) === work) pendingAnalyses.delete(objectPath);
   }
 }
