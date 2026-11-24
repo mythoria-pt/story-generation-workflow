@@ -126,10 +126,10 @@ Run print API smoke tests with synthetic PDFs and isolated database and storage 
 
 ## Reference outputs
 
-Each successful run uploads:
+Each successful run uploads these objects under `{storyId}/print/`:
 
 - `interior.pdf` / `cover.pdf` – RGB reference versions for web preview.
-- `interior-cmyk.pdf` / `cover-cmyk.pdf` – CMYK variants when conversion succeeds.
+- `interior_cmyk.pdf` / `cover_cmyk.pdf` – CMYK variants when conversion succeeds. Local conversion appends `-cmyk` to the PDF filename before upload.
 - `interior.html` / `cover.html` – Debug HTML snapshots.
 
 Review artifacts in Cloud Storage before shipping to printers, especially after updating templates or caliper data.
