@@ -1,4 +1,5 @@
 import { eq } from 'drizzle-orm';
+import { getEnvironment } from '@/config/environment.js';
 import { normalizeLocale } from '@/config/locales.js';
 import { getDatabase } from '@/db/connection.js';
 import { authors } from '@/db/schema/authors.js';
@@ -29,7 +30,7 @@ export async function submitStoryFeedback(input: {
   }
 
   const language = normalizeLocale(story.authorPreferredLocale || story.storyLanguage);
-  const baseUrl = (process.env.APP_BASE_URL || 'https://mythoria.pt').replace(/\/$/, '');
+  const baseUrl = getEnvironment().APP_BASE_URL.replace(/\/$/, '');
   const authorName = story.author || 'Mythoria Author';
   const sent = await sendStoryFeedbackEmail({
     storyId: input.storyId,

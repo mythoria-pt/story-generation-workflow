@@ -47,6 +47,7 @@ export const booleanFlagSchema = z
   .transform((v) => v === 'true' || v === '1');
 
 const envSchema = z.object({
+  APP_BASE_URL: z.url().default('https://mythoria.pt'),
   BIOGRAPHER_ENABLED: booleanFlagSchema,
   BIOGRAPHER_LIVE_ENABLED: booleanFlagSchema,
   BIOGRAPHER_WEBAPP_URL: z.string().url().optional(),

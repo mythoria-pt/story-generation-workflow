@@ -13,6 +13,13 @@ export interface EnvVarDescriptor {
 }
 
 export const envManifest: EnvVarDescriptor[] = [
+  {
+    name: 'APP_BASE_URL',
+    required: false,
+    scopes: ['dev', 'runtime', 'prod'],
+    default: 'https://mythoria.pt',
+    note: 'Web App URL for story feedback links.',
+  },
   { name: 'NODE_ENV', required: true, scopes: ['dev', 'runtime', 'prod'], default: 'development' },
   {
     name: 'BIOGRAPHER_ENABLED',
