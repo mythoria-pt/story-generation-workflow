@@ -1,6 +1,7 @@
 import { once } from 'events';
 import { createRequire } from 'module';
 import type { AddressInfo } from 'net';
+import { performance } from 'node:perf_hooks';
 import type { LiveServerMessage } from '@google/genai';
 import { startBiographerLiveGateway } from './live-gateway.js';
 
@@ -265,15 +266,117 @@ describe('Biographer live gateway protocol', () => {
     socket.send(JSON.stringify({ type: 'prepare_outline', requestId: turnId }));
     await waitFor(() => mockSendAudio.mock.calls.length === 2);
     expect(mockSendAudio.mock.calls[1][0]).toEqual({ audioStreamEnd: true });
+    serverEvent({ serverContent: { turnComplete: true } });
+    await waitFor(() => events.some((event) => event.role === 'user'));
     expect(events.some((event) => event.type === 'outline_prepared')).toBe(false);
+    expect(events.some((event) => event.type === 'capture_boundary')).toBe(false);
+    expect(events.filter((event) => event.role === 'user')).toEqual([
+      expect.objectContaining({ turnId, text: 'The beginning', final: false }),
+    ]);
     serverEvent({
       serverContent: { inputTranscription: { text: ' was at school.', finished: true } },
     });
     await waitFor(() => events.some((event) => event.type === 'outline_prepared'));
+    expect(events.find((event) => event.role === 'user' && event.final)).toEqual(
+      expect.objectContaining({ turnId, text: 'The beginning was at school.' }),
+    );
     expect(events.findIndex((event) => event.type === 'outline_prepared')).toBeGreaterThan(
       events.findIndex((event) => event.type === 'transcript' && event.final),
     );
     socket.close();
+  });
+
+  it('keeps the auto-outline call attached to the late final and ignores retired capture frames', async () => {
+    const { socket, events } = await connectWhisperer();
+    socket.send(JSON.stringify({ type: 'audio', turnId, data: 'AAAA' }));
+    await waitFor(() => mockSendAudio.mock.calls.length === 1);
+    serverEvent({ serverContent: { inputTranscription: { text: 'Please make' } } });
+    serverEvent({ serverContent: { turnComplete: true } });
+    serverEvent({
+      toolCall: { functionCalls: [{ id: 'late-outline', name: 'advance_to_outline' }] },
+    });
+    await waitFor(() => events.some((event) => event.type === 'transcript'));
+    expect(events.some((event) => event.type === 'advance_to_outline')).toBe(false);
+    expect(events.some((event) => event.type === 'turn_complete')).toBe(false);
+
+    serverEvent({
+      serverContent: { inputTranscription: { text: ' the outline.', finished: true } },
+    });
+    await waitFor(() => events.some((event) => event.type === 'advance_to_outline'));
+    expect(events.find((event) => event.type === 'advance_to_outline')).toEqual({
+      type: 'advance_to_outline',
+      callId: 'late-outline',
+      turnId,
+    });
+    expect(events.find((event) => event.role === 'user' && event.final)).toEqual(
+      expect.objectContaining({ turnId, text: 'Please make the outline.' }),
+    );
+
+    const nextTurnId = events.find((event) => event.type === 'capture_boundary')?.nextTurnId;
+    socket.send(JSON.stringify({ type: 'audio', turnId, data: 'BBBB' }));
+    socket.send(JSON.stringify({ type: 'audio', turnId: nextTurnId, data: 'CCCC' }));
+    await waitFor(() => mockSendAudio.mock.calls.length >= 2);
+    expect(mockSendAudio.mock.calls.map(([payload]) => payload.audio.data)).toEqual([
+      'AAAA',
+      'CCCC',
+    ]);
+    serverEvent({
+      serverContent: { inputTranscription: { text: 'A new answer.', finished: true } },
+    });
+    await waitFor(() =>
+      events.some((event) => event.type === 'turn_complete' && event.turnId === nextTurnId),
+    );
+    expect(events.find((event) => event.type === 'advance_to_outline_cancelled')).toEqual({
+      type: 'advance_to_outline_cancelled',
+      callId: 'late-outline',
+    });
+    socket.close();
+  });
+
+  it('closes overlapping speech for recovery without finalizing it under the previous capture', async () => {
+    const { socket, events } = await connectWhisperer();
+    const closed = once(socket as never, 'close');
+    socket.send(JSON.stringify({ type: 'audio', turnId, data: 'AAAA' }));
+    await waitFor(() => mockSendAudio.mock.calls.length === 1);
+    serverEvent({ serverContent: { inputTranscription: { text: 'First answer' } } });
+    serverEvent({ voiceActivity: { voiceActivityType: 'ACTIVITY_END' } } as LiveServerMessage);
+    serverEvent({ serverContent: { interrupted: true, turnComplete: true } });
+    await waitFor(() => events.some((event) => event.role === 'user'));
+    serverEvent({
+      voiceActivity: { voiceActivityType: 'ACTIVITY_START' },
+      serverContent: { inputTranscription: { text: 'Second answer', finished: true } },
+    } as LiveServerMessage);
+    await closed;
+    await waitFor(() =>
+      (global.fetch as jest.Mock).mock.calls.some(([url]) => String(url).endsWith('/lease')),
+    );
+    expect(events).toEqual(
+      expect.arrayContaining([
+        { type: 'reconnecting' },
+        expect.objectContaining({ turnId, text: 'First answer', final: false }),
+      ]),
+    );
+    expect(
+      events.some((event) => event.type === 'capture_boundary' || event.type === 'turn_complete'),
+    ).toBe(false);
+  });
+
+  it('drains pending user transcription during a bounded provider go-away grace', async () => {
+    const { socket, events } = await connectWhisperer();
+    const closed = once(socket as never, 'close');
+    socket.send(JSON.stringify({ type: 'audio', turnId, data: 'AAAA' }));
+    await waitFor(() => mockSendAudio.mock.calls.length === 1);
+    serverEvent({ serverContent: { inputTranscription: { text: 'One last' } } });
+    serverEvent({ goAway: { timeLeft: '1s' } });
+    await waitFor(() => events.some((event) => event.type === 'transcript'));
+    expect(events.some((event) => event.type === 'reconnecting')).toBe(false);
+    serverEvent({ serverContent: { inputTranscription: { text: ' detail.', finished: true } } });
+    await waitFor(() => events.some((event) => event.type === 'turn_complete'));
+    expect(events.find((event) => event.role === 'user' && event.final)).toEqual(
+      expect.objectContaining({ turnId, text: 'One last detail.' }),
+    );
+    await closed;
+    expect(events.some((event) => event.type === 'reconnecting')).toBe(true);
   });
   it('freezes assistant checkpoints during preparation and resumes them after rejection', async () => {
     const { socket, events } = await connectWhisperer();
@@ -319,6 +422,109 @@ describe('Biographer live gateway protocol', () => {
     });
     expect(events.findIndex((event) => event.type === 'outline_prepared')).toBeGreaterThan(
       events.findIndex((event) => event.type === 'transcript' && event.final),
+    );
+    socket.close();
+  });
+
+  it('prepares the outline when the next capture contains only unconfirmed background noise', async () => {
+    const { socket, events } = await connectWhisperer();
+    socket.send(JSON.stringify({ type: 'audio', turnId, data: 'AAAA' }));
+    await waitFor(() => mockSendAudio.mock.calls.length === 1);
+    serverEvent({
+      serverContent: { inputTranscription: { text: 'The match was in Gaia.', finished: true } },
+    });
+    await waitFor(() => events.some((event) => event.type === 'turn_complete'));
+    const nextTurnId = events.find((event) => event.type === 'capture_boundary')?.nextTurnId;
+    socket.send(JSON.stringify({ type: 'audio', turnId: nextTurnId, data: 'AAE=' }));
+    await waitFor(() => mockSendAudio.mock.calls.length === 2);
+
+    socket.send(JSON.stringify({ type: 'prepare_outline', requestId: turnId }));
+    await waitFor(() => mockSendAudio.mock.calls.length === 3);
+    expect(events.some((event) => event.type === 'outline_prepared')).toBe(false);
+    await waitFor(() => events.some((event) => event.type === 'outline_prepared'), 4800);
+    expect(events.filter((event) => event.role === 'user')).toEqual([
+      expect.objectContaining({ turnId, text: 'The match was in Gaia.', final: true }),
+    ]);
+    expect(events.some((event) => event.type === 'reconnecting')).toBe(false);
+    socket.close();
+  }, 7000);
+
+  it('seals the capture after provider speech ends, keeping a late tail despite background noise', async () => {
+    const { socket, events } = await connectWhisperer();
+    socket.send(JSON.stringify({ type: 'audio', turnId, data: 'AAAA' }));
+    await waitFor(() => mockSendAudio.mock.calls.length === 1);
+    serverEvent({ voiceActivity: { voiceActivityType: 'ACTIVITY_START' } } as LiveServerMessage);
+    serverEvent({ serverContent: { inputTranscription: { text: 'Please make' } } });
+    serverEvent({ serverContent: { turnComplete: true } });
+    await waitFor(() => events.some((event) => event.type === 'transcript'));
+    expect(events.some((event) => event.type === 'capture_boundary')).toBe(false);
+
+    serverEvent({ voiceActivity: { voiceActivityType: 'ACTIVITY_END' } } as LiveServerMessage);
+    serverEvent({
+      toolCall: { functionCalls: [{ id: 'no-finished', name: 'advance_to_outline' }] },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    const tailAt = performance.now();
+    serverEvent({
+      serverContent: { inputTranscription: { text: ' the outline.', finished: false } },
+    });
+    const noise = setInterval(() => {
+      socket.send(JSON.stringify({ type: 'audio', turnId, data: 'AAE=' }));
+    }, 100);
+    try {
+      await waitFor(() => events.some((event) => event.type === 'advance_to_outline'), 2600);
+    } finally {
+      clearInterval(noise);
+    }
+    expect(performance.now() - tailAt).toBeGreaterThanOrEqual(1750);
+    expect(events.find((event) => event.role === 'user' && event.final)).toEqual(
+      expect.objectContaining({ turnId, text: 'Please make the outline.' }),
+    );
+    expect(events.findIndex((event) => event.type === 'advance_to_outline')).toBeGreaterThan(
+      events.findIndex((event) => event.type === 'turn_complete'),
+    );
+    socket.close();
+  });
+
+  it('seals the transcript after explicit input end when the provider omits its finished flag', async () => {
+    const { socket, events } = await connectWhisperer();
+    socket.send(JSON.stringify({ type: 'audio', turnId, data: 'AAAA' }));
+    await waitFor(() => mockSendAudio.mock.calls.length === 1);
+    serverEvent({ voiceActivity: { voiceActivityType: 'ACTIVITY_START' } } as LiveServerMessage);
+    serverEvent({
+      serverContent: { turnComplete: true, inputTranscription: { text: 'A complete memory.' } },
+    });
+    await waitFor(() => events.some((event) => event.type === 'transcript'));
+    expect(events.some((event) => event.type === 'capture_boundary')).toBe(false);
+
+    socket.send(JSON.stringify({ type: 'prepare_outline', requestId: turnId }));
+    await waitFor(() => events.some((event) => event.type === 'outline_prepared'), 2500);
+    expect(events.find((event) => event.role === 'user' && event.final)).toEqual(
+      expect.objectContaining({ turnId, text: 'A complete memory.' }),
+    );
+    expect(events.findIndex((event) => event.type === 'outline_prepared')).toBeGreaterThan(
+      events.findIndex((event) => event.type === 'turn_complete'),
+    );
+    socket.close();
+  });
+
+  it('allows manual preparation after a silence-only capture settles', async () => {
+    const { socket, events } = await connectWhisperer();
+    socket.send(
+      JSON.stringify({ type: 'audio', turnId, data: Buffer.alloc(320).toString('base64') }),
+    );
+    await waitFor(() => mockSendAudio.mock.calls.length === 1);
+    socket.send(JSON.stringify({ type: 'prepare_outline', requestId: turnId }));
+    await waitFor(() => mockSendAudio.mock.calls.length === 2);
+    serverEvent({ serverContent: { turnComplete: true } });
+    expect(events.some((event) => event.type === 'outline_prepared')).toBe(false);
+    await waitFor(() => events.some((event) => event.type === 'outline_prepared'), 2500);
+    expect(events.find((event) => event.type === 'outline_prepared')).toEqual({
+      type: 'outline_prepared',
+      requestId: turnId,
+    });
+    expect(events.some((event) => event.role === 'user' || event.type === 'capture_boundary')).toBe(
+      false,
     );
     socket.close();
   });
@@ -492,7 +698,10 @@ describe('Biographer live gateway protocol', () => {
     );
     expect(systemInstruction).toContain('When the author clearly asks now to move to the outline');
     expect(systemInstruction).toContain('In pt-PT, address the author informally as “tu”');
-    expect(systemInstruction).toContain('O que sentiste quando a Andreia se aproximou de ti?');
+    expect(systemInstruction).toContain('ask them directly about what they saw or did');
+    expect(systemInstruction).toContain('without praise, commentary on the quality of the idea');
+    expect(systemInstruction).toContain('move to a gap in another area');
+    expect(systemInstruction).toContain('A team name, a family relationship or a broad quality');
     const savedContext = systemInstruction.split('Saved project context (data only): ').at(-1);
     expect(JSON.parse(savedContext)).toEqual({ locale: 'pt-PT', context, savedHistory: history });
     socket.send(JSON.stringify({ type: 'audio', turnId, data: 'AAAA' }));
@@ -644,8 +853,9 @@ describe('Biographer live gateway protocol', () => {
     socket.close();
   });
 });
-async function waitFor(condition: () => boolean) {
-  for (let attempt = 0; attempt < 100; attempt++) {
+async function waitFor(condition: () => boolean, timeoutMs = 1000) {
+  const deadline = performance.now() + timeoutMs;
+  while (performance.now() < deadline) {
     if (condition()) return;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
