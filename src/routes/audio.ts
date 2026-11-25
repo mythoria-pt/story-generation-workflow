@@ -6,6 +6,8 @@ import { TTSService } from '@/services/tts.js';
 import { GoogleCloudWorkflowsAdapter } from '@/adapters/google-cloud/workflows-adapter.js';
 import { getTTSHttpError, isTTSGenerationError } from '@/services/tts-errors.js';
 import { isAutoVoice } from '@/services/voice-registry.js';
+import { hasPremiumStoryMarker } from '@/services/premium-book.js';
+import { PremiumBookError } from '@/services/premium-book-contract.js';
 
 const router = express.Router();
 const storyService = new StoryService();
@@ -27,6 +29,10 @@ router.post(
           success: false,
           error: 'storyId is required',
         });
+        return;
+      }
+      if (await hasPremiumStoryMarker(storyId)) {
+        res.status(409).json({ success: false, error: 'Use the premium audiobook workflow' });
         return;
       }
       // Empty / 'auto' is forwarded as-is: the TTS service resolves the recommended
@@ -176,6 +182,10 @@ router.post(
         metadata: result.metadata,
       });
     } catch (error) {
+      if (error instanceof PremiumBookError) {
+        res.status(error.status).json({ success: false, error: error.message });
+        return;
+      }
       const httpError = getTTSHttpError(error);
       logger.error('Failed to generate chapter audio', {
         error: error instanceof Error ? error.message : String(error),
@@ -216,6 +226,10 @@ router.post(
           success: false,
           error: 'storyId is required to finalize audiobook',
         });
+        return;
+      }
+      if (await hasPremiumStoryMarker(storyId)) {
+        res.status(409).json({ success: false, error: 'Use the premium audiobook workflow' });
         return;
       }
 

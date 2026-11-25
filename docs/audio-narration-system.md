@@ -752,3 +752,11 @@ To add a new TTS provider (e.g., ElevenLabs):
 5. Add voice list and default-voice mapping to `src/services/voice-registry.ts`, then mirror them in the webapp's `src/lib/voice-options.ts` and admin's `src/lib/voice-options.ts`
 6. Add voice translations to `src/messages/*/Voices.json`
 7. Implement `getMaxTextLength()` in the provider
+
+## Premium illustrated editions
+
+The audiobook Pub/Sub payload accepts the published `premiumRevision` for a premium book. The audiobook workflow reads the SGW API key using the existing Secret Manager binding, claims a distinct audiobook run, and uses API-key-protected physical-page operations. It opens the manifest pinned by the currently published story marker and checks that the marker matches the requested revision before accessing page data. The narrator receives the saved opener, spreads with canonical text, and ending in publication order. The first track includes the frozen title, dedication, and narration credit. Artwork-only pages, imprint, synopsis, and invitation are outside the narrated text.
+
+Each completed page checkpoints its generation- and hash-pinned MP3 under `{storyId}/premium/revisions/{revision}/audiobooks/{runId}/` in the same private premium bucket. The SGW verifies every expected track before publishing `stories.audiobookUri` as `{ type: 'premium_children', revision, runId, tracks }`. Each track records its physical `pageNumber`, verified `audio` asset, and duration. The standard chapter URI formats remain supported for conventional books. Customer and staff playback proxies check the current edition and audiobook run before serving an asset. Deploy the SGW API and updated audiobook workflow before turning on premium requests from WebApp and Admin.
+
+Use the Cloud Workflows target already subscribed to `mythoria-audiobook-requests` and deploy it from `workflows/audiobook-generation.yaml`. The story workflow deployment script uses `workflows/story-generation.yaml`. The audiobook workflow service account needs SGW invocation and access to `STORY_GENERATION_WORKFLOW_API_KEY`. Premium audiobook commands reserve their own workflow run type and use the dedicated `/internal/audiobook/premium` lifecycle. The ebook publication guard applies to the ebook generation run.

@@ -4,6 +4,7 @@
  */
 
 import { Router, Request, Response } from 'express';
+import { premiumAudiobookRouter } from './premium-audiobook.js';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { logger } from '@/config/logger.js';
@@ -20,6 +21,11 @@ import { apiKeyAuth } from '@/middleware/apiKeyAuth.js';
 import { getTTSHttpError, isTTSGenerationError } from '@/services/tts-errors.js';
 import { StoryTextService } from '@/services/story-text.js';
 import {
+  findPremiumSelfPrintFunding,
+  readPremiumSelfPrintSource,
+} from '@/services/premium-self-print.js';
+import {
+  cleanPremiumTerminalDrafts,
   hasPremiumStoryMarker,
   markPremiumTerminalFailure,
   resolvePremiumTerminalStatus,
@@ -32,6 +38,7 @@ import {
 } from '@/services/premium-book-contract.js';
 
 const router = Router();
+router.use('/audiobook/premium', premiumAudiobookRouter);
 const analyticsReference = (value: string) =>
   createHash('sha256').update(value).digest('hex').slice(0, 12);
 
@@ -229,17 +236,37 @@ router.post('/runs/:runId/claim', async (req: Request, res: Response) => {
   try {
     const runId = z.string().uuid().parse(req.params.runId);
     const input = ClaimRunRequestSchema.parse(req.body);
-    if (input.bookType || (await hasPremiumStoryMarker(input.storyId))) {
+    const reserved = await runsService.getRun(runId);
+    const printSource = readPremiumSelfPrintSource(reserved?.metadata);
+    if (printSource || input.bookType || (await hasPremiumStoryMarker(input.storyId))) {
       if (!authorizePremiumRunWrite(req, res)) return;
       if (!input.gcpWorkflowExecution) {
         res.status(409).json({ error: 'Premium workflow claim requires an execution identity' });
         return;
       }
-      await verifyPremiumClaim(input.storyId, runId);
+      if (printSource) {
+        if (
+          reserved?.storyId !== input.storyId ||
+          !(await findPremiumSelfPrintFunding(input.storyId, runId, printSource, true))
+        ) {
+          res.status(409).json({ error: 'Premium self-print funding or story is unavailable' });
+          return;
+        }
+      } else {
+        await verifyPremiumClaim(input.storyId, runId);
+      }
     }
     const result = await runsService.claimRun(input.storyId, runId, input.gcpWorkflowExecution);
     if (result.claimed) {
-      await analyticsReconciliationService.markProductRunRunning(runId);
+      if (printSource && input.gcpWorkflowExecution) {
+        await analyticsReconciliationService
+          .markProductRunRunning(runId, input.gcpWorkflowExecution)
+          .catch(() => {
+            logger.warn('Premium self-print running state needs reconciliation', { runId });
+          });
+      } else {
+        await analyticsReconciliationService.markProductRunRunning(runId);
+      }
     }
     res.json({
       claimed: result.claimed,
@@ -289,10 +316,17 @@ router.patch('/runs/:runId', async (req: Request<{ runId: string }>, res: Respon
     // Read the durable story identity before creating or mutating a run.
     let run = await runsService.getRun(runId);
     const linkedStoryId = run?.storyId ?? updates.storyId;
+    const printSource = readPremiumSelfPrintSource(run?.metadata);
     const premium =
-      (run?.metadata as { premiumBook?: boolean } | null)?.premiumBook === true ||
-      Boolean(linkedStoryId && (await hasPremiumStoryMarker(linkedStoryId)));
-    if (premium || updates.metadata?.premiumBook !== undefined) {
+      !printSource &&
+      ((run?.metadata as { premiumBook?: boolean } | null)?.premiumBook === true ||
+        Boolean(linkedStoryId && (await hasPremiumStoryMarker(linkedStoryId))));
+    if (
+      premium ||
+      printSource ||
+      updates.metadata?.premiumBook !== undefined ||
+      updates.metadata?.premiumSelfPrint !== undefined
+    ) {
       if (!authorizePremiumRunWrite(req, res)) return;
       if (
         !run ||
@@ -304,6 +338,13 @@ router.patch('/runs/:runId', async (req: Request<{ runId: string }>, res: Respon
           .json({ error: 'Premium workflow write requires the claimed execution and story' });
         return;
       }
+    }
+    if (
+      updates.metadata?.premiumSelfPrint !== undefined ||
+      updates.metadata?.premiumSelfPrintDispatch !== undefined
+    ) {
+      res.status(409).json({ error: 'Premium self-print source is immutable' });
+      return;
     }
     logger.info('Internal API: Updating run', {
       runId,
@@ -350,6 +391,17 @@ router.patch('/runs/:runId', async (req: Request<{ runId: string }>, res: Respon
       updates.metadata = { ...updates.metadata, premiumBook: true, serviceCode: 'storyGeneration' };
     }
     const updatedRun = await runsService.updateRun(runId, updates);
+
+    if (
+      premium &&
+      updates.expectedWorkflowExecution &&
+      (updates.status === 'completed' || updates.status === 'cancelled') &&
+      updatedRun.status === updates.status
+    ) {
+      await cleanPremiumTerminalDrafts(run.storyId, runId, updates.expectedWorkflowExecution).catch(
+        () => logger.warn('Premium review draft cleanup needs reconciliation', { runId }),
+      );
+    }
 
     if (
       premium &&
@@ -1005,6 +1057,11 @@ router.get(
         return;
       }
 
+      if (hasPremiumMarker(story.features)) {
+        res.status(409).json({ success: false, error: 'Use the premium audiobook workflow' });
+        return;
+      }
+
       // Get chapters from database (latest versions only)
       const chaptersFromDb = await chaptersService.getStoryChapters(storyId);
 
@@ -1131,6 +1188,10 @@ router.post('/audiobook/chapter', async (req: Request, res: Response): Promise<v
       ...result,
     });
   } catch (error) {
+    if (error instanceof PremiumBookError) {
+      res.status(error.status).json({ success: false, error: error.message });
+      return;
+    }
     const httpError = getTTSHttpError(error);
     logger.error('Internal API: Failed to generate chapter audio', {
       error: error instanceof Error ? error.message : String(error),
@@ -1169,6 +1230,11 @@ router.post('/audiobook/finalize', async (req: Request, res: Response): Promise<
         success: false,
         error: 'storyId is required to finalize audiobook',
       });
+      return;
+    }
+
+    if (await hasPremiumStoryMarker(storyId)) {
+      res.status(409).json({ success: false, error: 'Use the premium audiobook workflow' });
       return;
     }
 
@@ -1301,6 +1367,10 @@ router.patch(
       }
       if (status && !z.string().uuid().safeParse(runId).success) {
         res.status(400).json({ success: false, error: 'A valid runId is required' });
+        return;
+      }
+      if (await hasPremiumStoryMarker(storyId)) {
+        res.status(409).json({ success: false, error: 'Use the premium audiobook workflow' });
         return;
       }
 

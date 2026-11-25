@@ -12,6 +12,7 @@ import { retry } from '@/shared/utils.js';
 import { logger } from '@/config/logger.js';
 import { serializeError } from '@/utils/errorHandling.js';
 import type { CustomWritingPersonaDefinition } from './literary-persona.js';
+import { hasPremiumMarker } from './premium-book-contract.js';
 
 export interface StoryContext {
   story: {
@@ -442,6 +443,7 @@ export class StoryService {
         .select({
           storyId: stories.storyId,
           authorId: stories.authorId,
+          features: stories.features,
           title: stories.title,
           customAuthor: stories.customAuthor,
           dedicationMessage: stories.dedicationMessage,
@@ -460,6 +462,8 @@ export class StoryService {
       if (!storyData) {
         return null;
       }
+      const { features, ...printableStory } = storyData;
+      if (hasPremiumMarker(features)) return null;
 
       // Get actual chapters data from the chapters table (latest versions only)
       const allChapters = await this.db
@@ -501,7 +505,7 @@ export class StoryService {
       });
 
       return {
-        ...storyData,
+        ...printableStory,
         chapters: chaptersForPrint,
       };
     } catch (error) {

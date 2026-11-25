@@ -127,3 +127,5 @@ Paid physical-order proof generation uses the API-key-protected `POST /internal/
 ## Premium illustrated books
 
 See [premium-books.md](docs/premium-books.md) for the saved book marker, private storage, image configuration, same-run operator recovery and spread correction contract. Keep each spread’s canonical text and artwork derivatives under the same immutable published revision.
+
+The frozen `editionLayout` selects the generation and print renderer. Embedded-lettering editions require verified native-resolution artwork and a separately typeset publication page. A retry must preserve the frozen layout, manuscript and any accepted page artwork.

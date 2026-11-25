@@ -1,5 +1,6 @@
 import express from 'express';
 import { randomUUID } from 'crypto';
+import { isDeepStrictEqual } from 'node:util';
 import apiKeyAuth from '@/middleware/apiKeyAuth.js';
 import { z } from 'zod';
 import { PrintGenerationHandler } from '@/workflows/handlers.js';
@@ -22,6 +23,15 @@ import type { PrintQaAssetUrls } from '@/types/print-quality.js';
 import { eq } from 'drizzle-orm';
 import { getDatabase } from '@/db/connection.js';
 import { productGenerationRequests } from '@/db/schema/index.js';
+import { hasPremiumMarker, readPremiumMarker } from '@/services/premium-book-contract.js';
+import { publishedPremium } from '@/services/premium-order-proof.js';
+import {
+  findPremiumSelfPrintFunding,
+  premiumSelfPrintSource,
+  readPremiumSelfPrintSource,
+  renderPremiumSelfPrint,
+  signPremiumSelfPrint,
+} from '@/services/premium-self-print.js';
 
 export const printRouter = express.Router();
 export const internalPrintRouter = express.Router();
@@ -66,6 +76,32 @@ const RecipientSchema = z.object({
   locale: z.string().optional(),
 });
 
+const NotificationDeliverySchema = z.object({
+  recipients: z.array(RecipientSchema).optional(),
+  locale: z.string().optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+  ccEmails: z.array(z.string().email()).optional(),
+});
+
+const ReservedPrintPayload = z
+  .object({
+    storyId: z.uuid(),
+    runId: z.uuid(),
+    premiumSelfPrint: z.literal(true),
+    delivery: z
+      .object({
+        recipients: z.array(RecipientSchema).min(1),
+      })
+      .passthrough(),
+  })
+  .passthrough();
+
+function readReservedPrintPayload(metadata: unknown) {
+  return metadata && typeof metadata === 'object' && 'premiumSelfPrintDispatch' in metadata
+    ? ReservedPrintPayload.parse(metadata.premiumSelfPrintDispatch)
+    : undefined;
+}
+
 const SelfPrintRequestSchema = z.object({
   storyId: z.string().uuid(),
   workflowId: z.string().uuid().optional(),
@@ -75,6 +111,7 @@ const SelfPrintRequestSchema = z.object({
   ccEmails: z.array(z.string().email()).optional(),
   locale: z.string().optional(),
   generateCMYK: z.boolean().optional(),
+  premiumBook: publishedPremium.optional(),
   skipQA: z.boolean().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
@@ -84,6 +121,7 @@ const PrintGenerateRequestSchema = z.object({
   workflowId: z.string().uuid(),
   generateCMYK: z.boolean().optional(),
   skipQA: z.boolean().optional(),
+  executionId: z.string().min(1).max(255).nullable().optional(),
 });
 
 const PrintResultSchema = z.object({
@@ -91,6 +129,7 @@ const PrintResultSchema = z.object({
   coverPdfUrl: z.string().url(),
   interiorCmykPdfUrl: z.string().url().nullable().optional(),
   coverCmykPdfUrl: z.string().url().nullable().optional(),
+  premiumRevision: z.uuid().optional(),
 });
 
 const PrintQaIssueSchema = z.object({
@@ -145,6 +184,24 @@ function dedupeRecipients(recipients: SelfPrintRecipient[]): SelfPrintRecipient[
   return Array.from(seen.values());
 }
 
+function authorizePremiumPrintExecution(
+  req: express.Request,
+  res: express.Response,
+  expected: string | null | undefined,
+  actual: string | null | undefined,
+) {
+  let authorized = false;
+  apiKeyAuth(req, res, () => {
+    authorized = true;
+  });
+  if (!authorized) return false;
+  if (!expected || expected !== actual) {
+    res.status(409).json({ error: 'Premium self-print execution has been superseded' });
+    return false;
+  }
+  return true;
+}
+
 printRouter.post('/self-service', async (req, res) => {
   const parsed = SelfPrintRequestSchema.safeParse(req.body ?? {});
   if (!parsed.success) {
@@ -165,6 +222,7 @@ printRouter.post('/self-service', async (req, res) => {
     ccEmails,
     locale,
     generateCMYK,
+    premiumBook,
     skipQA,
     metadata,
   } = parsed.data;
@@ -176,6 +234,41 @@ printRouter.post('/self-service', async (req, res) => {
     if (!story) {
       res.status(404).json({ success: false, error: 'Story not found' });
       return;
+    }
+
+    const storedEdition = readPremiumMarker(story.features);
+    let premiumSource: z.infer<typeof premiumSelfPrintSource> | undefined;
+    if (storedEdition || premiumBook) {
+      if (
+        story.status !== 'published' ||
+        metadata?.requestedByAuthorId !== story.authorId ||
+        !premiumBook ||
+        storedEdition?.state !== 'published' ||
+        storedEdition.ownerId !== story.authorId
+      ) {
+        res.status(409).json({ success: false, error: 'Premium self-print edition unavailable' });
+        return;
+      }
+      premiumSource = premiumSelfPrintSource.parse({
+        ownerId: story.authorId,
+        revision: premiumBook.revision,
+        manifest: premiumBook.manifest,
+        generateCMYK: generateCMYK !== false,
+      });
+      const accepted = await runsService.getRun(workflowId);
+      const storedSource = readPremiumSelfPrintSource(accepted?.metadata);
+      if (
+        (accepted &&
+          (accepted.storyId !== storyId ||
+            !storedSource ||
+            !isDeepStrictEqual(storedSource, premiumSource))) ||
+        !(await findPremiumSelfPrintFunding(storyId, workflowId, premiumSource, Boolean(accepted)))
+      ) {
+        res
+          .status(409)
+          .json({ success: false, error: 'Premium self-print funding or edition mismatch' });
+        return;
+      }
     }
 
     const resolvedRecipients: SelfPrintRecipient[] = [];
@@ -238,47 +331,75 @@ printRouter.post('/self-service', async (req, res) => {
       delivery,
       initiatedBy: 'selfService',
       origin: 'self-service',
+      ...(premiumSource ? { premiumSelfPrint: true } : {}),
       ...(skipQA === true ? { skipQA: true } : {}),
     };
 
-    const workflowEvent = {
-      data: {
-        message: {
-          data: Buffer.from(JSON.stringify(workflowPayload)).toString('base64'),
-        },
-      },
-    };
+    const reservation = premiumSource
+      ? await runsService.reserveRun(storyId, workflowId, {
+          premiumSelfPrint: premiumSource,
+          premiumSelfPrintDispatch: workflowPayload,
+          serviceCode: 'selfPrinting',
+        })
+      : await runsService.reserveRun(storyId, workflowId);
 
-    const reservation = await runsService.reserveRun(storyId, workflowId);
+    const reservedPayload =
+      premiumSource && !reservation.reserved
+        ? readReservedPrintPayload(reservation.run.metadata)
+        : undefined;
+    if (
+      reservedPayload &&
+      (reservedPayload.storyId !== storyId || reservedPayload.runId !== workflowId)
+    ) {
+      res
+        .status(409)
+        .json({ success: false, error: 'Premium self-print dispatch identity mismatch' });
+      return;
+    }
+    const resolvedPayload = reservedPayload ?? workflowPayload;
+    const resolvedEmails = resolvedPayload.delivery?.recipients.map(({ email }) => email) ?? [];
     if (!reservation.reserved) {
       if (reservation.run.status === 'failed') {
         res.status(409).json({ success: false, error: 'Print workflow already failed' });
         return;
       }
-      res.status(202).json({
-        success: true,
-        message: 'Self-print workflow already started',
-        storyId,
-        workflowId,
-        executionId: reservation.run.gcpWorkflowExecution || '',
-        recipients: dedupedRecipients.map((recipient) => recipient.email),
-      });
-      return;
+      if (
+        !reservedPayload ||
+        reservation.run.gcpWorkflowExecution ||
+        !(await runsService.reclaimSelfPrintDispatch(workflowId))
+      ) {
+        res.status(202).json({
+          success: true,
+          message: 'Self-print workflow already started',
+          storyId,
+          workflowId,
+          executionId: reservation.run.gcpWorkflowExecution || '',
+          recipients: resolvedEmails,
+        });
+        return;
+      }
     }
+
+    const workflowEvent = {
+      data: { message: { data: Buffer.from(JSON.stringify(resolvedPayload)).toString('base64') } },
+    };
 
     let executionId: string;
     try {
       executionId = await workflowsAdapter.executeWorkflow('print-generation', workflowEvent);
+      if (premiumSource && !executionId)
+        throw new Error('Premium self-print dispatch is unconfirmed');
     } catch (error) {
-      await runsService
-        .updateRun(workflowId, {
-          status: 'failed',
-          currentStep: 'queue',
-          failureStage: 'queue',
-          failureCode: 'workflow_enqueue_failed',
-          errorMessage: error instanceof Error ? error.message : String(error),
-        })
-        .catch(() => undefined);
+      if (!premiumSource)
+        await runsService
+          .updateRun(workflowId, {
+            status: 'failed',
+            currentStep: 'queue',
+            failureStage: 'queue',
+            failureCode: 'workflow_enqueue_failed',
+            errorMessage: error instanceof Error ? error.message : String(error),
+          })
+          .catch(() => undefined);
       throw error;
     }
 
@@ -290,12 +411,13 @@ printRouter.post('/self-service', async (req, res) => {
     };
 
     try {
-      await runsService.updateRun(workflowId, {
-        status: 'queued',
-        currentStep: 'self_print_requested',
-        gcpWorkflowExecution: executionId,
-        metadata: mergedMetadata,
-      });
+      if (premiumSource)
+        executionId = await runsService.linkSelfPrintExecution(workflowId, executionId);
+      else
+        await runsService.updateRun(workflowId, {
+          gcpWorkflowExecution: executionId,
+          metadata: mergedMetadata,
+        });
     } catch (error) {
       logger.warn('Self-print workflow started but its execution reference was not persisted', {
         workflowRef: workflowId.slice(0, 8),
@@ -314,7 +436,7 @@ printRouter.post('/self-service', async (req, res) => {
       storyId,
       workflowId,
       executionId,
-      recipients: dedupedRecipients.map((recipient) => recipient.email),
+      recipients: resolvedEmails,
     });
   } catch (error) {
     logger.error('Failed to start self-print workflow', {
@@ -338,10 +460,30 @@ internalPrintRouter.post(
       return;
     }
 
-    const { storyId, workflowId, generateCMYK, skipQA } = parsed.data;
+    const { storyId, workflowId, generateCMYK, skipQA, executionId } = parsed.data;
 
     try {
       logger.info('Print generation request received', { storyId, workflowId, skipQA });
+
+      const run = await runsService.getRun(workflowId);
+      if (run && run.storyId !== storyId) {
+        res.status(409).json({ error: 'Print run does not belong to this story' });
+        return;
+      }
+      const source = readPremiumSelfPrintSource(run?.metadata);
+      if (source) {
+        if (!authorizePremiumPrintExecution(req, res, run?.gcpWorkflowExecution, executionId))
+          return;
+        if (
+          run?.status !== 'running' ||
+          !(await findPremiumSelfPrintFunding(storyId, workflowId, source, true))
+        ) {
+          res.status(409).json({ error: 'Premium self-print run is unavailable' });
+          return;
+        }
+        res.json(await renderPremiumSelfPrint(storyId, workflowId, source));
+        return;
+      }
 
       const result = await printGenerationHandler.execute({
         storyId,
@@ -366,14 +508,8 @@ const NotifyRequestSchema = z.object({
   runId: z.string().uuid(),
   initiatedBy: z.string().optional(),
   origin: z.string().optional(),
-  delivery: z
-    .object({
-      recipients: z.array(RecipientSchema).optional(),
-      locale: z.string().optional(),
-      metadata: z.record(z.string(), z.unknown()).optional(),
-      ccEmails: z.array(z.string().email()).optional(),
-    })
-    .optional(),
+  executionId: z.string().min(1).max(255).nullable().optional(),
+  delivery: NotificationDeliverySchema.optional(),
   printResult: PrintResultSchema,
 });
 
@@ -577,6 +713,33 @@ internalPrintRouter.post('/self-service/notify', async (req, res) => {
 
   try {
     const run = await runsService.getRun(runId);
+    const source = readPremiumSelfPrintSource(run?.metadata);
+    if (source || printResult.premiumRevision) {
+      if (
+        !authorizePremiumPrintExecution(
+          req,
+          res,
+          run?.gcpWorkflowExecution,
+          parsed.data.executionId,
+        )
+      )
+        return;
+      const reserved = readReservedPrintPayload(run?.metadata);
+      if (
+        !source ||
+        run?.storyId !== storyId ||
+        run.status !== 'completed' ||
+        source.revision !== printResult.premiumRevision ||
+        !reserved ||
+        reserved.storyId !== storyId ||
+        reserved.runId !== runId ||
+        !isDeepStrictEqual(NotificationDeliverySchema.parse(reserved.delivery), delivery) ||
+        !(await findPremiumSelfPrintFunding(storyId, runId, source, true))
+      ) {
+        res.status(409).json({ error: 'Premium self-print delivery does not match its run' });
+        return;
+      }
+    }
     const executionId =
       (delivery?.metadata?.workflowExecutionId as string | undefined) ||
       (run?.gcpWorkflowExecution ?? undefined);
@@ -662,6 +825,11 @@ internalPrintRouter.post('/self-service/notify', async (req, res) => {
 
     const ccRecipients = dedupeRecipients([...ccFromRecipients, ...ccFromDeliveryEmails]);
 
+    let pdfs = printResult;
+    if (source) pdfs = await signPremiumSelfPrint(storyId, runId, source.revision);
+    else if (hasPremiumMarker(story.features))
+      throw new Error('Premium self-print delivery lacks its reserved edition');
+
     const deliveryStatus = await sendStoryPrintInstructionsEmail({
       storyId,
       storyTitle: story.title,
@@ -681,11 +849,12 @@ internalPrintRouter.post('/self-service/notify', async (req, res) => {
           (deliveryPayload.metadata?.requestedByName as string | undefined),
       },
       origin: resolvedOrigin,
+      ...(printResult.premiumRevision ? { premiumRevision: printResult.premiumRevision } : {}),
       pdfs: {
-        interiorPdfUrl: printResult.interiorPdfUrl,
-        coverPdfUrl: printResult.coverPdfUrl,
-        interiorCmykPdfUrl: printResult.interiorCmykPdfUrl ?? null,
-        coverCmykPdfUrl: printResult.coverCmykPdfUrl ?? null,
+        interiorPdfUrl: pdfs.interiorPdfUrl,
+        coverPdfUrl: pdfs.coverPdfUrl,
+        interiorCmykPdfUrl: pdfs.interiorCmykPdfUrl ?? null,
+        coverCmykPdfUrl: pdfs.coverCmykPdfUrl ?? null,
       },
     });
 

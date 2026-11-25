@@ -20,6 +20,9 @@ main:
           - payload: ${json.decode(base64.decode(event.data.message.data))}
           - storyId: ${payload.storyId}
           - runId: ${payload.runId}
+          - executionId: ${sys.get_env("GOOGLE_CLOUD_WORKFLOW_EXECUTION_ID")}
+          - runClaimed: false
+          - workflowHeaders: {}
           - baseUrl: 'https://story-generation-workflow-803421888801.europe-west9.run.app'
           - now: ${time.format(sys.now())}
           - initiatedBy: ${default(map.get(payload, "initiatedBy"), "printOrder")}
@@ -37,6 +40,23 @@ main:
           - qaWarningCount: 0
           - qaFixesApplied: []
           - currentStage: 'authorization'
+
+    - prepareAuthentication:
+        switch:
+          - condition: ${map.get(payload, "premiumSelfPrint") == true}
+            next: fetchPremiumApiKey
+        next: setOriginFromInitiatedBy
+
+    - fetchPremiumApiKey:
+        call: googleapis.secretmanager.v1.projects.secrets.versions.access
+        args:
+          name: projects/803421888801/secrets/STORY_GENERATION_WORKFLOW_API_KEY/versions/latest
+        result: apiKeySecret
+
+    - setPremiumHeaders:
+        assign:
+          - workflowHeaders:
+              x-api-key: ${text.decode(base64.decode(apiKeySecret.payload.data))}
 
     # Resolve origin in a separate step to avoid YAML/ternary parsing issues
     - setOriginFromInitiatedBy:
@@ -74,14 +94,20 @@ main:
                   url: ${baseUrl + "/internal/runs/" + runId + "/claim"}
                   method: POST
                   auth: { type: OIDC }
+                  headers: ${workflowHeaders}
                   body:
                     storyId: ${storyId}
+                    gcpWorkflowExecution: ${executionId}
                 result: claimResp
 
             - stopDuplicateRun:
                 switch:
                   - condition: ${not(claimResp.body.claimed)}
                     return: ${claimResp.body}
+
+            - recordClaim:
+                assign:
+                  - runClaimed: true
 
             # 1. Mark run → running / generate_print_pdfs
             - markRunStarted:
@@ -90,8 +116,10 @@ main:
                   url: ${baseUrl + "/internal/runs/" + runId}
                   method: PATCH
                   auth: { type: OIDC }
+                  headers: ${workflowHeaders}
                   body:
                     storyId: ${storyId}
+                    expectedWorkflowExecution: ${executionId}
                     status: 'running'
                     currentStep: 'generate_print_pdfs'
                     startedAt: ${time.format(sys.now())}
@@ -107,9 +135,12 @@ main:
                   url: ${baseUrl + "/internal/print/generate"}
                   method: POST
                   auth: { type: OIDC }
+                  timeout: 540
+                  headers: ${workflowHeaders}
                   body:
                     storyId: ${storyId}
                     workflowId: ${runId}
+                    executionId: ${executionId}
                     generateCMYK: true
                     skipQA: ${qaSkip}
                 result: printGenerationResult
@@ -118,9 +149,18 @@ main:
             - saveGeneratedAssets:
                 assign:
                   - activePrintResult: ${printGenerationResult.body}
+                next: checkShouldRunQA
+
+            - recordPremiumQA:
+                assign:
+                  - qaStatus: 'passed'
+                  - qaSkip: false
+                next: initializeDeliveryStatus
 
             - checkShouldRunQA:
                 switch:
+                  - condition: ${map.get(activePrintResult, "premiumRevision") != null}
+                    next: recordPremiumQA
                   - condition: ${qaSkip == true}
                     next: initializeDeliveryStatus
 
@@ -233,8 +273,10 @@ main:
                   url: ${baseUrl + "/internal/runs/" + runId}
                   method: PATCH
                   auth: { type: OIDC }
+                  headers: ${workflowHeaders}
                   body:
                     storyId: ${storyId}
+                    expectedWorkflowExecution: ${executionId}
                     status: 'completed'
                     currentStep: 'completed'
                     endedAt: ${time.format(sys.now())}
@@ -273,9 +315,11 @@ main:
                           url: ${baseUrl + "/internal/print/self-service/notify"}
                           method: POST
                           auth: { type: OIDC }
+                          headers: ${workflowHeaders}
                           body:
                             storyId: ${storyId}
                             runId: ${runId}
+                            executionId: ${executionId}
                             delivery: ${delivery}
                             initiatedBy: ${initiatedBy}
                             origin: ${origin}
@@ -307,8 +351,10 @@ main:
                     url: ${baseUrl + "/internal/runs/" + runId}
                     method: PATCH
                     auth: { type: OIDC }
+                    headers: ${workflowHeaders}
                     body:
                       storyId: ${storyId}
+                      expectedWorkflowExecution: ${executionId}
                       metadata:
                         printDeliveryStatus: ${printDeliveryStatus}
                 retry: ${http.default_retry}
@@ -356,7 +402,7 @@ main:
           steps:
             - protectCompletedRun:
                 switch:
-                  - condition: ${currentStage == "completed"}
+                  - condition: ${not(runClaimed) or currentStage == "completed"}
                     next: raiseError
 
             - markRunFailed:
@@ -365,8 +411,10 @@ main:
                   url: ${baseUrl + "/internal/runs/" + runId}
                   method: PATCH
                   auth: { type: OIDC }
+                  headers: ${workflowHeaders}
                   body:
                     storyId: ${storyId}
+                    expectedWorkflowExecution: ${executionId}
                     status: 'failed'
                     currentStep: ${currentStage}
                     failureStage: ${currentStage}

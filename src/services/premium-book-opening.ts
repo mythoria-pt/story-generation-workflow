@@ -1,5 +1,9 @@
 import type { z } from 'zod';
-import type { openingPlan, PremiumPage } from './premium-book-contract.js';
+import {
+  premiumSpecificationText,
+  type openingPlan,
+  type PremiumPage,
+} from './premium-book-contract.js';
 import { getPrintTranslations } from '@/utils/print-translations.js';
 
 type Opening = z.infer<typeof openingPlan>;
@@ -42,7 +46,7 @@ const translations = {
   },
 };
 
-export function premiumOpeningPages(opening: Opening): PremiumPage[] {
+export function premiumSpecification(opening: Opening) {
   const t =
     opening.locale === 'en-US' || opening.locale === 'pt-PT'
       ? getPrintTranslations(opening.locale)
@@ -52,27 +56,35 @@ export function premiumOpeningPages(opening: Opening): PremiumPage[] {
     year: 'numeric',
     timeZone: 'UTC',
   }).format(new Date(opening.createdAt));
+  return {
+    title: { label: t.titleLabel, value: opening.title },
+    details: [
+      { label: t.authorLabel, value: opening.author },
+      { label: t.publishDateLabel, value: date },
+      { label: t.editingCompanyLabel, value: 'Mythoria' },
+      { label: t.websiteLabel, value: 'mythoria.pt' },
+    ],
+    copyright: `${t.copyrightLabel} © ${opening.createdAt.slice(0, 4)} ${opening.author}`,
+    rights: t.copyrightText,
+    promotion: t.promotionText.replace(/<\/?strong>/g, ''),
+    synopsisLabel: t.synopsisTitle,
+  };
+}
+
+export function premiumOpeningPages(opening: Opening): PremiumPage[] {
+  const specification = premiumSpecification(opening);
   return [
     { number: 1, kind: 'title', text: opening.title },
     {
       number: 2,
       kind: 'copyright',
-      text: [
-        `${t.titleLabel}: ${opening.title}`,
-        `${t.authorLabel}: ${opening.author}`,
-        `${t.publishDateLabel}: ${date}`,
-        `${t.editingCompanyLabel}: Mythoria`,
-        `${t.websiteLabel}: mythoria.pt`,
-        `${t.copyrightLabel} © ${opening.createdAt.slice(0, 4)} ${opening.author}`,
-        t.copyrightText,
-        t.promotionText.replace(/<\/?strong>/g, ''),
-      ].join('\n'),
+      text: premiumSpecificationText(specification),
     },
     {
       number: 3,
       kind: 'dedication',
       text: [opening.title, opening.dedication, `– ${opening.author}`].filter(Boolean).join('\n\n'),
     },
-    { number: 4, kind: 'synopsis', text: `${t.synopsisTitle}\n\n${opening.synopsis}` },
+    { number: 4, kind: 'synopsis', text: `${specification.synopsisLabel}\n\n${opening.synopsis}` },
   ];
 }

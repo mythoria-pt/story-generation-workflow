@@ -21,6 +21,7 @@ export interface SelfPrintWorkflowPayload {
   runId: string;
   generateCMYK?: boolean;
   skipQA?: boolean;
+  premiumSelfPrint?: true;
   delivery?: SelfPrintDelivery;
   initiatedBy?: 'selfService' | 'adminPortal' | string;
   origin?: 'self-service' | 'admin' | string;

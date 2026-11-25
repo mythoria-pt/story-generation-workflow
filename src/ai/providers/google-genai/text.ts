@@ -213,7 +213,7 @@ export class GoogleGenAITextService implements ITextGenerationService {
         if (segment.finishReason !== 'STOP')
           throw Object.assign(
             new Error(`Hydrogen generation incomplete: ${segment.finishReason}`),
-            { code: 'INCOMPLETE_OUTPUT' },
+            { code: 'INCOMPLETE_OUTPUT', finishReason: segment.finishReason },
           );
         const text = parts
           .filter((part) => !part.thought)
@@ -228,7 +228,12 @@ export class GoogleGenAITextService implements ITextGenerationService {
       }
       throw new Error('Hydrogen continuation segment limit exceeded');
     } catch (error) {
-      const failure = error as { code?: string; status?: number; usage?: TextGenerationUsage };
+      const failure = error as {
+        code?: string;
+        status?: number;
+        usage?: TextGenerationUsage;
+        finishReason?: string;
+      };
       if (failure.usage) options.usageObserver?.(failure.usage);
       logger.error('Google text generation failed', {
         provider: 'google-genai',
@@ -236,6 +241,7 @@ export class GoogleGenAITextService implements ITextGenerationService {
         contextId: options.contextId,
         code: failure.code,
         status: failure.status,
+        finishReason: failure.finishReason,
       });
       if (options.privateContent)
         throw Object.assign(new Error('Private text generation failed'), {

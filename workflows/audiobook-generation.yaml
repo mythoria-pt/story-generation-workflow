@@ -4,6 +4,7 @@
 # Pub/Sub message (base-64 JSON):
 #   { "storyId": "<uuid>", "runId": "<uuid>", "voice": "<voice>", "includeBackgroundMusic": true, "timestamp": "<iso-string>" }
 #   voice is optional: empty or "auto" lets SGW pick the recommended voice for the story audience.
+#   premiumRevision is optional: it pins a published premium edition for page narration.
 #
 # Cloud Run base URL (internal API + AI-Gateway):
 #   https://story-generation-workflow-803421888801.europe-west9.run.app
@@ -23,11 +24,29 @@ main:
           - runId: ${payload.runId}
           - voice: ${default(map.get(payload, "voice"), "")}
           - includeBackgroundMusic: ${default(map.get(payload, "includeBackgroundMusic"), true)}
+          - premiumRevision: ${map.get(payload, "premiumRevision")}
           - baseUrl: 'https://story-generation-workflow-803421888801.europe-west9.run.app'
           - chapterGenerationConcurrency: 4
           - chapterAudioMaxAttempts: 2
           - chapterAudioRetryDelaySeconds: 10
           - now: ${time.format(sys.now())}
+
+    - selectAudiobookSource:
+        switch:
+          - condition: ${premiumRevision != null}
+            steps:
+              - narratePremiumEdition:
+                  call: premiumAudiobook
+                  args:
+                    baseUrl: ${baseUrl}
+                    storyId: ${storyId}
+                    runId: ${runId}
+                    revision: ${premiumRevision}
+                    voice: ${voice}
+                    includeBackgroundMusic: ${includeBackgroundMusic}
+                  result: premiumResult
+              - returnPremiumResult:
+                  return: ${premiumResult}
 
     # ───────────────────────────────────────────────
     # 1. Pipeline wrapped in one try/except for error handling
@@ -256,3 +275,107 @@ main:
 
             - rethrowAudioError:
                 raise: ${audioError}
+
+premiumAudiobook:
+  params: [baseUrl, storyId, runId, revision, voice, includeBackgroundMusic]
+  steps:
+    - fetchApiKey:
+        call: googleapis.secretmanager.v1.projects.secrets.versions.access
+        args:
+          name: projects/803421888801/secrets/STORY_GENERATION_WORKFLOW_API_KEY/versions/latest
+        result: apiKeySecret
+    - initializePremiumRequest:
+        assign:
+          - apiKey: ${text.decode(base64.decode(apiKeySecret.payload.data))}
+          - endpoint: ${baseUrl + "/internal/audiobook/premium/"}
+          - identity:
+              storyId: ${storyId}
+              runId: ${runId}
+              revision: ${revision}
+              executionId: ${sys.get_env("GOOGLE_CLOUD_WORKFLOW_EXECUTION_ID")}
+    - runPremiumAudiobook:
+        try:
+          steps:
+            - planPremiumPages:
+                try:
+                  call: http.post
+                  args:
+                    url: ${endpoint + "plan"}
+                    auth: { type: OIDC }
+                    headers:
+                      x-api-key: ${apiKey}
+                    body: ${identity}
+                  result: planResponse
+                retry: ${http.default_retry}
+            - skipDuplicatePremiumAudiobook:
+                switch:
+                  - condition: ${not(planResponse.body.claimed)}
+                    return: ${planResponse.body}
+            - generatePremiumPages:
+                parallel:
+                  concurrency_limit: 4
+                  for:
+                    value: pageNumber
+                    in: ${planResponse.body.pageNumbers}
+                    steps:
+                      - narratePremiumPage:
+                          try:
+                            call: http.post
+                            args:
+                              url: ${endpoint + "page"}
+                              timeout: 1800
+                              auth: { type: OIDC }
+                              headers:
+                                x-api-key: ${apiKey}
+                              body:
+                                storyId: ${storyId}
+                                runId: ${runId}
+                                revision: ${revision}
+                                executionId: ${identity.executionId}
+                                pageNumber: ${pageNumber}
+                                voice: ${voice}
+                                includeBackgroundMusic: ${includeBackgroundMusic}
+                          retry:
+                            predicate: ${retryPremiumNarration}
+                            max_retries: 1
+                            backoff:
+                              initial_delay: 10
+                              max_delay: 10
+                              multiplier: 1
+            - completePremiumAudiobook:
+                try:
+                  call: http.post
+                  args:
+                    url: ${endpoint + "complete"}
+                    auth: { type: OIDC }
+                    headers:
+                      x-api-key: ${apiKey}
+                    body: ${identity}
+                  result: completed
+                retry: ${http.default_retry}
+            - returnCompletedPremiumAudiobook:
+                return: ${completed.body}
+        except:
+          as: premiumError
+          steps:
+            - failPremiumAudiobook:
+                try:
+                  call: http.post
+                  args:
+                    url: ${endpoint + "failed"}
+                    auth: { type: OIDC }
+                    headers:
+                      x-api-key: ${apiKey}
+                    body: ${identity}
+                retry: ${http.default_retry}
+            - rethrowPremiumAudiobookError:
+                raise: ${premiumError}
+
+retryPremiumNarration:
+  params: [error]
+  steps:
+    - readStatus:
+        assign:
+          - code: ${default(map.get(error, "code"), 0)}
+    - canRetry:
+        return: ${code == 0 or code == 408 or code == 429 or code >= 500}

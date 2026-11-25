@@ -64,12 +64,16 @@ export class AnalyticsReconciliationService {
   private sharedDb = getDatabase();
   private workflowsDb = getWorkflowsDatabase();
 
-  async markProductRunRunning(runId: string): Promise<void> {
+  async markProductRunRunning(runId: string, selfPrintExecutionId?: string): Promise<void> {
     const [request] = await this.sharedDb
       .select()
       .from(productGenerationRequests)
       .where(eq(productGenerationRequests.runId, runId));
-    if (!request) return;
+    if (
+      !request ||
+      (selfPrintExecutionId && (request.actionType !== 'self_print' || request.compensatedAt))
+    )
+      return;
 
     const requestedAt = request.queuedAt || new Date();
     const eventName =
@@ -79,14 +83,29 @@ export class AnalyticsReconciliationService {
     const runRef = analyticsReference(runId);
 
     await this.sharedDb.transaction(async (tx) => {
-      await tx
+      const running = tx
         .update(productGenerationRequests)
         .set({
           status: 'running',
+          ...(selfPrintExecutionId && { queueReference: selfPrintExecutionId }),
           queuedAt: request.queuedAt || requestedAt,
           updatedAt: new Date(),
         })
-        .where(eq(productGenerationRequests.runId, runId));
+        .where(
+          selfPrintExecutionId
+            ? and(
+                eq(productGenerationRequests.runId, runId),
+                isNull(productGenerationRequests.compensatedAt),
+                inArray(productGenerationRequests.status, ['pending', 'queued', 'running']),
+              )
+            : eq(productGenerationRequests.runId, runId),
+        );
+      if (selfPrintExecutionId) {
+        const [active] = await running.returning({ runId: productGenerationRequests.runId });
+        if (!active) return;
+      } else {
+        await running;
+      }
 
       if (request.consent?.analyticsStorage === 'granted') {
         await tx

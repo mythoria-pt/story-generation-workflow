@@ -7,13 +7,14 @@ import {
 import {
   LEGACY_PREMIUM_PAGE_COUNT,
   PREMIUM_BOOK_TYPE,
+  PREMIUM_EMBEDDED_LETTERING_EDITION,
   PREMIUM_FORMAT,
   PREMIUM_TEXT_BOX,
   premiumManifest,
   premiumRevisionPrefix,
   type PremiumPage,
 } from '@/services/premium-book-contract.js';
-import { premiumOpeningPages } from '@/services/premium-book-opening.js';
+import { premiumOpeningPages, premiumSpecification } from '@/services/premium-book-opening.js';
 import { premiumInvitationPage } from '@/services/premium-book-invitation.js';
 
 const storyId = 'e6ef0522-676b-4fa4-92d1-03fd3fc8c917';
@@ -133,5 +134,28 @@ export function premiumInvitationManifestFixture() {
     ...legacy,
     format: PREMIUM_FORMAT,
     pages: [...legacy.pages, premiumInvitationPage(legacy.opening.locale)],
+  });
+}
+
+export function premiumLetteredManifestFixture() {
+  const book = premiumInvitationManifestFixture();
+  const square = premiumGeometry(PREMIUM_PRINT_PPI, false);
+  const facing = premiumGeometry(PREMIUM_PRINT_PPI, true);
+  const native = ({ width, height }: typeof square) => ({
+    nativeWidth: width,
+    nativeHeight: height,
+    effectivePpi: PREMIUM_PRINT_PPI,
+  });
+  const spreads = book.spreads.map((spread) => ({ ...spread, ...native(facing) }));
+  return premiumManifest.parse({
+    ...book,
+    editionLayout: PREMIUM_EMBEDDED_LETTERING_EDITION,
+    specification: premiumSpecification(book.opening),
+    pages: book.pages.map(({ textBox: _textBox, ...page }) => page),
+    spreads,
+    natives: Object.fromEntries([
+      ...['front', 'back', 'opener', 'ending'].map((phase) => [phase, native(square)]),
+      ...spreads.map(({ id }) => [id, native(facing)]),
+    ]),
   });
 }

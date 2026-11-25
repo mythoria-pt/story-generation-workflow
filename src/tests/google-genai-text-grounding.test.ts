@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
+import { z } from 'zod';
 
 const mockGetContext = jest.fn();
 const mockUpdateProviderData = jest.fn();
@@ -40,6 +41,8 @@ jest.mock('../ai/context-manager.js', () => ({
 }));
 
 import { GoogleGenAITextService } from '../ai/providers/google-genai/text.js';
+import { generatePremiumText } from '../services/premium-book-ai.js';
+import { TokenUsageTrackingService } from '../services/token-usage-tracking.js';
 
 function buildTextResponse(text: string) {
   return {
@@ -97,6 +100,86 @@ describe('GoogleGenAITextService Hydrogen requests', () => {
 
     const request = mockModelsGenerateContent.mock.calls[0][0];
     expect(request.config.tools).toBeUndefined();
+  });
+
+  it.each([
+    ['shot-plan-spread-1', [], 45_000],
+    ['spread-1', [Buffer.from('image')], 75_000],
+    ['storyboard', [], 200_000],
+  ] as const)(
+    'applies the whole-call deadline to token counting and generation for %s',
+    async (phase, images, timeoutMs) => {
+      const signal = new AbortController().signal;
+      const timeout = jest.spyOn(AbortSignal, 'timeout').mockReturnValue(signal);
+      mockModelsGenerateContent.mockResolvedValueOnce(buildTextResponse('{"answer":"ok"}'));
+      try {
+        await expect(
+          generatePremiumText(
+            { storyId: 'story', ownerId: 'owner', revision: 'revision' },
+            { provider: 'google-genai', model: 'gemini-4-hydrogen' },
+            phase,
+            'Prompt',
+            z.object({ answer: z.string() }),
+            [...images],
+          ),
+        ).resolves.toEqual({ answer: 'ok' });
+        expect(timeout).toHaveBeenCalledWith(timeoutMs);
+        expect(mockCountTokens).toHaveBeenCalledTimes(1);
+        expect(mockModelsGenerateContent).toHaveBeenCalledTimes(1);
+        expect(mockCountTokens.mock.calls[0][0].config).toMatchObject({
+          abortSignal: signal,
+          httpOptions: { retryOptions: { attempts: 1 } },
+        });
+        expect(mockModelsGenerateContent.mock.calls[0][0].config).toMatchObject({
+          abortSignal: signal,
+          httpOptions: { retryOptions: { attempts: 1 } },
+        });
+      } finally {
+        timeout.mockRestore();
+      }
+    },
+  );
+
+  it('records measured thinking usage and exposes a fixed error for an incomplete premium shot plan', async () => {
+    mockModelsGenerateContent.mockResolvedValueOnce({
+      candidates: [
+        { finishReason: 'MAX_TOKENS', content: { parts: [{ text: 'private unfinished scene' }] } },
+      ],
+      usageMetadata: { promptTokenCount: 123, candidatesTokenCount: 0, thoughtsTokenCount: 4096 },
+    });
+    const recordUsage = jest
+      .spyOn(TokenUsageTrackingService.prototype, 'recordUsage')
+      .mockResolvedValue(undefined);
+    try {
+      await expect(
+        generatePremiumText(
+          { storyId: 'story', ownerId: 'owner', revision: 'revision' },
+          { provider: 'google-genai', model: 'gemini-4-hydrogen' },
+          'shot-plan-spread-2',
+          'Private story prompt',
+          z.object({ scene: z.string().max(1200) }),
+        ),
+      ).rejects.toMatchObject({ status: 502, code: 'premium_shot_plan_incomplete' });
+      expect(mockModelsGenerateContent.mock.calls[0][0].config).toMatchObject({
+        maxOutputTokens: 4096,
+        thinkingConfig: { thinkingLevel: 'LOW' },
+        responseJsonSchema: { properties: { scene: { maxLength: 1200 } } },
+      });
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        'Google text generation failed',
+        expect.objectContaining({ code: 'INCOMPLETE_OUTPUT', finishReason: 'MAX_TOKENS' }),
+      );
+      expect(recordUsage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'prompt_rewrite',
+          inputTokens: 123,
+          outputTokens: 4096,
+          inputPromptJson: { mode: 'premium', revision: 'revision', phase: 'shot-plan-spread-2' },
+        }),
+      );
+    } finally {
+      recordUsage.mockRestore();
+    }
   });
 
   it.each([

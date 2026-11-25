@@ -7,13 +7,20 @@ import { PrintService, printQrUrl, type PrintArtwork } from './print.js';
 import { finishLuluPdf, inspectLuluAssets, loadSrgbProfile } from './lulu-print-profile.js';
 
 import {
+  PREMIUM_EMBEDDED_LETTERING_EDITION,
   premiumAsset,
   premiumManifest,
   type PremiumManifest as PremiumPrintManifest,
   type PremiumAsset as Ref,
 } from './premium-book-contract.js';
+import { PREMIUM_READING_PPI } from './premium-book-artwork.js';
 import { verifyPremiumAssetScope } from './premium-book-storage.js';
 import { openingMotifPaths, openingInk, motifInk, motifAccent } from './premium-opening-design.js';
+import {
+  escapePremiumHtml as escape,
+  premiumSpecificationStyles,
+  renderPremiumSpecificationPage,
+} from './premium-book-specification.js';
 
 export const squarePackage = '0850X0850FCPRECW080CW444MXX';
 export const publishedPremium = z.object({
@@ -38,6 +45,7 @@ export function validatePremiumManifest(value: unknown, storyId: string, revisio
   for (const p of book.pages) {
     if (p.textBox) safeBox.parse(p.textBox);
     if (p.artwork) verifyPremiumAssetScope(storyId, p.artwork);
+    if (!p.artwork && p.reading) verifyPremiumAssetScope(storyId, p.reading);
   }
   verifyPremiumAssetScope(storyId, book.covers.front);
   verifyPremiumAssetScope(storyId, book.covers.back);
@@ -45,14 +53,20 @@ export function validatePremiumManifest(value: unknown, storyId: string, revisio
   return book;
 }
 
-function escape(text: string) {
-  return text.replace(
-    /[&<>"']/g,
-    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] ?? c,
-  );
-}
 export const casewrap = { width: 1368, height: 738 };
+const casewrapPanel = { width: 675, height: 738 };
+const interiorPage = { width: 630, height: 630 };
+const casewrapPpi = 304;
+const pointsPerInch = 72;
 const invitationArtwork = 'https://storage.googleapis.com/premium-render/brand/';
+export async function loadPremiumPublicationQr(url: string): Promise<PrintArtwork> {
+  if (url !== printQrUrl) throw new Error('Unexpected premium publication image');
+  return {
+    bytes: await readFile(join('print-assets', 'premium-invitation', 'publication-qr.png')),
+    contentType: 'image/png',
+  };
+}
+
 export function assertSquareCasewrap(d: { width: number; height: number }) {
   if (Math.abs(d.width - casewrap.width) > 0.1 || Math.abs(d.height - casewrap.height) > 0.1)
     throw new Error('Supplier square casewrap differs from the short hardcover template');
@@ -75,15 +89,17 @@ function renderOpeningPage(
   return `<section class="opening"${colors}><div class="fit opening-copy ${page.kind}">${escape(page.text)}${qr}${ornament}</div></section>`;
 }
 
-export async function renderSquarePdf(
+function squareLayout(
   book: PremiumPrintManifest,
-  dir: string,
   part: 'interior' | 'cover',
   load: (ref: Ref) => Promise<Buffer>,
   loadBrand: (url: string) => Promise<PrintArtwork>,
+  pages = book.pages,
 ) {
   const cover = part === 'cover';
-  const dimensions = cover ? casewrap : { width: 630, height: 630 };
+  const embeddedLettering = book.editionLayout === PREMIUM_EMBEDDED_LETTERING_EDITION;
+  const showClassicSpecification = !cover && embeddedLettering;
+  const dimensions = cover ? casewrap : interiorPage;
   const sources = new Map<string, Ref>();
   function artUrl(ref: Ref) {
     const url = 'https://storage.googleapis.com/premium-render/' + ref.sha256;
@@ -105,15 +121,20 @@ export async function renderSquarePdf(
       : undefined;
   const content = cover
     ? '<section>' + panel('back') + panel('front') + '</section>'
-    : book.pages
+    : pages
         .map((p) => {
+          if (showClassicSpecification && p.kind === 'copyright')
+            return renderPremiumSpecificationPage(book, {
+              logoUrl: `${invitationArtwork}mythoria-logo.png`,
+              qrUrl: printQrUrl,
+            });
           if (p.kind === 'invitation' && p.link) {
             const [heading, body] = p.text.split('\n\n');
             return `<section class="invitation"><div class="invitation-copy fit"><img class="brand" src="${invitationArtwork}mythoria-logo.png"><h1>${escape(heading ?? '')}</h1><p>${escape(body ?? '')}</p><p class="invitation-label">${escape(p.link.label)}</p><img class="invite-qr" src="${invitationArtwork}${invitationQr}"><p class="address">${escape(new URL(p.link.href).host)}</p></div></section>`;
           }
           if (!p.artwork) return renderOpeningPage(p, book.openingDesign, motifUrl);
           const illustration = '<img class="art" src="' + artUrl(p.artwork) + '">';
-          if (!p.text) return '<section>' + illustration + '</section>';
+          if (embeddedLettering || !p.text) return '<section>' + illustration + '</section>';
           const b = p.textBox ?? { x: 0.1, y: 0.09, width: 0.8, height: 0.2 };
           const style =
             'left:' +
@@ -154,7 +175,8 @@ export async function renderSquarePdf(
     '.art{position:absolute;width:630pt;height:630pt}.line,.cover-copy{position:absolute;white-space:pre-line;overflow-wrap:anywhere;background:#fbf5e6;padding:7pt 11pt;font-size:22pt;line-height:1.24}' +
     '.opening{display:grid;place-items:center}.opening-copy{width:490pt;max-height:510pt;white-space:pre-line;overflow-wrap:anywhere;font-size:20pt;line-height:1.38}.title,.dedication{text-align:center}.title{font-size:30pt}.qr{display:block;width:60pt;height:60pt;margin:20pt auto 0}.opening-motif{display:block;width:80pt;height:65pt;margin:20pt auto 0}' +
     '.opening-motif.bespoke{height:80pt}.invitation{display:grid;place-items:center;background:#fefbf6;text-align:center}.invitation-copy{width:450pt;max-height:490pt;color:#243735}.invitation .brand{width:168pt;height:auto}.invitation h1{margin:20pt 0 8pt;font-size:27pt;line-height:1.2}.invitation p{margin:0;font-size:18pt;line-height:1.35}.invitation .invitation-label{margin:22pt 0 7pt;font-weight:bold}.invite-qr{display:block;width:72pt;height:72pt;margin:auto}.invitation .address{font-size:13pt;margin-top:4pt}' +
-    '.panel{position:absolute;width:675pt;height:738pt;overflow:hidden}.panel img{width:100%;height:100%}.back{left:0}.front{right:0}.cover-copy{top:100pt;left:96pt;right:96pt;max-height:465pt;font-size:18pt}.front .cover-copy{font-size:36pt;text-align:center}' +
+    `.panel{position:absolute;width:${casewrapPanel.width}pt;height:${casewrapPanel.height}pt;overflow:hidden}.panel img{width:100%;height:100%}.back{left:0}.front{right:0}.cover-copy{top:100pt;left:96pt;right:96pt;max-height:465pt;font-size:18pt}.front .cover-copy{font-size:36pt;text-align:center}` +
+    (showClassicSpecification ? premiumSpecificationStyles : '') +
     '</style></head><body>' +
     content +
     '</body></html>';
@@ -181,14 +203,20 @@ export async function renderSquarePdf(
     if (!ref) return undefined;
     const bytes = await load(ref);
     const meta = await sharp(bytes).metadata();
-    if (meta.format !== 'jpeg' || meta.width !== meta.height || !meta.width || meta.width < 2625)
+    const pixelsAt = (points: number, ppi: number) => Math.round((points * ppi) / pointsPerInch);
+    const minPixels = pixelsAt(interiorPage.width, cover && embeddedLettering ? casewrapPpi : 300);
+    if (
+      meta.format !== 'jpeg' ||
+      meta.width !== meta.height ||
+      !meta.width ||
+      meta.width < minPixels
+    )
       throw new Error('Invalid square full-bleed print artwork');
     if (!cover) return { bytes, contentType: 'image/jpeg' };
     // Keep the trim art square. Carry its outside edges around the boards without stretching faces.
-    const ppi = 304,
-      panelWidth = 2850,
-      panelHeight = 3116;
-    const size = Math.round(ppi * 8.75);
+    const panelWidth = pixelsAt(casewrapPanel.width, casewrapPpi);
+    const panelHeight = pixelsAt(casewrapPanel.height, casewrapPpi);
+    const size = pixelsAt(interiorPage.width, casewrapPpi);
     const dx = panelWidth - size,
       dy = panelHeight - size;
     const panelBytes = await sharp(bytes)
@@ -204,6 +232,19 @@ export async function renderSquarePdf(
       .toBuffer();
     return { bytes: panelBytes, contentType: 'image/jpeg' };
   });
+  return { print, html, dimensions };
+}
+
+export async function renderSquarePdf(
+  book: PremiumPrintManifest,
+  dir: string,
+  part: 'interior' | 'cover',
+  load: (ref: Ref) => Promise<Buffer>,
+  loadBrand: (url: string) => Promise<PrintArtwork>,
+) {
+  const { print, html, dimensions } = squareLayout(book, part, load, loadBrand);
+  const cover = part === 'cover';
+  const { width, height } = dimensions;
   const path = join(dir, part + '.pdf');
   await print.renderPDF(html, {
     width: (width * 25.4) / 72,
@@ -222,4 +263,29 @@ export async function renderSquarePdf(
     throw new Error('Unexpected premium PDF pagination');
   await writeFile(path, output);
   return { bytes: output, issues: await inspectLuluAssets(path) };
+}
+
+export async function renderSquarePagePreviews(
+  book: PremiumPrintManifest,
+  pages: PremiumPrintManifest['pages'],
+  load: (ref: Ref) => Promise<Buffer>,
+  loadBrand: (url: string) => Promise<PrintArtwork>,
+) {
+  const { print, html, dimensions } = squareLayout(book, 'interior', load, loadBrand, pages);
+  const pixels = (points: number) => Math.round((points * PREMIUM_READING_PPI) / pointsPerInch);
+  const media = pixels(dimensions.width);
+  const bleed = pixels(book.format.bleedPoints);
+  const size = pixels(book.format.trimPoints);
+  const captures = await print.renderPageImages(html, media);
+  if (captures.length !== pages.length) throw new Error('Unexpected premium preview page count');
+  return Promise.all(
+    captures.map(async (bytes) => {
+      const image = sharp(bytes);
+      const metadata = await image.metadata();
+      if (metadata.width !== media || metadata.height !== media) {
+        throw new Error('Unexpected premium preview dimensions');
+      }
+      return image.extract({ left: bleed, top: bleed, width: size, height: size }).png().toBuffer();
+    }),
+  );
 }
