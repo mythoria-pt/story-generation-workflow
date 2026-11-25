@@ -347,6 +347,7 @@ premiumAudiobook:
                   call: http.post
                   args:
                     url: ${endpoint + "complete"}
+                    timeout: 300
                     auth: { type: OIDC }
                     headers:
                       x-api-key: ${apiKey}

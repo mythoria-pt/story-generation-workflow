@@ -7,9 +7,15 @@ import { stories } from '@/db/schema/index.js';
 import { apiKeyAuth } from '@/middleware/apiKeyAuth.js';
 import { analyticsReconciliationService } from '@/services/analytics.js';
 import {
+  assemblePremiumAudiobook,
+  premiumAudiobook,
+  premiumAudiobookFileKey,
+  premiumAudiobookPageCheckpoint,
+  premiumAudiobookPageKey,
   premiumAudiobookPrefix,
   premiumAudioTrack,
   premiumNarrationPages,
+  removePremiumAudiobookParts,
 } from '@/services/premium-audiobook.js';
 import {
   PremiumBookError,
@@ -20,7 +26,6 @@ import {
 import {
   getPremiumBucket,
   premiumDigest,
-  readPremiumCheckpoint,
   readPremiumManifest,
   readPremiumObject,
   savePremiumObject,
@@ -78,14 +83,7 @@ premiumAudiobookRouter.get('/:storyId/:runId/:trackIndex', apiKeyAuth, async (re
       .parse(req.params);
     const story = await storiesService.getStory(storyId);
     const marker = readPremiumMarker(story?.features);
-    const audiobook = z
-      .object({
-        type: z.literal('premium_children'),
-        revision: z.uuid(),
-        runId: z.uuid(),
-        tracks: z.array(premiumAudioTrack),
-      })
-      .safeParse(story?.audiobookUri);
+    const audiobook = premiumAudiobook.safeParse(story?.audiobookUri);
     if (
       story?.status !== 'published' ||
       marker?.state !== 'published' ||
@@ -97,16 +95,30 @@ premiumAudiobookRouter.get('/:storyId/:runId/:trackIndex', apiKeyAuth, async (re
       res.sendStatus(404);
       return;
     }
-    const track = audiobook.data.tracks[trackIndex];
     const prefix = premiumAudiobookPrefix(storyId, marker.revision, runId);
-    if (
-      !track ||
-      track.audio.key !== `${prefix}/page-${track.pageNumber}-${track.audio.sha256}.mp3`
-    ) {
+    const publication = audiobook.data;
+    let asset: PremiumAsset | undefined;
+    if ('audio' in publication) {
+      if (
+        trackIndex === 0 &&
+        publication.audio.key === premiumAudiobookFileKey(prefix, publication.audio.sha256)
+      ) {
+        asset = publication.audio;
+      }
+    } else {
+      const track = publication.tracks[trackIndex];
+      if (
+        track &&
+        track.audio.key === premiumAudiobookPageKey(prefix, track.pageNumber, track.audio.sha256)
+      ) {
+        asset = track.audio;
+      }
+    }
+    if (!asset) {
       res.sendStatus(404);
       return;
     }
-    const audio = await readPremiumObject(await getPremiumBucket(), track.audio);
+    const audio = await readPremiumObject(await getPremiumBucket(), asset);
     res.setHeader('Cache-Control', 'private, no-store');
     res.setHeader('Accept-Ranges', 'bytes');
     res.type('audio/mpeg');
@@ -257,7 +269,6 @@ premiumAudiobookRouter.post('/:operation', apiKeyAuth, async (req, res) => {
     const pages = premiumNarrationPages(book);
     if (!pages.length) throw unavailable();
     const prefix = premiumAudiobookPrefix(storyId, revision, runId);
-    const checkpoint = (page: number) => `${prefix}/page-${page}.json`;
 
     if (operation === 'plan') {
       const [reserved] = await getDatabase()
@@ -302,7 +313,7 @@ premiumAudiobookRouter.post('/:operation', apiKeyAuth, async (req, res) => {
           'This edition page has no narration',
         );
       }
-      const key = checkpoint(pageNumber);
+      const key = premiumAudiobookPageCheckpoint(prefix, pageNumber);
       const track = await withPremiumLease(bucket, key, () =>
         stagePremiumCheckpoint(bucket, key, premiumAudioTrack, async () => {
           let audio: PremiumAsset | undefined;
@@ -322,7 +333,7 @@ premiumAudiobookRouter.post('/:operation', apiKeyAuth, async (req, res) => {
               async savePremiumPage(bytes) {
                 audio = await savePremiumObject(
                   bucket,
-                  `${prefix}/page-${pageNumber}-${premiumDigest(bytes)}.mp3`,
+                  premiumAudiobookPageKey(prefix, pageNumber, premiumDigest(bytes)),
                   bytes,
                   'audio/mpeg',
                 );
@@ -338,45 +349,45 @@ premiumAudiobookRouter.post('/:operation', apiKeyAuth, async (req, res) => {
       return;
     }
 
-    const tracks = await Promise.all(
-      pages.map(async ({ number }) => {
-        const track = await readPremiumCheckpoint(bucket, checkpoint(number), premiumAudioTrack);
-        if (
-          !track ||
-          track.pageNumber !== number ||
-          track.audio.key !== `${prefix}/page-${number}-${track.audio.sha256}.mp3`
-        ) {
-          throw new PremiumBookError(
-            409,
-            'premium_audiobook_incomplete',
-            'Audiobook incomplete for the requested edition',
-          );
-        }
-        await readPremiumObject(bucket, track.audio);
-        return track;
-      }),
+    const { audio, duration, parts } = await assemblePremiumAudiobook(
+      bucket,
+      prefix,
+      pages.map(({ number }) => number),
     );
-    const totalDuration = tracks.reduce((duration, track) => duration + track.duration, 0);
     const [updated] = await getDatabase()
       .update(stories)
       .set({
         audiobookStatus: 'completed',
         hasAudio: true,
-        audiobookUri: { type: 'premium_children', revision, runId, tracks },
+        audiobookUri: { type: 'premium_children', revision, runId, audio, duration },
         updatedAt: new Date(),
       })
       .where(and(editionsMatch, ownsPending))
       .returning({ storyId: stories.storyId });
     if (!updated) throw unavailable();
 
+    const cleanup = await removePremiumAudiobookParts(bucket, prefix, parts);
+    const failedDeletions = cleanup.filter(({ status }) => status === 'rejected').length;
+    if (failedDeletions) {
+      logger.warn('Premium audiobook page audio cleanup incomplete', {
+        storyId,
+        runId,
+        failedDeletions,
+      });
+    }
+
     const completed = await runs.updateRun(runId, {
       status: 'completed',
       currentStep: 'audiobook_completed',
       expectedWorkflowExecution: executionId,
-      metadata: { expectedChapters: pages.length, generatedChapters: tracks.length, totalDuration },
+      metadata: {
+        expectedChapters: pages.length,
+        generatedChapters: parts.length,
+        totalDuration: duration,
+      },
     });
     await recordTerminal(completed);
-    res.json({ success: true, totalDuration, pagesProcessed: tracks.length });
+    res.json({ success: true, totalDuration: duration, pagesProcessed: parts.length });
   } catch (error) {
     const status =
       error instanceof z.ZodError

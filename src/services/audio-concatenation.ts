@@ -37,14 +37,17 @@ export interface ConcatenationResult {
  * @param buffers Array of MP3 audio buffers to concatenate
  * @returns Single concatenated MP3 buffer
  */
-export async function concatenateAudioBuffers(buffers: Buffer[]): Promise<ConcatenationResult> {
+export async function concatenateAudioBuffers(
+  buffers: Buffer[],
+  { normalizeStreams = false } = {},
+): Promise<ConcatenationResult> {
   // Handle edge cases
   if (!buffers || buffers.length === 0) {
     throw new Error('No audio buffers provided for concatenation');
   }
 
   // Single buffer - return as-is
-  if (buffers.length === 1) {
+  if (buffers.length === 1 && !normalizeStreams) {
     const singleBuffer = buffers[0];
     if (!singleBuffer) {
       throw new Error('Buffer at index 0 is undefined');
@@ -82,15 +85,19 @@ export async function concatenateAudioBuffers(buffers: Buffer[]): Promise<Concat
       tempFiles.push(chunkPath);
     }
 
-    // Create FFmpeg concat list file
-    // Format: file 'path/to/file.mp3' (one per line)
-    const listContent = tempFiles
-      .map((filePath) => `file '${filePath.replace(/\\/g, '/')}'`)
-      .join('\n');
-    await fs.writeFile(listFilePath, listContent);
+    if (normalizeStreams) {
+      await runFFmpegNormalizedConcat(tempFiles, outputFilePath);
+    } else {
+      // Create FFmpeg concat list file
+      // Format: file 'path/to/file.mp3' (one per line)
+      const listContent = tempFiles
+        .map((filePath) => `file '${filePath.replace(/\\/g, '/')}'`)
+        .join('\n');
+      await fs.writeFile(listFilePath, listContent);
 
-    // Run FFmpeg concatenation
-    await runFFmpegConcat(listFilePath, outputFilePath);
+      // Run FFmpeg concatenation
+      await runFFmpegConcat(listFilePath, outputFilePath);
+    }
 
     // Read the output file
     const outputBuffer = await fs.readFile(outputFilePath);
@@ -115,6 +122,42 @@ export async function concatenateAudioBuffers(buffers: Buffer[]): Promise<Concat
     // Always cleanup temp files
     await cleanupTempFiles(tempDir, tempFiles, listFilePath, outputFilePath);
   }
+}
+
+function runFFmpegNormalizedConcat(inputs: string[], output: string): Promise<void> {
+  const streams = inputs.map(
+    (_, index) =>
+      `[${index}:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,asetpts=N/SR/TB[part${index}]`,
+  );
+  const normalizedInputs = inputs.map((_, index) => `[part${index}]`).join('');
+  streams.push(`${normalizedInputs}concat=n=${inputs.length}:v=0:a=1[book]`);
+
+  return new Promise((resolve, reject) => {
+    execFile(
+      FFMPEG_BINARY,
+      [
+        '-hide_banner',
+        '-loglevel',
+        'error',
+        '-xerror',
+        ...inputs.flatMap((file) => ['-i', file]),
+        '-filter_complex',
+        streams.join(';'),
+        '-map',
+        '[book]',
+        '-c:a',
+        'libmp3lame',
+        '-b:a',
+        '128k',
+        output,
+      ],
+      { timeout: 120_000 },
+      (error) => {
+        if (error) reject(error);
+        else resolve();
+      },
+    );
+  });
 }
 
 /**
