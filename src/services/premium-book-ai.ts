@@ -552,8 +552,10 @@ export async function reviewPremiumLetteredArtwork(
   }
 }
 
-const safePictureBookFraming =
-  'Keep this strictly gentle, wholesome, non-threatening children’s picture-book artwork in an original illustrated style: warm friendly expressions, fully clothed characters at a comfortable distance, zero danger, zero realistic photographic likeness, and no copyrighted character designs.';
+const safePictureBookFramings = [
+  'Keep this strictly gentle, wholesome, non-threatening children’s picture-book artwork in an original hand-painted illustrated style: warm friendly mood, zero danger, zero realistic photographic likeness, and strictly original non-trademarked illustration.',
+  'Strictly gentle, wholesome original children’s book illustration. Render only soft, peaceful painterly artwork and legible hand lettering faithfully matching the attached reference image; depict no scary, dangerous, photorealistic, or trademarked character designs.',
+];
 
 function isModerationBlock(error: unknown): error is InstanceType<typeof OpenAI.APIError> {
   return (
@@ -606,22 +608,26 @@ export async function generatePremiumImage(
   let output;
   const started = Date.now();
   try {
-    try {
-      output = await requestImage(prompt);
-    } catch (error) {
-      if (!isModerationBlock(error)) {
-        throw error;
+    const prompts = [prompt, ...safePictureBookFramings.map((framing) => `${prompt}\n${framing}`)];
+    for (const [attempt, effectivePrompt] of prompts.entries()) {
+      try {
+        output = await requestImage(effectivePrompt);
+        break;
+      } catch (error) {
+        if (!isModerationBlock(error) || attempt === prompts.length - 1) {
+          throw error;
+        }
+        logger.warn('Premium image blocked by provider; retrying with safe framing', {
+          phase,
+          revision: scope.revision,
+          providerCode: error.code,
+          retry: attempt + 1,
+        });
       }
-      logger.warn('Premium image blocked by provider; retrying once with safe framing', {
-        phase,
-        revision: scope.revision,
-        providerCode: error.code,
-      });
-      output = await requestImage(`${prompt}\n${safePictureBookFraming}`);
     }
   } catch (error) {
     if (isModerationBlock(error)) {
-      logger.warn('Premium image blocked by provider after safe-framing retry', {
+      logger.warn('Premium image blocked by provider after safe-framing retries', {
         phase,
         revision: scope.revision,
         providerCode: error.code,
@@ -645,7 +651,7 @@ export async function generatePremiumImage(
       'Premium image provider unavailable',
     );
   }
-  const encoded = output.data?.[0]?.b64_json;
+  const encoded = output?.data?.[0]?.b64_json;
   if (!encoded) {
     throw new PremiumBookError(
       502,
@@ -653,7 +659,7 @@ export async function generatePremiumImage(
       'Premium image provider returned no art',
     );
   }
-  const usage = output.usage;
+  const usage = output?.usage;
   await reportUsage({
     authorId: scope.ownerId,
     storyId: scope.storyId,

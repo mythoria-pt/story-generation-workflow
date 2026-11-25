@@ -143,16 +143,19 @@ describe('premium image adapter', () => {
     },
   );
 
-  it('retries once with safe picture-book framing after a provider moderation block', async () => {
+  it('retries up to twice with safe picture-book framing after provider moderation blocks', async () => {
     const blocked = new OpenAI.APIError(
       400,
       { code: 'moderation_blocked' },
       'Blocked by moderation',
       new Headers(),
     );
-    edit.mockRejectedValueOnce(blocked).mockResolvedValueOnce({
-      data: [{ b64_json: Buffer.from('safe-image').toString('base64') }],
-    });
+    edit
+      .mockRejectedValueOnce(blocked)
+      .mockRejectedValueOnce(blocked)
+      .mockResolvedValueOnce({
+        data: [{ b64_json: Buffer.from('safe-image').toString('base64') }],
+      });
 
     const image = await generatePremiumImage(
       scope,
@@ -165,7 +168,7 @@ describe('premium image adapter', () => {
     );
 
     expect(image).toEqual(Buffer.from('safe-image'));
-    expect(edit).toHaveBeenCalledTimes(2);
+    expect(edit).toHaveBeenCalledTimes(3);
     expect(edit).toHaveBeenNthCalledWith(1, expect.objectContaining({ prompt: 'Draw the scene' }));
     expect(edit).toHaveBeenNthCalledWith(
       2,
@@ -173,16 +176,25 @@ describe('premium image adapter', () => {
         prompt: expect.stringContaining('wholesome, non-threatening'),
       }),
     );
+    expect(edit).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({
+        prompt: expect.stringContaining('wholesome original children’s book illustration'),
+      }),
+    );
   });
 
-  it('returns 422 premium_image_blocked when the safe-framed retry is also blocked', async () => {
+  it('returns 422 premium_image_blocked when all safe-framed retries are blocked', async () => {
     const blocked = new OpenAI.APIError(
       400,
       { code: 'moderation_blocked' },
       'Blocked by moderation',
       new Headers(),
     );
-    generate.mockRejectedValueOnce(blocked).mockRejectedValueOnce(blocked);
+    generate
+      .mockRejectedValueOnce(blocked)
+      .mockRejectedValueOnce(blocked)
+      .mockRejectedValueOnce(blocked);
 
     await expect(
       generatePremiumImage(
@@ -196,6 +208,6 @@ describe('premium image adapter', () => {
       ),
     ).rejects.toMatchObject({ status: 422, code: 'premium_image_blocked' });
 
-    expect(generate).toHaveBeenCalledTimes(2);
+    expect(generate).toHaveBeenCalledTimes(3);
   });
 });

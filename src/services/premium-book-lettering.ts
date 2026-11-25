@@ -68,6 +68,7 @@ export function buildPremiumLetteredPagePrompt({
           `Paint only the ${side} half of one continuous illustration. The attached image is the authoritative square crop for that half and includes the bleed. Match its subjects, positions, scale, perspective, light and colours. Keep every subject confined to the part shown in this crop. Any character, prop or place named in the narration only belongs in the illustration if it already appears in this crop.`,
           `Keep a prop or stretch of scenery crossing the ${side === 'left' ? 'right' : 'left'} binding edge cut off at exactly the same place. Carry it beyond the canvas edge. Do not move it inward, complete it or redraw the whole scene on this page.`,
           'Repaint the visible crop at the requested native size with convincing brush detail. Keep essential faces, gestures and clues inside safe trim and clear of the binding.',
+          'If this crop shows calm sky, foliage or background reserved for narration with no characters in it, keep it free of characters—do not invent, add or repeat any character, animal or scene mentioned in the narration or shown on the other half of the spread.',
         ].join(' ')
       : 'Paint a single clear moment across the page. Use the character sheet for likeness and visual style. Leave every important expression, gesture and clue safely inside the visible trim.',
     premiumPictureBookArtDirection,
@@ -99,17 +100,23 @@ export function buildPremiumLetteredPagePrompt({
       : []),
     ...(audience === 'children_0-2'
       ? [
-          'For ages 0–2, let one large, familiar visual focus and an easy-to-point-at action anchor the page. Give the words simple, open shapes.',
+          facing
+            ? 'For ages 0–2, keep the visual focus already shown in this crop clean and uncluttered, and give any words simple, open shapes.'
+            : 'For ages 0–2, let one large, familiar visual focus and an easy-to-point-at action anchor the page. Give the words simple, open shapes.',
         ]
       : audience === 'children_3-6'
         ? [
-            'For ages 3–6, make the character’s action instantly clear and leave a small visual discovery that supports the story.',
+            facing
+              ? 'For ages 3–6, keep the existing crop’s details clear and readable without adding any new characters, animals or story scenes.'
+              : 'For ages 3–6, make the character’s action instantly clear and leave a small visual discovery that supports the story.',
           ]
         : []),
     ...(text
       ? [
           letteringStyle,
-          'Keep every letter, accent and decorative emphasis mark inside the central 76% of the visible trimmed page, leaving at least 12% empty margin from every edge (including the bleed outside the trim). Leave a generous empty band of background above the first line of text—roughly the height of one to two lines of lettering—and place the main characters in the lower two-thirds when text sits above them. Keep decorative strokes or sparkles strictly beside or below the words, never poking into the top or side margins. Give the binding extra breathing room. Do not put the words in a separate opaque panel, banner, speech bubble or pasted label.',
+          facing
+            ? 'Keep every letter, accent and decorative emphasis mark inside the central 76% of the visible trimmed page, leaving at least 12% empty margin from every edge (including the bleed outside the trim). Leave a generous empty band of background above the first line of text—roughly the height of one to two lines of lettering. Preserve the attached crop faithfully: paint only the hand lettering into the calm background already shown in this crop, without adding characters, animals or new foreground elements beneath the words. Keep decorative strokes or sparkles strictly beside or below the words, never poking into the top or side margins. Give the binding extra breathing room. Do not put the words in a separate opaque panel, banner, speech bubble or pasted label.'
+            : 'Keep every letter, accent and decorative emphasis mark inside the central 76% of the visible trimmed page, leaving at least 12% empty margin from every edge (including the bleed outside the trim). Leave a generous empty band of background above the first line of text—roughly the height of one to two lines of lettering—and place the main characters in the lower two-thirds when text sits above them. Keep decorative strokes or sparkles strictly beside or below the words, never poking into the top or side margins. Give the binding extra breathing room. Do not put the words in a separate opaque panel, banner, speech bubble or pasted label.',
           'Render only the following narration, exactly once, including accents, capitalization and punctuation. Use line breaks between words when needed. Do not copy the delimiters into the artwork, add quotation marks, paraphrase, translate, omit a word or add discretionary hyphens.',
           ...(locale
             ? [`Preserve spelling and accents from the supplied ${locale} narration.`]

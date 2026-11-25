@@ -413,6 +413,33 @@ describe('independent premium lettering review', () => {
       'visibly supports this accessibility description and its essential visual details',
     );
   });
+
+  it('keeps facing panorama tile prompts free of invented characters while standalone preserves them', () => {
+    const facingPrompt = buildPremiumLetteredPagePrompt({
+      side: 'right',
+      text: 'Bom dia!',
+      action: 'A sunny clearing.',
+      guide: 'Soft watercolour.',
+      facing: true,
+      audience: 'children_3-6',
+    });
+    expect(facingPrompt).toContain('For ages 3–6');
+    expect(facingPrompt).toContain('leaving at least 12% empty margin from every edge');
+    expect(facingPrompt).toContain('empty band of background above the first line');
+    expect(facingPrompt).toContain('without adding characters, animals or new foreground elements');
+    expect(facingPrompt).not.toContain('place the main characters in the lower two-thirds');
+    expect(facingPrompt).not.toContain('make the character’s action instantly clear');
+
+    const standalonePrompt = buildPremiumLetteredPagePrompt({
+      side: 'right',
+      text: 'Bom dia!',
+      action: 'A sunny clearing.',
+      guide: 'Soft watercolour.',
+      facing: false,
+      audience: 'children_3-6',
+    });
+    expect(standalonePrompt).toContain('place the main characters in the lower two-thirds');
+  });
 });
 
 describe('premium native print export', () => {
