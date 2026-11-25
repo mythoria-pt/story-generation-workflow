@@ -360,6 +360,59 @@ describe('independent premium lettering review', () => {
     ).resolves.toBeUndefined();
     expect(reviewer.mock.calls[0]?.[0]).toContain('less than 6% of the trimmed width or height');
   });
+
+  it('distinguishes internal paired briefs from user accessibility descriptions in pageDescriptionAccurate', async () => {
+    const reviewer = jest
+      .spyOn(GoogleGenAITextService.prototype, 'complete')
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          ...passed,
+          leftTranscription: 'Bom dia!',
+          rightTranscription: '',
+          pageDescriptionAccurate: true,
+          pairedContinuity: true,
+        }),
+      )
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          ...passed,
+          leftTranscription: '',
+          rightTranscription: '',
+          pageDescriptionAccurate: true,
+          pairedContinuity: true,
+        }),
+      );
+    const source = await image(100, 100);
+    const neighbour = await image(100, 100, '#d1dee9');
+    await reviewPremiumLetteredArtwork(scope, config, 'spread-3-left', {
+      source,
+      pages: [{ side: 'left', text: 'Bom dia!', trim: source }],
+      reference: source,
+      independent: {
+        side: 'left',
+        description: 'Fox walks with backpack.',
+        isUserDescription: false,
+        neighbour,
+      },
+    });
+    expect(reviewer.mock.calls[0]?.[0]).toContain(
+      'Allow reasonable illustrative interpretation of minor props, poses, background layout or staging cues',
+    );
+    await reviewPremiumLetteredArtwork(scope, config, 'spread-3-left', {
+      source,
+      pages: [{ side: 'left', text: '', trim: source }],
+      reference: source,
+      independent: {
+        side: 'left',
+        description: 'Uma raposa passeia no jardim.',
+        isUserDescription: true,
+        neighbour,
+      },
+    });
+    expect(reviewer.mock.calls[1]?.[0]).toContain(
+      'visibly supports this accessibility description and its essential visual details',
+    );
+  });
 });
 
 describe('premium native print export', () => {

@@ -433,6 +433,7 @@ export async function reviewPremiumLetteredArtwork(
       | {
           side: PageSide;
           description: string;
+          isUserDescription?: boolean | undefined;
           neighbour?: Buffer | undefined;
           neighbourDescription?: string | undefined;
         }
@@ -491,7 +492,9 @@ export async function reviewPremiumLetteredArtwork(
         : []),
       ...(independent
         ? [
-            `Approve pageDescriptionAccurate only if the ${independent.side} trim visibly depicts its assigned scene and essential visual details: ${JSON.stringify(independent.description)}.`,
+            independent.isUserDescription
+              ? `Approve pageDescriptionAccurate only if the ${independent.side} trim visibly supports this accessibility description and its essential visual details: ${JSON.stringify(independent.description)}.`
+              : `Approve pageDescriptionAccurate if the ${independent.side} trim depicts the main assigned story beat, setting and characters for this page rather than the facing page’s beat: ${JSON.stringify(independent.description)}. Allow reasonable illustrative interpretation of minor props, poses, background layout or staging cues.`,
             ...(independent.neighbour
               ? [
                   `The final image is the facing page and shows its own related scene${independent.neighbourDescription ? `: ${JSON.stringify(independent.neighbourDescription)}` : '.'} Use it only to evaluate pairedContinuity. Approve pairedContinuity if the two scenes have a consistent medium, recurring characters and shared props and each composition supports its distinct story beat. The two images can have different staging, lighting or perspective when their scenes call for it. Do not transcribe or report typography on the facing illustration.`,

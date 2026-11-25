@@ -741,8 +741,9 @@ async function createLetteredArtwork(
   const priorArtworkBySide = previous.artworkBySide ?? { left: [], right: [] };
   const pageBrief = (side: ArtworkSide) =>
     side === 'left' ? spread?.leftBrief : spread?.rightBrief;
-  const pageDescription = (side: ArtworkSide) =>
-    (side === 'left' ? spread?.leftDescription : spread?.rightDescription) || pageBrief(side);
+  const silentDescription = (side: ArtworkSide) =>
+    side === 'left' ? spread?.leftDescription : spread?.rightDescription;
+  const pageDescription = (side: ArtworkSide) => silentDescription(side) || pageBrief(side);
   const otherSide = (side: ArtworkSide) => (side === 'left' ? 'right' : 'left');
   const typesetSide =
     spread?.composition === 'illustration_facing_text'
@@ -863,6 +864,7 @@ async function createLetteredArtwork(
                 independent: {
                   side: page.side,
                   description: pageDescription(page.side) ?? action,
+                  isUserDescription: Boolean(silentDescription(page.side)),
                   neighbour,
                   neighbourDescription: pageDescription(otherSide(page.side)),
                 },
