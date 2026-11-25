@@ -47,6 +47,8 @@ export function buildPremiumLetteredPagePrompt({
   feedback,
   audience,
   locale,
+  independent,
+  hasPrior,
 }: PremiumLetteredPage & {
   action: string;
   guide: string;
@@ -54,6 +56,8 @@ export function buildPremiumLetteredPagePrompt({
   feedback?: string | undefined;
   audience?: z.infer<typeof premiumAudience> | undefined;
   locale?: string | undefined;
+  hasPrior?: boolean | undefined;
+  independent?: { spreadContext: string; hasPrior: boolean; hasNeighbour: boolean } | undefined;
 }) {
   return [
     'Paint a finished square, full-bleed page for a children’s picture book. Carry its setting all the way to every canvas edge. Do not paint a book mockup, a page border, a panel, a page number, a gutter or a shadow implying a fold.',
@@ -65,6 +69,28 @@ export function buildPremiumLetteredPagePrompt({
         ].join(' ')
       : 'Paint a single clear moment across the page. Use the character sheet for likeness and visual style. Leave every important expression, gesture and clue safely inside the visible trim.',
     premiumPictureBookArtDirection,
+    ...(independent
+      ? [
+          'This illustration occupies a complete standalone page. The facing page is a separate composition. Keep essential details clear of all trim edges, including the edge next to the binding.',
+          'The first attached image is the character and style sheet. Follow its medium, palette and established likenesses.',
+          ...(independent.hasPrior
+            ? [
+                'The second attached image is the current illustration for this page. Retain its staging, recurring characters and story details except where the request changes them. Replace any existing writing with the pinned narration or remove it from a silent page.',
+              ]
+            : []),
+          ...(independent.hasNeighbour
+            ? [
+                'The final attached image is a separately composed neighbouring page. Match its relevant props, characters and medium. Keep the event and staging specific to this page.',
+              ]
+            : []),
+          `Use the following only for story context and any requested correction to this page. Depict only the scene assigned below. Context: ${independent.spreadContext}`,
+        ]
+      : []),
+    ...(hasPrior && !independent
+      ? [
+          'Use the second image as the current illustration. Preserve all unmentioned staging and details. Render only the pinned narration supplied below.',
+        ]
+      : []),
     ...(audience === 'children_0-2'
       ? [
           'For ages 0–2, let one large, familiar visual focus and an easy-to-point-at action anchor the page. Give the words simple, open shapes.',
@@ -99,19 +125,27 @@ export function buildPremiumLetteredPanoramaPrompt({
   action,
   guide,
   leftDescription,
+  rightDescription,
   silentLeft,
+  silentRight,
 }: {
   action: string;
   guide: string;
   leftDescription?: string | undefined;
+  rightDescription?: string | undefined;
   silentLeft?: boolean;
+  silentRight?: boolean;
 }) {
   return [
     'Paint a reference panorama for one continuous, full-bleed children’s picture-book illustration. Show a single instant and keep the setting, lighting and palette continuous across the exact centre line. Fill each edge with scenery. Leave the centre clear of faces, hands and important clues. Keep both halves individually readable and safely inside their outside edges.',
     premiumSingleSceneDirection,
-    silentLeft
-      ? 'Leave a natural calm area inside the right half for hand lettering. Use the full height of the silent left half for the setting and story details. Keep faces and key action clear of the right half’s lettering area.'
-      : 'Leave a natural calm area inside each half where hand lettering can be painted later. Keep faces and key action clear of those calm areas.',
+    silentRight
+      ? silentLeft
+        ? 'Both pages are silent. Use their full height for the setting and story details.'
+        : 'Leave a natural calm area inside the left half for hand lettering. Use the full height of the silent right half for the setting and story details. Keep faces and key action clear of the left half’s lettering area.'
+      : silentLeft
+        ? 'Leave a natural calm area inside the right half for hand lettering. Use the full height of the silent left half for the setting and story details. Keep faces and key action clear of the right half’s lettering area.'
+        : 'Leave a natural calm area inside each half where hand lettering can be painted later. Keep faces and key action clear of those calm areas.',
     'The reference panorama has no writing, simulated fold, panel, border, watermark or gutter.',
     premiumPictureBookArtDirection,
     'Use the character sheet as a likeness and style reference. If a current spread is supplied, preserve its story details and staging except where the scene requests a correction.',
@@ -120,6 +154,11 @@ export function buildPremiumLetteredPanoramaPrompt({
     ...(leftDescription
       ? [
           `Show the following description within the left-page trim as pictures only: ${JSON.stringify(leftDescription)}`,
+        ]
+      : []),
+    ...(rightDescription
+      ? [
+          `Show the following description within the right-page trim as pictures only: ${JSON.stringify(rightDescription)}`,
         ]
       : []),
   ].join('\n');

@@ -2,6 +2,7 @@ import type { Bucket } from '@google-cloud/storage';
 import { z } from 'zod';
 import { premiumAsset, type PremiumManifest } from './premium-book-contract.js';
 import {
+  premiumDigest,
   readPremiumObject,
   savePremiumImage,
   stagePremiumCheckpoint,
@@ -17,9 +18,22 @@ export async function addPremiumPagePreviews(
 ) {
   const pages = book.pages.filter(({ reading }) => !reading);
   if (pages.length === 0) return;
+  const checkpoint = book.spreadLayoutVersion
+    ? `reading-page-previews-${premiumDigest(
+        JSON.stringify({
+          spreadLayoutVersion: book.spreadLayoutVersion,
+          audience: book.audience,
+          opening: book.opening,
+          openingDesign: book.openingDesign,
+          specification: book.specification,
+          motifArtwork: book.motifArtwork,
+          pages,
+        }),
+      )}.json`
+    : 'reading-page-previews.json';
   const previews = await stagePremiumCheckpoint(
     bucket,
-    `${prefix}/checkpoints/reading-page-previews.json`,
+    `${prefix}/checkpoints/${checkpoint}`,
     previewSet,
     async () => {
       const captures = await renderSquarePagePreviews(

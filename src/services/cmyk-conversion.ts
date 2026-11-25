@@ -262,7 +262,7 @@ export class CMYKConversionService {
   }
 
   /** Flatten transparency before final Lulu page boxes and RGB tagging. */
-  async flattenForLulu(input: string, output: string): Promise<void> {
+  async flattenForLulu(input: string, output: string, resolutionPpi = 300): Promise<void> {
     await this.runGhostscript(
       [
         '-dSAFER',
@@ -271,10 +271,14 @@ export class CMYKConversionService {
         '-sDEVICE=pdfwrite',
         '-dCompatibilityLevel=1.3',
         '-sColorConversionStrategy=RGB',
+        '-dProcessColorModel=/DeviceRGB',
         '-dEmbedAllFonts=true',
+        '-dSubsetFonts=true',
         '-dAutoRotatePages=/None',
         '-dDownsampleColorImages=false',
-        '-r300',
+        '-dDownsampleGrayImages=false',
+        '-dDownsampleMonoImages=false',
+        `-r${resolutionPpi}`,
         '-o',
         output,
         input,

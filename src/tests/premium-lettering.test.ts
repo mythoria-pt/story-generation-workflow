@@ -6,10 +6,13 @@ import {
   reviewPremiumLetteredGuide,
 } from '@/services/premium-book-ai.js';
 import {
+  createPremiumBlankTile,
   createPremiumNativeSpreadGuides,
+  exportIndependentPremiumSpread,
   exportNativePremiumSpread,
   exportPremiumArtwork,
   PREMIUM_PRINT_PPI,
+  restoreIndependentPremiumTile,
 } from '@/services/premium-book-artwork.js';
 import {
   buildPremiumLetteredPagePrompt,
@@ -280,9 +283,65 @@ describe('independent premium lettering review', () => {
     expect(reviewer.mock.calls[0]?.[0]).toContain('Reject a photographic or live-action look');
     expect(reviewer.mock.calls[0]?.[0]).toContain('Illustrated realism can pass');
   });
+
+  it('checks a paired illustration as its own scene with the facing page as continuity reference', async () => {
+    const reviewer = jest.spyOn(GoogleGenAITextService.prototype, 'complete').mockResolvedValue(
+      JSON.stringify({
+        ...passed,
+        leftTranscription: 'Outra vez, Leonor!',
+        rightTranscription: '',
+        pageDescriptionAccurate: true,
+        pairedContinuity: false,
+      }),
+    );
+    const source = await image(100, 100);
+    const neighbour = await image(100, 100, '#d1dee9');
+    await expect(
+      reviewPremiumLetteredArtwork(scope, config, 'spread-1-left', {
+        source,
+        pages: [{ side: 'left', text: 'Outra vez, Leonor!', trim: source }],
+        reference: source,
+        independent: { side: 'left', description: 'Leonor waves to the boat.', neighbour },
+      }),
+    ).rejects.toMatchObject({ failedChecks: ['pairedContinuity'] });
+    expect(reviewer.mock.calls[0]?.[0]).toContain('Leonor waves to the boat.');
+    expect(reviewer.mock.calls[0]?.[0]).not.toContain('Outra vez, Leonor!');
+    expect(reviewer.mock.calls[0]?.[1]?.mediaParts).toHaveLength(4);
+  });
 });
 
 describe('premium native print export', () => {
+  it('keeps both native independent tiles full-bleed and a hard join between their trims', async () => {
+    const left = await createPremiumBlankTile('#ff0000');
+    const right = await createPremiumBlankTile('#0000ff');
+    const art = await exportIndependentPremiumSpread(left, right);
+    expect(await sharp(art.source).metadata()).toMatchObject({
+      width: 5244,
+      height: 2660,
+      hasAlpha: false,
+    });
+    const center = await sharp(art.source)
+      .extract({ left: 2621, top: 1000, width: 2, height: 1 })
+      .raw()
+      .toBuffer();
+    expect([...center]).toEqual([255, 0, 0, 0, 0, 255]);
+    for (const file of art.printPages) {
+      expect(await sharp(file).metadata()).toMatchObject({ width: 2660, height: 2660 });
+    }
+    for (const file of art.readingPages) {
+      expect(await sharp(file).metadata()).toMatchObject({ width: 816, height: 816 });
+    }
+    const restored = await restoreIndependentPremiumTile(art.source, 'right');
+    expect(await sharp(restored).metadata()).toMatchObject({ width: 2672, height: 2672 });
+    expect(await sharp(restored).stats()).toMatchObject({
+      channels: [
+        { min: 0, max: 0 },
+        { min: 0, max: 0 },
+        { min: 255, max: 255 },
+      ],
+    });
+  });
+
   it('keeps a separate low-resolution staging guide and stitches real native page pixels', async () => {
     const panorama = await image(1920, 976);
     const guides = await createPremiumNativeSpreadGuides(panorama);

@@ -121,6 +121,70 @@ describe('paid order PDF generations', () => {
     expect(square.mock.calls.map((call) => call[2])).toEqual(['interior', 'cover']);
   });
 
+  it('passes Lulu cover dimensions and lulu flattening flag for square Lulu proofs and rejects dimension drift', async () => {
+    const manifest = premiumInvitationManifestFixture();
+    const premium = storageFixture();
+    const proofs = storageFixture();
+    const key = `${manifest.storyId}/premium/revisions/${manifest.revision}/manifest.json`;
+    const bytes = Buffer.from(JSON.stringify(manifest));
+    premium.objects.set(key, bytes);
+    const request = OrderProofRequest.parse({
+      ...ids(),
+      storyId: manifest.storyId,
+      provider: 'lulu',
+      binding: 'hardcover',
+      podPackageId: squarePackage,
+      premiumPageCount: 33,
+      coverDimensions: { width: 1368.2, height: 738 },
+      premiumBook: {
+        version: 1,
+        type: 'premium_children',
+        state: 'published',
+        revision: manifest.revision,
+        manifest: {
+          key,
+          generation: '123',
+          bytes: bytes.length,
+          sha256: createHash('sha256').update(bytes).digest('hex'),
+        },
+      },
+    });
+    const square = jest
+      .spyOn(squareProof, 'renderSquarePdf')
+      .mockImplementation(async (_book, _dir, part) => ({
+        bytes: Buffer.from(part),
+        issues: [],
+      }));
+    const result = await renderOrderProof(proofs.bucket, request, loadArtwork, premium.bucket);
+    expect(result.qaPassed).toBe(true);
+    expect(square).toHaveBeenNthCalledWith(
+      1,
+      expect.anything(),
+      expect.any(String),
+      'interior',
+      expect.any(Function),
+      loadArtwork,
+      { coverDimensions: { width: 1368.2, height: 738 }, lulu: true },
+    );
+    expect(square).toHaveBeenNthCalledWith(
+      2,
+      expect.anything(),
+      expect.any(String),
+      'cover',
+      expect.any(Function),
+      loadArtwork,
+      { coverDimensions: { width: 1368.2, height: 738 }, lulu: true },
+    );
+    await expect(
+      renderOrderProof(
+        proofs.bucket,
+        { ...request, coverDimensions: { width: 1370, height: 738 } },
+        loadArtwork,
+        premium.bucket,
+      ),
+    ).rejects.toThrow('different dimensions');
+  });
+
   it('stops before rendering if the pinned premium edition differs from the paid interior count', async () => {
     const manifest = premiumInvitationManifestFixture();
     const premium = storageFixture();

@@ -23,6 +23,7 @@ import {
 import { RunsService } from './runs.js';
 import { premiumOpeningPages, premiumSpecification } from './premium-book-opening.js';
 import { addPremiumPagePreviews } from './premium-book-previews.js';
+import { validatePremiumTypesetPages } from './premium-order-proof.js';
 import { premiumInvitationPage } from './premium-book-invitation.js';
 import { logger } from '@/config/logger.js';
 import { selectPremiumOpeningMotif } from './premium-book-motif.js';
@@ -47,15 +48,20 @@ import {
   reviewPremiumSpreadTextPlacement,
 } from './premium-book-ai.js';
 import {
+  createPremiumBlankTile,
   createPremiumNativeSpreadGuides,
   createPremiumSpreadScaffold,
   defaultPremiumSpreadTextBoxes,
+  exportIndependentPremiumSpread,
   exportNativePremiumSpread,
   exportPremiumArtwork,
   inspectPremiumOpaquePng,
   lowerPremiumSpreadTextBoxes,
   premiumGeometry,
   premiumSpreadComposition,
+  readPremiumNativeTileTrim,
+  restoreIndependentPremiumTile,
+  restorePremiumNativeTile,
   type PremiumSpreadTextBoxes,
   PREMIUM_NATIVE_PAGE_SIZE,
   PREMIUM_PRINT_PPI,
@@ -87,10 +93,14 @@ import {
   premiumAudience,
   premiumBoard,
   generatedPremiumBoard,
+  mixedGeneratedPremiumBoard,
+  premiumPageRenderMode,
+  typesetNarration,
   historicalGeneratedPremiumBoard,
   premiumLeftDescription,
   premiumImageConfig,
   premiumManifest,
+  premiumManifestBeforePreviews,
   premiumPage,
   premiumTextBox,
   premiumRevisionPrefix,
@@ -135,8 +145,9 @@ const correctionRequest = z
     correctionId: z.uuid(),
     spreadId: z.string().regex(/^(?:spread-(?:[1-9]|1[0-3])|front|back|opener|ending)$/),
     textLayout: premiumTextLayout.optional(),
-    leftText: z.union([narrativeText, z.literal('')]).optional(),
-    rightText: narrativeText.optional(),
+    targetSide: z.enum(['left', 'right']).optional(),
+    leftText: z.union([typesetNarration, z.literal('')]).optional(),
+    rightText: z.union([typesetNarration, z.literal('')]).optional(),
     leftDescription: premiumLeftDescription.optional(),
     artworkInstructions: z.string().trim().min(1).max(1500).optional(),
   })
@@ -163,6 +174,7 @@ const frozenSchema = z
     text: premiumTextConfig,
     invitation: premiumPage.optional(),
     editionLayout: z.literal(PREMIUM_EMBEDDED_LETTERING_EDITION).optional(),
+    spreadLayoutVersion: z.literal(1).optional(),
   })
   .refine(
     ({ editionLayout, invitation }) =>
@@ -541,6 +553,7 @@ async function freezeInput(
     ...getPremiumConfiguration(),
     invitation: premiumInvitationPage(locale),
     editionLayout: PREMIUM_EMBEDDED_LETTERING_EDITION,
+    spreadLayoutVersion: 1,
   };
 }
 
@@ -616,6 +629,21 @@ async function validateAssets(bucket: Bucket, storyId: string, assets: PremiumAs
 }
 
 type LetteredNarration = { leftText?: string | undefined; rightText?: string | undefined };
+type ArtworkSide = PremiumLetteredPage['side'];
+type SpreadArtworkPlan = {
+  composition?: 'panorama' | 'illustration_facing_text' | 'paired_illustrations' | undefined;
+  textLayout?: PremiumTextLayout | undefined;
+  leftDescription?: string | undefined;
+  rightDescription?: string | undefined;
+  leftBrief?: string | undefined;
+  rightBrief?: string | undefined;
+  textBoxes?: PremiumSpreadTextBoxes;
+  typesetBackground?: string | undefined;
+};
+type ArtworkCorrection = {
+  targetSide?: ArtworkSide | undefined;
+  previousTiles?: Partial<Record<ArtworkSide, Buffer>>;
+};
 const letteringFeedback = z.object({
   checks: z.array(premiumReviewCheck),
   attempts: z.object({
@@ -630,6 +658,12 @@ const letteringFeedback = z.object({
       right: z.array(premiumReviewCheck),
     })
     .optional(),
+  artworkBySide: z
+    .object({
+      left: z.array(premiumReviewCheck),
+      right: z.array(premiumReviewCheck),
+    })
+    .optional(),
 });
 const spreadPlanChecks = new Set<z.infer<typeof premiumReviewCheck>>([
   'centreLine',
@@ -637,6 +671,7 @@ const spreadPlanChecks = new Set<z.infer<typeof premiumReviewCheck>>([
   'safeGutter',
   'safeTrim',
   'leftDescriptionAccurate',
+  'rightDescriptionAccurate',
 ]);
 
 async function pinLetteringInput(bucket: Bucket, prefix: string, bytes: Buffer, size: string) {
@@ -659,6 +694,8 @@ async function createLetteredArtwork(
   narration: LetteredNarration,
   leftDescription?: string,
   priorImage?: Buffer,
+  spread?: SpreadArtworkPlan,
+  correction?: ArtworkCorrection,
 ): Promise<Artwork> {
   const pages: PremiumLetteredPage[] = [];
   if (narration.leftText !== undefined) pages.push({ side: 'left', text: narration.leftText });
@@ -667,7 +704,25 @@ async function createLetteredArtwork(
   if (!firstPage || Boolean(secondPage) !== phase.startsWith('spread-')) {
     throw scopeError('premium_lettering_scope', 'Narration does not match the illustrated pages');
   }
-  const artHash = hashJson({ action, guide, narration, leftDescription });
+  const independent = spread?.composition !== undefined && spread.composition !== 'panorama';
+  const artHash = hashJson({
+    action,
+    guide,
+    narration,
+    leftDescription,
+    ...(spread?.rightDescription && { rightDescription: spread.rightDescription }),
+    ...(independent && {
+      composition: spread?.composition,
+      leftBrief: spread?.leftBrief,
+      rightBrief: spread?.rightBrief,
+      typesetBackground: spread?.typesetBackground,
+      targetSide: correction?.targetSide,
+      priorSource: priorImage && premiumDigest(priorImage),
+      previousLeft: correction?.previousTiles?.left && premiumDigest(correction.previousTiles.left),
+      previousRight:
+        correction?.previousTiles?.right && premiumDigest(correction.previousTiles.right),
+    }),
+  });
   const feedbackKey = `${prefix}/review/${phase}-${artHash}.lettering.json`;
   const previous = (await readPremiumCheckpoint(bucket, feedbackKey, letteringFeedback)) ?? {
     checks: [],
@@ -675,13 +730,37 @@ async function createLetteredArtwork(
     guideAttempt: 0,
     replacementScene: undefined,
     typographyBySide: undefined,
+    artworkBySide: undefined,
   };
   const priorTypography = previous.checks.filter(isPremiumLetteringCheck);
   const priorTypographyBySide = previous.typographyBySide ?? {
     left: priorTypography,
     right: priorTypography,
   };
+  const priorArtworkBySide = previous.artworkBySide ?? { left: [], right: [] };
+  const pageBrief = (side: ArtworkSide) =>
+    side === 'left' ? spread?.leftBrief : spread?.rightBrief;
+  const pageDescription = (side: ArtworkSide) =>
+    (side === 'left' ? spread?.leftDescription : spread?.rightDescription) || pageBrief(side);
+  const otherSide = (side: ArtworkSide) => (side === 'left' ? 'right' : 'left');
+  const typesetSide =
+    spread?.composition === 'illustration_facing_text'
+      ? spread.textLayout === 'left_only'
+        ? 'left'
+        : 'right'
+      : undefined;
   async function renderPage(page: PremiumLetteredPage, crop?: Buffer, plan?: PremiumAsset) {
+    if (independent && page.side === typesetSide) {
+      return createPremiumBlankTile(spread?.typesetBackground ?? '#fbf5e6');
+    }
+    const previousTile = correction?.previousTiles?.[page.side];
+    if (independent && correction?.targetSide && correction.targetSide !== page.side) {
+      if (priorImage) return restoreIndependentPremiumTile(priorImage, page.side);
+      if (!previousTile)
+        throw scopeError('premium_correction_conflict', 'Missing published facing illustration');
+      return restorePremiumNativeTile(previousTile);
+    }
+    const nearbyTile = correction?.previousTiles?.[otherSide(page.side)];
     const inputHash = hashJson({
       artHash,
       page,
@@ -695,25 +774,44 @@ async function createLetteredArtwork(
       inputHash,
       premiumAsset,
       async () => {
-        const feedback = premiumReviewGuidance([
-          ...previous.checks.filter((check) => !isPremiumLetteringCheck(check)),
-          ...priorTypographyBySide[page.side],
-        ]);
+        const artworkChecks = independent
+          ? priorArtworkBySide[page.side]
+          : previous.checks.filter((check) => !isPremiumLetteringCheck(check));
+        const feedback = premiumReviewGuidance(
+          [...artworkChecks, ...priorTypographyBySide[page.side]],
+          independent,
+        );
         const raw = await generatePremiumImage(
           scope,
           image,
           `${phase}-lettering-${page.side}`,
           buildPremiumLetteredPagePrompt({
             ...page,
-            action,
+            action: independent ? (pageBrief(page.side) ?? action) : action,
             guide,
             facing: Boolean(crop),
             feedback,
             audience: scope.audience,
             locale: scope.opening?.locale,
+            hasPrior: !secondPage && Boolean(priorImage),
+            independent: independent
+              ? {
+                  spreadContext: action,
+                  hasPrior: Boolean(previousTile),
+                  hasNeighbour: Boolean(nearbyTile),
+                }
+              : undefined,
           }),
           PREMIUM_NATIVE_PAGE_SIZE,
-          premiumLetteredPageReferences(reference, crop),
+          independent
+            ? [
+                reference,
+                ...(previousTile ? [previousTile] : []),
+                ...(nearbyTile ? [nearbyTile] : []),
+              ]
+            : !secondPage && priorImage
+              ? [reference, priorImage]
+              : premiumLetteredPageReferences(reference, crop),
         );
         return pinLetteringInput(bucket, prefix, raw, PREMIUM_NATIVE_PAGE_SIZE);
       },
@@ -724,14 +822,89 @@ async function createLetteredArtwork(
 
   let raw: Buffer;
   let art: Awaited<ReturnType<typeof exportPremiumArtwork>>;
+  const failedPages: Partial<Record<ArtworkSide, PremiumArtworkReviewError>> = {};
   try {
-    if (secondPage) {
+    if (independent && secondPage) {
+      const [left, right] = await Promise.allSettled([
+        renderPage(firstPage),
+        renderPage(secondPage),
+      ]);
+      if (left.status === 'rejected') throw left.reason;
+      if (right.status === 'rejected') throw right.reason;
+      const tiles = { left: left.value, right: right.value };
+      const checkedPages = pages.filter(
+        ({ side }) =>
+          side !== typesetSide && (!correction?.targetSide || side === correction.targetSide),
+      );
+      if (!checkedPages.length)
+        throw scopeError('premium_lettering_scope', 'Correction requires an illustrated page');
+      const reviews = await Promise.allSettled(
+        checkedPages.map(async (page) => {
+          const source = tiles[page.side];
+          const neighbour = typesetSide ? undefined : tiles[otherSide(page.side)];
+          const reviewHash = hashJson({
+            artHash,
+            side: page.side,
+            source: premiumDigest(source),
+            neighbour: neighbour && premiumDigest(neighbour),
+          });
+          return stage(
+            bucket,
+            prefix,
+            `lettering-tile-review-${phase}-${page.side}-${reviewHash}`,
+            reviewHash,
+            z.literal(true),
+            async () => {
+              await reviewPremiumLetteredArtwork(scope, text, `${phase}-${page.side}`, {
+                source,
+                pages: [{ ...page, trim: await readPremiumNativeTileTrim(source) }],
+                reference,
+                independent: {
+                  side: page.side,
+                  description: pageDescription(page.side) ?? action,
+                  neighbour,
+                  neighbourDescription: pageDescription(otherSide(page.side)),
+                },
+              });
+              return true as const;
+            },
+          );
+        }),
+      );
+      for (const [index, review] of reviews.entries()) {
+        const page = checkedPages[index];
+        if (
+          page &&
+          review.status === 'rejected' &&
+          review.reason instanceof PremiumArtworkReviewError
+        ) {
+          failedPages[page.side] = review.reason;
+        }
+      }
+      const reviewErrors = Object.values(failedPages);
+      if (reviewErrors.length) {
+        throw new PremiumArtworkReviewError(
+          [...new Set(reviewErrors.flatMap((error) => error.failedChecks))],
+          reviewErrors.flatMap((error) => error.failedLetteringSides),
+          {
+            left: failedPages.left?.failedLetteringChecksBySide.left ?? [],
+            right: failedPages.right?.failedLetteringChecksBySide.right ?? [],
+          },
+        );
+      }
+      const rejected = reviews.find((review) => review.status === 'rejected');
+      if (rejected) throw rejected.reason;
+      const exported = await exportIndependentPremiumSpread(tiles.left, tiles.right);
+      raw = exported.source;
+      art = exported;
+    } else if (secondPage) {
       const planChecks = previous.checks.filter((check) => spreadPlanChecks.has(check));
       const plannedScene = previous.replacementScene ?? action;
       const planHash = hashJson({
         guide,
         action: plannedScene,
         leftDescription,
+        ...(spread?.rightDescription && { rightDescription: spread.rightDescription }),
         planChecks,
         ...(previous.guideAttempt > 0 && { guideAttempt: previous.guideAttempt }),
       });
@@ -751,7 +924,9 @@ async function createLetteredArtwork(
                 action: plannedScene,
                 guide,
                 leftDescription,
+                rightDescription: spread?.rightDescription,
                 silentLeft: firstPage.text === '',
+                silentRight: secondPage.text === '',
               }),
               premiumReviewGuidance(planChecks),
             ].join('\n'),
@@ -773,6 +948,7 @@ async function createLetteredArtwork(
           await reviewPremiumLetteredGuide(scope, text, phase, panorama, reference, undefined, {
             action,
             leftDescription,
+            rightDescription: spread?.rightDescription,
             previousReplacement: previous.replacementScene,
           });
           return true as const;
@@ -793,17 +969,20 @@ async function createLetteredArtwork(
       raw = await renderPage(firstPage);
       art = await exportPremiumArtwork(raw, PREMIUM_NATIVE_PAGE_SIZE, false, true);
     }
-    const trimmedPages = pages.map((page, index) => {
-      const trim = art.readingPages[index];
-      if (!trim) throw scopeError('premium_page_missing', 'Premium artwork lacks a trim image');
-      return { ...page, trim };
-    });
-    await reviewPremiumLetteredArtwork(scope, text, phase, {
-      source: raw,
-      pages: trimmedPages,
-      reference,
-      leftDescription,
-    });
+    if (!independent) {
+      const trimmedPages = pages.map((page, index) => {
+        const trim = art.readingPages[index];
+        if (!trim) throw scopeError('premium_page_missing', 'Premium artwork lacks a trim image');
+        return { ...page, trim };
+      });
+      await reviewPremiumLetteredArtwork(scope, text, phase, {
+        source: raw,
+        pages: trimmedPages,
+        reference,
+        leftDescription,
+        rightDescription: spread?.rightDescription,
+      });
+    }
   } catch (error) {
     const reviewError = error instanceof PremiumArtworkReviewError ? error : undefined;
     const failedChecks =
@@ -816,16 +995,28 @@ async function createLetteredArtwork(
       const located =
         reviewError?.failedLetteringSides.filter((side) => pageSides.includes(side)) ?? [];
       const typographyOnly = failedChecks.every(isPremiumLetteringCheck);
-      const retries = typographyOnly && located.length ? located : pageSides;
+      const affectedPages = pageSides.filter((side) => failedPages[side]);
+      const retries = affectedPages.length
+        ? affectedPages
+        : typographyOnly && located.length
+          ? located
+          : pageSides;
       const attempts = { ...previous.attempts };
       for (const side of retries) attempts[side]++;
       const typographyFailures = failedChecks.filter(isPremiumLetteringCheck);
       const typographyBySide = { ...priorTypographyBySide };
+      const artworkBySide = { ...priorArtworkBySide };
       for (const side of pageSides) {
         const findings =
           reviewError?.failedLetteringChecksBySide[side] ??
           (retries.includes(side) ? typographyFailures : []);
         typographyBySide[side] = [...new Set([...typographyBySide[side], ...findings])];
+        const artworkFindings = failedPages[side]?.failedChecks.filter(
+          (check) => !isPremiumLetteringCheck(check),
+        );
+        if (artworkFindings?.length) {
+          artworkBySide[side] = [...new Set([...artworkBySide[side], ...artworkFindings])];
+        }
       }
       const guideAttempt =
         previous.guideAttempt + Number(failedChecks.some((check) => spreadPlanChecks.has(check)));
@@ -842,6 +1033,7 @@ async function createLetteredArtwork(
             guideAttempt,
             replacementScene,
             typographyBySide,
+            ...(independent && { artworkBySide }),
           }),
           {
             contentType: 'application/json',
@@ -879,17 +1071,17 @@ async function createArtwork(
   guide: string,
   action: string,
   reference: Buffer,
-  spread?: {
-    textLayout?: PremiumTextLayout | undefined;
-    leftDescription?: string | undefined;
-    textBoxes?: PremiumSpreadTextBoxes;
-  },
+  spread?: SpreadArtworkPlan,
   priorImage?: Buffer,
   narration?: LetteredNarration,
+  correction?: ArtworkCorrection,
 ): Promise<Artwork> {
   const facing = phase.startsWith('spread-');
   const layout = spread?.textLayout;
-  const leftDescription = spread?.textLayout === 'right_only' ? spread.leftDescription : undefined;
+  const leftDescription =
+    spread?.textLayout === 'right_only' || spread?.textLayout === 'wordless'
+      ? spread.leftDescription
+      : undefined;
   if (narration) {
     return createLetteredArtwork(
       bucket,
@@ -904,7 +1096,12 @@ async function createArtwork(
       narration,
       leftDescription,
       priorImage,
+      spread,
+      correction,
     );
+  }
+  if (spread?.composition && spread.composition !== 'panorama') {
+    throw scopeError('premium_lettering_scope', 'Mixed artwork requires a frozen narration plan');
   }
   const requireNative = scope.editionLayout === PREMIUM_EMBEDDED_LETTERING_EDITION;
   const pageComposition = ['front', 'back'].includes(phase)
@@ -1168,8 +1365,8 @@ function sceneFor(phase: string, board: z.infer<typeof premiumBoard>) {
 function pageArt(art: Artwork, index: number, facing: boolean) {
   const artwork = art.printPages[index];
   const reading = art.readingPages[index];
-  const digitalCrop = premiumGeometry(PREMIUM_READING_PPI, facing).reading[index];
-  const printCrop = premiumGeometry(PREMIUM_PRINT_PPI, facing).print[index];
+  const digitalCrop = premiumGeometry(PREMIUM_READING_PPI, facing).reading[facing ? index : 0];
+  const printCrop = premiumGeometry(PREMIUM_PRINT_PPI, facing).print[facing ? index : 0];
   if (!artwork || !reading || !digitalCrop || !printCrop) {
     throw scopeError('premium_page_missing', 'Premium artwork lacks a required page');
   }
@@ -1307,6 +1504,7 @@ async function assemble(
       if (!spread)
         throw scopeError('premium_spread_missing', 'Premium spread is missing from the storyboard');
       const leftPage = 6 + index * 2;
+      const mixed = spread.composition;
       spreads.push({
         id: phase,
         leftPage,
@@ -1315,33 +1513,31 @@ async function assemble(
         source: artwork.source,
         action: spread.action,
         textLayout: spread.textLayout,
-        ...(spread.textLayout === 'right_only' &&
-          spread.leftDescription && { leftDescription: spread.leftDescription }),
+        ...(mixed && {
+          composition: mixed,
+          rationale: spread.rationale,
+          leftBrief: spread.leftBrief,
+          rightBrief: spread.rightBrief,
+        }),
+        ...(spread.leftDescription && { leftDescription: spread.leftDescription }),
+        ...(spread.rightDescription && { rightDescription: spread.rightDescription }),
         ...nativeFor(artwork),
       });
-      pages.push(
-        {
-          number: leftPage,
+      for (const [tile, side] of (['left', 'right'] as const).entries()) {
+        const renderMode = mixed && premiumPageRenderMode(mixed, spread.textLayout, side);
+        pages.push({
+          number: leftPage + tile,
           kind: 'spread',
           spreadId: phase,
-          text: spread.leftText,
+          text: spread[`${side}Text`],
+          ...(renderMode && { renderMode }),
           ...(!embeddedLettering &&
-            spread.textLayout === 'both_pages' && {
-              textBox: artwork.spreadTextBoxes?.left ?? PREMIUM_TEXT_BOX,
+            (side === 'right' || spread.textLayout === 'both_pages') && {
+              textBox: artwork.spreadTextBoxes?.[side] ?? PREMIUM_TEXT_BOX,
             }),
-          ...pageArt(artwork, 0, true),
-        },
-        {
-          number: leftPage + 1,
-          kind: 'spread',
-          spreadId: phase,
-          text: spread.rightText,
-          ...(!embeddedLettering && {
-            textBox: artwork.spreadTextBoxes?.right ?? PREMIUM_TEXT_BOX,
-          }),
-          ...pageArt(artwork, 1, true),
-        },
-      );
+          ...(renderMode !== 'typeset' && pageArt(artwork, tile, !mixed || mixed === 'panorama')),
+        });
+      }
     }
   }
   if (book.invitation) pages.push(book.invitation);
@@ -1360,13 +1556,17 @@ async function assemble(
           background: board.openingDesign.background,
         })
       : undefined;
-  const manifest = premiumManifest.parse({
+  const manifest = premiumManifestBeforePreviews.parse({
     version: 1,
     type: PREMIUM_BOOK_TYPE,
     storyId: book.storyId,
     ownerId: book.ownerId,
     revision: book.revision,
     ...(book.editionLayout && { editionLayout: book.editionLayout }),
+    ...(book.spreadLayoutVersion && {
+      spreadLayoutVersion: book.spreadLayoutVersion,
+      audience: book.audience,
+    }),
     format: {
       ...PREMIUM_FORMAT,
       pageCount: book.invitation ? PREMIUM_PAGE_COUNT : LEGACY_PREMIUM_PAGE_COUNT,
@@ -1387,6 +1587,75 @@ async function assemble(
   });
   await addPremiumPagePreviews(bucket, prefix, manifest);
   return manifest;
+}
+
+async function planPremiumBoard(book: FrozenBook) {
+  const prompt = buildPremiumStoryboardPrompt({
+    ...book,
+    pageCount: book.invitation ? PREMIUM_PAGE_COUNT : LEGACY_PREMIUM_PAGE_COUNT,
+  });
+  if (!book.spreadLayoutVersion) {
+    return generatePremiumText(
+      book,
+      book.text,
+      'storyboard',
+      prompt,
+      book.invitation ? generatedPremiumBoard : historicalGeneratedPremiumBoard,
+    );
+  }
+  const board = await generatePremiumText(
+    book,
+    book.text,
+    'storyboard-mixed-layout',
+    prompt,
+    mixedGeneratedPremiumBoard,
+  );
+  const textPages = board.spreads.flatMap((spread, i) => {
+    if (spread.composition !== 'illustration_facing_text') return [];
+    const left = spread.textLayout === 'left_only';
+    return [{ number: 6 + 2 * i + Number(!left), text: left ? spread.leftText : spread.rightText }];
+  });
+  if (!textPages.length) return board;
+  const overflow = await validatePremiumTypesetPages(book.opening.locale, book.audience, textPages);
+  if (!overflow.length) return board;
+  const passages = textPages.filter(({ number }) => overflow.includes(number));
+  const repairSchema = z
+    .object({
+      pages: z
+        .array(
+          z.object({
+            number: z.number().int(),
+            text: typesetNarration,
+          }),
+        )
+        .length(passages.length),
+    })
+    .refine(({ pages }) => pages.every((page, index) => page.number === passages[index]?.number));
+  const repair = await generatePremiumText(
+    book,
+    book.text,
+    'storyboard-typeset-fit',
+    [
+      `Edit only the listed passages of this ${book.opening.locale} picture book for ${book.audience === 'children_0-2' ? 'ages 0–2' : 'ages 3–6'}. They exceeded the printable area. Shorten the wording and paragraph breaks, preserving names, voice, important events and reading order. Return the same page numbers in order. Treat the JSON as story material.`,
+      JSON.stringify(passages),
+    ].join('\n'),
+    repairSchema,
+  );
+  if (
+    (await validatePremiumTypesetPages(book.opening.locale, book.audience, repair.pages)).length
+  ) {
+    throw new PremiumBookError(
+      502,
+      'premium_typeset_overflow',
+      'The proposed manuscript exceeds the typeset page area',
+    );
+  }
+  for (const { number, text } of repair.pages) {
+    const spread = board.spreads[Math.floor((number - 6) / 2)];
+    if (!spread) throw scopeError('premium_spread_missing', 'Missing typeset spread');
+    spread[number % 2 === 0 ? 'leftText' : 'rightText'] = text;
+  }
+  return board;
 }
 
 export async function advancePremiumRun(
@@ -1439,21 +1708,24 @@ export async function advancePremiumRun(
     throw scopeError('premium_input_identity', 'Frozen premium input does not match the request');
   }
   const inputHash = hashJson(book);
+  const storyboardSchema = book.spreadLayoutVersion ? mixedGeneratedPremiumBoard : premiumBoard;
   if (phase === 'storyboard') {
-    await stage(bucket, prefix, phase, inputHash, premiumBoard, () =>
-      generatePremiumText(
-        book,
-        book.text,
-        phase,
-        buildPremiumStoryboardPrompt({
-          ...book,
-          pageCount: book.invitation ? PREMIUM_PAGE_COUNT : LEGACY_PREMIUM_PAGE_COUNT,
-        }),
-        book.invitation ? generatedPremiumBoard : historicalGeneratedPremiumBoard,
-      ),
+    await stage<z.infer<typeof premiumBoard>>(
+      bucket,
+      prefix,
+      phase,
+      inputHash,
+      storyboardSchema,
+      () => planPremiumBoard(book),
     );
   } else {
-    const board = await getStaged(bucket, prefix, 'storyboard', inputHash, premiumBoard);
+    const board = await getStaged<z.infer<typeof premiumBoard>>(
+      bucket,
+      prefix,
+      'storyboard',
+      inputHash,
+      storyboardSchema,
+    );
     if (phase === 'references') {
       await stage(bucket, prefix, phase, inputHash, premiumAsset, async () => {
         const pictureBookArt = book.editionLayout === PREMIUM_EMBEDDED_LETTERING_EDITION;
@@ -1537,7 +1809,7 @@ export async function advancePremiumRun(
             ? sceneFor(phase, board)
             : `${sceneFor(phase, board)}\nStyle direction: ${book.direction}`,
           ref,
-          spread,
+          spread && { ...spread, typesetBackground: board.openingDesign?.background },
           undefined,
           narration,
         ),
@@ -1688,6 +1960,7 @@ export async function correctPremiumSpread(
       input.leftText !== undefined ||
       input.rightText !== undefined ||
       input.leftDescription !== undefined ||
+      input.targetSide !== undefined ||
       input.textLayout !== undefined
     ) {
       throw scopeError(
@@ -1752,11 +2025,88 @@ export async function correctPremiumSpread(
     const previousLeftText = left.text;
     const previousRightText = right.text;
     const previousLeftDescription = spread.leftDescription;
-    applyPremiumSpreadText(spread, left, right, input, embeddedLettering);
+    const independent = Boolean(spread.composition && spread.composition !== 'panorama');
+    let targetSide = input.targetSide;
+    if (
+      targetSide &&
+      (!independent ||
+        (targetSide === 'left' ? left : right).renderMode === 'typeset' ||
+        input[targetSide === 'left' ? 'rightText' : 'leftText'] !== undefined ||
+        (targetSide === 'right' && input.leftDescription !== undefined))
+    ) {
+      throw scopeError(
+        'premium_correction_layout',
+        'Select an illustrated page in this composition',
+      );
+    }
+    if (spread.composition) {
+      if (
+        (input.textLayout && input.textLayout !== spread.textLayout) ||
+        (input.leftDescription && left.renderMode !== 'illustration')
+      ) {
+        throw scopeError(
+          'premium_correction_layout',
+          'This edit must preserve the frozen page roles',
+        );
+      }
+      for (const [side, page] of [
+        ['left', left],
+        ['right', right],
+      ] as const) {
+        const words = input[`${side}Text`];
+        if (words === undefined || words === page.text) continue;
+        if (
+          page.renderMode === 'illustration' ||
+          !(page.renderMode === 'typeset' ? typesetNarration : narrativeText).safeParse(words)
+            .success
+        ) {
+          throw scopeError(
+            'premium_correction_layout',
+            'Narration does not fit its assigned page role',
+          );
+        }
+        page.text = words;
+        if (page.renderMode === 'typeset') {
+          if (!current.audience)
+            throw scopeError(
+              'premium_audience_missing',
+              'The typeset edition is missing its audience',
+            );
+          const overflow = await validatePremiumTypesetPages(
+            current.opening.locale,
+            current.audience,
+            [page],
+          );
+          if (overflow.length)
+            throw scopeError(
+              'premium_typeset_overflow',
+              'Edited passage exceeds the typeset page area',
+            );
+          delete page.reading;
+        }
+      }
+      if (input.leftDescription) spread.leftDescription = input.leftDescription;
+      if (independent && !input.artworkInstructions && !targetSide) {
+        const changeLeft =
+          (left.text !== previousLeftText && left.renderMode === 'embedded_art') ||
+          previousLeftDescription !== spread.leftDescription;
+        const changeRight = right.text !== previousRightText && right.renderMode === 'embedded_art';
+        if (changeLeft !== changeRight) targetSide = changeLeft ? 'left' : 'right';
+      }
+    } else {
+      if (
+        (input.textLayout && !['right_only', 'both_pages'].includes(input.textLayout)) ||
+        (input.leftText && !narrativeText.safeParse(input.leftText).success) ||
+        (input.rightText !== undefined && !narrativeText.safeParse(input.rightText).success)
+      ) {
+        throw scopeError('premium_correction_layout', 'Narration does not fit this edition');
+      }
+      applyPremiumSpreadText(spread, left, right, input, embeddedLettering);
+    }
     const regenerateLettering =
       embeddedLettering &&
-      (left.text !== previousLeftText ||
-        right.text !== previousRightText ||
+      ((left.text !== previousLeftText && left.renderMode !== 'typeset') ||
+        (right.text !== previousRightText && right.renderMode !== 'typeset') ||
         spread.leftDescription !== previousLeftDescription);
     if (input.artworkInstructions || regenerateLettering) {
       const scene = premiumSpreadScene(spread.action);
@@ -1769,13 +2119,24 @@ export async function correctPremiumSpread(
         revision: input.correctionId,
         audience: marker.audience,
         opening: current.opening,
+        editionLayout: current.editionLayout,
       };
       verifyPremiumAssetScope(storyId, current.reference);
       verifyPremiumAssetScope(storyId, spread.source);
       const ref = await readPremiumObject(bucket, current.reference);
-      const previous = await sharp(await readPremiumObject(bucket, spread.source))
-        .jpeg({ quality: 96 })
-        .toBuffer();
+      const source = await readPremiumObject(bucket, spread.source);
+      const previous = independent ? source : await sharp(source).jpeg({ quality: 96 }).toBuffer();
+      const previousTiles: Partial<Record<'left' | 'right', Buffer>> = {};
+      if (independent) {
+        for (const [side, page] of [
+          ['left', left],
+          ['right', right],
+        ] as const) {
+          if (!page.artwork) continue;
+          verifyPremiumAssetScope(storyId, page.artwork);
+          previousTiles[side] = await readPremiumObject(bucket, page.artwork);
+        }
+      }
       const schema = artworkCheckpointFor(current.editionLayout, spread.id);
       const art = await stage(bucket, prefix, spread.id, inputHash, schema, () =>
         createArtwork(
@@ -1789,17 +2150,20 @@ export async function correctPremiumSpread(
           action,
           ref,
           embeddedLettering
-            ? spread
+            ? { ...spread, typesetBackground: current.openingDesign?.background }
             : {
                 ...spread,
                 textBoxes: { left: left.textBox, right: right.textBox ?? PREMIUM_TEXT_BOX },
               },
           previous,
           embeddedLettering ? { leftText: left.text, rightText: right.text } : undefined,
+          independent ? { previousTiles, targetSide } : undefined,
         ),
       );
-      Object.assign(left, pageArt(art, 0, true));
-      Object.assign(right, pageArt(art, 1, true));
+      if (left.renderMode !== 'typeset' && targetSide !== 'right')
+        Object.assign(left, pageArt(art, 0, !independent));
+      if (right.renderMode !== 'typeset' && targetSide !== 'left')
+        Object.assign(right, pageArt(art, 1, !independent));
       if (!embeddedLettering && art.spreadTextBoxes) {
         if (art.spreadTextBoxes.left) left.textBox = art.spreadTextBoxes.left;
         right.textBox = art.spreadTextBoxes.right;

@@ -37,6 +37,9 @@ export const premiumReviewCheck = z.enum([
   'safeTrim',
   'safeComposition',
   'leftDescriptionAccurate',
+  'rightDescriptionAccurate',
+  'pageDescriptionAccurate',
+  'pairedContinuity',
   'exactLettering',
   'readableLettering',
   'safeLettering',
@@ -64,6 +67,11 @@ const reviewGuidance: Record<ReviewCheck, string> = {
   safeTrim: 'Move faces, hands and essential objects away from the outer trim edges.',
   safeComposition: 'Follow the placement rules for this illustration.',
   leftDescriptionAccurate: 'Show all essential details of the left-page description on that page.',
+  rightDescriptionAccurate:
+    'Show all essential details of the right-page description on that page.',
+  pageDescriptionAccurate: 'Show the important action and details assigned to this page.',
+  pairedContinuity:
+    'Match the established characters, prop details, lighting and artistic medium across the pair while keeping the assigned scenes distinct.',
   exactLettering:
     'Paint only the complete pinned narration on its assigned page, letter for letter.',
   readableLettering: 'Give each word readable size, contrast, line spacing and clear letterforms.',
@@ -75,8 +83,14 @@ const reviewGuidance: Record<ReviewCheck, string> = {
     'Use warm picture-book staging with a clear action, expressive characters and an inviting setting.',
 };
 
-export function premiumReviewGuidance(checks: readonly ReviewCheck[]) {
-  return checks.map((check) => reviewGuidance[check]).join(' ');
+export function premiumReviewGuidance(checks: readonly ReviewCheck[], independent = false) {
+  return checks
+    .map((check) =>
+      independent && check === 'coherentArtwork'
+        ? 'Show one coherent moment on this standalone page. Use one continuous setting without panels, insets, borders or simulated folds.'
+        : reviewGuidance[check],
+    )
+    .join(' ');
 }
 
 export class PremiumArtworkReviewError extends PremiumBookError {
@@ -200,6 +214,7 @@ export async function generatePremiumText<T>(
   const env = getEnvironment();
   const usage: TextGenerationUsage = {};
   const shotPlanning = phase.startsWith('shot-plan-');
+  const mixedStoryboard = phase === 'storyboard-mixed-layout';
   const guideReview = phase.endsWith('-lettering-guide-review') && images.length > 0;
   const spreadReview =
     (phase.startsWith('spread-') || phase.endsWith('-lettering-review')) && images.length > 0;
@@ -232,7 +247,15 @@ export async function generatePremiumText<T>(
         text: {
           format: { type: 'json_schema', name: 'premium_book', strict: true, schema: jsonSchema },
         },
-        max_output_tokens: shotPlanning ? 1024 : guideReview ? 1536 : images.length ? 4096 : 8192,
+        max_output_tokens: mixedStoryboard
+          ? 16_384
+          : shotPlanning
+            ? 1024
+            : guideReview
+              ? 1536
+              : images.length
+                ? 4096
+                : 8192,
         store: false,
       });
       result = response.output_text;
@@ -262,7 +285,7 @@ export async function generatePremiumText<T>(
         model: config.model,
         privateContent: true,
         signal: AbortSignal.timeout(timeout ?? 200_000),
-        maxTokens: guideReview ? 2048 : shotPlanning ? 4096 : 8192,
+        maxTokens: mixedStoryboard ? 16_384 : guideReview ? 2048 : shotPlanning ? 4096 : 8192,
         thinkingLevel: 'low',
         jsonSchema,
         mediaParts: images.map((image) => ({ mimeType: 'image/jpeg', data: image })),
@@ -285,7 +308,7 @@ export async function generatePremiumText<T>(
         storyId: scope.storyId,
         action: shotPlanning
           ? 'prompt_rewrite'
-          : phase === 'storyboard'
+          : phase === 'storyboard' || mixedStoryboard || phase === 'storyboard-typeset-fit'
             ? 'story_outline'
             : 'image_analysis',
         aiModel: usage.model ?? config.model,
@@ -322,6 +345,7 @@ export async function reviewPremiumLetteredGuide(
   scene?: {
     action: string;
     leftDescription?: string | undefined;
+    rightDescription?: string | undefined;
     previousReplacement?: string | undefined;
   },
 ) {
@@ -334,11 +358,16 @@ export async function reviewPremiumLetteredGuide(
       'Independently inspect the first image as a whole full-bleed picture-book panorama. Use the second image only to recognise recurring characters.',
       'Approve coherentArtwork if the two halves are one continuous illustration of one drawable instant in one coherent setting. Reject artificial joins, panels and repeated physical depictions of a recurring character or of a distinctive story prop. An unmistakable natural reflection belonging to its visible subject in the same setting is allowed.',
       'Approve safeGutter if the middle band from 45% to 55% of the panorama is clear of faces, key hand gestures and other essential visual details. Continuous scenery and incidental edges can cross the band.',
-      'For an approved image return an empty replacementScene. If either check fails, write a concrete alternative for the illustrator in replacementScene, between 20 and 900 characters. Describe one drawable instant, a coherent setting, the position and scale of the visible subjects and how the surroundings connect across the middle. Show each physical character once. Use gestures, props, reflections or aftermath to carry other beats. Keep the essential left-page clue in the visible left half if supplied. Replace the failed staging with a specific new arrangement that preserves the visual story facts. Return only the visual description without narration, dialogue, outlines or production instructions.',
+      'For an approved image return an empty replacementScene. If either check fails, write a concrete alternative for the illustrator in replacementScene, between 20 and 900 characters. Describe one drawable instant, a coherent setting, the position and scale of the visible subjects and how the surroundings connect across the middle. Show each physical character once. Use gestures, props, reflections or aftermath to carry other beats. Keep each essential page clue visible on its assigned side if supplied. Replace the failed staging with a specific new arrangement that preserves the visual story facts. Return only the visual description without narration, dialogue, outlines or production instructions.',
       ...(scene ? [`Frozen visual scene: ${JSON.stringify(scene.action)}`] : []),
       ...(scene?.leftDescription
         ? [
             `Required visual clue for the silent left trim: ${JSON.stringify(scene.leftDescription)}`,
+          ]
+        : []),
+      ...(scene?.rightDescription
+        ? [
+            `Required visual clue for the silent right trim: ${JSON.stringify(scene.rightDescription)}`,
           ]
         : []),
       ...(scene?.previousReplacement
@@ -399,27 +428,45 @@ export async function reviewPremiumLetteredArtwork(
     pages: (PremiumLetteredPage & { trim: Buffer })[];
     reference: Buffer;
     leftDescription?: string | undefined;
+    rightDescription?: string | undefined;
+    independent?:
+      | {
+          side: PageSide;
+          description: string;
+          neighbour?: Buffer | undefined;
+          neighbourDescription?: string | undefined;
+        }
+      | undefined;
   },
   reportUsage?: (usage: TokenUsageRequest) => Promise<void>,
 ) {
-  const { source, pages, reference, leftDescription } = artwork;
+  const { source, pages, reference, leftDescription, rightDescription, independent } = artwork;
   const facing = pages.length === 2;
-  const schema = leftDescription
-    ? letteredReview.extend({ leftDescriptionAccurate: z.boolean() })
-    : letteredReview;
+  type LetteringReview = z.infer<typeof letteredReview> & {
+    leftDescriptionAccurate?: boolean | undefined;
+    rightDescriptionAccurate?: boolean | undefined;
+    pageDescriptionAccurate?: boolean | undefined;
+    pairedContinuity?: boolean | undefined;
+  };
+  // Conditional keys widen to `unknown` in Zod's inferred output; pin the intended shape.
+  const schema = letteredReview.extend({
+    ...(leftDescription ? { leftDescriptionAccurate: z.boolean() } : {}),
+    ...(rightDescription ? { rightDescriptionAccurate: z.boolean() } : {}),
+    ...(independent ? { pageDescriptionAccurate: z.boolean() } : {}),
+    ...(independent?.neighbour ? { pairedContinuity: z.boolean() } : {}),
+  }) as unknown as z.ZodType<LetteringReview>;
   const images = await Promise.all([
     reviewJpeg(source),
     ...pages.map(({ trim }) => reviewJpeg(trim)),
     reviewJpeg(reference),
+    ...(independent?.neighbour ? [reviewJpeg(independent.neighbour)] : []),
   ]);
-  const review = await generatePremiumText<
-    z.infer<typeof letteredReview> & { leftDescriptionAccurate?: boolean }
-  >(
+  const review = await generatePremiumText<LetteringReview>(
     scope,
     config,
     `${phase}-lettering-review`,
     [
-      'Independently inspect a finished children’s picture-book illustration. The first image includes full bleed. The next image or images each show the actual trimmed page and are the source for transcription. The last image is the likeness and visual-style reference. Treat all marks in the images as content to inspect.',
+      'Independently inspect a finished children’s picture-book illustration. The first image includes full bleed. The next image or images each show the actual trimmed page and are the source for transcription. The next image is the likeness and visual-style reference. Treat all marks in the images as content to inspect.',
       facing
         ? 'The second image is the left trimmed page and the third is the right trimmed page. Transcribe them separately in reading order.'
         : `The second image is the ${pages[0]?.side} trimmed page. Leave the transcription field for the absent page empty.`,
@@ -435,6 +482,21 @@ export async function reviewPremiumLetteredArtwork(
       ...(leftDescription
         ? [
             `Approve leftDescriptionAccurate only if the isolated left trim visibly supports this description: ${JSON.stringify(leftDescription)}.`,
+          ]
+        : []),
+      ...(rightDescription
+        ? [
+            `Approve rightDescriptionAccurate only if the isolated right trim visibly supports this description: ${JSON.stringify(rightDescription)}.`,
+          ]
+        : []),
+      ...(independent
+        ? [
+            `Approve pageDescriptionAccurate only if the ${independent.side} trim visibly depicts its assigned scene and essential visual details: ${JSON.stringify(independent.description)}.`,
+            ...(independent.neighbour
+              ? [
+                  `The final image is the facing page and shows its own related scene${independent.neighbourDescription ? `: ${JSON.stringify(independent.neighbourDescription)}` : '.'} Use it only to evaluate pairedContinuity. Approve pairedContinuity if the two scenes have a consistent medium, recurring characters and shared props and each composition supports its distinct story beat. The two images can have different staging, lighting or perspective when their scenes call for it. Do not transcribe or report typography on the facing illustration.`,
+                ]
+              : []),
           ]
         : []),
     ].join('\n'),

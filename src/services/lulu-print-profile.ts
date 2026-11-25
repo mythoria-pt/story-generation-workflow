@@ -1,4 +1,4 @@
-import { PDFDocument, PDFName, PDFDict } from 'pdf-lib';
+import { PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFStream } from 'pdf-lib';
 import { readFile } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -38,6 +38,7 @@ export async function finishLuluPdf(
 ) {
   const doc = await PDFDocument.load(bytes);
   if (!interior && doc.getPageCount() !== 1) throw new Error('Cover must contain one spread');
+  doc.catalog.delete(PDFName.of('AcroForm'));
   const stream = doc.context.flateStream(profile, { N: 3, Alternate: 'DeviceRGB' });
   const icc = doc.context.register(stream);
   for (const page of doc.getPages()) {
@@ -47,12 +48,16 @@ export async function finishLuluPdf(
       throw new Error('Incorrect Lulu page geometry');
     if (width !== dimensions.width || height !== dimensions.height)
       page.scaleContent(dimensions.width / width, dimensions.height / height);
-    page.node.delete(PDFName.of('Annots'));
     page.setMediaBox(0, 0, dimensions.width, dimensions.height);
     page.setCropBox(0, 0, dimensions.width, dimensions.height);
     page.setBleedBox(0, 0, dimensions.width, dimensions.height);
     if (interior) page.setTrimBox(9, 9, dimensions.width - 18, dimensions.height - 18);
+    else page.node.delete(PDFName.of('TrimBox'));
     const resources = page.node.normalizedEntries().Resources;
+    // Delete Annots/ArtBox/Group after normalizedEntries() since pdf-lib normalizes empty Annots.
+    page.node.delete(PDFName.of('Annots'));
+    page.node.delete(PDFName.of('ArtBox'));
+    page.node.delete(PDFName.of('Group'));
     let colors = resources.lookupMaybe(PDFName.of('ColorSpace'), PDFDict);
     if (!colors) {
       colors = doc.context.obj({});
@@ -74,24 +79,111 @@ export function loadSrgbProfile() {
   return readFile(path);
 }
 
-const run = promisify(execFile);
-export async function inspectLuluAssets(path: string) {
-  const options = { timeout: 90_000, maxBuffer: 8 * 1024 * 1024, windowsHide: true };
-  const [fonts, images] = await Promise.all([
-    run('pdffonts', [path], options),
-    run('pdfimages', ['-list', path], options),
-  ]);
-  const fontRows = fonts.stdout.trimEnd().split(/\r?\n/).slice(2);
-  const imageRows = images.stdout.trimEnd().split(/\r?\n/).slice(2);
-  const unembedded = fontRows.some(
-    (row) => !/\s+yes\s+(?:yes|no)\s+(?:yes|no)\s+\d+\s+\d+\s*$/.test(row),
+function isEmbeddedFontDict(font: PDFDict): boolean {
+  const subtype = font.lookupMaybe(PDFName.of('Subtype'), PDFName)?.asString();
+  if (subtype === '/Type3') return true;
+  if (subtype === '/Type0') {
+    const descendants = font.lookupMaybe(PDFName.of('DescendantFonts'), PDFArray);
+    if (!descendants || descendants.size() === 0) return false;
+    for (let i = 0; i < descendants.size(); i += 1) {
+      const child = descendants.lookupMaybe(i, PDFDict);
+      if (!child || !isEmbeddedFontDict(child)) return false;
+    }
+    return true;
+  }
+  const descriptor = font.lookupMaybe(PDFName.of('FontDescriptor'), PDFDict);
+  if (!descriptor) return false;
+  return Boolean(
+    descriptor.get(PDFName.of('FontFile')) ||
+    descriptor.get(PDFName.of('FontFile2')) ||
+    descriptor.get(PDFName.of('FontFile3')),
   );
-  const lowResolution = imageRows.some((row) => {
-    const cells = row.trim().split(/\s+/);
-    return cells[2] === 'image' && (Number(cells[12]) < 300 || Number(cells[13]) < 300);
-  });
+}
+
+export async function inspectLuluPdfBytes(bytes: Uint8Array): Promise<string[]> {
+  const doc = await PDFDocument.load(bytes);
+  let unembedded = false;
+  let lowResolution = false;
+  const visited = new Set<PDFDict>();
+
+  const inspectResources = (resources: PDFDict | undefined, pageWidthPt: number) => {
+    if (!resources || visited.has(resources)) return;
+    visited.add(resources);
+
+    const fonts = resources.lookupMaybe(PDFName.of('Font'), PDFDict);
+    if (fonts) {
+      for (const key of fonts.keys()) {
+        const font = fonts.lookupMaybe(key, PDFDict);
+        if (font && !isEmbeddedFontDict(font)) unembedded = true;
+      }
+    }
+
+    const xObjects = resources.lookupMaybe(PDFName.of('XObject'), PDFDict);
+    if (xObjects) {
+      for (const key of xObjects.keys()) {
+        const stream = xObjects.lookupMaybe(key, PDFStream);
+        if (!stream) continue;
+        const subtype = stream.dict.lookupMaybe(PDFName.of('Subtype'), PDFName)?.asString();
+        if (subtype === '/Form') {
+          inspectResources(stream.dict.lookupMaybe(PDFName.of('Resources'), PDFDict), pageWidthPt);
+          continue;
+        }
+        if (subtype === '/Image') {
+          const width = stream.dict.lookupMaybe(PDFName.of('Width'), PDFNumber)?.asNumber() ?? 0;
+          const height = stream.dict.lookupMaybe(PDFName.of('Height'), PDFNumber)?.asNumber() ?? 0;
+          if (width > 0 && height > 0) {
+            const ppi = (width * 72) / Math.max(pageWidthPt, 1);
+            if (width >= 200 && height >= 200 && ppi < 280) {
+              lowResolution = true;
+            }
+          }
+        }
+      }
+    }
+  };
+
+  for (const page of doc.getPages()) {
+    inspectResources(page.node.Resources(), page.getSize().width);
+  }
+
   return [
     ...(unembedded ? ['unembedded_font'] : []),
     ...(lowResolution ? ['image_below_300_ppi'] : []),
   ];
+}
+
+const run = promisify(execFile);
+export async function inspectLuluAssets(path: string) {
+  const options = { timeout: 90_000, maxBuffer: 8 * 1024 * 1024, windowsHide: true };
+  try {
+    const [fonts, images] = await Promise.all([
+      run('pdffonts', [path], options),
+      run('pdfimages', ['-list', path], options),
+    ]);
+    const fontRows = fonts.stdout.trimEnd().split(/\r?\n/).slice(2);
+    const imageRows = images.stdout.trimEnd().split(/\r?\n/).slice(2);
+    const unembedded = fontRows.some(
+      (row) => !/\s+yes\s+(?:yes|no)\s+(?:yes|no)\s+\d+\s+\d+\s*$/.test(row),
+    );
+    const lowResolution = imageRows.some((row) => {
+      const cells = row.trim().split(/\s+/);
+      return cells[2] === 'image' && (Number(cells[12]) < 300 || Number(cells[13]) < 300);
+    });
+    return [
+      ...(unembedded ? ['unembedded_font'] : []),
+      ...(lowResolution ? ['image_below_300_ppi'] : []),
+    ];
+  } catch (error) {
+    if (
+      process.platform === 'win32' &&
+      process.env.NODE_ENV !== 'production' &&
+      error &&
+      typeof error === 'object' &&
+      'code' in error &&
+      error.code === 'ENOENT'
+    ) {
+      return inspectLuluPdfBytes(await readFile(path));
+    }
+    throw error;
+  }
 }

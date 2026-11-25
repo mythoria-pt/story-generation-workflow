@@ -8,6 +8,7 @@ import { GoogleCloudWorkflowsAdapter } from '@/adapters/google-cloud/workflows-a
 import { PrintService } from '@/services/print.js';
 import * as premiumAi from '@/services/premium-book-ai.js';
 import * as premiumArtwork from '@/services/premium-book-artwork.js';
+import * as premiumPrint from '@/services/premium-order-proof.js';
 import * as premiumMotif from '@/services/premium-book-motif.js';
 import * as premiumStorage from '@/services/premium-book-storage.js';
 import {
@@ -182,6 +183,16 @@ describe('premium accepted run and recovery', () => {
       motifBrief: 'One simple red painted ball.',
       motifSpread: 1,
       spreads: Array.from({ length: 13 }, (_, index) => ({
+        composition:
+          index === 1
+            ? 'illustration_facing_text'
+            : index === 2
+              ? 'paired_illustrations'
+              : 'panorama',
+        rationale: 'Follow where the ball goes.',
+        leftBrief: index === 1 || index === 2 ? 'The red ball rolls over the grass.' : '',
+        rightBrief: index === 2 ? 'Lina catches the red ball.' : '',
+        rightDescription: '',
         textLayout: index % 2 ? 'right_only' : 'both_pages',
         leftText: index % 2 ? '' : 'Der Ball rollt.',
         rightText: 'Lina lacht.',
@@ -216,7 +227,7 @@ describe('premium accepted run and recovery', () => {
     const text = jest
       .spyOn(premiumAi, 'generatePremiumText')
       .mockImplementation(async (_scope, _config, phase, _prompt, schema) => {
-        expect(phase).toBe('storyboard');
+        expect(phase).toBe('storyboard-mixed-layout');
         return schema.parse(board);
       });
     const images = jest.spyOn(premiumAi, 'generatePremiumImage').mockResolvedValue(png);
@@ -238,6 +249,10 @@ describe('premium accepted run and recovery', () => {
       .spyOn(premiumArtwork, 'exportPremiumArtwork')
       .mockResolvedValue(artwork(false));
     jest.spyOn(premiumArtwork, 'createPremiumNativeSpreadGuides').mockResolvedValue([jpg, jpg]);
+    jest.spyOn(premiumArtwork, 'createPremiumBlankTile').mockResolvedValue(png);
+    jest.spyOn(premiumArtwork, 'readPremiumNativeTileTrim').mockResolvedValue(png);
+    jest.spyOn(premiumArtwork, 'exportIndependentPremiumSpread').mockResolvedValue(artwork(true));
+    const fit = jest.spyOn(premiumPrint, 'validatePremiumTypesetPages').mockResolvedValue([]);
     const spreads = jest
       .spyOn(premiumArtwork, 'exportNativePremiumSpread')
       .mockResolvedValue(artwork(true));
@@ -287,19 +302,30 @@ describe('premium accepted run and recovery', () => {
         'front',
         'back',
       ]);
-      expect(letteredReview.mock.calls.map((call) => call[2])).toEqual([
-        'opener',
-        ...spreadPhases,
-        'ending',
+      const panoramicPhases = spreadPhases.filter(
+        (phase) => !['spread-2', 'spread-3'].includes(phase),
+      );
+      expect(letteredReview.mock.calls.map((call) => call[2]).sort()).toEqual(
+        [
+          'opener',
+          ...panoramicPhases,
+          'spread-2-left',
+          'spread-3-left',
+          'spread-3-right',
+          'ending',
+        ].sort(),
+      );
+      expect(guideReview.mock.calls.map((call) => call[2])).toEqual(panoramicPhases);
+      expect(spreads).toHaveBeenCalledTimes(11);
+      expect(fit).toHaveBeenCalledWith('de-DE', 'children_0-2', [
+        { number: 9, text: 'Lina lacht.' },
       ]);
-      expect(guideReview.mock.calls.map((call) => call[2])).toEqual(spreadPhases);
-      expect(spreads).toHaveBeenCalledTimes(13);
       expect(squares.mock.calls.map((call) => call.slice(1))).toEqual(
         Array.from({ length: 4 }, () => [premiumArtwork.PREMIUM_NATIVE_PAGE_SIZE, false, true]),
       );
       expect(
         images.mock.calls.filter((call) => call[4] === premiumArtwork.PREMIUM_NATIVE_PAGE_SIZE),
-      ).toHaveLength(30);
+      ).toHaveLength(29);
       expect(manifest.editionLayout).toBe(PREMIUM_EMBEDDED_LETTERING_EDITION);
       expect(manifest.format.pageCount).toBe(33);
       expect([...objects.keys()].filter((key) => key.endsWith('.pdf'))).toEqual([]);
@@ -330,8 +356,16 @@ describe('premium accepted run and recovery', () => {
       expect(
         manifest.pages
           .slice(4, 32)
-          .every(({ artwork, reading, textBox }) => artwork && reading && !textBox),
+          .every(
+            ({ artwork, reading, textBox, renderMode }) =>
+              Boolean(artwork) === (renderMode !== 'typeset') && reading && !textBox,
+          ),
       ).toBe(true);
+      expect(manifest.pages[8]).toMatchObject({
+        number: 9,
+        renderMode: 'typeset',
+        text: board.spreads[1]?.rightText,
+      });
       expect(manifest.pages[32]).toMatchObject(premiumInvitationPage('de-DE'));
     } finally {
       jest.restoreAllMocks();

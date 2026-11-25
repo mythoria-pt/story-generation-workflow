@@ -117,7 +117,37 @@ export const narrativeText = z
       [...value].every((character) => character.charCodeAt(0) >= 32),
   )
   .refine((value) => value.split(/\s+/u).every((word) => word.length <= 32));
-export const premiumTextLayout = z.enum(['both_pages', 'right_only']);
+const panoramaTextLayout = z.enum(['both_pages', 'right_only']);
+export const premiumTextLayout = z.enum(['both_pages', 'right_only', 'left_only', 'wordless']);
+export const premiumComposition = z.enum([
+  'panorama',
+  'illustration_facing_text',
+  'paired_illustrations',
+]);
+const renderMode = z.enum(['illustration', 'embedded_art', 'typeset']);
+export const PREMIUM_TYPESET_CHARACTER_LIMIT = 420;
+export const typesetNarration = z
+  .string()
+  .min(1)
+  .max(PREMIUM_TYPESET_CHARACTER_LIMIT)
+  .refine(
+    (value) =>
+      value === value.trim() &&
+      !/[<>]/u.test(value) &&
+      [...value].every((c) => c === '\n' || c.charCodeAt(0) >= 32) &&
+      value.split('\n\n').length <= 3 &&
+      value.split('\n\n').every((p) => p.trim() === p && p.length > 0 && !p.includes('\n')),
+  );
+
+export function premiumPageRenderMode(
+  composition: z.infer<typeof premiumComposition>,
+  placement: PremiumTextLayout,
+  side: 'left' | 'right',
+): z.infer<typeof renderMode> {
+  const narrated = placement === 'both_pages' || placement === `${side}_only`;
+  if (!narrated) return 'illustration';
+  return composition === 'illustration_facing_text' ? 'typeset' : 'embedded_art';
+}
 export const premiumOpeningDesign = z.object({
   motif: z.enum(premiumOpeningMotifs),
   background: z.enum(premiumOpeningColors),
@@ -144,7 +174,7 @@ export const premiumLeftDescription = z
       !/[<>]/u.test(value) && [...value].every((character) => character.charCodeAt(0) >= 32),
   );
 const boardSpread = z.object({
-  textLayout: premiumTextLayout,
+  textLayout: panoramaTextLayout,
   leftText: z.union([narrativeText, z.literal('')]),
   rightText: narrativeText,
   action: z.string().min(1).max(900),
@@ -153,6 +183,76 @@ const boardSpread = z.object({
 function validLeftNarration({ textLayout, leftText }: z.infer<typeof boardSpread>) {
   return textLayout === 'right_only' ? leftText === '' : leftText !== '';
 }
+
+const brief = z.string().trim().max(600);
+const description = z.union([premiumLeftDescription, z.literal('')]);
+const spreadDirection = {
+  composition: premiumComposition.describe('The visual composition of this facing pair.'),
+  rationale: z
+    .string()
+    .trim()
+    .min(1)
+    .max(240)
+    .describe('One editorial sentence about what this choice gives the child.'),
+  leftBrief: brief.describe(
+    'Independent left illustration brief, or empty for a panorama or typeset left page.',
+  ),
+  rightBrief: brief.describe(
+    'Independent right illustration brief, or empty for a panorama or typeset right page.',
+  ),
+  rightDescription: description,
+};
+const mixedBoardSpread = boardSpread.extend({
+  ...spreadDirection,
+  textLayout: premiumTextLayout,
+  leftDescription: description,
+  leftText: z.string().max(PREMIUM_TYPESET_CHARACTER_LIMIT),
+  rightText: z.string().max(PREMIUM_TYPESET_CHARACTER_LIMIT),
+});
+function validMixedSpread(spread: z.infer<typeof mixedBoardSpread>) {
+  if (spread.composition === 'panorama' && !panoramaTextLayout.safeParse(spread.textLayout).success)
+    return false;
+  if (
+    spread.composition === 'illustration_facing_text' &&
+    !['left_only', 'right_only'].includes(spread.textLayout)
+  )
+    return false;
+  for (const side of ['left', 'right'] as const) {
+    const mode = premiumPageRenderMode(spread.composition, spread.textLayout, side);
+    const text = spread[`${side}Text`];
+    if (Boolean(spread[`${side}Description`]) !== (mode === 'illustration')) return false;
+    if (
+      Boolean(spread[`${side}Brief`]) !== (spread.composition !== 'panorama' && mode !== 'typeset')
+    )
+      return false;
+    if (
+      mode === 'illustration'
+        ? text !== ''
+        : !(mode === 'typeset' ? typesetNarration : narrativeText).safeParse(text).success
+    )
+      return false;
+  }
+  return true;
+}
+const mixedSpread = mixedBoardSpread.refine(
+  validMixedSpread,
+  'Page roles, briefs and narration must match the composition',
+);
+// Parse saved boards without introducing defaults into historical checkpoint hashes.
+const savedSpread = mixedBoardSpread
+  .partial({
+    composition: true,
+    rationale: true,
+    leftBrief: true,
+    rightBrief: true,
+    leftDescription: true,
+    rightDescription: true,
+  })
+  .refine((spread) =>
+    spread.composition
+      ? mixedSpread.safeParse(spread).success
+      : boardSpread.refine(validLeftNarration).safeParse(spread).success,
+  );
 
 export const premiumBoard = z.object({
   openingDesign: premiumOpeningDesign.optional(),
@@ -163,7 +263,7 @@ export const premiumBoard = z.object({
   front: z.string().min(1).max(900),
   back: z.string().min(1).max(900),
   opener: z.object({ text: narrativeText, action: z.string().min(1).max(900) }),
-  spreads: z.array(boardSpread.refine(validLeftNarration)).length(PREMIUM_SPREAD_COUNT),
+  spreads: z.array(savedSpread).length(PREMIUM_SPREAD_COUNT),
   ending: z.object({ text: narrativeText, action: z.string().min(1).max(900) }),
 });
 // Provider structured output requires every key. An empty description means a narrated left page.
@@ -187,6 +287,9 @@ export const historicalGeneratedPremiumBoard = premiumBoard
 export const generatedPremiumBoard = historicalGeneratedPremiumBoard.extend({
   motifBrief: premiumMotifBrief,
   motifSpread: premiumMotifSpread,
+});
+export const mixedGeneratedPremiumBoard = generatedPremiumBoard.extend({
+  spreads: z.array(mixedSpread).length(PREMIUM_SPREAD_COUNT),
 });
 export type PremiumBoard = z.infer<typeof premiumBoard>;
 
@@ -214,6 +317,7 @@ export const premiumPage = z.object({
     'invitation',
   ]),
   text: z.string(),
+  renderMode: renderMode.optional(),
   link: z.object({ label: z.string().trim().min(1).max(100), href: z.url() }).optional(),
   spreadId: z.string().optional(),
   artwork: premiumAsset.optional(),
@@ -238,6 +342,11 @@ export function isPremiumNativePrintArtwork(art: z.infer<typeof native>, facing:
   return effectivePpi >= PREMIUM_PRINT_PPI && Math.abs(art.effectivePpi - effectivePpi) < 0.01;
 }
 export const premiumSpread = native.extend({
+  composition: premiumComposition.optional(),
+  rationale: spreadDirection.rationale.optional(),
+  leftBrief: brief.optional(),
+  rightBrief: brief.optional(),
+  rightDescription: premiumLeftDescription.optional(),
   id: z.string(),
   textLayout: premiumTextLayout.optional(),
   leftDescription: premiumLeftDescription.optional(),
@@ -258,7 +367,7 @@ export const premiumImageConfig = z.object({
 });
 export type PremiumImageConfig = z.infer<typeof premiumImageConfig>;
 
-export const premiumManifest = z
+export const premiumManifestBeforePreviews = z
   .object({
     version: z.literal(1),
     type: z.literal(PREMIUM_BOOK_TYPE),
@@ -267,6 +376,8 @@ export const premiumManifest = z
     revision: z.uuid(),
     previousRevision: z.uuid().optional(),
     editionLayout: z.literal(PREMIUM_EMBEDDED_LETTERING_EDITION).optional(),
+    spreadLayoutVersion: z.literal(1).optional(),
+    audience: premiumAudience.optional(),
     format: z.object({
       trimPoints: z.literal(612),
       bleedPoints: z.literal(9),
@@ -341,6 +452,13 @@ export const premiumManifest = z
       const kind = kinds[index];
       const invitation = kind === 'invitation';
       const orderMatches = page.number === index + 1 && page.kind === kind;
+      if (page.renderMode && (kind !== 'spread' || !value.spreadLayoutVersion)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['pages', index, 'renderMode'],
+          message: 'Unexpected page rendering role',
+        });
+      }
       if (invitation) {
         const paragraphs = page.text.split('\n\n');
         if (
@@ -363,16 +481,24 @@ export const premiumManifest = z
         continue;
       }
       const silent =
-        kind === 'spread' &&
-        page.number % 2 === 0 &&
-        value.spreads[Math.floor((page.number - 6) / 2)]?.textLayout === 'right_only';
+        page.renderMode === 'illustration' ||
+        (kind === 'spread' &&
+          page.number % 2 === 0 &&
+          value.spreads[Math.floor((page.number - 6) / 2)]?.textLayout === 'right_only');
+      const typeset = page.renderMode === 'typeset';
       const validText =
-        (silent ? page.text === '' : narrativeText.safeParse(page.text).success) &&
+        (silent
+          ? page.text === ''
+          : (typeset ? typesetNarration : narrativeText).safeParse(page.text).success) &&
         Boolean(page.textBox) === (!silent && !embeddedLettering);
       if (
         !orderMatches ||
         page.link !== undefined ||
-        (page.number >= 5 && (!page.artwork || !page.reading || !validText)) ||
+        (page.number >= 5 &&
+          (!validText ||
+            (typeset
+              ? Boolean(page.artwork || page.printCrop || page.digitalCrop)
+              : !page.artwork || !page.reading))) ||
         (page.number < 5 &&
           Boolean(
             page.artwork ||
@@ -404,6 +530,41 @@ export const premiumManifest = z
     }
     for (const [index, spread] of value.spreads.entries()) {
       const left = 6 + index * 2;
+      if (value.spreadLayoutVersion) {
+        const [leftPage, rightPage] = value.pages.slice(left - 1, left + 1);
+        if (
+          !embeddedLettering ||
+          !value.audience ||
+          !spread.composition ||
+          !spread.textLayout ||
+          !mixedSpread.safeParse({
+            ...spread,
+            leftDescription: spread.leftDescription ?? '',
+            rightDescription: spread.rightDescription ?? '',
+            leftText: leftPage?.text,
+            rightText: rightPage?.text,
+          }).success ||
+          leftPage?.renderMode !==
+            premiumPageRenderMode(spread.composition, spread.textLayout, 'left') ||
+          rightPage?.renderMode !==
+            premiumPageRenderMode(spread.composition, spread.textLayout, 'right')
+        ) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['spreads', index],
+            message: 'Invalid mixed spread page plan',
+          });
+        }
+      } else if (
+        spread.composition ||
+        (spread.textLayout && !panoramaTextLayout.safeParse(spread.textLayout).success)
+      ) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['spreads', index],
+          message: 'Mixed layouts require a versioned page plan',
+        });
+      }
       if (
         spread.id !== `spread-${index + 1}` ||
         spread.leftPage !== left ||
@@ -442,6 +603,18 @@ export const premiumManifest = z
       }
     }
   });
+export const premiumManifest = premiumManifestBeforePreviews.superRefine((book, ctx) => {
+  if (book.spreadLayoutVersion) {
+    for (const [index, page] of book.pages.entries()) {
+      if (!page.reading)
+        ctx.addIssue({
+          code: 'custom',
+          path: ['pages', index, 'reading'],
+          message: 'Published page is missing its reading image',
+        });
+    }
+  }
+});
 export type PremiumManifest = z.infer<typeof premiumManifest>;
 
 export function applyPremiumSpreadText(

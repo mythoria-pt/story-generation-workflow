@@ -10,6 +10,7 @@ import { getEnvironment } from '@/config/environment.js';
 import { convertToAbsoluteImagePath } from '@/utils/imageUtils.js';
 import { StoryService } from './story.js';
 import {
+  legacySquarePackage,
   publishedPremium,
   squarePackage,
   validatePremiumManifest,
@@ -44,9 +45,9 @@ export const OrderProofRequest = z
     binding: z.enum(['paperback', 'hardcover']),
     premiumBook: publishedPremium.optional(),
     premiumPageCount: z.union([z.literal(32), z.literal(33)]).optional(),
-    podPackageId: z.enum([squarePackage, '0850X0850.FC.PRE.CW.080CW444.MXX']).optional(),
+    podPackageId: z.enum([squarePackage, legacySquarePackage]).optional(),
     coverDimensions: z
-      .object({ width: z.number().min(800).max(1400), height: z.number().min(600).max(900) })
+      .object({ width: z.number().min(800).max(1500), height: z.number().min(600).max(900) })
       .optional(),
   })
   .strict()
@@ -295,15 +296,30 @@ export async function renderOrderProof(
       throw new Error('Premium proof page count differs from the paid edition');
     const dir = await mkdtemp(join(tmpdir(), 'mythoria-square-proof-'));
     try {
-      if (request.coverDimensions) assertSquareCasewrap(request.coverDimensions);
+      if (request.coverDimensions) assertSquareCasewrap(request.coverDimensions, pageCount);
+      const renderOptions =
+        lulu && request.coverDimensions
+          ? { coverDimensions: request.coverDimensions, lulu: true }
+          : lulu
+            ? { lulu: true }
+            : undefined;
       const render = (part: 'interior' | 'cover') =>
-        renderSquarePdf(
-          manifest,
-          dir,
-          part,
-          (ref) => readPremiumObject(premiumBucket, ref),
-          loadArtwork,
-        );
+        renderOptions
+          ? renderSquarePdf(
+              manifest,
+              dir,
+              part,
+              (ref) => readPremiumObject(premiumBucket, ref),
+              loadArtwork,
+              renderOptions,
+            )
+          : renderSquarePdf(
+              manifest,
+              dir,
+              part,
+              (ref) => readPremiumObject(premiumBucket, ref),
+              loadArtwork,
+            );
       const interior = await stage<Interior>(bucket, prefix + '/square-interior.json', async () => {
         const { bytes, issues } = await render('interior');
         return {
@@ -315,6 +331,20 @@ export async function renderOrderProof(
       if (interior.pageCount !== pageCount)
         throw new Error('Cached interior has a different page count');
       if (lulu && !request.coverDimensions) return { interior: interior.interior, pageCount };
+      if (lulu && request.coverDimensions) {
+        const requestedCover = request.coverDimensions;
+        const stagedDims = await stage<Dimensions>(
+          bucket,
+          prefix + '/square-dimensions.json',
+          async () => requestedCover,
+        );
+        if (
+          stagedDims.width !== request.coverDimensions.width ||
+          stagedDims.height !== request.coverDimensions.height
+        ) {
+          throw new Error('Existing proof uses different dimensions');
+        }
+      }
       return await stage<Required<Result>>(bucket, prefix + '/square-final.json', async () => {
         const { bytes, issues: coverIssues } = await render('cover');
         const issues = [...new Set([...interior.imageIssues, ...coverIssues])];

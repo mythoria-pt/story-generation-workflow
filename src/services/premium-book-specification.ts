@@ -125,7 +125,7 @@ export function renderPremiumSpecificationDocument(edition: Edition, assets: Spe
   <title>${escapePremiumHtml(edition.opening.title)}</title>
   <style>
     * { box-sizing: border-box; }
-    body { margin: 0; display: grid; place-items: center; min-height: 100dvh; font-family: Georgia, serif; }
+    body { margin: 0; display: grid; place-items: center; min-height: 100dvh; font-family: Georgia, 'Liberation Serif', serif; }
     ${premiumSpecificationStyles}
     .specification {
       --spec-unit: calc(min(100vw, 100dvh) / 630);

@@ -10,7 +10,8 @@ import {
 // Both densities are divisible by eight, so 1/8-inch bleed and the join land on integer pixels.
 export { PREMIUM_PRINT_PPI };
 export const PREMIUM_READING_PPI = 96;
-export const PREMIUM_NATIVE_PAGE_SIZE = '2672x2672';
+const NATIVE_PAGE_EDGE = 2672;
+export const PREMIUM_NATIVE_PAGE_SIZE = `${NATIVE_PAGE_EDGE}x${NATIVE_PAGE_EDGE}`;
 const TRIM_INCHES = 8.5;
 const BLEED_INCHES = 0.125;
 type Crop = { x: number; y: number; width: number; height: number };
@@ -358,4 +359,113 @@ export async function exportNativePremiumSpread(left: Buffer, right: Buffer) {
   // render at its original scale. The same overlap is used by both print crops.
   const source = await sharp(pixels, { raw: { width, height, channels } }).png().toBuffer();
   return { source, ...(await exportPremiumArtwork(source, `${width}x${height}`, true, true)) };
+}
+
+export function createPremiumBlankTile(background: string) {
+  return sharp({
+    create: { width: NATIVE_PAGE_EDGE, height: NATIVE_PAGE_EDGE, channels: 3, background },
+  })
+    .png()
+    .toBuffer();
+}
+
+export async function restorePremiumNativeTile(printPage: Buffer) {
+  const edge = premiumGeometry(PREMIUM_PRINT_PPI, false).height;
+  const input = sharp(printPage, { limitInputPixels: 16_000_000, failOn: 'warning' });
+  const info = await input.metadata();
+  if (info.width !== edge || info.height !== edge || info.hasAlpha || (info.pages ?? 1) !== 1) {
+    throw new PremiumBookError(409, 'premium_image_dimensions', 'Invalid published premium page');
+  }
+  const padding = (NATIVE_PAGE_EDGE - edge) / 2;
+  return input
+    .extend({ top: padding, right: padding, bottom: padding, left: padding, extendWith: 'copy' })
+    .toColourspace('srgb')
+    .png()
+    .toBuffer();
+}
+
+export async function restoreIndependentPremiumTile(source: Buffer, side: 'left' | 'right') {
+  const { width, height } = premiumGeometry(PREMIUM_PRINT_PPI, true);
+  const { image } = await inspectPremiumOpaquePng(source, `${width}x${height}`);
+  const half = width / 2;
+  const bleed = height - half;
+  const tile = await image
+    .extract({ left: side === 'left' ? 0 : half, top: 0, width: half, height })
+    .extend({
+      left: side === 'right' ? bleed : 0,
+      right: side === 'left' ? bleed : 0,
+      extendWith: 'copy',
+    })
+    .png()
+    .toBuffer();
+  return restorePremiumNativeTile(tile);
+}
+
+export async function readPremiumNativeTileTrim(tile: Buffer) {
+  const { width, height, reading } = premiumGeometry(PREMIUM_READING_PPI, false);
+  const [trim] = reading;
+  if (!trim) throw new Error('Missing native page trim');
+  const resized = await sharp(await cropPremiumNativeTile(tile))
+    .resize(width, height)
+    .png()
+    .toBuffer();
+  return sharp(resized).extract(getCrop(trim)).png().toBuffer();
+}
+
+async function cropPremiumNativeTile(source: Buffer) {
+  const { image, width } = await inspectPremiumOpaquePng(source, PREMIUM_NATIVE_PAGE_SIZE);
+  const { height } = premiumGeometry(PREMIUM_PRINT_PPI, false);
+  const margin = (width - height) / 2;
+  return image
+    .extract({ left: margin, top: margin, width: height, height })
+    .toColourspace('srgb')
+    .png()
+    .toBuffer();
+}
+
+export async function exportIndependentPremiumSpread(left: Buffer, right: Buffer) {
+  const printTiles = await Promise.all([left, right].map(cropPremiumNativeTile));
+  const print = premiumGeometry(PREMIUM_PRINT_PPI, false);
+  const tiles = await Promise.all(
+    printTiles.map((tile) =>
+      exportPremiumArtwork(tile, `${print.width}x${print.height}`, false, true),
+    ),
+  );
+  const combine = async (ppi: number, pages: readonly Buffer[]) => {
+    const { width, height } = premiumGeometry(ppi, true);
+    const half = width / 2;
+    const bleed = height - half;
+    const parts = await Promise.all(
+      pages.map((page, index) =>
+        sharp(page)
+          .extract({ left: index === 0 ? 0 : bleed, top: 0, width: half, height })
+          .png()
+          .toBuffer(),
+      ),
+    );
+    const joined = await sharp({ create: { width, height, channels: 3, background: '#ffffff' } })
+      .composite(parts.map((input, index) => ({ input, left: index * half, top: 0 })))
+      .png()
+      .toBuffer();
+    return sharp(joined).removeAlpha().png().toBuffer();
+  };
+  const [source, readingMaster] = await Promise.all([
+    combine(PREMIUM_PRINT_PPI, printTiles),
+    combine(
+      PREMIUM_READING_PPI,
+      tiles.map(({ readingMaster }) => readingMaster),
+    ),
+  ]);
+  const { width: nativeWidth, height: nativeHeight } = premiumGeometry(PREMIUM_PRINT_PPI, true);
+  return {
+    source,
+    readingMaster,
+    printPages: tiles.flatMap(({ printPages }) => printPages),
+    readingPages: tiles.flatMap(({ readingPages }) => readingPages),
+    nativeWidth,
+    nativeHeight,
+    effectivePpi: PREMIUM_PRINT_PPI,
+    digitalCrops: tiles.flatMap(({ digitalCrops }) => digitalCrops),
+    printCrops: tiles.flatMap(({ printCrops }) => printCrops),
+  };
 }

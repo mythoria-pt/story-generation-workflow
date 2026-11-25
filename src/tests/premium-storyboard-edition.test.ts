@@ -1,5 +1,9 @@
 import { describe, expect, it } from '@jest/globals';
-import { PREMIUM_EMBEDDED_LETTERING_EDITION } from '@/services/premium-book-contract.js';
+import {
+  PREMIUM_EMBEDDED_LETTERING_EDITION,
+  mixedGeneratedPremiumBoard,
+  premiumPageRenderMode,
+} from '@/services/premium-book-contract.js';
 import {
   buildPremiumStoryboardPrompt,
   premiumPictureBookArtDirection,
@@ -12,6 +16,48 @@ const examples = [
   ['fr-FR', 'L’Île aux étoiles', 'fusain'],
   ['de-DE', 'Fünf Füchse im Schnee', 'Fotorealismus'],
 ] as const;
+
+describe('mixed spread vocabulary', () => {
+  const schema = mixedGeneratedPremiumBoard.shape.spreads.element;
+  const passage = {
+    composition: 'illustration_facing_text',
+    textLayout: 'left_only',
+    action: 'A gull watches the harbour.',
+    rationale: 'Read the letter before seeing its sender.',
+    leftText: '«Olá, avó!»\n\nO vento trouxe uma carta.',
+    rightText: '',
+    leftBrief: '',
+    rightBrief: 'A gull carries an envelope.',
+    leftDescription: '',
+    rightDescription: 'Uma gaivota leva uma carta.',
+  };
+  it('keeps longer passages and embedded lines in their assigned page roles', () => {
+    expect(schema.safeParse(passage).success).toBe(true);
+    expect(premiumPageRenderMode('illustration_facing_text', 'left_only', 'left')).toBe('typeset');
+    expect(schema.safeParse({ ...passage, rightText: 'Outra vez.' }).success).toBe(false);
+    expect(
+      schema.safeParse({
+        ...passage,
+        composition: 'paired_illustrations',
+        leftBrief: 'The wind picks up.',
+      }).success,
+    ).toBe(false);
+    expect(schema.safeParse({ ...passage, textLayout: 'both_pages' }).success).toBe(false);
+  });
+  it('permits two silent illustrated beats with two briefs and two descriptions', () => {
+    const pair = {
+      ...passage,
+      composition: 'paired_illustrations',
+      textLayout: 'wordless',
+      leftText: '',
+      leftBrief: 'A red mitten falls.',
+      leftDescription: 'Uma luva vermelha cai.',
+    };
+    expect(schema.safeParse(pair).success).toBe(true);
+    expect(schema.safeParse({ ...pair, rightBrief: '' }).success).toBe(false);
+    expect(schema.safeParse({ ...pair, rightDescription: '' }).success).toBe(false);
+  });
+});
 
 describe.each(['children_0-2', 'children_3-6'] as const)('new picture books for %s', (audience) => {
   it.each(examples)('preserves the language and visual brief for %s', (locale, title, style) => {

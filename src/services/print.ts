@@ -315,6 +315,30 @@ export class PrintService {
     );
   }
 
+  async findTextOverflow(html: string): Promise<string[]> {
+    return this.withRenderedPage(html, false, (page) => this.findOverflowingTextAreas(page));
+  }
+
+  private async findOverflowingTextAreas(page: Page): Promise<string[]> {
+    return page.evaluate(async () => {
+      await document.fonts.ready;
+      const loadedFonts = new Set<string>();
+      document.fonts.forEach((font) => {
+        if (font.status === 'loaded') loadedFonts.add(font.family);
+      });
+      return Array.from(document.querySelectorAll<HTMLElement>('.fit')).flatMap((element) => {
+        const { fitId, fitFont } = element.dataset;
+        if (fitFont && !loadedFonts.has(fitFont)) {
+          throw new Error('Premium typesetting font is unavailable');
+        }
+        return element.scrollHeight > element.clientHeight + 1 ||
+          element.scrollWidth > element.clientWidth + 1
+          ? [fitId ?? '']
+          : [];
+      });
+    });
+  }
+
   private async withRenderedPage<T>(
     html: string,
     checkTextFit: boolean,
@@ -359,6 +383,13 @@ export class PrintService {
         await page.setRequestInterception(true);
         await page.setJavaScriptEnabled(false);
         page.on('request', async (request) => {
+          if (
+            request.resourceType() === 'font' &&
+            request.url().startsWith('data:font/woff2;base64,')
+          ) {
+            await request.continue();
+            return;
+          }
           if (request.resourceType() !== 'image') {
             await request.abort();
             return;
@@ -383,7 +414,7 @@ export class PrintService {
         });
         html = html.replace(
           '<head>',
-          `<head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https://storage.googleapis.com; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">`,
+          `<head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https://storage.googleapis.com; style-src 'unsafe-inline'; font-src data:; base-uri 'none'; form-action 'none'">`,
         );
       }
       await page.setContent(html, { waitUntil: 'load' });
@@ -399,16 +430,7 @@ export class PrintService {
         throw new Error('Unable to render all print artwork');
       }
 
-      if (
-        checkTextFit &&
-        (await page.evaluate(() =>
-          Array.from(document.querySelectorAll<HTMLElement>('.fit')).some(
-            (element) =>
-              element.scrollHeight > element.clientHeight + 1 ||
-              element.scrollWidth > element.clientWidth + 1,
-          ),
-        ))
-      )
+      if (checkTextFit && (await this.findOverflowingTextAreas(page)).length > 0)
         throw new Error('Premium text exceeds its safe area');
 
       return await action(page);

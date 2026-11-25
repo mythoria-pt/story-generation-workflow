@@ -15,10 +15,14 @@ import {
 } from '@/services/premium-book-artwork.js';
 import {
   assertSquareCasewrap,
+  legacySquarePackage,
+  renderSquarePagePreviews,
   renderSquarePdf,
   squarePackage,
   validatePremiumManifest,
+  validatePremiumTypesetPages,
 } from '@/services/premium-order-proof.js';
+import { CMYKConversionService } from '@/services/cmyk-conversion.js';
 
 const storyId = randomUUID(),
   revision = randomUUID();
@@ -113,7 +117,42 @@ describe('square order proof', () => {
         validatePremiumManifest({ ...manifest, ...fields }, manifest.storyId, manifest.revision),
       ).toThrow();
     expect(() => assertSquareCasewrap({ width: 1368, height: 738 })).not.toThrow();
+    expect(() => assertSquareCasewrap({ width: 1368.2, height: 738 }, 33)).not.toThrow();
     expect(() => assertSquareCasewrap({ width: 1100, height: 738 })).toThrow();
+    expect(() => assertSquareCasewrap({ width: 1368, height: 680 })).toThrow();
+  });
+
+  it('accepts dotted and legacy square SKUs and renders dynamic Lulu cover dimensions with flattening', async () => {
+    expect(squarePackage).toBe('0850X0850.FC.PRE.CW.080CW444.MXX');
+    expect(legacySquarePackage).toBe('0850X0850FCPRECW080CW444MXX');
+    expect(
+      OrderProofRequest.safeParse({ ...input, podPackageId: legacySquarePackage }).success,
+    ).toBe(true);
+    const book = premiumLetteredManifestFixture();
+    const checked = validatePremiumManifest(book, book.storyId, book.revision);
+    const capture = jest
+      .spyOn(PrintService.prototype, 'renderPDF')
+      .mockRejectedValue(new Error('captured HTML'));
+    const flatten = jest.spyOn(CMYKConversionService.prototype, 'flattenForLulu');
+    const unavailable = jest.fn(async () => {
+      throw new Error('Unexpected image access');
+    });
+    try {
+      await expect(
+        renderSquarePdf(checked, '', 'cover', unavailable, unavailable, {
+          coverDimensions: { width: 1368.2, height: 738 },
+          lulu: true,
+        }),
+      ).rejects.toThrow('captured HTML');
+      const [coverHtml, coverOptions] = capture.mock.calls[0]!;
+      expect(coverHtml).toContain('width:675.1pt;height:738pt');
+      expect(coverOptions.width).toBeCloseTo((1368.2 * 25.4) / 72, 2);
+      expect(coverOptions.height).toBeCloseTo((738 * 25.4) / 72, 2);
+      expect(flatten).not.toHaveBeenCalled();
+    } finally {
+      capture.mockRestore();
+      flatten.mockRestore();
+    }
   });
   it('renders the declared lower panel in trim-relative points and retains existing upper panels', async () => {
     const book = premiumManifestFixture();
@@ -176,6 +215,64 @@ describe('square order proof', () => {
       expect(coverOptions.height).toBeCloseTo(260.35);
     } finally {
       capture.mockRestore();
+    }
+  });
+  it('uses the same selectable typeset markup for square PDFs and reading previews', async () => {
+    const book = premiumLetteredManifestFixture();
+    book.spreadLayoutVersion = 1;
+    book.audience = 'children_0-2';
+    book.openingDesign = { background: '#f9efd9', motif: 'paper_boat' };
+    const page = book.pages[6]!;
+    page.renderMode = 'typeset';
+    page.text = '«Olá, Maria da Conceição!»\n\nO avô sorriu & acenou.';
+    delete page.artwork;
+    const captured = new Error('captured HTML');
+    const pdf = jest.spyOn(PrintService.prototype, 'renderPDF').mockRejectedValue(captured);
+    const preview = jest
+      .spyOn(PrintService.prototype, 'renderPageImages')
+      .mockRejectedValue(captured);
+    const unavailable = jest.fn(async () => {
+      throw new Error('Unexpected image access');
+    });
+    try {
+      await expect(renderSquarePdf(book, '', 'interior', unavailable, unavailable)).rejects.toThrow(
+        captured,
+      );
+      await expect(
+        renderSquarePagePreviews(book, [page], unavailable, unavailable),
+      ).rejects.toThrow(captured);
+      const matchTypesetPage = /<section class="typeset .*?<\/section>/s;
+      const printPage = pdf.mock.calls[0]![0].match(matchTypesetPage)?.[0];
+      expect(printPage).toContain('typeset-recto typeset-younger');
+      expect(printPage).toContain('background:#f9efd9;color:#243735');
+      expect(printPage).toContain('«Olá, Maria da Conceição!»\n\nO avô sorriu &amp; acenou.');
+      expect(printPage).not.toContain('<img');
+      expect(preview.mock.calls[0]![0].match(matchTypesetPage)?.[0]).toBe(printPage);
+    } finally {
+      pdf.mockRestore();
+      preview.mockRestore();
+    }
+  });
+  it('measures candidate passages in their physical page geometry with the pinned book font', async () => {
+    const measure = jest.spyOn(PrintService.prototype, 'findTextOverflow').mockResolvedValue(['9']);
+    try {
+      await expect(validatePremiumTypesetPages('de-DE', 'children_3-6', [])).resolves.toEqual([]);
+      expect(measure).not.toHaveBeenCalled();
+      await expect(
+        validatePremiumTypesetPages('de-DE', 'children_3-6', [
+          { number: 6, text: '„Grüß dich!“' },
+          { number: 9, text: 'Mara-Luise aus Nordrhein-Westfalen wollte mitfahren.' },
+        ]),
+      ).resolves.toEqual([9]);
+      const [html] = measure.mock.calls[0]!;
+      expect(html).toContain('<html lang="de-DE">');
+      expect(html).toContain('@page{size:630pt 630pt');
+      expect(html).toContain('src: url(data:font/woff2;base64,');
+      expect(html).toContain('class="typeset typeset-verso"');
+      expect(html).toContain('class="typeset typeset-recto"');
+      expect(html).toContain('data-fit-id="6" data-fit-font="Literata">„Grüß dich!“');
+    } finally {
+      measure.mockRestore();
     }
   });
   it('rejects an integrated edition with a missing invitation, overlay, or missing canonical narration', () => {
