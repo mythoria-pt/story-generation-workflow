@@ -71,4 +71,41 @@ describe('TextGenerationMiddleware', () => {
     expect(serialized).not.toContain('private output');
     expect(mockRecordUsage.mock.calls[0][0].inputPromptJson.operation).toBe('story_guide');
   });
+  it('sums measured segments, forwards cached discounts and retains usage on failure', async () => {
+    const base = {
+      complete: jest.fn(async (_prompt: string, options: any) => {
+        options.usageObserver({
+          model: 'gemini-4-hydrogen',
+          inputTokens: 100,
+          outputTokens: 30,
+          cachedInputTokens: 20,
+          thinkingTokens: 10,
+        });
+        options.usageObserver({
+          model: 'gemini-4-hydrogen',
+          inputTokens: 150,
+          outputTokens: 40,
+          cachedInputTokens: 80,
+          thinkingTokens: 15,
+        });
+        throw new Error('Final segment failed');
+      }),
+    };
+    const middleware = new TextGenerationMiddleware(base, {
+      authorId: 'author',
+      storyId: 'story',
+      action: 'chapter_writing',
+    });
+    await expect(middleware.complete('Story')).rejects.toThrow('Final segment failed');
+    await new Promise<void>((resolve) => globalThis.setImmediate(resolve));
+    expect(mockRecordUsage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        aiModel: 'gemini-4-hydrogen',
+        inputTokens: 250,
+        outputTokens: 70,
+        cachedInputTokens: 100,
+        inputPromptJson: expect.objectContaining({ status: 'failed', thinkingTokens: 25 }),
+      }),
+    );
+  });
 });

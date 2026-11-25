@@ -74,7 +74,9 @@ function extractCloudbuildEnvHints(content: string): Set<string> {
   const s = new Set<string>();
 
   const addPairList = (blob: string) => {
-    for (const segment of blob.split(',')) {
+    const delimiter = /^\^([^\^]+)\^/.exec(blob);
+    const body = delimiter ? blob.slice(delimiter[0].length) : blob;
+    for (const segment of body.split(delimiter?.[1] ?? ',')) {
       const piece = segment.trim();
       const eq = piece.indexOf('=');
       if (eq > 0) {

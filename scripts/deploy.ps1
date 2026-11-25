@@ -12,6 +12,8 @@ param(
     [switch]$Staging,
     [switch]$Fast,
     [switch]$SkipLint,
+    [ValidateSet('hybrid', 'chapter_by_chapter')]
+    [string]$StoryTextGenerationMode,
     [switch]$Help
 )
 
@@ -34,7 +36,7 @@ $GCLOUD_COMMAND = (
 # -----------------------------------------------------------------------------
 
 function Show-Help {
-    Write-Host "Usage: .\deploy.ps1 [-Staging] [-Fast] [-SkipLint] [-Help]" -ForegroundColor Cyan
+    Write-Host "Usage: .\deploy.ps1 [-Staging] [-Fast] [-SkipLint] [-StoryTextGenerationMode hybrid|chapter_by_chapter] [-Help]" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "Options:" -ForegroundColor Yellow
     Write-Host "  -Staging     Deploy to the staging service ($BASE_SERVICE_NAME-staging)" -ForegroundColor White
@@ -213,10 +215,15 @@ function Deploy-With-CloudBuild {
     $cloudBuildPath = Join-Path $REPO_ROOT 'cloudbuild.yaml'
     Write-Info "Starting Cloud Build submission (beta)"
     Write-Info "Deploying immutable source commit $GitSha"
+    $substitutions = "_SERVICE_NAME=$SERVICE_NAME,_REGION=$REGION,_GIT_SHA=$GitSha,_REVISION_SUFFIX=$revisionSuffix"
+    if ($StoryTextGenerationMode) {
+        $substitutions = '^|^' + $substitutions.Replace(',', '|') + "|_STORY_TEXT_MODE_UPDATE=,STORY_TEXT_GENERATION_MODE=$StoryTextGenerationMode"
+    }
+
     & $GCLOUD_COMMAND beta builds submit $REPO_ROOT `
         --config $cloudBuildPath `
         --project $PROJECT_ID `
-        --substitutions "_SERVICE_NAME=$SERVICE_NAME,_REGION=$REGION,_GIT_SHA=$GitSha,_REVISION_SUFFIX=$revisionSuffix"
+        --substitutions $substitutions
     if ($LASTEXITCODE -ne 0) {
         Write-Err "Cloud Build submission failed"
         throw "Cloud Build failed"

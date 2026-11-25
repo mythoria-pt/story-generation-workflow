@@ -31,7 +31,7 @@ steps:
       - '--update-labels'
       - 'git-sha=${_GIT_SHA},cloud-build-id=$BUILD_ID'
       - '--update-env-vars'
-      - 'DEPLOY_GIT_SHA=${_GIT_SHA},DEPLOY_BUILD_ID=$BUILD_ID'
+      - 'DEPLOY_GIT_SHA=${_GIT_SHA},DEPLOY_BUILD_ID=$BUILD_ID${_STORY_TEXT_MODE_UPDATE}'
       - '--quiet'
       # Existing Cloud Run environment variables.
       # env-parity-preserved: NODE_ENV,DB_PORT,DB_NAME,WORKFLOWS_DB,GOOGLE_CLOUD_PROJECT_ID,GOOGLE_CLOUD_REGION
@@ -59,6 +59,7 @@ substitutions:
   _GIT_SHA: 'unknown'
   _REVISION_SUFFIX: 'git-unknown'
   _NODE_VERSION: '24.18.1'
+  _STORY_TEXT_MODE_UPDATE: ''
 
 options:
   machineType: 'E2_HIGHCPU_8'

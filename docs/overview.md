@@ -86,3 +86,5 @@ SGW owns `workflows_db.story_generation_runs`. Claiming uses a conditional upser
 ## Referral platform v1 (2026-09-09)
 
 See the [referral implementation and operations guide](referrals.md) for this service's responsibilities, updated contracts, configuration, schema ownership and validation. The feature is implemented locally; production migration, deployment and pilot activation require their separate rollout checkpoints.
+
+Hydrogen model configuration, hybrid routing, continuation recovery and rollout are documented in [Hydrogen story generation](hydrogen-story-generation.md).

@@ -339,8 +339,8 @@ interface TTSResult {
 
 - Model: `gemini-3.8-flash-tts`. This is the only supported Gemini TTS model. With `TTS_PROVIDER=google-genai`, config validation fails for any other `TTS_MODEL` (no 3.1 or Flash-Lite support).
 - Request: `models.generateContent` with `responseModalities: ['AUDIO']`, `speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName` and `speechConfig.languageCode` (story locale).
-- The transcript is sent verbatim: no director's notes and no preamble. Delivery direction goes in `Part.speechMetadata.style`.
-- Inline vocalization tags use angle brackets (e.g. `<laughs>`, `<sigh>`) and are rendered as sounds. Pause tags (`<short pause>`, `<long pause>`) are deliberately not used: the model can read them aloud, and paragraph breaks already create the pauses. The provider strips any stray pause tag from the text and from every segment before the request (logged at debug).
+- The prepared narration transcript is sent as-is: no director's notes and no preamble. It may include the director's minor spoken-language edits. Delivery direction goes in `Part.speechMetadata.style`.
+- Inline vocalization tags use angle brackets (e.g. `<laugh>`, `<sigh>`) and request vocal sounds. Pause tags (`<short pause>`, `<long pause>`) are deliberately not used: the model can read them aloud, and paragraph breaks already create the pauses. The provider strips any stray pause tag from the text and from every segment before the request (logged at debug).
 - No legacy `systemPrompt` is accepted or logged for Gemini; style plus `languageCode` replace it.
 
 Simplified excerpt (see the file for the exact request shape, including per-segment parts):
@@ -429,7 +429,7 @@ Any stray pause tag is stripped defensively before the request; paragraph breaks
 
 #### Overview
 
-Expressive narration is controlled by **`TTS_EXPRESSIVE_DIRECTION_ENABLED`**. The code default is `false`, but deployments (`cloudbuild.yaml`) and `.env.local` set it to `true`, with `TTS_DIRECTION_MODEL=gemini-3.8-flash`. When it is off, every chunk is sent as plain text with the base style.
+Expressive narration is controlled by **`TTS_EXPRESSIVE_DIRECTION_ENABLED`**. The default is `false`. Enable it with `TTS_EXPRESSIVE_DIRECTION_ENABLED=true`. When it is off, every chunk is sent as plain text with the base style.
 
 When it is on, each chunk gets one text-LLM call before synthesis:
 
@@ -438,21 +438,28 @@ When it is on, each chunk gets one text-LLM call before synthesis:
 - **Model:** `TTS_DIRECTION_MODEL`, falling back to `GOOGLE_GENAI_MODEL` when unset
 - **Output:** 1-4 segments, each `{text, mood}`
 - Each segment is sent as its own part, with style `"<baseStyle>; <mood>"`.
+- The director may make small spoken-language adjustments to punctuation, contractions and phrasing. These affect audio only; saved chapter text is unchanged. Names, facts, dialogue meaning, language and story events must be preserved by the prompt.
 
 #### Guardrails
 
-| Guardrail       | Rule                                                                                                                                 |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| Verbatim check  | Segment text must match the source chunk; the director may add tags but may not rewrite the story                                    |
-| Tag whitelist   | Only `<sigh>`, `<laughs>`, `<chuckle>`, `<giggle>`, `<gasp>`, `<whispers>`, `<breath>`. Pause tags are rejected like any unknown tag |
-| Tag density     | At most 1 tag per 120 words                                                                                                          |
-| Style sanitizer | No accent, age, gender or identity words; at most 80 characters                                                                      |
+| Guardrail       | Rule                                                                                                                                                                                                                            |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Content drift   | Punctuation/case changes are unrestricted. Word-level edit distance allows up to 25% edits (minimum 3); fewer than 75% of the original words is rejected. This is a lexical bound, so it cannot detect every change in meaning. |
+| Vocal cues      | Supported cues are listed below. Recognized square-bracket/case variants normalize to angle brackets. Unsupported markup and pause cues are removed without rejecting valid styles.                                             |
+| Cue density     | Up to one cue per 60 words, rounded up, with a minimum allowance of 2 and a maximum of 16 per chunk. Surplus cues are removed rather than rejecting the direction.                                                              |
+| Style sanitizer | No accent, age, gender or identity words; at most 80 characters                                                                                                                                                                 |
 
-Any failure (LLM error, guardrail violation, parse error) falls back to the plain chunk with the base style. Narration never blocks on direction.
+Supported cues: `<sigh>`, `<sighs>`, `<laugh>`, `<laughter>`, `<chuckle>`, `<chuckles>`, `<giggle>`, `<gasp>`, `<whispers>`, `<whispering>`, `<breath>`, `<heavy breath>`, `<exhales>`, `<cough>`, `<throat-clearing>`, `<cry>`, `<sob>`, `<whimper>`, `<snicker>`, `<snort>`, `<phew>`, `<yawn>`, `<groan>` and `<cheer>`. Use documented `<laugh>` rather than `<laughs>`. Sustained whispering, breathlessness, emotion and pacing belong in segment style; inline tags mark brief vocal events. Cues are optional when a passage has no appropriate vocal reaction. Pause tags remain excluded because of prior audible-tag problems; paragraph breaks supply pauses.
+
+The vocabulary and style separation follow [Google's Gemini 3.8 TTS prompting guide](https://aistudio.google.com/docs/speech-generation#prompting-guide). Audience-specific intensity comes from the director prompt, which covers children, teens and adults.
+
+An LLM error, timeout, malformed response, or substantial content drift falls back to the original chunk with the base style. Unsupported or excess cues alone do not cause fallback. Narration never blocks on direction.
 
 #### Cost tracking
 
 Direction calls are tracked as `audio_generation` with `inputPromptJson.operation = 'narration_direction'`. No database enum change is needed.
+
+TTS usage metadata records `narrationDirection.directedChunks`, `fallbackChunks`, `insertedTags`, `discardedTags`, `adaptedChunks`, `styledSegments`, and `fallbackReasons`. Direction logs record counts only, not private transcript/response text. A successful audio response alone is insufficient proof of expressive direction: confirm directed chunks and styles/cues, then assess the generated audio. Older recordings remain unchanged; regenerate them to apply the new direction.
 
 ---
 

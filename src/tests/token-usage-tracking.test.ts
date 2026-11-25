@@ -31,6 +31,28 @@ describe('TokenUsageTrackingService', () => {
     jest.clearAllMocks();
   });
 
+  it('uses stable IDs for retry-safe segment accounting and surfaces required failures', async () => {
+    const conflict = jest.fn().mockResolvedValue(undefined);
+    const values = jest.fn(() => ({ onConflictDoNothing: conflict }));
+    mockDb.insert.mockReturnValue({ values });
+    const usage = {
+      tokenUsageId: 'stable-id',
+      authorId: 'author',
+      storyId: 'story',
+      action: 'chapter_writing' as const,
+      aiModel: 'gemini-4-hydrogen',
+      inputTokens: 100,
+      outputTokens: 30,
+      cachedInputTokens: 20,
+      inputPromptJson: {},
+    };
+    await service.recordUsage(usage, true);
+    expect(values).toHaveBeenCalledWith(expect.objectContaining({ tokenUsageId: 'stable-id' }));
+    expect(conflict).toHaveBeenCalledTimes(1);
+    conflict.mockRejectedValueOnce(new Error('DB unavailable'));
+    await expect(service.recordUsage(usage, true)).rejects.toThrow('DB unavailable');
+  });
+
   it('records usage with cost estimation', async () => {
     const valuesMock = jest.fn().mockResolvedValue(undefined);
     mockDb.insert.mockReturnValue({ values: valuesMock });

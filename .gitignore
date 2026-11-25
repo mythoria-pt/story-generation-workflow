@@ -17,6 +17,7 @@ build/
 .env
 .env.*
 !.env.schema.json
+!.env.example
 !.env.*.template
 !.env.*.example
 
