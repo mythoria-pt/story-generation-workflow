@@ -552,6 +552,16 @@ export async function reviewPremiumLetteredArtwork(
   }
 }
 
+const safePictureBookFraming =
+  'Keep this strictly gentle, wholesome, non-threatening children’s picture-book artwork in an original illustrated style: warm friendly expressions, fully clothed characters at a comfortable distance, zero danger, zero realistic photographic likeness, and no copyrighted character designs.';
+
+function isModerationBlock(error: unknown): error is InstanceType<typeof OpenAI.APIError> {
+  return (
+    error instanceof OpenAI.APIError &&
+    ['moderation_blocked', 'content_policy_violation'].includes(error.code ?? '')
+  );
+}
+
 export async function generatePremiumImage(
   scope: Scope,
   config: PremiumImageConfig,
@@ -573,33 +583,49 @@ export async function generatePremiumImage(
           ? spreadImageTimeoutMs
           : undefined,
   );
-  const params = {
+  const baseParams = {
     model: config.model,
     quality: config.quality,
     size,
-    prompt,
     n: 1,
     output_format: 'png' as const,
     background: motif ? ('transparent' as const) : ('opaque' as const),
   };
-  let output;
-  const started = Date.now();
-  try {
-    output = references.length
-      ? await client.images.edit({
-          ...params,
+  const requestImage = async (effectivePrompt: string) =>
+    references.length
+      ? client.images.edit({
+          ...baseParams,
+          prompt: effectivePrompt,
           image: await Promise.all(
             references.map((image, index) =>
               toFile(image, `reference-${index}.jpg`, { type: 'image/jpeg' }),
             ),
           ),
         })
-      : await client.images.generate(params);
+      : client.images.generate({ ...baseParams, prompt: effectivePrompt });
+  let output;
+  const started = Date.now();
+  try {
+    try {
+      output = await requestImage(prompt);
+    } catch (error) {
+      if (!isModerationBlock(error)) {
+        throw error;
+      }
+      logger.warn('Premium image blocked by provider; retrying once with safe framing', {
+        phase,
+        revision: scope.revision,
+        providerCode: error.code,
+      });
+      output = await requestImage(`${prompt}\n${safePictureBookFraming}`);
+    }
   } catch (error) {
-    if (
-      error instanceof OpenAI.APIError &&
-      ['moderation_blocked', 'content_policy_violation'].includes(error.code ?? '')
-    ) {
+    if (isModerationBlock(error)) {
+      logger.warn('Premium image blocked by provider after safe-framing retry', {
+        phase,
+        revision: scope.revision,
+        providerCode: error.code,
+      });
       throw new PremiumBookError(
         422,
         'premium_image_blocked',

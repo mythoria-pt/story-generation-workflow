@@ -7,11 +7,25 @@ import { premiumManifestFixture } from './fixtures/premium-book.js';
 const edit = jest.fn();
 const generate = jest.fn();
 const complete = jest.fn();
-jest.mock('openai', () => ({
-  __esModule: true,
-  default: jest.fn(() => ({ images: { edit, generate }, responses: { create: complete } })),
-  toFile: jest.fn(async (_bytes: Buffer, name: string) => ({ name })),
-}));
+jest.mock('openai', () => {
+  class MockAPIError extends Error {
+    status: number;
+    code: string;
+    constructor(status: number, error: { code?: string } | undefined, message: string) {
+      super(message);
+      this.status = status;
+      this.code = error?.code ?? message;
+    }
+  }
+  return {
+    __esModule: true,
+    default: Object.assign(
+      jest.fn(() => ({ images: { edit, generate }, responses: { create: complete } })),
+      { APIError: MockAPIError },
+    ),
+    toFile: jest.fn(async (_bytes: Buffer, name: string) => ({ name })),
+  };
+});
 
 const { storyId, ownerId, revision, config } = premiumManifestFixture();
 const scope = { storyId, ownerId, revision };
@@ -128,4 +142,60 @@ describe('premium image adapter', () => {
       expect(complete).toHaveBeenCalledTimes(1);
     },
   );
+
+  it('retries once with safe picture-book framing after a provider moderation block', async () => {
+    const blocked = new OpenAI.APIError(
+      400,
+      { code: 'moderation_blocked' },
+      'Blocked by moderation',
+      new Headers(),
+    );
+    edit.mockRejectedValueOnce(blocked).mockResolvedValueOnce({
+      data: [{ b64_json: Buffer.from('safe-image').toString('base64') }],
+    });
+
+    const image = await generatePremiumImage(
+      scope,
+      { provider: 'openai', model: 'gpt-image-1.5', quality: 'medium' },
+      'spread-8-lettering-right',
+      'Draw the scene',
+      '1024x1536',
+      [Buffer.from('reference')],
+      jest.fn(async () => undefined),
+    );
+
+    expect(image).toEqual(Buffer.from('safe-image'));
+    expect(edit).toHaveBeenCalledTimes(2);
+    expect(edit).toHaveBeenNthCalledWith(1, expect.objectContaining({ prompt: 'Draw the scene' }));
+    expect(edit).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        prompt: expect.stringContaining('wholesome, non-threatening'),
+      }),
+    );
+  });
+
+  it('returns 422 premium_image_blocked when the safe-framed retry is also blocked', async () => {
+    const blocked = new OpenAI.APIError(
+      400,
+      { code: 'moderation_blocked' },
+      'Blocked by moderation',
+      new Headers(),
+    );
+    generate.mockRejectedValueOnce(blocked).mockRejectedValueOnce(blocked);
+
+    await expect(
+      generatePremiumImage(
+        scope,
+        { provider: 'openai', model: 'gpt-image-1.5', quality: 'medium' },
+        'spread-8-lettering-right',
+        'Draw the scene',
+        '1024x1536',
+        [],
+        jest.fn(async () => undefined),
+      ),
+    ).rejects.toMatchObject({ status: 422, code: 'premium_image_blocked' });
+
+    expect(generate).toHaveBeenCalledTimes(2);
+  });
 });
