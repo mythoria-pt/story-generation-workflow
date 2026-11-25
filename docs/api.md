@@ -175,6 +175,10 @@ Even though two endpoints live under `/audio/internal/*`, they still require the
 - `PATCH /api/story-edit/stories/{storyId}/chapters/{chapterNumber}`: Edits a single chapter per user instructions (1–2000 chars). Returns edited HTML and length metadata.
 - `PATCH /api/story-edit/stories/{storyId}/chapters`: Applies the same instruction to every stored chapter, returning a per-chapter result array. Failures on individual chapters are surfaced inside the response payload; HTTP status remains 200.
 
+### Story feedback
+
+`POST /api/story-feedback` accepts `storyId`, `senderAuthorId`, `subject` and `message` from the authenticated Web App. Subjects are 3–80 characters and messages are 10–800 characters. The workflow verifies access to the story before requesting the localized feedback email through Notification Engine.
+
 ### Async jobs (`src/routes/async-jobs.ts`)
 
 | Endpoint                               | Description                                                                                                                                                                                        |

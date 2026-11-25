@@ -161,6 +161,8 @@ function buildHeaders(env: ReturnType<typeof getEnvironment>): Record<string, st
 type TemplateEmailPayload = {
   templateId: string;
   recipients: Array<{ email: string; name?: string; language?: string }>;
+  cc?: Array<{ email: string; name?: string; language?: string }>;
+  authorId?: string;
   variables: Record<string, unknown>;
   priority?: 'low' | 'normal' | 'high' | 'urgent';
   metadata?: Record<string, unknown>;
@@ -224,6 +226,10 @@ async function sendTemplateEmail(payload: TemplateEmailPayload): Promise<boolean
 
 export async function sendStoryCreatedEmail(payload: StoryCreatedEmailPayload): Promise<boolean> {
   return sendTemplateEmail(payload);
+}
+
+export function sendStoryFeedbackEmail(payload: Omit<TemplateEmailPayload, 'templateId'>) {
+  return sendTemplateEmail({ ...payload, templateId: 'story-feedback' });
 }
 
 export type StoryPrintDeliveryStatus = 'sent' | 'accepted' | 'failed' | 'not_requested' | 'unknown';

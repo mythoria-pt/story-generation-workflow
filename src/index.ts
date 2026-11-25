@@ -65,6 +65,7 @@ import { aiRouter } from './routes/ai.js';
 import { internalRouter } from './routes/internal.js';
 import { premiumBookRouter } from './routes/premium-book.js';
 import { storyEditRouter } from './routes/story-edit.js';
+import { storyFeedbackRouter } from './routes/story-feedback.js';
 import { audioRouter } from './routes/audio.js';
 import { printRouter, internalPrintRouter } from './routes/print.js';
 import { pingRouter } from './routes/ping.js';
@@ -89,6 +90,7 @@ app.use('/internal/premium', premiumBookRouter);
 app.use('/print', apiKeyAuth, printRouter);
 app.use('/internal/print', internalPrintRouter);
 app.use('/api/story-edit', apiKeyAuth, storyEditRouter);
+app.use('/api/story-feedback', apiKeyAuth, storyFeedbackRouter);
 app.use('/api/jobs', apiKeyAuth, asyncJobRouter);
 app.use('/', apiKeyAuth, pingRouter); // ping/test endpoints protected as well
 

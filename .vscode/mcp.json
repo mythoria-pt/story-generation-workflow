@@ -12,7 +12,7 @@
       "type": "http",
       "url": "https://developerknowledge.googleapis.com/mcp",
       "headers": {
-        "X-Goog-Api-Key": "AIzaSyDvqQfXZsAHTRTFHJiXijZG0q6ycKKN26o"
+        "X-Goog-Api-Key": "${input:googleDevKnowledgeApiKey}"
       }
     },
     "openaiDeveloperDocs": {
