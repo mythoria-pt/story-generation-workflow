@@ -30,6 +30,7 @@ FROM node:${NODE_VERSION}-bookworm-slim
 # Install system dependencies for PDF processing
 RUN apt-get update && apt-get install -y \
     ffmpeg \
+    poppler-utils icc-profiles-free \
     ghostscript \
     wget \
     gnupg \

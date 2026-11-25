@@ -118,3 +118,5 @@ See [docs/audio-narration-system.md](docs/audio-narration-system.md) for the ful
 ## Hydrogen text generation
 
 See [docs/hydrogen-story-generation.md](docs/hydrogen-story-generation.md). Gemini text is Hydrogen-only; do not add older-model aliases or explicit caching. Both hybrid branches require durable same-run history and continuation checkpoints. Checkpoints are encrypted with a key derived from the API authentication secret; do not rotate that secret while runs are active. Deploy Cloud Run before the changed Workflows definition. Image synthesis and TTS retain their dedicated models.
+
+Paid physical-order proof generation uses the API-key-protected `POST /internal/print/order-proof` contract and private `PRINT_PROOF_BUCKET` described in [print.md](docs/print.md#paid-physical-order-proofs). Use immutable order artifacts and the actual interior page count on both sides of the Lulu cover-dimensions call.

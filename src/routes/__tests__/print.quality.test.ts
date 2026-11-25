@@ -85,6 +85,21 @@ describe('print quality routes', () => {
     sendPrintQaCriticalEmailMock.mockReset();
   });
 
+  it('requires a service API key before paid order proof validation', async () => {
+    await request(app).post('/internal/print/order-proof').send({}).expect(401);
+    await request(app)
+      .post('/internal/print/order-proof')
+      .set('x-api-key', 'incorrect')
+      .send({})
+      .expect(401);
+    await request(app)
+      .post('/internal/print/order-proof')
+      .set('x-api-key', process.env.STORY_GENERATION_WORKFLOW_API_KEY!)
+      .send({})
+      .expect(400);
+    expect(storyServiceMock.getStoryForPrint).not.toHaveBeenCalled();
+  });
+
   it('returns a passing QA report', async () => {
     printQualityServiceMock.execute.mockResolvedValue({
       qaStatus: 'passed',

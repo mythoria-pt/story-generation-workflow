@@ -261,6 +261,28 @@ export class CMYKConversionService {
     return join(dir, `${name}${suffix}${ext}`);
   }
 
+  /** Flatten transparency before final Lulu page boxes and RGB tagging. */
+  async flattenForLulu(input: string, output: string): Promise<void> {
+    await this.runGhostscript(
+      [
+        '-dSAFER',
+        '-dBATCH',
+        '-dNOPAUSE',
+        '-sDEVICE=pdfwrite',
+        '-dCompatibilityLevel=1.3',
+        '-sColorConversionStrategy=RGB',
+        '-dEmbedAllFonts=true',
+        '-dAutoRotatePages=/None',
+        '-dDownsampleColorImages=false',
+        '-r300',
+        '-o',
+        output,
+        input,
+      ],
+      output,
+    );
+  }
+
   /**
    * Convert RGB PDF to CMYK PDF/X-1a
    */

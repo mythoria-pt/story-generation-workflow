@@ -75,12 +75,23 @@ export class PrintService {
   private cmykService: CMYKConversionService;
   private pageProcessor: PDFPageProcessor;
 
-  constructor() {
+  constructor(
+    private readonly luluBinding?: 'paperback' | 'hardcover',
+    private readonly requireAssets = false,
+  ) {
     const configPath =
       process.env.NODE_ENV === 'production'
         ? join(process.cwd(), 'dist', 'config', 'paper-caliper.json')
         : join(process.cwd(), 'src', 'config', 'paper-caliper.json');
     this.paperConfig = JSON.parse(readFileSync(configPath, 'utf-8'));
+    if (luluBinding) {
+      this.paperConfig.trimSize = { width: (419.528 * 25.4) / 72, height: (595.276 * 25.4) / 72 };
+      this.paperConfig.bleedMM = {
+        interior: 3.175,
+        cover: luluBinding === 'hardcover' ? 19.05 : 3.175,
+      };
+      this.paperConfig.safeZoneMM = 12.7;
+    }
     this.cmykService = new CMYKConversionService();
     this.pageProcessor = new PDFPageProcessor();
   }
@@ -258,7 +269,9 @@ export class PrintService {
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
-        '--disable-color-correct-rendering',
+        ...(this.luluBinding
+          ? ['--force-color-profile=srgb']
+          : ['--disable-color-correct-rendering']),
         '--disable-dev-shm-usage',
         '--disable-gpu',
         '--disable-extensions',
@@ -281,9 +294,30 @@ export class PrintService {
     try {
       const page = await browser.newPage();
 
+      let failedArtwork = false;
+      if (this.requireAssets) {
+        await page.setJavaScriptEnabled(false);
+        page.on('requestfailed', (request) => {
+          if (request.resourceType() === 'image') failedArtwork = true;
+        });
+        page.on('response', (response) => {
+          if (response.request().resourceType() === 'image' && response.status() >= 400)
+            failedArtwork = true;
+        });
+      }
       logger.debug('Setting page content for PDF generation');
       await page.setContent(html, { waitUntil: 'load' });
       await page.waitForNetworkIdle({ concurrency: 0, idleTime: 500 });
+
+      if (
+        this.requireAssets &&
+        (failedArtwork ||
+          !(await page.evaluate(() =>
+            Array.from(document.images).every((image) => image.complete && image.naturalWidth > 0),
+          )))
+      ) {
+        throw new Error('Unable to render all print artwork');
+      }
 
       logger.debug('Generating PDF', { outputPath: options.outputPath });
       await page.pdf({
@@ -349,6 +383,9 @@ export class PrintService {
       pageWidthMM: pageWidthMM.toString(),
       pageHeightMM: pageHeightMM.toString(),
       interiorBleedMM: bleedMM.interior.toString(),
+      colourProfile: this.luluBinding ? 'sRGB' : 'CMYK',
+      cssBleed: this.luluBinding ? '0' : '3mm',
+      printerMarks: this.luluBinding ? 'none' : 'crop cross',
       // Legacy variables (for backward compatibility with existing templates)
       safeZoneMM: safeZoneMM.toString(),
       totalMarginMM: ((bleedMM.interior + safeZoneMM) * 2).toString(),
@@ -362,7 +399,14 @@ export class PrintService {
       chapterTopMarginMM: chapterTopMarginMM.toString(),
       chapterBottomMarginMM: '20',
       chapterFirstPageTopMarginMM: chapterFirstPageTopMarginMM.toString(),
-      chapterLayoutStyles,
+      chapterLayoutStyles:
+        chapterLayoutStyles +
+        (this.luluBinding
+          ? `
+        @page chapter:right { margin-left: 29mm; margin-right: 18mm; }
+        @page chapter:left { margin-right: 29mm; margin-left: 18mm; }
+      `
+          : ''),
       dedicationMessage: storyData.dedicationMessage || '',
       customAuthor: storyData.customAuthor || 'Anonymous',
       publishDate: formatPublishDate(storyData.createdAt, storyLanguage),
@@ -399,14 +443,39 @@ export class PrintService {
     const { coverSpreadWMM, coverSpreadHMM, spineWidthMM } = dimensions;
     const { bleedMM } = this.paperConfig;
 
+    // The cover illustration often includes the title. Keep the complete art
+    // inside the live front panel, including clearance from the casewrap hinge.
+    const frontArt = storyData.coverUri
+      ? `url("${convertToAbsoluteImagePath(storyData.coverUri)}")`
+      : 'none';
+    const outerInset = this.luluBinding === 'hardcover' ? 38.1 : 15.875;
+    const innerInset = this.luluBinding === 'hardcover' ? 25.4 : 12.7;
     const variables = {
       title: storyData.title || '',
+      colourProfile: this.luluBinding ? 'sRGB' : 'CMYK',
+      cssBleed: this.luluBinding ? '0' : `${bleedMM.cover}mm`,
+      bindingStyles: this.luluBinding
+        ? `
+        .front-cover { position: relative; background: #333; }
+        .front-cover::before { content: ''; position: absolute;
+          inset: ${outerInset}mm ${outerInset}mm ${outerInset}mm ${innerInset}mm;
+          background: ${frontArt} center / contain no-repeat; }
+        .info-rectangle { bottom: ${outerInset}mm; width: 46%; }
+      `
+        : '',
       coverSpreadWMM: coverSpreadWMM.toString(),
       coverSpreadHMM: coverSpreadHMM.toString(),
       coverBleedMM: bleedMM.cover.toString(),
       spineWidthMM: spineWidthMM.toString(),
-      backcoverBackground: storyData.backcoverUri ? `url("${storyData.backcoverUri}")` : '#f5f5f5',
-      frontcoverBackground: storyData.coverUri ? `url("${storyData.coverUri}")` : '#e0e0e0',
+      coverInfoInsetMM: this.luluBinding
+        ? String(bleedMM.cover + (this.luluBinding === 'hardcover' ? 19.05 : 12.7))
+        : String(-bleedMM.cover),
+      backcoverBackground: storyData.backcoverUri
+        ? `url("${convertToAbsoluteImagePath(storyData.backcoverUri)}")`
+        : '#f5f5f5',
+      frontcoverBackground: storyData.coverUri
+        ? `url("${convertToAbsoluteImagePath(storyData.coverUri)}")`
+        : '#e0e0e0',
       graphicalStyle: storyData.graphicalStyle || 'cartoon',
     };
 

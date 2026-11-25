@@ -23,12 +23,15 @@ steps:
       - 'gcr.io/$PROJECT_ID/${_SERVICE_NAME}:${_GIT_SHA}'
       - '--region'
       - '${_REGION}'
+      # Paid proof renders may involve Chrome and two Ghostscript passes.
+      - '--timeout=600s'
       - '--revision-suffix'
       - '${_REVISION_SUFFIX}'
       - '--update-labels'
       - 'git-sha=${_GIT_SHA},cloud-build-id=$BUILD_ID'
       # Existing production bindings verified on 2026-07-30 are retained by this incremental deploy.
-      # env-parity-preserved: NODE_ENV,DB_HOST,DB_PORT,DB_USER,DB_PASSWORD,DB_NAME,WORKFLOWS_DB,GOOGLE_CLOUD_PROJECT_ID,GOOGLE_CLOUD_REGION,STORAGE_BUCKET_NAME,STORY_GENERATION_WORKFLOW_API_KEY,ANALYTICS_SCHEDULER_SERVICE_ACCOUNT
+      # Provision PRINT_PROOF_BUCKET per environment before enabling the paid-proof checkout.
+      # env-parity-preserved: NODE_ENV,DB_HOST,DB_PORT,DB_USER,DB_PASSWORD,DB_NAME,WORKFLOWS_DB,GOOGLE_CLOUD_PROJECT_ID,GOOGLE_CLOUD_REGION,STORAGE_BUCKET_NAME,PRINT_PROOF_BUCKET,STORY_GENERATION_WORKFLOW_API_KEY,ANALYTICS_SCHEDULER_SERVICE_ACCOUNT
       - '--update-env-vars'
       - '^@^DEPLOY_GIT_SHA=${_GIT_SHA}@DEPLOY_BUILD_ID=$BUILD_ID@TEXT_PROVIDER=google-genai@IMAGE_PROVIDER=google-genai@IMAGE_ANALYZER_PROVIDER=google-genai@OPENAI_IMAGE_TOOL_MODEL=gpt-image-2.5-flare@GOOGLE_GENAI_MODEL=gemini-4-hydrogen@GOOGLE_GENAI_IMAGE_MODEL=gemini-nano-banana-2.1@TTS_PROVIDER=google-genai@TTS_MODEL=gemini-3.8-flash-tts@TTS_EXPRESSIVE_DIRECTION_ENABLED=true@TTS_DIRECTION_MODEL=gemini-4-hydrogen@BACKGROUND_MUSIC_VOLUME=0.07@BACKGROUND_MUSIC_FADE_IN=0.5@BACKGROUND_MUSIC_FADE_OUT=0.5@GOOGLE_GENAI_API_VERSION=v1beta@STORY_TEXT_GENERATION_MODE=${_STORY_TEXT_GENERATION_MODE}@STORY_SEQUENTIAL_AUDIENCES=young_adult_15-17,adult_18+@STORY_SEQUENTIAL_MIN_CHAPTERS=8@STORY_WHOLE_MAX_OUTPUT_TOKENS=262144@STORY_CHAPTER_MAX_OUTPUT_TOKENS=131072'
       - '--quiet'
