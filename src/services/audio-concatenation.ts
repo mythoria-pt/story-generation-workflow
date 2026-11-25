@@ -4,17 +4,14 @@
  * Uses the concat demuxer for lossless joining (no re-encoding)
  */
 
-import ffmpeg from 'fluent-ffmpeg';
 import * as fs from 'fs/promises';
-import { join } from 'path';
+import { basename, join } from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { execFile } from 'child_process';
 import { logger } from '@/config/logger.js';
 import { FFMPEG_BINARY, FFPROBE_BINARY } from '@/config/ffmpeg.js';
 import { TTSGenerationError } from './tts-errors.js';
-
-ffmpeg.setFfmpegPath(FFMPEG_BINARY);
 
 const FFPROBE_TIMEOUT_MS = 30_000;
 
@@ -90,9 +87,7 @@ export async function concatenateAudioBuffers(
     } else {
       // Create FFmpeg concat list file
       // Format: file 'path/to/file.mp3' (one per line)
-      const listContent = tempFiles
-        .map((filePath) => `file '${filePath.replace(/\\/g, '/')}'`)
-        .join('\n');
+      const listContent = tempFiles.map((filePath) => `file '${basename(filePath)}'`).join('\n');
       await fs.writeFile(listFilePath, listContent);
 
       // Run FFmpeg concatenation
@@ -164,28 +159,10 @@ function runFFmpegNormalizedConcat(inputs: string[], output: string): Promise<vo
  * Run FFmpeg concat demuxer to join audio files
  */
 function runFFmpegConcat(listFilePath: string, outputFilePath: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    ffmpeg()
-      .input(listFilePath)
-      .inputOptions(['-f concat', '-safe 0'])
-      .outputOptions(['-c copy']) // Lossless copy - no re-encoding
-      .output(outputFilePath)
-      .on('start', (commandLine: string) => {
-        logger.debug('FFmpeg concat started', { commandLine });
-      })
-      .on('error', (err: Error, _stdout?: string, stderr?: string) => {
-        logger.error('FFmpeg concat error', {
-          error: err.message,
-          stderr,
-        });
-        reject(new Error(`FFmpeg concat failed: ${err.message}`));
-      })
-      .on('end', () => {
-        logger.debug('FFmpeg concat finished');
-        resolve();
-      })
-      .run();
-  });
+  return runFFmpegToFile(
+    ['-f', 'concat', '-i', listFilePath, '-c', 'copy', outputFilePath],
+    'concat',
+  );
 }
 
 /**
@@ -374,75 +351,82 @@ function runFFmpegMix(
   outputPath: string,
   options: Required<AudioMixOptions> & { narrationDurationSeconds: number },
 ): Promise<void> {
+  const {
+    narrationVolume,
+    backgroundVolume,
+    fadeInDuration,
+    fadeOutDuration,
+    narrationDurationSeconds,
+  } = options;
+  const cappedFadeInDuration = Math.min(Math.max(fadeInDuration, 0), 2);
+  const cappedFadeOutDuration = Math.min(Math.max(fadeOutDuration, 0), 2, narrationDurationSeconds);
+  const fadeOutStart = Math.max(narrationDurationSeconds - cappedFadeOutDuration, 0);
+  const mixDuration = Math.max(narrationDurationSeconds + 0.1, 0.1);
+  const backgroundFilters = [
+    'aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo',
+    'aloop=loop=-1:size=2e+09',
+    `atrim=duration=${mixDuration}`,
+    'asetpts=N/SR/TB',
+    ...(cappedFadeInDuration > 0 ? [`afade=t=in:st=0:d=${cappedFadeInDuration}`] : []),
+    ...(cappedFadeOutDuration > 0
+      ? [`afade=t=out:st=${fadeOutStart}:d=${cappedFadeOutDuration}`]
+      : []),
+    `volume=${backgroundVolume}`,
+  ].join(',');
+
+  // Build complex filter:
+  // 1. [0:a] = narration (main audio, full volume)
+  // 2. [1:a] = background music (looped, volume reduced, faded in/out only on music)
+  // 3. amix = combine both streams
+  //
+  // The filter graph:
+  // - aloop loops the background music, atrim caps it to the narration duration
+  // - afade applies fade in at the beginning and fade out in the final two seconds at most
+  // - volume reduces background level
+  // - amix combines with shortest duration (narration)
+  const simpleFilter = [
+    // Prepare narration and apply volume boost
+    `[0:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,volume=${narrationVolume}[narration]`,
+    // Loop background, cap to narration duration, then apply fades and volume reduction to music only
+    `[1:a]${backgroundFilters}[bg]`,
+    // Mix with narration as the duration source; normalize=0 preserves input levels
+    '[narration][bg]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.95[mixed]',
+  ].join(';');
+
+  return runFFmpegToFile(
+    [
+      '-i',
+      narrationPath,
+      '-i',
+      backgroundMusicPath,
+      '-filter_complex',
+      simpleFilter,
+      '-map',
+      '[mixed]',
+      '-c:a',
+      'libmp3lame',
+      '-b:a',
+      '128k',
+      outputPath,
+    ],
+    'mix',
+  );
+}
+
+function runFFmpegToFile(args: string[], operation: 'concat' | 'mix'): Promise<void> {
   return new Promise((resolve, reject) => {
-    const {
-      narrationVolume,
-      backgroundVolume,
-      fadeInDuration,
-      fadeOutDuration,
-      narrationDurationSeconds,
-    } = options;
-    const cappedFadeInDuration = Math.min(Math.max(fadeInDuration, 0), 2);
-    const cappedFadeOutDuration = Math.min(
-      Math.max(fadeOutDuration, 0),
-      2,
-      narrationDurationSeconds,
-    );
-    const fadeOutStart = Math.max(narrationDurationSeconds - cappedFadeOutDuration, 0);
-    const mixDuration = Math.max(narrationDurationSeconds + 0.1, 0.1);
-    const backgroundFilters = [
-      'aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo',
-      'aloop=loop=-1:size=2e+09',
-      `atrim=duration=${mixDuration}`,
-      'asetpts=N/SR/TB',
-      ...(cappedFadeInDuration > 0 ? [`afade=t=in:st=0:d=${cappedFadeInDuration}`] : []),
-      ...(cappedFadeOutDuration > 0
-        ? [`afade=t=out:st=${fadeOutStart}:d=${cappedFadeOutDuration}`]
-        : []),
-      `volume=${backgroundVolume}`,
-    ].join(',');
-
-    // Build complex filter:
-    // 1. [0:a] = narration (main audio, full volume)
-    // 2. [1:a] = background music (looped, volume reduced, faded in/out only on music)
-    // 3. amix = combine both streams
-    //
-    // The filter graph:
-    // - aloop loops the background music, atrim caps it to the narration duration
-    // - afade applies fade in at the beginning and fade out in the final two seconds at most
-    // - volume reduces background level
-    // - amix combines with shortest duration (narration)
-    const simpleFilter = [
-      // Prepare narration and apply volume boost
-      `[0:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,volume=${narrationVolume}[narration]`,
-      // Loop background, cap to narration duration, then apply fades and volume reduction to music only
-      `[1:a]${backgroundFilters}[bg]`,
-      // Mix with narration as the duration source; normalize=0 preserves input levels
-      '[narration][bg]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.95[mixed]',
-    ].join(';');
-
-    ffmpeg()
-      .input(narrationPath)
-      .input(backgroundMusicPath)
-      .complexFilter(simpleFilter, 'mixed')
-      .audioCodec('libmp3lame')
-      .audioBitrate('128k')
-      .output(outputPath)
-      .on('start', (commandLine: string) => {
-        logger.debug('FFmpeg mix started', { commandLine });
-      })
-      .on('error', (err: Error, _stdout?: string, stderr?: string) => {
-        logger.error('FFmpeg mix error', {
-          error: err.message,
-          stderr,
-        });
-        reject(new Error(`FFmpeg mix failed: ${err.message}`));
-      })
-      .on('end', () => {
-        logger.debug('FFmpeg mix finished');
+    execFile(
+      FFMPEG_BINARY,
+      ['-hide_banner', '-loglevel', 'error', '-nostdin', ...args],
+      (error, _stdout, stderr) => {
+        if (error) {
+          logger.error(`FFmpeg ${operation} error`, { error: error.message, stderr });
+          reject(new Error(`FFmpeg ${operation} failed: ${error.message}`, { cause: error }));
+          return;
+        }
         resolve();
-      })
-      .run();
+      },
+    );
   });
 }
 

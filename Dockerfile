@@ -10,10 +10,11 @@ ENV PUPPETEER_SKIP_DOWNLOAD=true
 WORKDIR /app
 
 # Copy package files first for better layer caching
-COPY package*.json ./
+COPY package*.json .npmrc ./
+COPY compat/ ./compat/
 
 # Install ALL dependencies first (including dev dependencies for build)
-RUN npm ci && npm cache clean --force
+RUN npm ci
 
 # Copy source code
 COPY . .
@@ -22,7 +23,7 @@ COPY . .
 RUN npm run build
 
 # Remove dev dependencies after build
-RUN npm prune --omit=dev
+RUN npm prune --omit=dev --ignore-scripts
 
 # Production stage with Debian-based image for Ghostscript support
 FROM node:${NODE_VERSION}-bookworm-slim

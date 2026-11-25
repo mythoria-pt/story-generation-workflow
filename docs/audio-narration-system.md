@@ -467,35 +467,13 @@ TTS usage metadata records `narrationDirection.directedChunks`, `fallbackChunks`
 
 **File:** `src/services/audio-concatenation.ts`
 
-When text is split into multiple chunks, each chunk generates a separate audio buffer. These are concatenated losslessly using FFmpeg:
+Chunked narration produces one MP3 buffer per chunk. The service writes the chunks under a temporary directory and passes their relative filenames to the FFmpeg concat demuxer:
 
-```typescript
-async function concatenateAudioBuffers(buffers: Buffer[]): Promise<ConcatenationResult> {
-  // 1. Write each buffer to a temp file
-  for (const buffer of buffers) {
-    await fs.writeFile(chunkPath, buffer);
-  }
-
-  // 2. Create FFmpeg concat list
-  // file 'chunk_0000.mp3'
-  // file 'chunk_0001.mp3'
-  // ...
-
-  // 3. Run FFmpeg with concat demuxer (lossless)
-  ffmpeg()
-    .input(listFilePath)
-    .inputOptions(['-f concat', '-safe 0'])
-    .outputOptions(['-c copy'])  // No re-encoding!
-    .output(outputFilePath)
-    .run();
-
-  // 4. Read concatenated file and cleanup temps
-  const result = await fs.readFile(outputFilePath);
-  await cleanupTempFiles(...);
-
-  return { buffer: result, chunkCount: buffers.length };
-}
+```shell
+ffmpeg -hide_banner -loglevel error -nostdin -f concat -i concat-list.txt -c copy output.mp3
 ```
+
+The stream-copy path preserves the original audio encoding. The normalized audiobook path converts each input to 44.1 kHz stereo before joining the streams and encoding the result at 128 kbps. Both paths use the executable configured by `FFMPEG_BINARY`. The service cleans up the temporary files after success or failure.
 
 ---
 

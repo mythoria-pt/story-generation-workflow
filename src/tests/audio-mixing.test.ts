@@ -1,44 +1,33 @@
 import { describe, test, expect, jest, beforeEach } from '@jest/globals';
+import { execFile } from 'child_process';
 import { mixAudioWithBackground } from '@/services/audio-concatenation.js';
 
-// Mock fluent-ffmpeg
-const mockRun = jest.fn();
-const mockComplexFilter = jest.fn().mockReturnThis();
-const mockInput = jest.fn().mockReturnThis();
-const mockMap = jest.fn().mockReturnThis();
-const mockOutput = jest.fn().mockReturnThis();
-const mockAudioCodec = jest.fn().mockReturnThis();
-const mockAudioBitrate = jest.fn().mockReturnThis();
 let ffmpegError: Error | null = null;
-const mockOn = jest.fn().mockImplementation(function (this: any, event: string, callback: any) {
-  if (event === 'error' && ffmpegError) {
-    process.nextTick(() => callback(ffmpegError, '', 'unsupported filter'));
-  } else if (event === 'end' && !ffmpegError) {
-    process.nextTick(() => callback());
-  }
-  return this;
-});
-
-jest.mock('fluent-ffmpeg', () => {
-  const ffmpegMock = jest.fn().mockImplementation(() => ({
-    input: mockInput,
-    complexFilter: mockComplexFilter,
-    map: mockMap,
-    output: mockOutput,
-    audioCodec: mockAudioCodec,
-    audioBitrate: mockAudioBitrate,
-    on: mockOn,
-    run: mockRun,
-  }));
-  (ffmpegMock as any).setFfmpegPath = jest.fn();
-  return ffmpegMock;
-});
 
 jest.mock('child_process', () => ({
-  execFile: jest.fn((_file, _args, callback) => {
-    callback(null, '', 'Duration: 00:01:40.00, start: 0.000000, bitrate: 128 kb/s');
-  }),
+  execFile: jest.fn(
+    (
+      _file: string,
+      args: string[],
+      callback: (error: Error | null, stdout: string, stderr: string) => void,
+    ) => {
+      if (args.includes('-filter_complex')) {
+        callback(ffmpegError, '', ffmpegError ? 'unsupported filter' : '');
+        return;
+      }
+      callback(null, '', 'Duration: 00:01:40.00, start: 0.000000, bitrate: 128 kb/s');
+    },
+  ),
 }));
+
+function mixFilter() {
+  const args = jest
+    .mocked(execFile)
+    .mock.calls.map(([, args]) => args)
+    .find((args) => Array.isArray(args) && args.includes('-filter_complex'));
+  if (!Array.isArray(args)) throw new Error('FFmpeg did not receive a filter graph');
+  return args[args.indexOf('-filter_complex') + 1]!;
+}
 
 // Mock fs/promises to prevent file system operations during unit tests
 jest.mock('fs/promises', () => ({
@@ -62,8 +51,7 @@ describe('Audio Mixing Service', () => {
     await mixAudioWithBackground(narrationBuffer, backgroundMusicPath);
 
     // Verify FFmpeg filter setup
-    expect(mockComplexFilter).toHaveBeenCalled();
-    const filterString = mockComplexFilter.mock.calls[0][0] as string;
+    const filterString = mixFilter();
 
     // Default volume parameters should be used
     expect(filterString).toContain('volume=1'); // Narration volume defaults to 1.0
@@ -82,7 +70,7 @@ describe('Audio Mixing Service', () => {
       backgroundVolume: 0.1,
     });
 
-    const filterString = mockComplexFilter.mock.calls[0][0] as string;
+    const filterString = mixFilter();
 
     expect(filterString).toContain('volume=1.5'); // Custom narration volume
     expect(filterString).toContain('volume=0.1'); // Custom background volume
@@ -98,7 +86,7 @@ describe('Audio Mixing Service', () => {
       fadeOutDuration: 4,
     });
 
-    const filterString = mockComplexFilter.mock.calls[0][0] as string;
+    const filterString = mixFilter();
     const filterParts = filterString.split(';');
     const narrationFilter = filterParts[0];
     const backgroundFilter = filterParts[1];

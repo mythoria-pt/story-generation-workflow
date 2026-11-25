@@ -17,12 +17,6 @@ jest.mock('@google/genai', () => ({
   },
 }));
 
-jest.mock('fluent-ffmpeg', () => {
-  const ffmpegMock = jest.fn();
-  (ffmpegMock as any).setFfmpegPath = jest.fn();
-  return ffmpegMock;
-});
-
 jest.mock('@/config/logger.js', () => ({
   logger: {
     debug: jest.fn(),

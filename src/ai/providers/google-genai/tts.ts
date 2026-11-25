@@ -3,7 +3,7 @@
  * Implements ITTSService for Google's Gemini TTS API.
  *
  * Only `gemini-3.8-flash-tts` is supported. It returns WAV (mono, 24kHz, 16-bit), which
- * this provider converts to MP3 using fluent-ffmpeg. Headerless PCM is still decoded
+ * this provider converts to MP3 using FFmpeg. Headerless PCM is still decoded
  * defensively.
  */
 
@@ -22,10 +22,7 @@ import { FFMPEG_BINARY } from '@/config/ffmpeg.js';
 import { TTSGenerationError, isTTSGenerationError } from '@/services/tts-errors.js';
 import { GEMINI_TTS_VOICES, type GeminiTTSVoice } from '@/services/voice-registry.js';
 import { stripPauseTags } from '@/shared/tts-text.js';
-import ffmpeg from 'fluent-ffmpeg';
-import { Readable, PassThrough } from 'stream';
-
-ffmpeg.setFfmpegPath(FFMPEG_BINARY);
+import { spawn } from 'node:child_process';
 
 const NON_RETRYABLE_FINISH_REASONS = new Set<FinishReason>([
   FinishReason.SAFETY,
@@ -374,76 +371,67 @@ export class GoogleGenAITTSService implements ITTSService {
     wav: boolean,
     pcmFormat: PcmFormat = DEFAULT_PCM_FORMAT,
   ): Promise<Buffer> {
-    return new Promise((resolve, reject) => {
-      const chunks: Buffer[] = [];
-      let settled = false;
+    const inputOptions = wav
+      ? ['-f', 'wav']
+      : ['-f', 's16le', '-ar', String(pcmFormat.sampleRate), '-ac', String(pcmFormat.channels)];
 
-      const finish = (error?: Error): void => {
+    return new Promise((resolve, reject) => {
+      const conversion = spawn(FFMPEG_BINARY, [
+        '-hide_banner',
+        '-loglevel',
+        'error',
+        ...inputOptions,
+        '-i',
+        'pipe:0',
+        '-c:a',
+        'libmp3lame',
+        '-b:a',
+        '128k',
+        '-f',
+        'mp3',
+        'pipe:1',
+      ]);
+      const chunks: Buffer[] = [];
+      let stderr = '';
+      let inputError: Error | undefined;
+      let timedOut = false;
+
+      const timer = setTimeout(() => {
+        timedOut = true;
+        conversion.kill('SIGKILL');
+      }, FFMPEG_CONVERSION_TIMEOUT_MS);
+
+      conversion.stdout.on('data', (chunk: Buffer) => chunks.push(chunk));
+      conversion.stderr.setEncoding('utf8').on('data', (chunk: string) => {
+        stderr = (stderr + chunk).slice(-16_384);
+      });
+      conversion.stdin.on('error', (error: Error) => {
+        inputError = error;
+      });
+      conversion.once('error', (error) => {
         clearTimeout(timer);
-        if (settled) return;
-        settled = true;
-        if (error) {
-          reject(error);
+        reject(error);
+      });
+      conversion.once('close', (code, signal) => {
+        clearTimeout(timer);
+        if (timedOut) {
+          logger.error('FFmpeg conversion timed out', { timeoutMs: FFMPEG_CONVERSION_TIMEOUT_MS });
+          reject(
+            new TTSGenerationError('FFmpeg MP3 conversion timed out', {
+              code: 'FFMPEG_CONVERSION_TIMEOUT',
+              statusCode: 504,
+              retryable: true,
+            }),
+          );
+        } else if (code !== 0) {
+          reject(new Error(`FFmpeg MP3 conversion failed (${signal ?? code}): ${stderr.trim()}`));
+        } else if (inputError) {
+          reject(inputError);
         } else {
           resolve(Buffer.concat(chunks));
         }
-      };
-
-      const inputStream = new Readable();
-      inputStream.push(audioBuffer);
-      inputStream.push(null);
-
-      const outputStream = new PassThrough();
-
-      outputStream.on('data', (chunk: Buffer) => {
-        chunks.push(chunk);
       });
-
-      outputStream.on('end', () => {
-        finish();
-      });
-
-      outputStream.on('error', (err: unknown) => {
-        finish(err instanceof Error ? err : new Error(String(err)));
-      });
-
-      const command = ffmpeg(inputStream);
-
-      const timer = setTimeout(() => {
-        logger.error('FFmpeg conversion timed out', { timeoutMs: FFMPEG_CONVERSION_TIMEOUT_MS });
-        finish(
-          new TTSGenerationError('FFmpeg MP3 conversion timed out', {
-            code: 'FFMPEG_CONVERSION_TIMEOUT',
-            statusCode: 504,
-            retryable: true,
-          }),
-        );
-        try {
-          command.kill('SIGKILL');
-        } catch {
-          // Process may already be gone
-        }
-      }, FFMPEG_CONVERSION_TIMEOUT_MS);
-
-      if (wav) {
-        command.inputFormat('wav');
-      } else {
-        command
-          .inputFormat('s16le')
-          .inputOptions([`-ar ${pcmFormat.sampleRate}`, `-ac ${pcmFormat.channels}`]);
-      }
-
-      command
-        .audioCodec('libmp3lame')
-        .audioBitrate('128k')
-        .format('mp3')
-        .on('error', (err: Error) => {
-          logger.error('FFmpeg conversion error', {
-            error: err.message,
-          });
-          finish(err);
-        })
-        .pipe(outputStream, { end: true });
+      conversion.stdin.end(audioBuffer);
     });
   }
 
