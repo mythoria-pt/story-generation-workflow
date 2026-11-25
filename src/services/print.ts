@@ -323,15 +323,21 @@ export class PrintService {
     return page.evaluate(async () => {
       await document.fonts.ready;
       const loadedFonts = new Set<string>();
-      document.fonts.forEach((font) => {
-        if (font.status === 'loaded') loadedFonts.add(font.family);
-      });
+      for (const font of document.fonts) {
+        if (font.status === 'loaded') {
+          loadedFonts.add(font.family.replace(/^['"]|['"]$/g, ''));
+        }
+      }
       return Array.from(document.querySelectorAll<HTMLElement>('.fit')).flatMap((element) => {
         const { fitId, fitFont } = element.dataset;
         if (fitFont && !loadedFonts.has(fitFont)) {
           throw new Error('Premium typesetting font is unavailable');
         }
-        return element.scrollHeight > element.clientHeight + 1 ||
+        const maxHeight = Number.parseFloat(getComputedStyle(element).maxHeight);
+        const allowedHeight = Number.isFinite(maxHeight)
+          ? Math.max(element.clientHeight, maxHeight)
+          : element.clientHeight;
+        return element.scrollHeight > allowedHeight + 1 ||
           element.scrollWidth > element.clientWidth + 1
           ? [fitId ?? '']
           : [];

@@ -8,6 +8,7 @@ import { readPremiumObject } from '@/services/premium-book-storage.js';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Bucket } from '@google-cloud/storage';
 import { describe, expect, it, jest } from '@jest/globals';
+import puppeteer from 'puppeteer';
 import { OrderProofRequest } from '@/services/order-proof.js';
 import {
   defaultPremiumSpreadTextBoxes,
@@ -341,5 +342,100 @@ describe('square order proof', () => {
     await expect(readPremiumObject(bucket, { ...image, sha256: '0'.repeat(64) })).rejects.toThrow(
       'integrity',
     );
+  });
+  it('measures text overflow with FontFaceSet iteration and max-height allowance, rejecting missing fonts', async () => {
+    const launchMock = jest.mocked(puppeteer.launch);
+    const mockPage = {
+      setRequestInterception: jest.fn(async () => undefined),
+      setJavaScriptEnabled: jest.fn(async () => undefined),
+      on: jest.fn(),
+      setContent: jest.fn(async () => undefined),
+      waitForNetworkIdle: jest.fn(async () => undefined),
+      evaluate: jest.fn(async (fn: () => unknown) => fn()),
+    };
+    const mockBrowser = {
+      newPage: jest.fn(async () => mockPage),
+      close: jest.fn(async () => undefined),
+    };
+    launchMock.mockResolvedValue(
+      mockBrowser as unknown as Awaited<ReturnType<typeof puppeteer.launch>>,
+    );
+
+    const originalDocument = globalThis.document;
+    const originalGetComputedStyle = globalThis.getComputedStyle;
+    const fitElements = [
+      {
+        dataset: { fitId: '6', fitFont: 'Literata' },
+        scrollHeight: 56,
+        clientHeight: 54,
+        scrollWidth: 632,
+        clientWidth: 632,
+        maxHeight: '640px',
+      },
+      {
+        dataset: { fitId: '9', fitFont: 'Literata' },
+        scrollHeight: 652,
+        clientHeight: 640,
+        scrollWidth: 632,
+        clientWidth: 632,
+        maxHeight: '640px',
+      },
+      {
+        dataset: { fitId: '11' },
+        scrollHeight: 200,
+        clientHeight: 150,
+        scrollWidth: 400,
+        clientWidth: 400,
+        maxHeight: 'none',
+      },
+    ];
+    let loadedFonts: Array<{ family: string; status: string }> = [
+      { family: '"Literata"', status: 'loaded' },
+    ];
+    Object.defineProperty(globalThis, 'document', {
+      configurable: true,
+      writable: true,
+      value: {
+        fonts: {
+          ready: Promise.resolve(),
+          forEach() {
+            throw new TypeError(
+              "Failed to execute 'forEach' on 'FontFaceSet': The provided callback is no longer runnable.",
+            );
+          },
+          *[Symbol.iterator]() {
+            yield* loadedFonts;
+          },
+        },
+        querySelectorAll: () => fitElements,
+      },
+    });
+    Object.defineProperty(globalThis, 'getComputedStyle', {
+      configurable: true,
+      writable: true,
+      value: (el: (typeof fitElements)[number]) => ({ maxHeight: el.maxHeight }),
+    });
+
+    try {
+      const printService = new PrintService();
+      await expect(printService.findTextOverflow('<html></html>')).resolves.toEqual(['9', '11']);
+      loadedFonts = [];
+      await expect(printService.findTextOverflow('<html></html>')).rejects.toThrow(
+        'Premium typesetting font is unavailable',
+      );
+      expect(mockBrowser.close).toHaveBeenCalledTimes(2);
+    } finally {
+      launchMock.mockReset();
+      Object.defineProperty(globalThis, 'document', {
+        configurable: true,
+        writable: true,
+        value: originalDocument,
+      });
+      Object.defineProperty(globalThis, 'getComputedStyle', {
+        configurable: true,
+        writable: true,
+        value: originalGetComputedStyle,
+      });
+    }
   });
 });
