@@ -18,6 +18,10 @@ const logger = winston.createLogger({
   format: winston.format.combine(winston.format.timestamp(), winston.format.json()),
   transports: [new winston.transports.Console()],
 });
+const inputFinalTimeoutMs = 15_000;
+const inputQuietGraceMs = 1800;
+const unconfirmedSpeechGraceMs = 4000;
+type InputEndReason = 'SPEECH_ACTIVITY_ENDED' | 'PROVIDER_IDLE' | 'AUDIO_STREAM_ENDED';
 
 // A narrow transport interface avoids coupling application protocol to ws implementation details.
 interface Socket {
@@ -140,8 +144,21 @@ export function startBiographerLiveGateway() {
     let authenticated = false;
     let closed = false;
     let inputTurn:
-      { id: string; text: string; mayContainSpeech: boolean; speechDetected?: boolean } | undefined;
-    let nextInputId: string | undefined;
+      | {
+          id: string;
+          text: string;
+          mayContainSpeech: boolean;
+          speechDetected?: boolean;
+          activitySpeaking?: boolean;
+          activityEnded?: boolean;
+          endReason: InputEndReason | undefined;
+          lastSignalAt: number;
+        }
+      | undefined;
+    let captureId: string | undefined;
+    let inputFinalTimer: ReturnType<typeof setTimeout> | undefined;
+    let inputQuietTimer: ReturnType<typeof setTimeout> | undefined;
+    let goAwayTimer: ReturnType<typeof setTimeout> | undefined;
     let outputTurn = { id: randomUUID(), text: '', final: false };
     let queue = Promise.resolve();
     let incoming = Promise.resolve();
@@ -188,6 +205,39 @@ export function startBiographerLiveGateway() {
     const clearOutline = () => {
       if (outline) clearTimeout(outline.timer);
       outline = undefined;
+    };
+    const reconnectForInput = (reason: string) => {
+      logger.info('Story Whisperer voice input incomplete', { reason });
+      send({ type: 'reconnecting' });
+      cleanup();
+      socket.close(1012, 'Resume from saved history');
+    };
+    const reconnectAfterGoAway = () => {
+      if (closed) return;
+      if (whisperer && inputTurn?.mayContainSpeech) reconnectForInput('PROVIDER_GO_AWAY');
+      else {
+        send({ type: 'reconnecting' });
+        socket.close(1012, 'Resume from saved history');
+      }
+    };
+    const waitForInputFinal = (reason: string) => {
+      if (inputFinalTimer || !inputTurn?.mayContainSpeech) return;
+      const turnId = inputTurn.id;
+      const startedAt = performance.now();
+      const expire = () => {
+        if (closed || inputTurn?.id !== turnId) return;
+        const remaining = inputFinalTimeoutMs - (performance.now() - inputTurn.lastSignalAt);
+        if (remaining > 0 && inputTurn.endReason !== 'AUDIO_STREAM_ENDED') {
+          inputFinalTimer = setTimeout(expire, remaining);
+          return;
+        }
+        logger.info('Story Whisperer voice finalization timed out', {
+          elapsedMs: Math.round(performance.now() - startedAt),
+          reason,
+        });
+        reconnectForInput('INPUT_FINAL_TIMEOUT');
+      };
+      inputFinalTimer = setTimeout(expire, inputFinalTimeoutMs);
     };
     const notifyOutlineAfterCheckpoints = () => {
       const fence = queue;
@@ -249,32 +299,111 @@ export function startBiographerLiveGateway() {
           fail('CHECKPOINT_FAILED');
         });
     };
+    const sealInput = () => {
+      if (!inputTurn) return;
+      if (inputTurn.text.trim()) finalUserTurnId = inputTurn.id;
+      checkpoint('user', inputTurn.id, inputTurn.text, true);
+      if (inputFinalTimer) clearTimeout(inputFinalTimer);
+      if (inputQuietTimer) clearTimeout(inputQuietTimer);
+      inputFinalTimer = undefined;
+      inputQuietTimer = undefined;
+      captureId = randomUUID();
+      // Capture rotation is immediate; saved transcript events still await durable checkpoints.
+      send({ type: 'capture_boundary', turnId: inputTurn.id, nextTurnId: captureId });
+      if (prepareOutline?.turnId === inputTurn.id) prepareOutline.turnId = undefined;
+      inputTurn = undefined;
+    };
+    const waitForQuietInput = (endReason?: InputEndReason) => {
+      if (!inputTurn) return;
+      if (inputTurn.endReason !== 'AUDIO_STREAM_ENDED')
+        inputTurn.endReason = endReason ?? inputTurn.endReason;
+      if (inputQuietTimer || !inputTurn.endReason || !inputTurn.text.trim()) return;
+      const turnId = inputTurn.id;
+      const startedAt = performance.now();
+      const settle = () => {
+        inputQuietTimer = undefined;
+        if (closed || checkpointFailed || inputTurn?.id !== turnId || !inputTurn.endReason) return;
+        if (inputTurn.activitySpeaking && inputTurn.endReason !== 'AUDIO_STREAM_ENDED') return;
+        const remaining = inputQuietGraceMs - (performance.now() - inputTurn.lastSignalAt);
+        if (remaining > 0) {
+          inputQuietTimer = setTimeout(settle, remaining);
+          return;
+        }
+        logger.info('Story Whisperer voice finalized after quiet input', {
+          elapsedMs: Math.round(performance.now() - startedAt),
+          reason: inputTurn.endReason,
+        });
+        sealInput();
+        notifyOutlineAfterCheckpoints();
+      };
+      inputQuietTimer = setTimeout(settle, inputQuietGraceMs);
+    };
     const processServer = (event: LiveServerMessage) => {
       const content = event.serverContent;
       const input = content?.inputTranscription;
       if (inputTurn) {
+        const activity = event.voiceActivity?.voiceActivityType;
+        if (whisperer && inputTurn.activityEnded && activity === 'ACTIVITY_START') {
+          // The provider does not tag text with a turn ID. Preserve saved text rather than
+          // attribute the next speech activity to the unfinished answer.
+          reconnectForInput('OVERLAPPING_INPUT_ACTIVITY');
+          return;
+        }
+        if (whisperer) {
+          if (activity === 'ACTIVITY_START') {
+            inputTurn.activitySpeaking = true;
+            if (inputTurn.endReason !== 'AUDIO_STREAM_ENDED') inputTurn.endReason = undefined;
+          } else if (activity === 'ACTIVITY_END') {
+            inputTurn.activitySpeaking = false;
+            inputTurn.activityEnded = true;
+          }
+          if (input?.text?.trim() || content?.interimInputTranscription?.text?.trim() || activity)
+            inputTurn.lastSignalAt = performance.now();
+        }
         if (input?.text) inputTurn.text += input.text;
         if (
           whisperer &&
           !inputTurn.speechDetected &&
-          (inputTurn.text.trim() || event.voiceActivity?.voiceActivityType === 'ACTIVITY_START')
+          (inputTurn.text.trim() ||
+            content?.interimInputTranscription?.text?.trim() ||
+            activity === 'ACTIVITY_START')
         ) {
           inputTurn.mayContainSpeech = true;
           inputTurn.speechDetected = true;
           send({ type: 'speech_detected', turnId: inputTurn.id });
+          if (outline && outline.turnId !== inputTurn.id) {
+            if (outline.sent)
+              send({ type: 'advance_to_outline_cancelled', callId: outline.callId });
+            respondToTool(outline.callId, 'advance_to_outline', false);
+            clearOutline();
+          }
         }
         const hasText = Boolean(inputTurn.text.trim());
-        const final = Boolean(
-          (input?.finished && (!whisperer || hasText)) || (content?.turnComplete && hasText),
-        );
-        if (final && hasText) finalUserTurnId = inputTurn.id;
-        if (input?.text || final) checkpoint('user', inputTurn.id, inputTurn.text, final);
+        // Gemini's model turn and its input transcription are independent streams.
+        const final = whisperer
+          ? input?.finished === true && hasText
+          : Boolean(input?.finished || (content?.turnComplete && hasText));
         if (final) {
-          nextInputId = randomUUID();
-          // Capture rotation is immediate; saved transcript events still await durable checkpoints.
-          send({ type: 'capture_boundary', turnId: inputTurn.id, nextTurnId: nextInputId });
-          if (prepareOutline?.turnId === inputTurn.id) prepareOutline.turnId = undefined;
-          inputTurn = undefined;
+          sealInput();
+        } else {
+          if (input?.text) checkpoint('user', inputTurn.id, inputTurn.text, false);
+          if (whisperer) {
+            if (activity === 'ACTIVITY_END') {
+              waitForQuietInput('SPEECH_ACTIVITY_ENDED');
+              waitForInputFinal('SPEECH_ACTIVITY_ENDED');
+            } else if (
+              content?.interactionStatus === 'IDLE' &&
+              !content.interrupted &&
+              !inputTurn.activitySpeaking &&
+              inputTurn.speechDetected
+            ) {
+              waitForQuietInput('PROVIDER_IDLE');
+              waitForInputFinal('PROVIDER_IDLE');
+            } else if (input?.text) waitForQuietInput();
+            if (content?.turnComplete && !content.interrupted && !inputTurn.activitySpeaking)
+              waitForInputFinal('MODEL_TURN_COMPLETED');
+            if (prepareOutline?.turnId === inputTurn.id) waitForInputFinal('OUTLINE_PREPARATION');
+          }
         }
       }
       const output = outlinePrepared ? undefined : content?.outputTranscription;
@@ -287,15 +416,6 @@ export function startBiographerLiveGateway() {
       if (content?.turnComplete || interrupted)
         outputTurn = { id: randomUUID(), text: '', final: false };
 
-      if (
-        content?.turnComplete &&
-        inputTurn &&
-        !inputTurn.text.trim() &&
-        !inputTurn.mayContainSpeech &&
-        prepareOutline?.turnId === inputTurn.id
-      ) {
-        prepareOutline.turnId = undefined;
-      }
       const cancelledCalls = event.toolCallCancellation?.ids ?? [];
       for (const callId of cancelledCalls) {
         if (outline?.callId !== callId) continue;
@@ -338,8 +458,11 @@ export function startBiographerLiveGateway() {
       if (outline || prepareOutline) notifyOutlineAfterCheckpoints();
 
       if (event.goAway) {
-        send({ type: 'reconnecting' });
-        socket.close(1012, 'Resume from saved history');
+        const seconds = /^(\d+(?:\.\d+)?)s$/.exec(event.goAway.timeLeft ?? '')?.[1];
+        const drainMs = Math.min(Number(seconds ?? 0) * 1000, 2000);
+        if (whisperer && inputTurn?.mayContainSpeech && drainMs > 0) {
+          if (!goAwayTimer) goAwayTimer = setTimeout(reconnectAfterGoAway, drainMs);
+        } else reconnectAfterGoAway();
       }
     };
     const cleanup = (discardTurnIds?: string[]) => {
@@ -350,9 +473,12 @@ export function startBiographerLiveGateway() {
       if (allowanceDeadline) clearTimeout(allowanceDeadline);
       clearOutline();
       if (prepareTimer) clearTimeout(prepareTimer);
+      if (inputFinalTimer) clearTimeout(inputFinalTimer);
+      if (inputQuietTimer) clearTimeout(inputQuietTimer);
+      if (goAwayTimer) clearTimeout(goAwayTimer);
       session?.close();
       sockets.delete(socket);
-      // Queued transcript checkpoints finish before lease release; source audio is archived separately by the browser.
+      // The browser uses lease release to detect when transcript checkpoints have drained.
       void queue
         .finally(async () => {
           if (!leaseId) return;
@@ -367,7 +493,11 @@ export function startBiographerLiveGateway() {
             await internal('lease', { sessionId, leaseId, action: 'release' });
           }
         })
-        .catch(() => undefined);
+        .catch(() => {
+          logger.warn('Biographer live lease cleanup failed', {
+            reason: discardTurnIds ? 'DISCARD_FAILED' : 'RELEASE_FAILED',
+          });
+        });
     };
     socket.on('close', () => cleanup());
     socket.on('error', () => cleanup());
@@ -573,17 +703,46 @@ export function startBiographerLiveGateway() {
           }
           if (!session) throw new Error('SESSION_NOT_READY');
           if (value.type === 'audio') {
-            if (prepareTimer) clearTimeout(prepareTimer);
-            prepareOutline = undefined;
+            // Frames already in transit at a boundary still carry the retired ID.
+            if (whisperer && captureId && value.turnId !== captureId) return;
+            if (
+              whisperer &&
+              (prepareOutline ||
+                outlinePrepared ||
+                goAwayTimer ||
+                inputTurn?.endReason === 'AUDIO_STREAM_ENDED')
+            )
+              return;
             if (!inputTurn) {
-              inputTurn = { id: nextInputId ?? value.turnId, text: '', mayContainSpeech: false };
-              nextInputId = undefined;
+              inputTurn = {
+                id: captureId ?? value.turnId,
+                text: '',
+                mayContainSpeech: false,
+                endReason: undefined,
+                lastSignalAt: performance.now(),
+              };
+              if (whisperer) captureId = inputTurn.id;
+              else captureId = undefined;
             }
-            if (whisperer) inputTurn.mayContainSpeech ||= mayContainSpeech(value.data);
+            if (whisperer && mayContainSpeech(value.data)) {
+              inputTurn.mayContainSpeech = true;
+              // After a provider-confirmed speech boundary, only provider activity or
+              // transcription updates extend the wait. Background sound can persist.
+              if (inputTurn.endReason !== 'SPEECH_ACTIVITY_ENDED')
+                inputTurn.lastSignalAt = performance.now();
+            }
             session.sendRealtimeInput({
               audio: { data: value.data, mimeType: 'audio/pcm;rate=16000' },
             });
           } else if (value.type === 'text') {
+            if (whisperer) {
+              if (inputTurn?.mayContainSpeech) {
+                reconnectForInput('OVERLAPPING_TEXT_INPUT');
+                return;
+              }
+              await queue;
+              if (closed || checkpointFailed) return;
+            }
             await internal('checkpoint', {
               sessionId,
               eventId: value.turnId,
@@ -607,31 +766,46 @@ export function startBiographerLiveGateway() {
               startedAt: performance.now(),
             };
             if (inputTurn) {
+              const { id, mayContainSpeech } = inputTurn;
               session.sendRealtimeInput({ audioStreamEnd: true });
-              // Continuous capture can leave a silence-only tail which Gemini never finalizes.
-              prepareTimer = setTimeout(() => {
-                if (
-                  prepareOutline?.requestId !== value.requestId ||
-                  inputTurn?.text.trim() ||
-                  inputTurn?.mayContainSpeech
-                )
-                  return;
-                prepareOutline.turnId = undefined;
-                notifyOutlineAfterCheckpoints();
-              }, 1800);
+              if (!inputTurn.endReason) inputTurn.lastSignalAt = performance.now();
+              waitForQuietInput('AUDIO_STREAM_ENDED');
+              waitForInputFinal('OUTLINE_PREPARATION');
+              // Unconfirmed PCM can be background noise. Give Gemini more time to
+              // detect speech before releasing that tail without a transcript.
+              prepareTimer = setTimeout(
+                () => {
+                  if (
+                    prepareOutline?.requestId !== value.requestId ||
+                    inputTurn?.id !== id ||
+                    inputTurn.speechDetected
+                  )
+                    return;
+                  if (mayContainSpeech) sealInput();
+                  else prepareOutline.turnId = undefined;
+                  notifyOutlineAfterCheckpoints();
+                },
+                mayContainSpeech ? unconfirmedSpeechGraceMs : inputQuietGraceMs,
+              );
             }
             notifyOutlineAfterCheckpoints();
           } else if (value.type === 'resume_outline' && whisperer) {
             outlinePrepared = false;
             if (prepareTimer) clearTimeout(prepareTimer);
             prepareOutline = undefined;
+            if (inputTurn?.endReason === 'AUDIO_STREAM_ENDED') inputTurn.endReason = undefined;
           } else if (value.type === 'advance_to_outline_result' && whisperer) {
             if (outline?.callId !== value.callId || !outline.sent) return;
             clearOutline();
             respondToTool(value.callId, 'advance_to_outline', value.accepted);
-          } else if (value.type === 'end_audio')
+          } else if (value.type === 'end_audio') {
             session.sendRealtimeInput({ audioStreamEnd: true });
-          else if (value.type === 'pause') socket.close(1000, 'Paused');
+            if (whisperer && inputTurn) {
+              if (!inputTurn.endReason) inputTurn.lastSignalAt = performance.now();
+              waitForQuietInput('AUDIO_STREAM_ENDED');
+              waitForInputFinal('AUDIO_STREAM_ENDED');
+            }
+          } else if (value.type === 'pause') socket.close(1000, 'Paused');
         })
         .catch(() => fail('INVALID_OR_UNSAVED_MESSAGE'))
         .finally(() => {

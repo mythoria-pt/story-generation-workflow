@@ -217,7 +217,7 @@ describe('Story Whisperer', () => {
       });
       expect(systemInstruction).toContain('In pt-PT, address the author informally as “tu”');
       expect(systemInstruction).toContain('including when saved questions use a formal register');
-      expect(systemInstruction).toContain('O que sentiste quando a Andreia se aproximou de ti?');
+      expect(systemInstruction).toContain('ask them directly about what they saw or did');
       expect(systemInstruction).toContain('avoid assuming they were there');
       expect(systemInstruction).toContain("does not determine the book's narrative point of view");
       expect(systemInstruction).toContain('Accept a role, alias or relationship');
@@ -254,6 +254,10 @@ describe('Story Whisperer', () => {
       'shifts away from the initial intent, selected genre or opening',
     );
     expect(systemInstruction).toContain('move to the most useful unresolved detail');
+    expect(systemInstruction).toContain('without praise, commentary on the quality of the idea');
+    expect(systemInstruction).toContain('move to a gap in another area');
+    expect(systemInstruction).toContain('leaves open who approached whom');
+    expect(systemInstruction).toContain('point the question and hint at the same useful gap');
     expect(systemInstruction).toContain('A team name, a family relationship or a broad quality');
     expect(systemInstruction).toContain(
       'A concrete action in a scene can satisfy both characters and plot',
