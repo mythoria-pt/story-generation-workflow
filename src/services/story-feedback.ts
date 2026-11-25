@@ -37,7 +37,7 @@ export async function submitStoryFeedback(input: {
     recipients: [{ email: story.authorEmail, name: authorName, language }],
     cc:
       sender.email.toLowerCase() === story.authorEmail.toLowerCase()
-        ? undefined
+        ? []
         : [{ email: sender.email, name: sender.name, language: normalizeLocale(sender.locale) }],
     variables: {
       authorName,
@@ -52,4 +52,5 @@ export async function submitStoryFeedback(input: {
   });
 
   if (!sent) return { status: 502, error: 'Unable to send feedback at the moment' };
+  return undefined;
 }
