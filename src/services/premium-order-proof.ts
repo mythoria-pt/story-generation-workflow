@@ -146,12 +146,13 @@ async function squareLayout(
   loadBrand: (url: string) => Promise<PrintArtwork>,
   pages = book.pages,
   coverDimensions?: { width: number; height: number },
+  coverPageCount: 32 | 33 | 34 = book.format.pageCount,
 ) {
   const cover = part === 'cover';
   const embeddedLettering = book.editionLayout === PREMIUM_EMBEDDED_LETTERING_EDITION;
   const showClassicSpecification = !cover && embeddedLettering;
   const dimensions = cover ? (coverDimensions ?? casewrap) : interiorPage;
-  const spine = cover ? luluSpinePoints('hardcover', book.format.pageCount, dimensions.width) : 0;
+  const spine = cover ? luluSpinePoints('hardcover', coverPageCount, dimensions.width) : 0;
   const panelPts = cover
     ? { width: (dimensions.width - spine) / 2, height: dimensions.height }
     : casewrapPanel;
@@ -290,7 +291,11 @@ export async function renderSquarePdf(
   part: 'interior' | 'cover',
   load: (ref: Ref) => Promise<Buffer>,
   loadBrand: (url: string) => Promise<PrintArtwork>,
-  options?: { coverDimensions?: { width: number; height: number }; lulu?: boolean },
+  options?: {
+    coverDimensions?: { width: number; height: number };
+    coverPageCount?: 32 | 33 | 34;
+    lulu?: boolean;
+  },
 ) {
   const { print, html, dimensions } = await squareLayout(
     book,
@@ -299,6 +304,7 @@ export async function renderSquarePdf(
     loadBrand,
     book.pages,
     options?.coverDimensions,
+    options?.coverPageCount,
   );
   const cover = part === 'cover';
   const { width, height } = dimensions;

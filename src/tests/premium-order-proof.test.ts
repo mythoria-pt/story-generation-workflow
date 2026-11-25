@@ -70,6 +70,23 @@ describe('square order proof', () => {
     ]) {
       expect(OrderProofRequest.safeParse({ ...input, ...fields }).success).toBe(false);
     }
+    const coverDimensions = { width: 1368, height: 738 };
+    for (const [premiumPageCount, coverPageCount, accepted] of [
+      [32, 32, true],
+      [33, 33, true],
+      [33, 34, true],
+      [32, 34, false],
+      [33, 32, false],
+      [33, 35, false],
+    ]) {
+      expect(
+        OrderProofRequest.safeParse({ ...input, premiumPageCount, coverDimensions, coverPageCount })
+          .success,
+      ).toBe(accepted);
+    }
+    expect(
+      OrderProofRequest.safeParse({ ...input, premiumPageCount: 33, coverPageCount: 34 }).success,
+    ).toBe(false);
   });
   it('renders one branded invitation after the story and reuses a selected custom motif only on pages 1 and 3', async () => {
     const book = premiumInvitationManifestFixture();

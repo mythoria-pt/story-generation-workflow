@@ -122,7 +122,7 @@ See [Story Whisperer voice and structure contracts](docs/biographer.md) for auth
 
 ## Paid physical-order proofs
 
-Paid physical-order proof generation uses the API-key-protected `POST /internal/print/order-proof` contract and private `PRINT_PROOF_BUCKET` described in [print.md](docs/print.md#paid-physical-order-proofs). Use immutable order artifacts and the actual interior page count on both sides of the Lulu cover-dimensions call.
+Paid physical-order proof generation uses the API-key-protected `POST /internal/print/order-proof` contract and private `PRINT_PROOF_BUCKET` described in [print.md](docs/print.md#paid-physical-order-proofs). Keep the square Lulu interior pinned to its actual source page count. Render the cover using the accepted `coverPageCount` and the matching Lulu dimensions.
 
 ## Premium illustrated books
 

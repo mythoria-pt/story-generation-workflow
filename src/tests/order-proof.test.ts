@@ -121,7 +121,7 @@ describe('paid order PDF generations', () => {
     expect(square.mock.calls.map((call) => call[2])).toEqual(['interior', 'cover']);
   });
 
-  it('passes Lulu cover dimensions and lulu flattening flag for square Lulu proofs and rejects dimension drift', async () => {
+  it('reuses the pinned 33-page interior and renders the square cover using Lulu’s accepted 34 pages', async () => {
     const manifest = premiumInvitationManifestFixture();
     const premium = storageFixture();
     const proofs = storageFixture();
@@ -135,7 +135,6 @@ describe('paid order PDF generations', () => {
       binding: 'hardcover',
       podPackageId: squarePackage,
       premiumPageCount: 33,
-      coverDimensions: { width: 1368.2, height: 738 },
       premiumBook: {
         version: 1,
         type: 'premium_children',
@@ -155,8 +154,26 @@ describe('paid order PDF generations', () => {
         bytes: Buffer.from(part),
         issues: [],
       }));
-    const result = await renderOrderProof(proofs.bucket, request, loadArtwork, premium.bucket);
-    expect(result.qaPassed).toBe(true);
+    const preliminary = await renderOrderProof(proofs.bucket, request, loadArtwork, premium.bucket);
+    const legacyRequest = { ...request, coverDimensions: { width: 1368, height: 738 } };
+    const legacy = await renderOrderProof(
+      proofs.bucket,
+      legacyRequest,
+      loadArtwork,
+      premium.bucket,
+    );
+    const finalRequest = {
+      ...request,
+      coverDimensions: { width: 1368.2, height: 738 },
+      coverPageCount: 34 as const,
+    };
+    const result = await renderOrderProof(proofs.bucket, finalRequest, loadArtwork, premium.bucket);
+    expect(result).toMatchObject({
+      qaPassed: true,
+      pageCount: 33,
+      coverPageCount: 34,
+      interior: preliminary.interior,
+    });
     expect(square).toHaveBeenNthCalledWith(
       1,
       expect.anything(),
@@ -164,25 +181,40 @@ describe('paid order PDF generations', () => {
       'interior',
       expect.any(Function),
       loadArtwork,
-      { coverDimensions: { width: 1368.2, height: 738 }, lulu: true },
+      { lulu: true },
     );
     expect(square).toHaveBeenNthCalledWith(
-      2,
+      3,
       expect.anything(),
       expect.any(String),
       'cover',
       expect.any(Function),
       loadArtwork,
-      { coverDimensions: { width: 1368.2, height: 738 }, lulu: true },
+      { coverDimensions: { width: 1368.2, height: 738 }, coverPageCount: 34, lulu: true },
     );
+    await expect(
+      renderOrderProof(proofs.bucket, finalRequest, loadArtwork, premium.bucket),
+    ).resolves.toEqual(result);
+    await expect(
+      renderOrderProof(proofs.bucket, legacyRequest, loadArtwork, premium.bucket),
+    ).resolves.toEqual(legacy);
     await expect(
       renderOrderProof(
         proofs.bucket,
-        { ...request, coverDimensions: { width: 1370, height: 738 } },
+        { ...finalRequest, coverDimensions: { width: 1370, height: 738 } },
         loadArtwork,
         premium.bucket,
       ),
-    ).rejects.toThrow('different dimensions');
+    ).rejects.toThrow('different cover parameters');
+    await expect(
+      renderOrderProof(
+        proofs.bucket,
+        { ...finalRequest, coverPageCount: 33 },
+        loadArtwork,
+        premium.bucket,
+      ),
+    ).rejects.toThrow('different cover parameters');
+    expect(square.mock.calls.map((call) => call[2])).toEqual(['interior', 'cover', 'cover']);
   });
 
   it('stops before rendering if the pinned premium edition differs from the paid interior count', async () => {

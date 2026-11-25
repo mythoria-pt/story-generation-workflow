@@ -49,6 +49,7 @@ export const OrderProofRequest = z
     coverDimensions: z
       .object({ width: z.number().min(800).max(1500), height: z.number().min(600).max(900) })
       .optional(),
+    coverPageCount: z.literal([32, 33, 34]).optional(),
   })
   .strict()
   .refine(
@@ -68,7 +69,22 @@ export const OrderProofRequest = z
   )
   .refine((value) => value.provider === 'lulu' || !value.coverDimensions, {
     message: 'Manual print uses local cover dimensions',
-  });
+  })
+  .refine(
+    (value) =>
+      value.coverPageCount === undefined ||
+      Boolean(
+        value.provider === 'lulu' &&
+        value.premiumBook &&
+        value.coverDimensions &&
+        (value.coverPageCount === value.premiumPageCount ||
+          (value.premiumPageCount === 33 && value.coverPageCount === 34)),
+      ),
+    {
+      message:
+        'Square Lulu cover page count must match the source or include one final blank on a 33-page source',
+    },
+  );
 type Request = z.infer<typeof OrderProofRequest>;
 type Artifact = {
   bucket: string;
@@ -85,13 +101,15 @@ type Result = {
   qaPassed?: boolean;
   qaCriticalCount?: number;
   issues?: string[];
+  coverPageCount?: number;
 };
 type Story = NonNullable<Awaited<ReturnType<StoryService['getStoryForPrint']>>>;
 type ArtworkReference = { artifact: Artifact; contentType: string };
 type Source = { story: Story; artwork: Record<string, ArtworkReference> };
 type Dimensions = { width: number; height: number };
+type CompleteResult = Required<Omit<Result, 'coverPageCount'>>;
 type Final = {
-  result: Required<Result>;
+  result: CompleteResult;
   dimensions: Dimensions | null;
 };
 const hasCode = (error: unknown, code: number) =>
@@ -296,10 +314,15 @@ export async function renderOrderProof(
       throw new Error('Premium proof page count differs from the paid edition');
     const dir = await mkdtemp(join(tmpdir(), 'mythoria-square-proof-'));
     try {
-      if (request.coverDimensions) assertSquareCasewrap(request.coverDimensions, pageCount);
+      const coverPageCount = request.coverPageCount ?? pageCount;
+      if (request.coverDimensions) assertSquareCasewrap(request.coverDimensions, coverPageCount);
       const renderOptions =
         lulu && request.coverDimensions
-          ? { coverDimensions: request.coverDimensions, lulu: true }
+          ? {
+              coverDimensions: request.coverDimensions,
+              lulu: true,
+              ...(request.coverPageCount === undefined ? {} : { coverPageCount }),
+            }
           : lulu
             ? { lulu: true }
             : undefined;
@@ -331,7 +354,21 @@ export async function renderOrderProof(
       if (interior.pageCount !== pageCount)
         throw new Error('Cached interior has a different page count');
       if (lulu && !request.coverDimensions) return { interior: interior.interior, pageCount };
-      if (lulu && request.coverDimensions) {
+      const normalizedSquareCover = request.coverPageCount !== undefined;
+      if (normalizedSquareCover && request.coverDimensions) {
+        const parameters = { dimensions: request.coverDimensions, pageCount: coverPageCount };
+        const staged = await stage(
+          bucket,
+          prefix + '/square-lulu-cover-parameters.json',
+          async () => parameters,
+        );
+        if (
+          staged.pageCount !== parameters.pageCount ||
+          staged.dimensions.width !== parameters.dimensions.width ||
+          staged.dimensions.height !== parameters.dimensions.height
+        )
+          throw new Error('Existing proof uses different cover parameters');
+      } else if (lulu && request.coverDimensions) {
         const requestedCover = request.coverDimensions;
         const stagedDims = await stage<Dimensions>(
           bucket,
@@ -345,18 +382,26 @@ export async function renderOrderProof(
           throw new Error('Existing proof uses different dimensions');
         }
       }
-      return await stage<Required<Result>>(bucket, prefix + '/square-final.json', async () => {
-        const { bytes, issues: coverIssues } = await render('cover');
-        const issues = [...new Set([...interior.imageIssues, ...coverIssues])];
-        return {
-          interior: interior.interior,
-          cover: await saveArtifact(bucket, prefix, 'cover.pdf', bytes, 'application/pdf'),
-          pageCount,
-          qaPassed: issues.length === 0,
-          qaCriticalCount: issues.length,
-          issues,
-        };
-      });
+      const finalManifest = normalizedSquareCover
+        ? '/square-lulu-final.json'
+        : '/square-final.json';
+      return await stage<CompleteResult & Pick<Result, 'coverPageCount'>>(
+        bucket,
+        prefix + finalManifest,
+        async () => {
+          const { bytes, issues: coverIssues } = await render('cover');
+          const issues = [...new Set([...interior.imageIssues, ...coverIssues])];
+          return {
+            interior: interior.interior,
+            cover: await saveArtifact(bucket, prefix, 'cover.pdf', bytes, 'application/pdf'),
+            pageCount,
+            qaPassed: issues.length === 0,
+            qaCriticalCount: issues.length,
+            issues,
+            ...(normalizedSquareCover ? { coverPageCount } : {}),
+          };
+        },
+      );
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
