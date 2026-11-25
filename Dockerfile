@@ -28,19 +28,32 @@ RUN npm prune --omit=dev --ignore-scripts
 # Production stage with Debian-based image for Ghostscript support
 FROM node:${NODE_VERSION}-bookworm-slim
 
-# Install system dependencies for PDF processing
-RUN apt-get update && apt-get install -y \
+# Keep the xdg-utils man page required by its open alternative on Debian slim.
+# Configure Chrome with Google's published primary key scoped to its HTTPS repository.
+RUN printf '%s\n' 'path-include /usr/share/man/man1/xdg-open.1.gz' > /etc/dpkg/dpkg.cfg.d/zz-xdg-open \
+    && apt-get update && apt-get install -y \
     ffmpeg \
     poppler-utils \
     icc-profiles-free \
     ghostscript \
+    ca-certificates \
     wget \
-    gnupg \
-    && wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - \
-    && sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list' \
+    && install -d -m 0755 /etc/apt/keyrings \
+    && wget -q -O /etc/apt/keyrings/google-chrome.asc https://dl.google.com/linux/linux_signing_key.pub \
+    && chmod 0644 /etc/apt/keyrings/google-chrome.asc \
+    && printf '%s\n' \
+      'Types: deb' \
+      'URIs: https://dl.google.com/linux/chrome/deb/' \
+      'Suites: stable' \
+      'Components: main' \
+      'Architectures: amd64' \
+      'Signed-By: /etc/apt/keyrings/google-chrome.asc EB4C1BFD4F042F6DDDCCEC917721F63BD38B4796' \
+      > /etc/apt/sources.list.d/mythoria-chrome.sources \
+    && printf '%s\n' 'repo_add_once="false"' 'repo_reenable_on_distupgrade="false"' > /etc/default/google-chrome \
     && apt-get update \
     && apt-get install -y google-chrome-stable fonts-liberation2 fonts-dejavu-core fonts-ipafont-gothic fonts-wqy-zenhei fonts-thai-tlwg fonts-kacst fonts-freefont-ttf libxss1 \
     --no-install-recommends \
+    && test -r /usr/share/man/man1/xdg-open.1.gz \
     && rm -rf /var/lib/apt/lists/*
 
 # Gemini TTS conversion and audiobook mixing require a modern amix filter.
