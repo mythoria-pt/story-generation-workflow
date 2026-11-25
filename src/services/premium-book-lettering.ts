@@ -57,7 +57,9 @@ export function buildPremiumLetteredPagePrompt({
   audience?: z.infer<typeof premiumAudience> | undefined;
   locale?: string | undefined;
   hasPrior?: boolean | undefined;
-  independent?: { spreadContext: string; hasPrior: boolean; hasNeighbour: boolean } | undefined;
+  independent?:
+    | { correctionInstructions?: string | undefined; hasPrior: boolean; hasNeighbour: boolean }
+    | undefined;
 }) {
   return [
     'Paint a finished square, full-bleed page for a children’s picture book. Carry its setting all the way to every canvas edge. Do not paint a book mockup, a page border, a panel, a page number, a gutter or a shadow implying a fold.',
@@ -83,7 +85,11 @@ export function buildPremiumLetteredPagePrompt({
                 'The final attached image is a separately composed neighbouring page. Match its relevant props, characters and medium. Keep the event and staging specific to this page.',
               ]
             : []),
-          `Use the following only for story context and any requested correction to this page. Depict only the scene assigned below. Context: ${independent.spreadContext}`,
+          ...(independent.correctionInstructions
+            ? [
+                `Apply this requested correction to this page: ${independent.correctionInstructions}`,
+              ]
+            : []),
         ]
       : []),
     ...(hasPrior && !independent
@@ -103,7 +109,7 @@ export function buildPremiumLetteredPagePrompt({
     ...(text
       ? [
           letteringStyle,
-          'Keep every letter and decorative emphasis mark inside the central 76% of the visible trimmed page, with the bleed outside the trim. Give the binding extra breathing room. Do not put the words in a separate opaque panel, banner, speech bubble or pasted label.',
+          'Keep every letter, accent and decorative emphasis mark inside the central 76% of the visible trimmed page, leaving at least 12% empty margin from every edge (including the bleed outside the trim). Leave a generous empty band of background above the first line of text—roughly the height of one to two lines of lettering—and place the main characters in the lower two-thirds when text sits above them. Keep decorative strokes or sparkles strictly beside or below the words, never poking into the top or side margins. Give the binding extra breathing room. Do not put the words in a separate opaque panel, banner, speech bubble or pasted label.',
           'Render only the following narration, exactly once, including accents, capitalization and punctuation. Use line breaks between words when needed. Do not copy the delimiters into the artwork, add quotation marks, paraphrase, translate, omit a word or add discretionary hyphens.',
           ...(locale
             ? [`Preserve spelling and accents from the supplied ${locale} narration.`]

@@ -308,6 +308,58 @@ describe('independent premium lettering review', () => {
     expect(reviewer.mock.calls[0]?.[0]).not.toContain('Outra vez, Leonor!');
     expect(reviewer.mock.calls[0]?.[1]?.mediaParts).toHaveLength(4);
   });
+
+  it('isolates independent page prompts from combined spread actions and preserves margin cues', () => {
+    const base = {
+      side: 'left' as const,
+      text: 'Bom dia!',
+      action: 'A fox walks along the harbour path.',
+      guide: 'Soft watercolour.',
+      audience: 'children_3-6' as const,
+    };
+    const initial = buildPremiumLetteredPagePrompt({
+      ...base,
+      independent: { hasPrior: false, hasNeighbour: false },
+    });
+    expect(initial).toContain('leaving at least 12% empty margin from every edge');
+    expect(initial).toContain('empty band of background above the first line');
+    expect(initial).not.toContain('Context:');
+    const corrected = buildPremiumLetteredPagePrompt({
+      ...base,
+      independent: {
+        correctionInstructions: 'Move the boat further right.',
+        hasPrior: true,
+        hasNeighbour: true,
+      },
+    });
+    expect(corrected).toContain(
+      'Apply this requested correction to this page: Move the boat further right.',
+    );
+  });
+
+  it('uses the 6% safeLettering threshold and ignores typography findings on the absent facing side', async () => {
+    const reviewer = jest.spyOn(GoogleGenAITextService.prototype, 'complete').mockResolvedValue(
+      JSON.stringify({
+        ...passed,
+        typography: { ...passed.typography, safeLettering: 'right' },
+        leftTranscription: 'Outra vez, Leonor!',
+        rightTranscription: '',
+        pageDescriptionAccurate: true,
+        pairedContinuity: true,
+      }),
+    );
+    const source = await image(100, 100);
+    const neighbour = await image(100, 100, '#d1dee9');
+    await expect(
+      reviewPremiumLetteredArtwork(scope, config, 'spread-1-left', {
+        source,
+        pages: [{ side: 'left', text: 'Outra vez, Leonor!', trim: source }],
+        reference: source,
+        independent: { side: 'left', description: 'Leonor waves to the boat.', neighbour },
+      }),
+    ).resolves.toBeUndefined();
+    expect(reviewer.mock.calls[0]?.[0]).toContain('less than 6% of the trimmed width or height');
+  });
 });
 
 describe('premium native print export', () => {

@@ -643,6 +643,7 @@ type SpreadArtworkPlan = {
 type ArtworkCorrection = {
   targetSide?: ArtworkSide | undefined;
   previousTiles?: Partial<Record<ArtworkSide, Buffer>>;
+  instructions?: string | undefined;
 };
 const letteringFeedback = z.object({
   checks: z.array(premiumReviewCheck),
@@ -796,7 +797,7 @@ async function createLetteredArtwork(
             hasPrior: !secondPage && Boolean(priorImage),
             independent: independent
               ? {
-                  spreadContext: action,
+                  correctionInstructions: correction?.instructions,
                   hasPrior: Boolean(previousTile),
                   hasNeighbour: Boolean(nearbyTile),
                 }
@@ -2157,7 +2158,9 @@ export async function correctPremiumSpread(
               },
           previous,
           embeddedLettering ? { leftText: left.text, rightText: right.text } : undefined,
-          independent ? { previousTiles, targetSide } : undefined,
+          independent
+            ? { previousTiles, targetSide, instructions: input.artworkInstructions }
+            : undefined,
         ),
       );
       if (left.renderMode !== 'typeset' && targetSide !== 'right')

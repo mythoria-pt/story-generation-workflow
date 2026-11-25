@@ -76,7 +76,7 @@ const reviewGuidance: Record<ReviewCheck, string> = {
     'Paint only the complete pinned narration on its assigned page, letter for letter.',
   readableLettering: 'Give each word readable size, contrast, line spacing and clear letterforms.',
   safeLettering:
-    'Move all lettering into the inner 76% of the trimmed page. Allow at least 12% of the trimmed width or height from each edge to every letter, accent and flourish. Start the first line at least 12% down from the top trim. Reflow into fewer lines if needed to keep this inset and a comfortable reading size.',
+    'Move all lettering into the inner 76% of the trimmed page. Allow at least 12% of the trimmed width or height from each edge to every letter, accent and flourish. Start the first line at least 12% down from the top trim, leaving an empty band of background above it and lowering the main characters to make room. Keep decorative accents out of the margins and reflow into fewer lines if needed to keep this inset and a comfortable reading size.',
   childlikeLettering:
     'Use warm, clear hand-painted letterforms in the same medium as the illustration.',
   childlikeArtwork:
@@ -474,7 +474,7 @@ export async function reviewPremiumLetteredArtwork(
       'For each typography check, report the page where it fails. Use left, right, or both. Use unknown when you see a failure and cannot locate its page. Use none when the check passes on all present pages. A page free of writing passes the typography checks.',
       'Mark readableLettering as failed wherever writing is illegible or lacks clear letterforms, sufficient size, contrast or spacing at picture-book size. Mark childlikeLettering as failed wherever writing lacks warm, clear hand lettering in the same medium as the art, or appears in an opaque panel or banner.',
       pictureBookArtCheck,
-      'Mark safeLettering as failed on any page where a letter, accent or flourish is less than 8% of the trimmed width or height from any edge, including the top of the first line. Examine the full-bleed image too and attribute any lettering crossing the cut or appearing in the bleed or gutter to the page where it originates.',
+      'Mark safeLettering as failed on any page where a letter, accent or flourish is less than 6% of the trimmed width or height from any edge, including the top of the first line. Examine the full-bleed image too and attribute any lettering crossing the cut or appearing in the bleed or gutter to the page where it originates.',
       facing
         ? 'Approve coherentArtwork only if the two images show one continuous scene and lighting, palette, perspective and scenery join naturally at the centre. Reject a vertical line, distracting smear, double image, divided composition or simulated fold. Reject a recurring character, distinctive prop, landmark or single story action that is separately repeated on both panels. A natural reflection or a single object visibly continuing across the join is allowed. Approve safeGutter only if the centre band from 45% to 55% of the full spread stays clear of faces, hands and other essential illustration details. Mark lettering in the gutter under safeLettering.'
         : 'Approve coherentArtwork only if the image depicts one continuous scene, without an inset, border, fold or mockup. Check safeGutter for essential illustrated details at the binding edge of the trimmed page. Mark lettering in the gutter under safeLettering.',
@@ -522,10 +522,10 @@ export async function reviewPremiumLetteredArtwork(
   }
   for (const [check, location] of Object.entries(typography)) {
     if (location === 'none') continue;
-    const sides =
-      (location === 'left' || location === 'right') && presentSides.includes(location)
-        ? [location]
-        : presentSides;
+    if ((location === 'left' || location === 'right') && !presentSides.includes(location)) {
+      continue;
+    }
+    const sides = location === 'left' || location === 'right' ? [location] : presentSides;
     recordTypographyFailure(check as ReviewCheck, sides);
   }
   if (transcriptFailures.length) {

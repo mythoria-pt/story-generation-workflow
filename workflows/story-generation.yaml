@@ -124,11 +124,11 @@ main:
                                         executionId: ${executionId}
                                   retry:
                                     predicate: ${retryPremiumStage}
-                                    max_retries: 3
+                                    max_retries: 5
                                     backoff:
-                                      initial_delay: 60
-                                      max_delay: 360
-                                      multiplier: 3
+                                      initial_delay: 15
+                                      max_delay: 120
+                                      multiplier: 2
                       - completePremiumBook:
                           try:
                             call: http.patch
