@@ -21,30 +21,63 @@ import {
   withWhispererDraftAccess,
 } from './biographer/whisperer-photos.js';
 import { RunsService } from './runs.js';
-import { premiumOpeningPages } from './premium-book-opening.js';
+import { premiumOpeningPages, premiumSpecification } from './premium-book-opening.js';
+import { addPremiumPagePreviews } from './premium-book-previews.js';
 import { premiumInvitationPage } from './premium-book-invitation.js';
+import { logger } from '@/config/logger.js';
 import { selectPremiumOpeningMotif } from './premium-book-motif.js';
-import { buildPremiumStoryboardPrompt } from './premium-book-storyboard.js';
+import {
+  buildPremiumStoryboardPrompt,
+  premiumPictureBookArtDirection,
+  premiumSpreadScene,
+} from './premium-book-storyboard.js';
 import {
   generatePremiumImage,
   generatePremiumText,
   getPremiumConfiguration,
+  isPremiumLetteringCheck,
+  PremiumArtworkReviewError,
+  PremiumGuideReviewError,
+  premiumReviewCheck,
+  premiumReviewGuidance,
   premiumTextConfig,
   reviewPremiumImage,
+  reviewPremiumLetteredArtwork,
+  reviewPremiumLetteredGuide,
+  reviewPremiumSpreadTextPlacement,
 } from './premium-book-ai.js';
 import {
+  createPremiumNativeSpreadGuides,
+  createPremiumSpreadScaffold,
+  defaultPremiumSpreadTextBoxes,
+  exportNativePremiumSpread,
   exportPremiumArtwork,
+  inspectPremiumOpaquePng,
+  lowerPremiumSpreadTextBoxes,
   premiumGeometry,
+  premiumSpreadComposition,
+  type PremiumSpreadTextBoxes,
+  PREMIUM_NATIVE_PAGE_SIZE,
   PREMIUM_PRINT_PPI,
   PREMIUM_READING_PPI,
 } from './premium-book-artwork.js';
 import {
+  buildPremiumLetteredPagePrompt,
+  buildPremiumLetteredPanoramaPrompt,
+  buildPremiumNativeCoverPrompt,
+  premiumCoverComposition,
+  premiumLetteredPageReferences,
+  type PremiumLetteredPage,
+} from './premium-book-lettering.js';
+import {
   applyPremiumSpreadText,
   hasPremiumMarker,
+  isPremiumNativePrintArtwork,
   narrativeText,
   LEGACY_PREMIUM_PAGE_COUNT,
   openingPlan,
   PREMIUM_BOOK_TYPE,
+  PREMIUM_EMBEDDED_LETTERING_EDITION,
   PREMIUM_FORMAT,
   PREMIUM_PAGE_COUNT,
   PREMIUM_SPREAD_COUNT,
@@ -59,6 +92,7 @@ import {
   premiumImageConfig,
   premiumManifest,
   premiumPage,
+  premiumTextBox,
   premiumRevisionPrefix,
   readPremiumMarker,
   premiumTextLayout,
@@ -69,13 +103,17 @@ import {
   type PremiumTextLayout,
 } from './premium-book-contract.js';
 import {
+  deletePremiumReviewDraft,
   getPremiumBucket,
+  listPremiumReviewDrafts,
   premiumDigest,
   readPremiumCheckpoint,
   readPremiumManifest,
   readPremiumObject,
+  readPremiumReviewDraft,
   savePremiumImage,
   savePremiumObject,
+  savePremiumReviewDraft,
   stagePremiumCheckpoint,
   verifyPremiumAssetScope,
   withPremiumLease,
@@ -95,7 +133,7 @@ const correctionRequest = z
   .object({
     expectedRevision: z.uuid(),
     correctionId: z.uuid(),
-    spreadId: z.string().regex(/^spread-(?:[1-9]|1[0-3])$/),
+    spreadId: z.string().regex(/^(?:spread-(?:[1-9]|1[0-3])|front|back|opener|ending)$/),
     textLayout: premiumTextLayout.optional(),
     leftText: z.union([narrativeText, z.literal('')]).optional(),
     rightText: narrativeText.optional(),
@@ -111,34 +149,67 @@ const correctionRequest = z
   );
 export { correctionRequest as premiumCorrectionRequest };
 
-const frozenSchema = z.object({
-  storyId: z.uuid(),
-  ownerId: z.uuid(),
-  revision: z.uuid(),
-  audience: premiumAudience,
-  opening: openingPlan.omit({ synopsis: true }),
-  direction: z.string(),
-  characters: z.string(),
-  referenceImages: z.array(premiumAsset).max(5),
-  image: premiumImageConfig,
-  text: premiumTextConfig,
-  invitation: premiumPage.optional(),
-});
+const frozenSchema = z
+  .object({
+    storyId: z.uuid(),
+    ownerId: z.uuid(),
+    revision: z.uuid(),
+    audience: premiumAudience,
+    opening: openingPlan.omit({ synopsis: true }),
+    direction: z.string(),
+    characters: z.string(),
+    referenceImages: z.array(premiumAsset).max(5),
+    image: premiumImageConfig,
+    text: premiumTextConfig,
+    invitation: premiumPage.optional(),
+    editionLayout: z.literal(PREMIUM_EMBEDDED_LETTERING_EDITION).optional(),
+  })
+  .refine(
+    ({ editionLayout, invitation }) =>
+      !editionLayout ||
+      (invitation?.kind === 'invitation' && invitation.number === PREMIUM_PAGE_COUNT),
+    { path: ['invitation'], message: 'Embedded-lettering editions require an invitation page' },
+  );
 type FrozenBook = z.infer<typeof frozenSchema>;
 const artworkSchema = z.object({
   master: premiumAsset,
   source: premiumAsset,
   printPages: z.array(premiumAsset).min(1).max(2),
   readingPages: z.array(premiumAsset).min(1).max(2),
+  spreadTextBoxes: z.object({ left: premiumTextBox.optional(), right: premiumTextBox }).optional(),
   nativeWidth: z.number().int().positive(),
   nativeHeight: z.number().int().positive(),
   effectivePpi: z.number().positive(),
+  letteringVerified: z.literal(true).optional(),
 });
 type Artwork = z.infer<typeof artworkSchema>;
+
+function artworkCheckpointFor(editionLayout: FrozenBook['editionLayout'], phase: string) {
+  if (!editionLayout) return artworkSchema;
+  const facing = phase.startsWith('spread-');
+  const narrative = facing || phase === 'opener' || phase === 'ending';
+  const pageCount = facing ? 2 : 1;
+  return artworkSchema.refine(
+    (art) =>
+      isPremiumNativePrintArtwork(art, facing) &&
+      art.printPages.length === pageCount &&
+      art.readingPages.length === pageCount &&
+      Boolean(art.letteringVerified) === narrative &&
+      !art.spreadTextBoxes,
+    'Artwork checkpoint does not match the embedded-lettering page plan',
+  );
+}
 type StoryRow = typeof stories.$inferSelect;
 type Queued = Extract<PremiumMarker, { state: 'queued' }>;
 type Published = Extract<PremiumMarker, { state: 'published' }>;
-type Scope = { storyId: string; ownerId: string; revision: string };
+type Scope = {
+  storyId: string;
+  ownerId: string;
+  revision: string;
+  editionLayout?: FrozenBook['editionLayout'];
+  audience?: FrozenBook['audience'];
+  opening?: Pick<FrozenBook['opening'], 'locale'>;
+};
 
 const hashJson = (value: unknown) => premiumDigest(JSON.stringify(value));
 const checkpointKey = (prefix: string, phase: string) => `${prefix}/checkpoints/${phase}.json`;
@@ -382,7 +453,12 @@ async function readOriginal(scope: Scope, uri: string, characterId?: string) {
   return getStorageService().downloadFileAsBuffer(path);
 }
 
-async function freezeInput(bucket: Bucket, prefix: string, story: StoryRow, marker: Queued) {
+async function freezeInput(
+  bucket: Bucket,
+  prefix: string,
+  story: StoryRow,
+  marker: Queued,
+): Promise<FrozenBook> {
   const scope = { storyId: story.storyId, ownerId: marker.ownerId, revision: marker.revision };
   if (story.status !== 'writing' || story.targetAudience !== marker.audience) {
     throw scopeError(
@@ -464,6 +540,7 @@ async function freezeInput(bucket: Bucket, prefix: string, story: StoryRow, mark
     referenceImages: photos,
     ...getPremiumConfiguration(),
     invitation: premiumInvitationPage(locale),
+    editionLayout: PREMIUM_EMBEDDED_LETTERING_EDITION,
   };
 }
 
@@ -519,14 +596,13 @@ async function getStaged<T>(
   ).result;
 }
 
-const textArea = `from ${Math.round(PREMIUM_TEXT_BOX.y * 100)}% to ${Math.round((PREMIUM_TEXT_BOX.y + PREMIUM_TEXT_BOX.height) * 100)}% down and from ${Math.round(PREMIUM_TEXT_BOX.x * 100)}% to ${Math.round((PREMIUM_TEXT_BOX.x + PREMIUM_TEXT_BOX.width) * 100)}% across the trimmed page`;
-const squareComposition = `Use a single continuous composition. Preserve quiet, light space ${textArea}. Keep faces and essential details away from the trim.`;
-const spreadComposition =
-  'One uninterrupted landscape painting. The centre is ordinary background: never draw a ruled centre line, gutter, crease, fold, diptych edge or simulated binding. Keep faces, hands and essential details outside the central 10% and away from the outer edges.';
-const coverComposition =
-  'Envision an 8.5-inch square casewrap cover. Extend the background to every edge and allow generous quiet space at the top and bottom for separately typeset title or synopsis. Keep essential content away from the edges and binding.';
+const textAreaTop = Math.round(PREMIUM_TEXT_BOX.y * 100);
+const textAreaBottom = Math.round((PREMIUM_TEXT_BOX.y + PREMIUM_TEXT_BOX.height) * 100);
+const textArea = `from ${textAreaTop}% to ${textAreaBottom}% down and from ${Math.round(PREMIUM_TEXT_BOX.x * 100)}% to ${Math.round((PREMIUM_TEXT_BOX.x + PREMIUM_TEXT_BOX.width) * 100)}% across the trimmed page`;
+const squareComposition = `Draw one standalone square illustration of a single moment. Let the light, low-detail background fill the text area ${textArea}. Place the main action below that area and keep faces and important details away from the trim. Fill the entire page with the scene, without insets, panels, borders or a fold.`;
 const noText =
   'Never render text, letters, numerals, logos, labels or signatures. Background must reach every edge. Preserve visual consistency with the reference illustrations.';
+const spreadShotPlan = z.object({ scene: z.string().trim().min(20).max(1200) });
 
 function artworkAssets(art: Artwork) {
   return [art.master, art.source, ...art.printPages, ...art.readingPages];
@@ -539,6 +615,260 @@ async function validateAssets(bucket: Bucket, storyId: string, assets: PremiumAs
   }
 }
 
+type LetteredNarration = { leftText?: string | undefined; rightText?: string | undefined };
+const letteringFeedback = z.object({
+  checks: z.array(premiumReviewCheck),
+  attempts: z.object({
+    left: z.number().int().nonnegative(),
+    right: z.number().int().nonnegative(),
+  }),
+  guideAttempt: z.number().int().nonnegative().default(0),
+  replacementScene: z.string().trim().min(20).max(900).optional(),
+  typographyBySide: z
+    .object({
+      left: z.array(premiumReviewCheck),
+      right: z.array(premiumReviewCheck),
+    })
+    .optional(),
+});
+const spreadPlanChecks = new Set<z.infer<typeof premiumReviewCheck>>([
+  'centreLine',
+  'coherentArtwork',
+  'safeGutter',
+  'safeTrim',
+  'leftDescriptionAccurate',
+]);
+
+async function pinLetteringInput(bucket: Bucket, prefix: string, bytes: Buffer, size: string) {
+  const { image } = await inspectPremiumOpaquePng(bytes, size);
+  // Decode before pinning so a truncated provider image cannot poison a resumed stage.
+  await image.stats();
+  return savePremiumImage(bucket, prefix, bytes, 'png');
+}
+
+async function createLetteredArtwork(
+  bucket: Bucket,
+  prefix: string,
+  scope: Scope,
+  image: FrozenBook['image'],
+  text: FrozenBook['text'],
+  phase: string,
+  guide: string,
+  action: string,
+  reference: Buffer,
+  narration: LetteredNarration,
+  leftDescription?: string,
+  priorImage?: Buffer,
+): Promise<Artwork> {
+  const pages: PremiumLetteredPage[] = [];
+  if (narration.leftText !== undefined) pages.push({ side: 'left', text: narration.leftText });
+  if (narration.rightText !== undefined) pages.push({ side: 'right', text: narration.rightText });
+  const [firstPage, secondPage] = pages;
+  if (!firstPage || Boolean(secondPage) !== phase.startsWith('spread-')) {
+    throw scopeError('premium_lettering_scope', 'Narration does not match the illustrated pages');
+  }
+  const artHash = hashJson({ action, guide, narration, leftDescription });
+  const feedbackKey = `${prefix}/review/${phase}-${artHash}.lettering.json`;
+  const previous = (await readPremiumCheckpoint(bucket, feedbackKey, letteringFeedback)) ?? {
+    checks: [],
+    attempts: { left: 0, right: 0 },
+    guideAttempt: 0,
+    replacementScene: undefined,
+    typographyBySide: undefined,
+  };
+  const priorTypography = previous.checks.filter(isPremiumLetteringCheck);
+  const priorTypographyBySide = previous.typographyBySide ?? {
+    left: priorTypography,
+    right: priorTypography,
+  };
+  async function renderPage(page: PremiumLetteredPage, crop?: Buffer, plan?: PremiumAsset) {
+    const inputHash = hashJson({
+      artHash,
+      page,
+      attempt: previous.attempts[page.side],
+      plan: plan?.sha256,
+    });
+    const asset = await stage(
+      bucket,
+      prefix,
+      `lettering-tile-${phase}-${page.side}-${inputHash}`,
+      inputHash,
+      premiumAsset,
+      async () => {
+        const feedback = premiumReviewGuidance([
+          ...previous.checks.filter((check) => !isPremiumLetteringCheck(check)),
+          ...priorTypographyBySide[page.side],
+        ]);
+        const raw = await generatePremiumImage(
+          scope,
+          image,
+          `${phase}-lettering-${page.side}`,
+          buildPremiumLetteredPagePrompt({
+            ...page,
+            action,
+            guide,
+            facing: Boolean(crop),
+            feedback,
+            audience: scope.audience,
+            locale: scope.opening?.locale,
+          }),
+          PREMIUM_NATIVE_PAGE_SIZE,
+          premiumLetteredPageReferences(reference, crop),
+        );
+        return pinLetteringInput(bucket, prefix, raw, PREMIUM_NATIVE_PAGE_SIZE);
+      },
+    );
+    verifyPremiumAssetScope(scope.storyId, asset);
+    return readPremiumObject(bucket, asset);
+  }
+
+  let raw: Buffer;
+  let art: Awaited<ReturnType<typeof exportPremiumArtwork>>;
+  try {
+    if (secondPage) {
+      const planChecks = previous.checks.filter((check) => spreadPlanChecks.has(check));
+      const plannedScene = previous.replacementScene ?? action;
+      const planHash = hashJson({
+        guide,
+        action: plannedScene,
+        leftDescription,
+        planChecks,
+        ...(previous.guideAttempt > 0 && { guideAttempt: previous.guideAttempt }),
+      });
+      const planAsset = await stage(
+        bucket,
+        prefix,
+        `lettering-guide-${phase}-${planHash}`,
+        planHash,
+        premiumAsset,
+        async () => {
+          const panorama = await generatePremiumImage(
+            scope,
+            image,
+            `${phase}-lettering-guide`,
+            [
+              buildPremiumLetteredPanoramaPrompt({
+                action: plannedScene,
+                guide,
+                leftDescription,
+                silentLeft: firstPage.text === '',
+              }),
+              premiumReviewGuidance(planChecks),
+            ].join('\n'),
+            image.spreadSize,
+            priorImage ? [reference, priorImage] : [reference],
+          );
+          return pinLetteringInput(bucket, prefix, panorama, image.spreadSize);
+        },
+      );
+      verifyPremiumAssetScope(scope.storyId, planAsset);
+      const panorama = await readPremiumObject(bucket, planAsset);
+      await stage(
+        bucket,
+        prefix,
+        `lettering-guide-review-${phase}-${planAsset.sha256}`,
+        planAsset.sha256,
+        z.literal(true),
+        async () => {
+          await reviewPremiumLetteredGuide(scope, text, phase, panorama, reference, undefined, {
+            action,
+            leftDescription,
+            previousReplacement: previous.replacementScene,
+          });
+          return true as const;
+        },
+      );
+      const [left, right] = await createPremiumNativeSpreadGuides(panorama);
+      // Let both requests settle before the stage lease is released on an error.
+      const [leftResult, rightResult] = await Promise.allSettled([
+        renderPage(firstPage, left, planAsset),
+        renderPage(secondPage, right, planAsset),
+      ]);
+      if (leftResult.status === 'rejected') throw leftResult.reason;
+      if (rightResult.status === 'rejected') throw rightResult.reason;
+      const stitched = await exportNativePremiumSpread(leftResult.value, rightResult.value);
+      raw = stitched.source;
+      art = stitched;
+    } else {
+      raw = await renderPage(firstPage);
+      art = await exportPremiumArtwork(raw, PREMIUM_NATIVE_PAGE_SIZE, false, true);
+    }
+    const trimmedPages = pages.map((page, index) => {
+      const trim = art.readingPages[index];
+      if (!trim) throw scopeError('premium_page_missing', 'Premium artwork lacks a trim image');
+      return { ...page, trim };
+    });
+    await reviewPremiumLetteredArtwork(scope, text, phase, {
+      source: raw,
+      pages: trimmedPages,
+      reference,
+      leftDescription,
+    });
+  } catch (error) {
+    const reviewError = error instanceof PremiumArtworkReviewError ? error : undefined;
+    const failedChecks =
+      reviewError?.failedChecks ??
+      (error instanceof PremiumBookError && error.code === 'premium_image_join'
+        ? (['centreLine'] as const)
+        : []);
+    if (failedChecks.length) {
+      const pageSides = pages.map(({ side }) => side);
+      const located =
+        reviewError?.failedLetteringSides.filter((side) => pageSides.includes(side)) ?? [];
+      const typographyOnly = failedChecks.every(isPremiumLetteringCheck);
+      const retries = typographyOnly && located.length ? located : pageSides;
+      const attempts = { ...previous.attempts };
+      for (const side of retries) attempts[side]++;
+      const typographyFailures = failedChecks.filter(isPremiumLetteringCheck);
+      const typographyBySide = { ...priorTypographyBySide };
+      for (const side of pageSides) {
+        const findings =
+          reviewError?.failedLetteringChecksBySide[side] ??
+          (retries.includes(side) ? typographyFailures : []);
+        typographyBySide[side] = [...new Set([...typographyBySide[side], ...findings])];
+      }
+      const guideAttempt =
+        previous.guideAttempt + Number(failedChecks.some((check) => spreadPlanChecks.has(check)));
+      const replacementScene =
+        error instanceof PremiumGuideReviewError
+          ? error.replacementScene
+          : previous.replacementScene;
+      await bucket
+        .file(feedbackKey)
+        .save(
+          JSON.stringify({
+            checks: [...new Set([...previous.checks, ...failedChecks])],
+            attempts,
+            guideAttempt,
+            replacementScene,
+            typographyBySide,
+          }),
+          {
+            contentType: 'application/json',
+            metadata: { cacheControl: 'private,no-store' },
+            resumable: false,
+          },
+        )
+        .catch(() =>
+          logger.warn('Unable to save premium lettering review feedback', {
+            phase,
+            revision: scope.revision,
+          }),
+        );
+    }
+    throw error;
+  }
+  const source = await savePremiumImage(bucket, prefix, raw, 'png');
+  const master = await savePremiumImage(bucket, prefix, art.readingMaster, 'png');
+  const printPages = [];
+  const readingPages = [];
+  for (const page of art.printPages)
+    printPages.push(await savePremiumImage(bucket, prefix, page, 'jpg'));
+  for (const page of art.readingPages)
+    readingPages.push(await savePremiumImage(bucket, prefix, page, 'png'));
+  return { source, master, printPages, readingPages, ...nativeFor(art), letteringVerified: true };
+}
+
 async function createArtwork(
   bucket: Bucket,
   prefix: string,
@@ -549,57 +879,256 @@ async function createArtwork(
   guide: string,
   action: string,
   reference: Buffer,
-  spread?: { textLayout?: PremiumTextLayout | undefined; leftDescription?: string | undefined },
+  spread?: {
+    textLayout?: PremiumTextLayout | undefined;
+    leftDescription?: string | undefined;
+    textBoxes?: PremiumSpreadTextBoxes;
+  },
   priorImage?: Buffer,
+  narration?: LetteredNarration,
 ): Promise<Artwork> {
   const facing = phase.startsWith('spread-');
+  const layout = spread?.textLayout;
   const leftDescription = spread?.textLayout === 'right_only' ? spread.leftDescription : undefined;
-  const quietSpace =
-    spread?.textLayout === 'right_only'
-      ? `On the right half reserve quiet space ${textArea} for separately typeset text. The left half is silent illustration and can use the full page.`
-      : `On each half reserve quiet space ${textArea} for separately typeset text. Measure each trimmed page independently.`;
-  const composition = facing
-    ? `${spreadComposition} ${quietSpace}`
-    : ['front', 'back'].includes(phase)
-      ? coverComposition
-      : squareComposition;
-  const size = facing ? image.spreadSize : image.squareSize;
-  const references = priorImage ? [priorImage, reference] : [reference];
+  if (narration) {
+    return createLetteredArtwork(
+      bucket,
+      prefix,
+      scope,
+      image,
+      text,
+      phase,
+      guide,
+      action,
+      reference,
+      narration,
+      leftDescription,
+      priorImage,
+    );
+  }
+  const requireNative = scope.editionLayout === PREMIUM_EMBEDDED_LETTERING_EDITION;
+  const pageComposition = ['front', 'back'].includes(phase)
+    ? premiumCoverComposition
+    : squareComposition;
+  const preferredBoxes = facing
+    ? (spread?.textBoxes ?? defaultPremiumSpreadTextBoxes(layout))
+    : undefined;
+  const spreadComposition = preferredBoxes
+    ? premiumSpreadComposition(layout, preferredBoxes)
+    : undefined;
+  const size = facing
+    ? image.spreadSize
+    : requireNative
+      ? PREMIUM_NATIVE_PAGE_SIZE
+      : image.squareSize;
+  // A retry can land on a new worker. The draft and check names share a frozen shot scope.
+  const feedbackPath = `${prefix}/review/${phase}-${hashJson({ action, layout, leftDescription })}`;
+  const feedbackKey = `${feedbackPath}.json`;
+  const draftKey = `${feedbackPath}.draft.jpg`;
+  const [priorChecks, priorDraft] = facing
+    ? await Promise.all([
+        readPremiumCheckpoint(bucket, feedbackKey, z.array(premiumReviewCheck)),
+        readPremiumReviewDraft(bucket, draftKey).catch(() => {
+          logger.warn('Unable to read premium spread review draft', {
+            phase,
+            revision: scope.revision,
+          });
+          return undefined;
+        }),
+      ])
+    : [];
+  const draftChecks = z.array(premiumReviewCheck).safeParse(priorDraft?.failedChecks);
+  const shotPlanHash = hashJson({
+    version: 2,
+    action,
+    layout,
+    leftDescription,
+    guide,
+    textBoxes: preferredBoxes,
+    checks: priorChecks && [...priorChecks].sort(),
+  });
+  const shotPlan =
+    spreadComposition && priorChecks?.length
+      ? await stage(
+          bucket,
+          prefix,
+          `shot-plan-${phase}-${shotPlanHash}`,
+          shotPlanHash,
+          spreadShotPlan,
+          () =>
+            generatePremiumText(
+              scope,
+              text,
+              `shot-plan-${phase}`,
+              [
+                'Plan one feasible, continuous panorama of a single instant. In up to 1200 characters, describe one camera angle and distance, with the visible placement and scale of essential subjects on each half. A shared setting or object can connect the halves.',
+                'Preserve the story event, established likenesses and visual clues. Use the layout guidance and review feedback to choose the staging. Return only the visual scene an illustrator should paint. Use qualitative directions such as lower left or farther back. Omit measurements, percentages, coordinates, annotations and printing or page-layout terminology.',
+                ...(leftDescription
+                  ? [
+                      'Place the essential details described for the silent left page well inside the left half so they are recognizable when it is viewed on its own.',
+                    ]
+                  : []),
+                spreadComposition.generation,
+                `Review feedback: ${premiumReviewGuidance(priorChecks)}`,
+                `Frozen visual inputs: ${JSON.stringify({ action, leftDescription, guide })}`,
+              ].join('\n'),
+              spreadShotPlan,
+            ),
+        )
+      : undefined;
+  const references = [
+    ...(priorDraft?.image ? [priorDraft.image] : []),
+    ...(priorImage ? [priorImage] : []),
+    reference,
+  ];
+  if (preferredBoxes)
+    references.push(await createPremiumSpreadScaffold(size, layout, preferredBoxes));
   const raw = await generatePremiumImage(
     scope,
     image,
     phase,
-    [
-      'Illustrate a premium children’s picture book.',
-      composition,
-      noText,
-      `Shared visual guide: ${guide}`,
-      `Scene: ${action}`,
-      ...(leftDescription
-        ? [
-            `Show these details within the left page: ${JSON.stringify(leftDescription)}. Keep the words themselves out of the art.`,
-          ]
-        : []),
-      ...(priorImage
-        ? [
-            'The first reference is the complete current spread. Make the requested whole-spread correction. Preserve the overall composition and all undiscussed details.',
-          ]
-        : []),
-    ].join('\n'),
+    requireNative
+      ? buildPremiumNativeCoverPrompt({ guide, action })
+      : [
+          'Illustrate a premium children’s picture book.',
+          spreadComposition?.generation ?? pageComposition,
+          noText,
+          ...(['opener', 'ending'].includes(phase)
+            ? [
+                'Use the attached lineup only for character likeness and visual style. Do not copy its layout or neutral backdrop. Illustrate only the moment described in Scene.',
+              ]
+            : []),
+          ...(facing
+            ? [
+                'Use the character sheet for visual style and for the likeness of recurring characters called for in Scene. Depict the roles needed for that moment. Give scene-specific figures without an established likeness distinct original appearances.',
+              ]
+            : []),
+          ...(facing
+            ? [
+                'Use the final grayscale image only to judge where the scene can hold subjects. Its soft clusters mark possible staging areas and do not specify subject count. Give the whole scene a continuous painted background. Omit the reference layout graphics and use the style and palette of the character reference instead.',
+              ]
+            : []),
+          `Shared visual guide: ${guide}`,
+          `Scene: ${shotPlan?.scene ?? action}`,
+          ...(leftDescription
+            ? [
+                `Make the described details visible within the left crop at trim using the scene’s camera and staging: ${JSON.stringify(leftDescription)}. Keep the words themselves out of the art.`,
+              ]
+            : []),
+          ...(priorDraft?.image
+            ? [
+                'The first image is the rejected previous draft. Edit that illustration to address the specific review feedback. Keep the scene, composition, palette and other details wherever they already meet the requirements. Correct the areas that failed, even if this requires changing their placement or scale. Match recurring characters to the character sheet.',
+              ]
+            : []),
+          ...(draftChecks.success && draftChecks.data.length
+            ? [
+                `Repair these findings in the previous draft: ${premiumReviewGuidance(draftChecks.data)}`,
+              ]
+            : []),
+          ...(priorImage
+            ? [
+                priorDraft?.image
+                  ? 'The second image is the current published spread. Preserve its character likeness and story details outside the requested whole-spread correction.'
+                  : shotPlan
+                    ? 'The first reference is the current spread. Preserve character likeness and undiscussed story details. Use the planned camera angle and staging.'
+                    : 'The first reference is the complete current spread. Make the requested whole-spread correction. Preserve the overall composition and all undiscussed details.',
+              ]
+            : []),
+          ...(priorChecks?.length
+            ? [
+                `${priorDraft?.image ? 'Recheck these requirements after the edits' : 'Give particular care to these checks on this attempt'}: ${premiumReviewGuidance(priorChecks)}`,
+              ]
+            : []),
+        ].join('\n'),
     size,
     references,
   );
-  const art = await exportPremiumArtwork(raw, size, facing);
-  await reviewPremiumImage(
-    scope,
-    text,
-    phase,
-    art.readingMaster,
-    guide,
-    [reference],
-    composition,
-    leftDescription,
+  const saveReviewFeedback = async (
+    failedChecks: readonly z.infer<typeof premiumReviewCheck>[],
+  ) => {
+    const checks = [...new Set([...(priorChecks ?? []), ...failedChecks])];
+    if (checks.length === priorChecks?.length) return;
+    await bucket
+      .file(feedbackKey)
+      .save(JSON.stringify(checks), {
+        contentType: 'application/json',
+        metadata: { cacheControl: 'private,no-store' },
+        resumable: false,
+      })
+      .catch(() =>
+        logger.warn('Unable to save premium spread review feedback', {
+          phase,
+          revision: scope.revision,
+        }),
+      );
+  };
+  const saveReviewDraft = (
+    image: Buffer,
+    failedChecks: readonly z.infer<typeof premiumReviewCheck>[],
+  ) =>
+    savePremiumReviewDraft(bucket, draftKey, image, priorDraft?.generation, failedChecks).catch(
+      () =>
+        logger.warn('Unable to save premium spread review draft', {
+          phase,
+          revision: scope.revision,
+        }),
+    );
+  const art = await exportPremiumArtwork(raw, size, facing, requireNative).catch(
+    async (error: unknown) => {
+      if (facing && error instanceof PremiumBookError && error.code === 'premium_image_join') {
+        await Promise.all([
+          saveReviewFeedback(['centreLine']),
+          saveReviewDraft(raw, ['centreLine']),
+        ]);
+      }
+      throw error;
+    },
   );
+  const review = (
+    composition: string,
+    areas?: ReturnType<typeof premiumSpreadComposition>['reviewAreas'],
+  ) =>
+    reviewPremiumImage(
+      scope,
+      text,
+      phase,
+      art.readingMaster,
+      guide,
+      [reference],
+      composition,
+      leftDescription,
+      areas,
+      facing ? action : undefined,
+      requireNative,
+    );
+  let spreadTextBoxes: PremiumSpreadTextBoxes | undefined;
+  try {
+    if (preferredBoxes) {
+      const lowerBoxes = lowerPremiumSpreadTextBoxes(preferredBoxes);
+      const lowerAlready =
+        lowerBoxes.left?.y === preferredBoxes.left?.y &&
+        lowerBoxes.right.y === preferredBoxes.right.y;
+      const placement = await reviewPremiumSpreadTextPlacement(
+        async (candidate) => {
+          const boxes = candidate === 'bottom' ? lowerBoxes : preferredBoxes;
+          const composition = premiumSpreadComposition(layout, boxes);
+          await review(composition.review, composition.reviewAreas);
+        },
+        lowerAlready ? 'bottom' : 'top',
+      );
+      spreadTextBoxes = placement === 'bottom' ? lowerBoxes : preferredBoxes;
+    } else {
+      await review(pageComposition);
+    }
+  } catch (error) {
+    if (facing && error instanceof PremiumArtworkReviewError) {
+      await Promise.all([
+        saveReviewFeedback(error.failedChecks),
+        saveReviewDraft(art.readingMaster, error.failedChecks),
+      ]);
+    }
+    throw error;
+  }
   const source = await savePremiumImage(bucket, prefix, raw, 'png');
   const master = await savePremiumImage(bucket, prefix, art.readingMaster, 'png');
   const printPages = [];
@@ -608,11 +1137,20 @@ async function createArtwork(
     printPages.push(await savePremiumImage(bucket, prefix, page, 'jpg'));
   for (const page of art.readingPages)
     readingPages.push(await savePremiumImage(bucket, prefix, page, 'png'));
+  if (priorDraft) {
+    await deletePremiumReviewDraft(bucket, draftKey, priorDraft.generation).catch(() =>
+      logger.warn('Unable to delete premium spread review draft', {
+        phase,
+        revision: scope.revision,
+      }),
+    );
+  }
   return {
     source,
     master,
     printPages,
     readingPages,
+    spreadTextBoxes,
     nativeWidth: art.nativeWidth,
     nativeHeight: art.nativeHeight,
     effectivePpi: art.effectivePpi,
@@ -624,7 +1162,7 @@ function sceneFor(phase: string, board: z.infer<typeof premiumBoard>) {
   if (phase === 'opener' || phase === 'ending') return board[phase].action;
   const spread = board.spreads[Number(phase.split('-')[1]) - 1];
   if (!spread) throw scopeError('premium_phase_invalid', 'Premium artwork stage is invalid');
-  return spread.action;
+  return premiumSpreadScene(spread.action);
 }
 
 function pageArt(art: Artwork, index: number, facing: boolean) {
@@ -638,8 +1176,21 @@ function pageArt(art: Artwork, index: number, facing: boolean) {
   return { artwork, reading, digitalCrop, printCrop };
 }
 
-function nativeFor({ nativeWidth, nativeHeight, effectivePpi }: Artwork) {
+function nativeFor({
+  nativeWidth,
+  nativeHeight,
+  effectivePpi,
+}: Pick<Artwork, 'nativeWidth' | 'nativeHeight' | 'effectivePpi'>) {
   return { nativeWidth, nativeHeight, effectivePpi };
+}
+
+async function writeManifest(bucket: Bucket, prefix: string, manifest: PremiumManifest) {
+  return savePremiumObject(
+    bucket,
+    `${prefix}/manifest.json`,
+    Buffer.from(JSON.stringify(premiumManifest.parse(manifest))),
+    'application/json',
+  );
 }
 
 async function publishManifest(
@@ -649,12 +1200,7 @@ async function publishManifest(
   prior: Queued | Published,
 ) {
   const checked = premiumManifest.parse(manifest);
-  const asset = await savePremiumObject(
-    bucket,
-    `${prefix}/manifest.json`,
-    Buffer.from(JSON.stringify(checked)),
-    'application/json',
-  );
+  const asset = await writeManifest(bucket, prefix, checked);
   await getDatabase().transaction(async (tx) => {
     const [story] = await tx
       .select({ authorId: stories.authorId, status: stories.status, features: stories.features })
@@ -717,7 +1263,7 @@ async function verifyManifestArtwork(bucket: Bucket, manifest: PremiumManifest) 
     ...Object.values(manifest.covers),
     ...manifest.spreads.flatMap((spread) => [spread.master, spread.source]),
     ...manifest.pages.flatMap((page) =>
-      page.artwork && page.reading ? [page.artwork, page.reading] : [],
+      [page.artwork, page.reading].filter((asset) => asset !== undefined),
     ),
   ]);
 }
@@ -731,12 +1277,19 @@ async function assemble(
   const inputHash = hashJson(book);
   const reference = await getStaged(bucket, prefix, 'references', inputHash, premiumAsset);
   const opening = { ...book.opening, synopsis: board.synopsis };
+  const embeddedLettering = book.editionLayout === PREMIUM_EMBEDDED_LETTERING_EDITION;
   const pages: PremiumPage[] = premiumOpeningPages(opening);
   const spreads: PremiumManifest['spreads'] = [];
   const covers: Partial<PremiumManifest['covers']> = {};
   const natives: PremiumManifest['natives'] = {};
   for (const phase of checklist.slice(2)) {
-    const artwork = await getStaged(bucket, prefix, phase, inputHash, artworkSchema);
+    const artwork = await getStaged(
+      bucket,
+      prefix,
+      phase,
+      inputHash,
+      artworkCheckpointFor(book.editionLayout, phase),
+    );
     natives[phase] = nativeFor(artwork);
     if (phase === 'front' || phase === 'back') {
       covers[phase] = pageArt(artwork, 0, false).artwork;
@@ -745,7 +1298,7 @@ async function assemble(
         number: phase === 'opener' ? 5 : LEGACY_PREMIUM_PAGE_COUNT,
         kind: phase,
         text: board[phase].text,
-        textBox: PREMIUM_TEXT_BOX,
+        ...(!embeddedLettering && { textBox: PREMIUM_TEXT_BOX }),
         ...pageArt(artwork, 0, false),
       });
     } else {
@@ -772,7 +1325,10 @@ async function assemble(
           kind: 'spread',
           spreadId: phase,
           text: spread.leftText,
-          ...(spread.textLayout === 'both_pages' && { textBox: PREMIUM_TEXT_BOX }),
+          ...(!embeddedLettering &&
+            spread.textLayout === 'both_pages' && {
+              textBox: artwork.spreadTextBoxes?.left ?? PREMIUM_TEXT_BOX,
+            }),
           ...pageArt(artwork, 0, true),
         },
         {
@@ -780,7 +1336,9 @@ async function assemble(
           kind: 'spread',
           spreadId: phase,
           text: spread.rightText,
-          textBox: PREMIUM_TEXT_BOX,
+          ...(!embeddedLettering && {
+            textBox: artwork.spreadTextBoxes?.right ?? PREMIUM_TEXT_BOX,
+          }),
           ...pageArt(artwork, 1, true),
         },
       );
@@ -802,17 +1360,19 @@ async function assemble(
           background: board.openingDesign.background,
         })
       : undefined;
-  return premiumManifest.parse({
+  const manifest = premiumManifest.parse({
     version: 1,
     type: PREMIUM_BOOK_TYPE,
     storyId: book.storyId,
     ownerId: book.ownerId,
     revision: book.revision,
+    ...(book.editionLayout && { editionLayout: book.editionLayout }),
     format: {
       ...PREMIUM_FORMAT,
       pageCount: book.invitation ? PREMIUM_PAGE_COUNT : LEGACY_PREMIUM_PAGE_COUNT,
     },
     opening,
+    ...(embeddedLettering && { specification: premiumSpecification(opening) }),
     ...(board.openingDesign && { openingDesign: board.openingDesign }),
     ...(motifArtwork && { motifArtwork }),
     config: book.image,
@@ -825,6 +1385,8 @@ async function assemble(
     pages,
     spreads,
   });
+  await addPremiumPagePreviews(bucket, prefix, manifest);
+  return manifest;
 }
 
 export async function advancePremiumRun(
@@ -894,6 +1456,7 @@ export async function advancePremiumRun(
     const board = await getStaged(bucket, prefix, 'storyboard', inputHash, premiumBoard);
     if (phase === 'references') {
       await stage(bucket, prefix, phase, inputHash, premiumAsset, async () => {
+        const pictureBookArt = book.editionLayout === PREMIUM_EMBEDDED_LETTERING_EDITION;
         const originals = [];
         for (const asset of book.referenceImages) {
           verifyPremiumAssetScope(storyId, asset);
@@ -903,7 +1466,10 @@ export async function advancePremiumRun(
           book,
           book.image,
           phase,
-          `Create a consistent visual reference sheet for a children's picture book: the recurring cast clearly separated, with the required appearance, style and palette. No lettering. Use original photos as likeness references only. Character and style guide: ${board.visualGuide}\nCharacters: ${book.characters}`,
+          [
+            `Create a consistent visual reference sheet for a children's picture book: the recurring cast clearly separated, with the required appearance, style and palette. No lettering. Use original photos as likeness references only. Character and style guide: ${board.visualGuide}\nCharacters: ${book.characters}`,
+            ...(pictureBookArt ? [premiumPictureBookArtDirection] : []),
+          ].join('\n'),
           book.image.squareSize,
           originals,
         );
@@ -923,6 +1489,10 @@ export async function advancePremiumRun(
           board.visualGuide,
           originals,
           'Recurring characters are visually distinguishable and each has ample space.',
+          undefined,
+          undefined,
+          undefined,
+          pictureBookArt,
         );
         const reference = await sharp(raw).toColourspace('srgb').jpeg({ quality: 95 }).toBuffer();
         return savePremiumImage(bucket, prefix, reference, 'jpg');
@@ -942,7 +1512,19 @@ export async function advancePremiumRun(
       const reference = await getStaged(bucket, prefix, 'references', inputHash, premiumAsset);
       verifyPremiumAssetScope(storyId, reference);
       const ref = await readPremiumObject(bucket, reference);
-      const art = await stage(bucket, prefix, phase, inputHash, artworkSchema, () =>
+      const spread = phase.startsWith('spread-')
+        ? board.spreads[Number(phase.split('-')[1]) - 1]
+        : undefined;
+      const narration =
+        book.editionLayout === PREMIUM_EMBEDDED_LETTERING_EDITION
+          ? phase === 'opener'
+            ? { rightText: board.opener.text }
+            : phase === 'ending'
+              ? { leftText: board.ending.text }
+              : spread && { leftText: spread.leftText, rightText: spread.rightText }
+          : undefined;
+      const schema = artworkCheckpointFor(book.editionLayout, phase);
+      const art = await stage(bucket, prefix, phase, inputHash, schema, () =>
         createArtwork(
           bucket,
           prefix,
@@ -951,9 +1533,13 @@ export async function advancePremiumRun(
           book.text,
           phase,
           board.visualGuide,
-          `${sceneFor(phase, board)}\nStyle direction: ${book.direction}`,
+          phase.startsWith('spread-')
+            ? sceneFor(phase, board)
+            : `${sceneFor(phase, board)}\nStyle direction: ${book.direction}`,
           ref,
-          board.spreads[Number(phase.split('-')[1]) - 1],
+          spread,
+          undefined,
+          narration,
         ),
       );
       await validateAssets(bucket, storyId, artworkAssets(art));
@@ -1031,9 +1617,33 @@ export async function markPremiumTerminalFailure(
   });
 }
 
+export async function cleanPremiumTerminalDrafts(
+  storyId: string,
+  runId: string,
+  executionId: string,
+) {
+  const runs = new RunsService();
+  const isTerminalExecution = async () => {
+    const run = await runs.getRun(runId);
+    return (
+      run?.storyId === storyId &&
+      run.gcpWorkflowExecution === executionId &&
+      (run.status === 'completed' || run.status === 'cancelled')
+    );
+  };
+  if (!(await isTerminalExecution())) return;
+  const bucket = await getPremiumBucket();
+  const drafts = await listPremiumReviewDrafts(bucket, storyId, runId);
+  if (!drafts.length || !(await isTerminalExecution())) return;
+  await Promise.all(
+    drafts.map(({ key, generation }) => deletePremiumReviewDraft(bucket, key, generation)),
+  );
+}
+
 export async function correctPremiumSpread(
   storyId: string,
   input: z.infer<typeof correctionRequest>,
+  prepareOnly = false,
 ) {
   const story = await readStory(storyId);
   const marker = readPremiumMarker(story.features);
@@ -1071,41 +1681,132 @@ export async function correctPremiumSpread(
     marker.revision,
     marker.manifest,
   );
-  const spread = current.spreads.find((entry) => entry.id === input.spreadId);
-  if (!spread) throw scopeError('premium_spread_missing', 'Premium spread does not exist');
-  const left = current.pages[spread.leftPage - 1];
-  const right = current.pages[spread.rightPage - 1];
-  if (!left || !right)
-    throw scopeError('premium_page_missing', 'Premium spread has a missing page');
-  applyPremiumSpreadText(spread, left, right, input);
-  if (input.artworkInstructions) {
-    const instructions = input.artworkInstructions;
-    const scope = { storyId, ownerId: marker.ownerId, revision: input.correctionId };
-    verifyPremiumAssetScope(storyId, current.reference);
-    verifyPremiumAssetScope(storyId, spread.source);
-    const ref = await readPremiumObject(bucket, current.reference);
-    const previous = await sharp(await readPremiumObject(bucket, spread.source))
-      .jpeg({ quality: 96 })
-      .toBuffer();
-    const art = await stage(bucket, prefix, spread.id, inputHash, artworkSchema, () =>
-      createArtwork(
-        bucket,
-        prefix,
-        scope,
-        current.config,
-        current.textConfig,
-        spread.id,
-        current.visualGuide,
-        `${spread.action}\nRequested correction: ${instructions}`,
-        ref,
-        spread,
-        previous,
-      ),
+  const phase = input.spreadId;
+  if (phase === 'front' || phase === 'back' || phase === 'opener' || phase === 'ending') {
+    if (
+      !input.artworkInstructions ||
+      input.leftText !== undefined ||
+      input.rightText !== undefined ||
+      input.leftDescription !== undefined ||
+      input.textLayout !== undefined
+    ) {
+      throw scopeError(
+        'premium_correction_invalid',
+        'Single-page corrections require illustration instructions',
+      );
+    }
+    const page = current.pages.find((entry) => entry.kind === phase);
+    const existing = phase === 'front' || phase === 'back' ? current.covers[phase] : page?.artwork;
+    if (!existing) throw scopeError('premium_page_missing', 'Illustration unavailable');
+    verifyPremiumAssetScope(storyId, existing);
+    const guide = await readPremiumObject(bucket, existing);
+    const embedded = current.editionLayout === PREMIUM_EMBEDDED_LETTERING_EDITION;
+    const narration =
+      embedded && page
+        ? phase === 'ending'
+          ? { leftText: page.text }
+          : { rightText: page.text }
+        : undefined;
+    const scope = {
+      storyId,
+      ownerId: marker.ownerId,
+      revision: input.correctionId,
+      audience: marker.audience,
+      opening: current.opening,
+      editionLayout: current.editionLayout,
+    };
+    const art = await stage(
+      bucket,
+      prefix,
+      phase,
+      inputHash,
+      artworkCheckpointFor(current.editionLayout, phase),
+      () =>
+        createArtwork(
+          bucket,
+          prefix,
+          scope,
+          current.config,
+          current.textConfig,
+          phase,
+          current.visualGuide,
+          `Edit the supplied existing illustration. Preserve all unmentioned features. Requested change: ${input.artworkInstructions}`,
+          guide,
+          undefined,
+          undefined,
+          narration,
+        ),
     );
-    Object.assign(left, pageArt(art, 0, true));
-    Object.assign(right, pageArt(art, 1, true));
-    Object.assign(spread, { master: art.master, source: art.source, ...nativeFor(art) });
-    current.natives[spread.id] = nativeFor(art);
+    const changed = pageArt(art, 0, false);
+    if (phase === 'front' || phase === 'back') current.covers[phase] = changed.artwork;
+    else if (page) Object.assign(page, changed);
+    current.natives[phase] = nativeFor(art);
+  } else {
+    const spread = current.spreads.find((entry) => entry.id === input.spreadId);
+    if (!spread) throw scopeError('premium_spread_missing', 'Premium spread does not exist');
+    const left = current.pages[spread.leftPage - 1];
+    const right = current.pages[spread.rightPage - 1];
+    if (!left || !right)
+      throw scopeError('premium_page_missing', 'Premium spread has a missing page');
+    const embeddedLettering = current.editionLayout === PREMIUM_EMBEDDED_LETTERING_EDITION;
+    const previousLeftText = left.text;
+    const previousRightText = right.text;
+    const previousLeftDescription = spread.leftDescription;
+    applyPremiumSpreadText(spread, left, right, input, embeddedLettering);
+    const regenerateLettering =
+      embeddedLettering &&
+      (left.text !== previousLeftText ||
+        right.text !== previousRightText ||
+        spread.leftDescription !== previousLeftDescription);
+    if (input.artworkInstructions || regenerateLettering) {
+      const scene = premiumSpreadScene(spread.action);
+      const action = input.artworkInstructions
+        ? `${scene}\nRequested correction: ${input.artworkInstructions}`
+        : scene;
+      const scope = {
+        storyId,
+        ownerId: marker.ownerId,
+        revision: input.correctionId,
+        audience: marker.audience,
+        opening: current.opening,
+      };
+      verifyPremiumAssetScope(storyId, current.reference);
+      verifyPremiumAssetScope(storyId, spread.source);
+      const ref = await readPremiumObject(bucket, current.reference);
+      const previous = await sharp(await readPremiumObject(bucket, spread.source))
+        .jpeg({ quality: 96 })
+        .toBuffer();
+      const schema = artworkCheckpointFor(current.editionLayout, spread.id);
+      const art = await stage(bucket, prefix, spread.id, inputHash, schema, () =>
+        createArtwork(
+          bucket,
+          prefix,
+          scope,
+          current.config,
+          current.textConfig,
+          spread.id,
+          current.visualGuide,
+          action,
+          ref,
+          embeddedLettering
+            ? spread
+            : {
+                ...spread,
+                textBoxes: { left: left.textBox, right: right.textBox ?? PREMIUM_TEXT_BOX },
+              },
+          previous,
+          embeddedLettering ? { leftText: left.text, rightText: right.text } : undefined,
+        ),
+      );
+      Object.assign(left, pageArt(art, 0, true));
+      Object.assign(right, pageArt(art, 1, true));
+      if (!embeddedLettering && art.spreadTextBoxes) {
+        if (art.spreadTextBoxes.left) left.textBox = art.spreadTextBoxes.left;
+        right.textBox = art.spreadTextBoxes.right;
+      }
+      Object.assign(spread, { master: art.master, source: art.source, ...nativeFor(art) });
+      current.natives[spread.id] = nativeFor(art);
+    }
   }
   const revised: PremiumManifest = {
     ...current,
@@ -1113,9 +1814,12 @@ export async function correctPremiumSpread(
     revision: input.correctionId,
     supersedes: inputHash,
   };
+  await addPremiumPagePreviews(bucket, prefix, revised);
   await verifyManifestArtwork(bucket, revised);
   return {
     revision: revised.revision,
-    manifest: await publishManifest(bucket, prefix, revised, marker),
+    manifest: prepareOnly
+      ? await writeManifest(bucket, prefix, revised)
+      : await publishManifest(bucket, prefix, revised, marker),
   };
 }

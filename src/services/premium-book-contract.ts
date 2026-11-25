@@ -10,6 +10,8 @@ export const PREMIUM_BOOK_TYPE = 'premium_children';
 export const LEGACY_PREMIUM_PAGE_COUNT = 32;
 export const PREMIUM_PAGE_COUNT = PREMIUM_INVITATION_PAGE_NUMBER;
 export const PREMIUM_SPREAD_COUNT = 13;
+export const PREMIUM_EMBEDDED_LETTERING_EDITION = 'embedded-lettering-v2';
+export const PREMIUM_PRINT_PPI = 304;
 export const PREMIUM_TEXT_BOX = { x: 0.1, y: 0.09, width: 0.8, height: 0.2 };
 export const PREMIUM_FORMAT = {
   trimPoints: 612,
@@ -83,6 +85,26 @@ export const openingPlan = z.object({
   synopsis: z.string().min(1).max(600),
   createdAt: z.iso.datetime(),
 });
+
+const specificationField = z.object({ label: z.string().min(1), value: z.string().min(1) });
+const premiumSpecificationPlan = z.object({
+  title: specificationField,
+  details: z.array(specificationField).length(4),
+  copyright: z.string().min(1),
+  rights: z.string().min(1),
+  promotion: z.string().min(1),
+});
+
+export function premiumSpecificationText(specification: z.infer<typeof premiumSpecificationPlan>) {
+  return [
+    ...[specification.title, ...specification.details].map(
+      ({ label, value }) => `${label}: ${value}`,
+    ),
+    specification.copyright,
+    specification.rights,
+    specification.promotion,
+  ].join('\n');
+}
 
 export const narrativeText = z
   .string()
@@ -169,7 +191,7 @@ export const generatedPremiumBoard = historicalGeneratedPremiumBoard.extend({
 export type PremiumBoard = z.infer<typeof premiumBoard>;
 
 const rect = z.object({ x: z.number(), y: z.number(), width: z.number(), height: z.number() });
-const textBox = rect.refine(
+export const premiumTextBox = rect.refine(
   (value) =>
     value.x >= 0.08 &&
     value.y >= 0.08 &&
@@ -178,6 +200,7 @@ const textBox = rect.refine(
     value.x + value.width <= 0.92 &&
     value.y + value.height <= 0.92,
 );
+export type PremiumTextBox = z.infer<typeof premiumTextBox>;
 export const premiumPage = z.object({
   number: z.number().int().min(1).max(PREMIUM_PAGE_COUNT),
   kind: z.enum([
@@ -195,7 +218,7 @@ export const premiumPage = z.object({
   spreadId: z.string().optional(),
   artwork: premiumAsset.optional(),
   reading: premiumAsset.optional(),
-  textBox: textBox.optional(),
+  textBox: premiumTextBox.optional(),
   digitalCrop: rect.optional(),
   printCrop: rect.optional(),
 });
@@ -206,6 +229,14 @@ const native = z.object({
   nativeHeight: z.number().int().positive(),
   effectivePpi: z.number().positive(),
 });
+
+export function isPremiumNativePrintArtwork(art: z.infer<typeof native>, facing: boolean) {
+  const { trimPoints, bleedPoints } = PREMIUM_FORMAT;
+  const width = (trimPoints * (facing ? 2 : 1) + 2 * bleedPoints) / 72;
+  const height = (trimPoints + 2 * bleedPoints) / 72;
+  const effectivePpi = Math.min(art.nativeWidth / width, art.nativeHeight / height);
+  return effectivePpi >= PREMIUM_PRINT_PPI && Math.abs(art.effectivePpi - effectivePpi) < 0.01;
+}
 export const premiumSpread = native.extend({
   id: z.string(),
   textLayout: premiumTextLayout.optional(),
@@ -235,12 +266,14 @@ export const premiumManifest = z
     ownerId: z.uuid(),
     revision: z.uuid(),
     previousRevision: z.uuid().optional(),
+    editionLayout: z.literal(PREMIUM_EMBEDDED_LETTERING_EDITION).optional(),
     format: z.object({
       trimPoints: z.literal(612),
       bleedPoints: z.literal(9),
       pageCount: premiumPageCount,
     }),
     opening: openingPlan,
+    specification: premiumSpecificationPlan.optional(),
     openingDesign: premiumOpeningDesign.optional(),
     motifArtwork: premiumAsset.optional(),
     config: premiumImageConfig,
@@ -258,6 +291,20 @@ export const premiumManifest = z
     supersedes: z.string().optional(),
   })
   .superRefine((value, ctx) => {
+    const embeddedLettering = value.editionLayout === PREMIUM_EMBEDDED_LETTERING_EDITION;
+    if (
+      embeddedLettering &&
+      (!value.specification ||
+        value.specification.title.value !== value.opening.title ||
+        value.specification.details[0]?.value !== value.opening.author ||
+        premiumSpecificationText(value.specification) !== value.pages[1]?.text)
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['specification'],
+        message: 'Technical page does not match the frozen publication details',
+      });
+    }
     if (
       value.motifArtwork &&
       (!value.openingDesign ||
@@ -270,7 +317,10 @@ export const premiumManifest = z
         message: 'Invalid premium motif artwork',
       });
     }
-    if (value.pages.length !== value.format.pageCount) {
+    if (
+      value.pages.length !== value.format.pageCount ||
+      (embeddedLettering && value.format.pageCount !== PREMIUM_PAGE_COUNT)
+    ) {
       ctx.addIssue({
         code: 'custom',
         path: ['pages'],
@@ -299,7 +349,6 @@ export const premiumManifest = z
           paragraphs.some((paragraph) => !paragraph.trim()) ||
           page.link?.href !== premiumInvitationHref(value.opening.locale) ||
           page.artwork ||
-          page.reading ||
           page.textBox ||
           page.spreadId ||
           page.digitalCrop ||
@@ -317,19 +366,39 @@ export const premiumManifest = z
         kind === 'spread' &&
         page.number % 2 === 0 &&
         value.spreads[Math.floor((page.number - 6) / 2)]?.textLayout === 'right_only';
-      const validText = silent
-        ? page.text === '' && !page.textBox
-        : Boolean(page.textBox && narrativeText.safeParse(page.text).success);
+      const validText =
+        (silent ? page.text === '' : narrativeText.safeParse(page.text).success) &&
+        Boolean(page.textBox) === (!silent && !embeddedLettering);
       if (
         !orderMatches ||
         page.link !== undefined ||
         (page.number >= 5 && (!page.artwork || !page.reading || !validText)) ||
-        (page.number < 5 && Boolean(page.artwork || !page.text.trim()))
+        (page.number < 5 &&
+          Boolean(
+            page.artwork ||
+            !page.text.trim() ||
+            (embeddedLettering &&
+              (page.textBox || page.spreadId || page.digitalCrop || page.printCrop)),
+          ))
       ) {
         ctx.addIssue({
           code: 'custom',
           path: ['pages', index],
           message: 'Invalid physical page plan',
+        });
+      }
+    }
+    for (const [index, page] of value.pages.entries()) {
+      if (
+        !page.artwork &&
+        page.reading &&
+        (!page.reading.key.startsWith(`${value.storyId}/premium/revisions/`) ||
+          !page.reading.key.endsWith(`/assets/${page.reading.sha256}.png`))
+      ) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['pages', index, 'reading'],
+          message: 'Invalid reading preview',
         });
       }
     }
@@ -340,13 +409,36 @@ export const premiumManifest = z
         spread.leftPage !== left ||
         spread.rightPage !== left + 1 ||
         value.pages[left - 1]?.spreadId !== spread.id ||
-        value.pages[left]?.spreadId !== spread.id
+        value.pages[left]?.spreadId !== spread.id ||
+        (embeddedLettering &&
+          (!isPremiumNativePrintArtwork(spread, true) ||
+            spread.nativeWidth !== value.natives[spread.id]?.nativeWidth ||
+            spread.nativeHeight !== value.natives[spread.id]?.nativeHeight ||
+            spread.effectivePpi !== value.natives[spread.id]?.effectivePpi))
       ) {
         ctx.addIssue({
           code: 'custom',
           path: ['spreads', index],
           message: 'Invalid facing spread',
         });
+      }
+    }
+    if (embeddedLettering) {
+      for (const phase of [
+        'front',
+        'back',
+        'opener',
+        'ending',
+        ...value.spreads.map(({ id }) => id),
+      ]) {
+        const info = value.natives[phase];
+        if (!info || !isPremiumNativePrintArtwork(info, phase.startsWith('spread-'))) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['natives', phase],
+            message: 'Invalid native print artwork resolution',
+          });
+        }
       }
     }
   });
@@ -363,6 +455,7 @@ export function applyPremiumSpreadText(
     leftDescription?: string | undefined;
     artworkInstructions?: string | undefined;
   },
+  embeddedLettering = false,
 ): PremiumTextLayout {
   const previous = spread.textLayout ?? 'both_pages';
   const layout = edit.textLayout ?? previous;
@@ -388,7 +481,7 @@ export function applyPremiumSpreadText(
     if (edit.leftDescription) spread.leftDescription = edit.leftDescription;
     else if (edit.artworkInstructions || previous !== layout) delete spread.leftDescription;
   } else {
-    left.textBox = PREMIUM_TEXT_BOX;
+    if (!embeddedLettering) left.textBox ??= PREMIUM_TEXT_BOX;
     delete spread.leftDescription;
   }
   return layout;

@@ -10,6 +10,8 @@ const runsServiceMock = {
   reserveRun: jest.fn(),
   updateRun: jest.fn(),
   getRun: jest.fn(),
+  reclaimSelfPrintDispatch: jest.fn(),
+  linkSelfPrintExecution: jest.fn(),
 };
 
 const workflowsAdapterMock = {
@@ -17,6 +19,17 @@ const workflowsAdapterMock = {
 };
 
 const sendStoryPrintInstructionsEmailMock = jest.fn();
+const renderPremiumSelfPrintMock = jest.fn();
+const signPremiumSelfPrintMock = jest.fn();
+const selectProductRequestMock = jest.fn();
+
+jest.mock('@/services/premium-self-print.js', () => ({
+  ...jest.requireActual<typeof import('@/services/premium-self-print.js')>(
+    '@/services/premium-self-print.js',
+  ),
+  renderPremiumSelfPrint: renderPremiumSelfPrintMock,
+  signPremiumSelfPrint: signPremiumSelfPrintMock,
+}));
 
 const storyGetStoryMock = storyServiceMock.getStory as jest.Mock;
 const runsReserveRunMock = runsServiceMock.reserveRun as jest.Mock;
@@ -48,6 +61,7 @@ jest.mock('@/services/notification-client.js', () => ({
 
 jest.mock('@/db/connection.js', () => ({
   getDatabase: jest.fn(() => ({
+    select: jest.fn(() => ({ from: jest.fn(() => ({ where: selectProductRequestMock })) })),
     update: jest.fn(() => ({
       set: jest.fn(() => ({ where: jest.fn().mockResolvedValue(undefined) })),
     })),
@@ -70,6 +84,210 @@ describe('print routers', () => {
     runsServiceMock.getRun.mockReset();
     workflowsAdapterMock.executeWorkflow.mockReset();
     sendStoryPrintInstructionsEmailMock.mockReset();
+    selectProductRequestMock.mockReset();
+    resolveMock(runsServiceMock.reclaimSelfPrintDispatch as jest.Mock, false);
+    resolveMock(runsServiceMock.linkSelfPrintExecution as jest.Mock, 'execution-123');
+  });
+
+  const premiumStoryId = '00000000-0000-4000-8000-000000000123';
+  const premiumRunId = '00000000-0000-4000-8000-000000000999';
+  const premiumRevision = '00000000-0000-4000-8000-000000000100';
+  const ownerId = '00000000-0000-4000-8000-000000000101';
+  const apiKey = process.env.STORY_GENERATION_WORKFLOW_API_KEY || '';
+  const pin = {
+    version: 1,
+    type: 'premium_children',
+    state: 'published',
+    ownerId,
+    audience: 'children_3-6',
+    revision: premiumRevision,
+    manifest: {
+      key: `${premiumStoryId}/premium/revisions/${premiumRevision}/manifest.json`,
+      generation: '100',
+      bytes: 100,
+      sha256: 'a'.repeat(64),
+    },
+  };
+  const premiumSource = {
+    ownerId,
+    revision: premiumRevision,
+    manifest: pin.manifest,
+    generateCMYK: true,
+  };
+  const product = {
+    storyId: premiumStoryId,
+    authorId: ownerId,
+    actionType: 'self_print',
+    status: 'pending',
+    queueReference: `premium-self-print:v1:${premiumRevision}:100:${pin.manifest.sha256}:100:1`,
+  };
+
+  it('reserves the owner’s exact published source before starting the print workflow', async () => {
+    const current = '00000000-0000-4000-8000-000000000102';
+    resolveMock(selectProductRequestMock as jest.Mock, [product]);
+    resolveMock(storyGetStoryMock, {
+      storyId: premiumStoryId,
+      authorId: ownerId,
+      authorEmail: 'owner@example.com',
+      status: 'published',
+      features: {
+        premiumBook: {
+          ...pin,
+          revision: current,
+          manifest: { ...pin.manifest, key: pin.manifest.key.replace(premiumRevision, current) },
+        },
+      },
+    });
+    resolveMock(runsReserveRunMock, { reserved: true, run: { status: 'queued' } });
+    resolveMock(workflowsExecuteMock, 'execution-123');
+    const submit = (premiumBook: unknown, requestedByAuthorId: string) =>
+      request(app).post('/print/self-service').send({
+        storyId: premiumStoryId,
+        workflowId: premiumRunId,
+        premiumBook,
+        metadata: { requestedByAuthorId },
+      });
+    await submit({ ...pin, manifest: { ...pin.manifest, generation: '101' } }, ownerId).expect(409);
+    await submit(pin, premiumRunId).expect(409);
+    expect(runsReserveRunMock).not.toHaveBeenCalled();
+    await submit(pin, ownerId).expect(202);
+    expect(runsReserveRunMock).toHaveBeenCalledWith(premiumStoryId, premiumRunId, {
+      premiumSelfPrint: premiumSource,
+      premiumSelfPrintDispatch: expect.objectContaining({ premiumSelfPrint: true }),
+      serviceCode: 'selfPrinting',
+    });
+  });
+
+  it('reclaims an unlinked premium dispatch using its frozen recipient list', async () => {
+    const preservedDelivery = { recipients: [{ email: 'original@example.com' }] };
+    const reserved = {
+      storyId: premiumStoryId,
+      runId: premiumRunId,
+      status: 'queued',
+      metadata: {
+        premiumSelfPrint: premiumSource,
+        premiumSelfPrintDispatch: {
+          premiumSelfPrint: true,
+          storyId: premiumStoryId,
+          runId: premiumRunId,
+          delivery: preservedDelivery,
+        },
+      },
+    };
+    resolveMock(storyGetStoryMock, {
+      authorId: ownerId,
+      authorEmail: 'owner@example.com',
+      status: 'published',
+      features: { premiumBook: pin },
+    });
+    resolveMock(selectProductRequestMock as jest.Mock, [product]);
+    resolveMock(runsGetRunMock, reserved);
+    resolveMock(runsReserveRunMock, { reserved: false, run: reserved });
+    resolveMock(workflowsExecuteMock, 'execution-123');
+    const retry = () =>
+      request(app)
+        .post('/print/self-service')
+        .send({
+          storyId: premiumStoryId,
+          workflowId: premiumRunId,
+          premiumBook: pin,
+          recipientEmail: 'other@example.com',
+          metadata: { requestedByAuthorId: ownerId },
+        });
+    await retry()
+      .expect(202)
+      .expect(({ body }) => expect(body.executionId).toBe(''));
+    expect(workflowsExecuteMock).not.toHaveBeenCalled();
+    resolveMock(runsServiceMock.reclaimSelfPrintDispatch as jest.Mock, true);
+    await retry()
+      .expect(202)
+      .expect(({ body }) => expect(body.recipients).toEqual(['original@example.com']));
+    const event = workflowsExecuteMock.mock.calls[0]?.[1] as {
+      data: { message: { data: string } };
+    };
+    expect(JSON.parse(Buffer.from(event.data.message.data, 'base64').toString())).toMatchObject({
+      delivery: preservedDelivery,
+    });
+  });
+
+  it('renders from the stored pin and signs only the completed run’s delivery', async () => {
+    const printResult = {
+      premiumRevision,
+      interiorPdfUrl: 'https://storage.googleapis.com/private/interior.pdf',
+      coverPdfUrl: 'https://storage.googleapis.com/private/cover.pdf',
+    };
+    const signedPdfs = {
+      interiorPdfUrl: printResult.interiorPdfUrl + '?signed=1',
+      coverPdfUrl: printResult.coverPdfUrl + '?signed=2',
+    };
+    resolveMock(selectProductRequestMock as jest.Mock, [{ ...product, status: 'running' }]);
+    const delivery = { recipients: [{ email: 'owner@example.com' }] };
+    const run = {
+      storyId: premiumStoryId,
+      gcpWorkflowExecution: 'premium-execution',
+      metadata: {
+        premiumSelfPrint: premiumSource,
+        premiumSelfPrintDispatch: {
+          storyId: premiumStoryId,
+          runId: premiumRunId,
+          premiumSelfPrint: true,
+          delivery,
+        },
+      },
+    };
+    resolveMock(runsGetRunMock, { ...run, status: 'running' });
+    resolveMock(storyGetStoryMock, {
+      storyId: premiumStoryId,
+      title: 'A square story',
+      features: { premiumBook: pin },
+    });
+    resolveMock(renderPremiumSelfPrintMock as jest.Mock, printResult);
+    resolveMock(signPremiumSelfPrintMock as jest.Mock, signedPdfs);
+    resolveMock(sendInstructionsMock, 'sent');
+
+    await request(app)
+      .post('/internal/print/generate')
+      .set('x-api-key', apiKey)
+      .send({
+        storyId: premiumStoryId,
+        workflowId: premiumRunId,
+        executionId: run.gcpWorkflowExecution,
+      })
+      .expect(200, printResult);
+    expect(renderPremiumSelfPrintMock).toHaveBeenCalledWith(
+      premiumStoryId,
+      premiumRunId,
+      premiumSource,
+    );
+    const notify = (requestedDelivery = delivery) =>
+      request(app).post('/internal/print/self-service/notify').set('x-api-key', apiKey).send({
+        storyId: premiumStoryId,
+        runId: premiumRunId,
+        executionId: run.gcpWorkflowExecution,
+        delivery: requestedDelivery,
+        printResult,
+      });
+    await notify().expect(409);
+    expect(signPremiumSelfPrintMock).not.toHaveBeenCalled();
+
+    resolveMock(runsGetRunMock, { ...run, status: 'completed' });
+    await notify({ recipients: [{ email: 'other@example.com' }] }).expect(409);
+    expect(signPremiumSelfPrintMock).not.toHaveBeenCalled();
+    await notify()
+      .expect(200)
+      .expect(({ body }) => expect(body.deliveryStatus).toBe('sent'));
+    expect(signPremiumSelfPrintMock).toHaveBeenCalledWith(
+      premiumStoryId,
+      premiumRunId,
+      premiumRevision,
+    );
+    expect(sendInstructionsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workflowId: premiumRunId,
+        premiumRevision,
+        pdfs: expect.objectContaining(signedPdfs),
+      }),
+    );
   });
 
   it('queues self-print workflow with resolved recipients', async () => {

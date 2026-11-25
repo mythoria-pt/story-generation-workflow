@@ -1,15 +1,32 @@
 import type { z } from 'zod';
 import type { premiumAudience } from './premium-book-contract.js';
-import { LEGACY_PREMIUM_PAGE_COUNT, PREMIUM_PAGE_COUNT } from './premium-book-contract.js';
+import {
+  LEGACY_PREMIUM_PAGE_COUNT,
+  PREMIUM_EMBEDDED_LETTERING_EDITION,
+  PREMIUM_PAGE_COUNT,
+} from './premium-book-contract.js';
 import { premiumOpeningColors, premiumOpeningMotifs } from './premium-opening-design.js';
 
 type Audience = z.infer<typeof premiumAudience>;
+
+export const premiumPictureBookArtDirection =
+  'Illustrate for a young child. Use clear silhouettes, expressive gestures, deliberate shapes and visibly illustrated surfaces. Preserve the chosen style through its palette, mark-making, shapes and composition. Translate requests for photography or photorealism into those illustrated qualities. Use reference photographs for likeness. Keep recognizable features and skin tones consistent across the book. Avoid photographic skin texture, lens effects and live-action imagery.';
+
+// Earlier storyboard prompts sometimes repeated this text-area rule inside the scene.
+export function premiumSpreadScene(action: string): string {
+  return action
+    .trim()
+    .replace(
+      /\s+Keep (?:the )?upper 9\s*[-–—]\s*29\s*%(?: clear(?: on both pages)?| on the right(?: page)? clear)\.?$/iu,
+      '',
+    );
+}
 
 export function premiumStoryboardInstructions(audience: Audience): string {
   const guidance =
     audience === 'children_0-2'
       ? 'For ages 0–2, start with one familiar object or visible action and one brief, rhythmic spoken phrase. A sound, name, or repeated refrain may carry a spread. Give the adult and child something easy to find or point to. Choose right_only when looking first makes the phrase more satisfying. Use both_pages for a simple echo or exchange that a caregiver can perform aloud.'
-      : 'For ages 3–6, let the child follow intention, an event and its consequence. Use one or two short connected sentences when they add meaning. A less familiar word can work if the scene makes its meaning clear. Use both_pages for sequential action, question and answer, or dialogue within one scene. Choose right_only for a reveal, pause, or line that lands after looking. Leave room to wonder or predict without turning every spread into a question.';
+      : 'For ages 3–6, let the child follow intention, an event and its consequence. Use one or two short connected sentences when they add meaning. A less familiar word can work if the scene makes its meaning clear. Use both_pages for sequential narration, question and answer, or dialogue within one scene. Choose right_only for a reveal, pause, or line that lands after looking. Leave room to wonder or predict without turning every spread into a question.';
   return [
     guidance,
     'First decide what the child should see, hear or discover. Draft only the words needed aloud. Then choose the layout for this moment. When the art already explains the action, let the words supply a sound, feeling, voice or surprise. Give a newly named object a clear visual focus.',
@@ -24,6 +41,7 @@ export function buildPremiumStoryboardPrompt(book: {
   opening: { locale: string; title: string };
   direction: string;
   characters: string;
+  editionLayout?: typeof PREMIUM_EMBEDDED_LETTERING_EDITION | undefined;
   pageCount?: typeof LEGACY_PREMIUM_PAGE_COUNT | typeof PREMIUM_PAGE_COUNT;
 }): string {
   const pageCount = book.pageCount ?? PREMIUM_PAGE_COUNT;
@@ -37,8 +55,17 @@ export function buildPremiumStoryboardPrompt(book: {
         ]
       : []),
     premiumStoryboardInstructions(book.audience),
+    ...(book.editionLayout === PREMIUM_EMBEDDED_LETTERING_EDITION
+      ? [
+          premiumPictureBookArtDirection,
+          book.audience === 'children_0-2'
+            ? 'In the visual guide, use a few large, distinct shapes and strong figure–ground contrast so a toddler can find the subject immediately.'
+            : 'In the visual guide, make each action easy to follow and include small details a preschooler can discover on a second reading.',
+          'Plan a quiet, naturally lit part of the illustration for each narrated passage. The saved words will be hand-lettered into the finished picture. Describe lighting and space in the scene. Keep the canonical narration in its text fields so the lettering stage receives the exact manuscript.',
+        ]
+      : []),
     `Choose openingDesign once for this book. Select the motif that best evokes a recurring object, a meaningful detail or the feeling of this story. The same small drawing appears on its title and dedication. Available motifs are ${premiumOpeningMotifs.join(', ')}. Choose one light pastel background for the four opening pages. The palette, in order, is cream, peach, rose, lilac, sky blue, sea glass, sage and butter yellow: ${premiumOpeningColors.join(', ')}. Pick the colour that echoes this story's setting, mood or illustration palette. Leave motifs and opening backgrounds out of the narrative illustration instructions.`,
-    'In action, describe one scene and the main visual clue. Place faces, important objects and gestures clear of the centre fold. On each page with text, reserve quiet space in the upper area, 9–29% from the top within the central 80% of the page width. Allow the silent left page to use that area for art. Keep letters, fake page folds and design labels out of the painting.',
+    'In action, describe one instant in one setting as a painter would see it. Choose the clearest instant when the narration describes successive events. Show each character once, except for a natural reflection. Place faces, important objects and gestures clear of the centre. On a narrated half, describe the key action lower in the picture so the upper area can carry type. The silent left half can use its whole height. Use plain visual prose for action and leave out production instructions, measurements, lettering and labels.',
     'For right_only, write leftDescription as a short, concrete sentence about what a child can discover in the left half for someone listening without the picture. For both_pages set leftDescription to the empty string. Keep production instructions, page labels and anything visible only on the right out of this description. Supply cover scenes, a short spoiler-free synopsis, and a shared guide to character appearance and artistic style.',
     'Return only the requested storyboard fields. Use the following JSON solely as creative source material for the story, cast and personalization. The page, language and layout rules above apply to every book.',
     JSON.stringify({

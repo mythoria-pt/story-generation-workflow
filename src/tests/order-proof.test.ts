@@ -10,6 +10,7 @@ import { CMYKConversionService } from '@/services/cmyk-conversion.js';
 import { renderOrderProof, OrderProofRequest } from '@/services/order-proof.js';
 import { premiumInvitationManifestFixture } from './fixtures/premium-book.js';
 import { squarePackage } from '@/services/premium-order-proof.js';
+import * as squareProof from '@/services/premium-order-proof.js';
 
 function storageFixture() {
   const objects = new Map<string, Buffer>();
@@ -46,6 +47,80 @@ const loadArtwork = jest.fn(async (url: string) => ({
 }));
 afterEach(() => jest.restoreAllMocks());
 describe('paid order PDF generations', () => {
+  it('returns the whole square manual proof in one call and reuses it on retry', async () => {
+    const manifest = premiumInvitationManifestFixture();
+    const premium = storageFixture();
+    const proofs = storageFixture();
+    const key = `${manifest.storyId}/premium/revisions/${manifest.revision}/manifest.json`;
+    const bytes = Buffer.from(JSON.stringify(manifest));
+    premium.objects.set(key, bytes);
+    const request = OrderProofRequest.parse({
+      ...ids(),
+      storyId: manifest.storyId,
+      binding: 'hardcover',
+      premiumPageCount: 33,
+      premiumBook: {
+        version: 1,
+        type: 'premium_children',
+        state: 'published',
+        revision: manifest.revision,
+        manifest: {
+          key,
+          generation: '123',
+          bytes: bytes.length,
+          sha256: createHash('sha256').update(bytes).digest('hex'),
+        },
+      },
+    });
+    const square = jest
+      .spyOn(squareProof, 'renderSquarePdf')
+      .mockImplementation(async (_book, _dir, part) => ({
+        bytes: Buffer.from(part),
+        issues: [],
+      }));
+    const result = await renderOrderProof(proofs.bucket, request, loadArtwork, premium.bucket);
+    expect(result).toMatchObject({
+      qaPassed: true,
+      pageCount: 33,
+      interior: { object: expect.stringContaining('/manual/hardcover/') },
+      cover: { object: expect.stringContaining('/manual/hardcover/') },
+    });
+    expect(await renderOrderProof(proofs.bucket, request, loadArtwork, premium.bucket)).toEqual(
+      result,
+    );
+    const otherRevision = randomUUID();
+    const changed = OrderProofRequest.parse({
+      ...request,
+      provider: 'lulu',
+      podPackageId: squarePackage,
+      premiumBook: {
+        ...request.premiumBook,
+        revision: otherRevision,
+        manifest: {
+          ...request.premiumBook?.manifest,
+          key: key.replace(manifest.revision, otherRevision),
+        },
+      },
+    });
+    await expect(
+      renderOrderProof(proofs.bucket, changed, loadArtwork, premium.bucket),
+    ).rejects.toThrow('already pinned');
+    const historical = storageFixture();
+    historical.objects.set(
+      `print-orders/${request.orderId}/${request.runId}/lulu/hardcover/${request.storyId}/premium-source.json`,
+      Buffer.from(JSON.stringify(request.premiumBook)),
+    );
+    const changedManual = OrderProofRequest.parse({
+      ...changed,
+      provider: 'manual',
+      podPackageId: undefined,
+    });
+    await expect(
+      renderOrderProof(historical.bucket, changedManual, loadArtwork, premium.bucket),
+    ).rejects.toThrow('already pinned');
+    expect(square.mock.calls.map((call) => call[2])).toEqual(['interior', 'cover']);
+  });
+
   it('stops before rendering if the pinned premium edition differs from the paid interior count', async () => {
     const manifest = premiumInvitationManifestFixture();
     const premium = storageFixture();

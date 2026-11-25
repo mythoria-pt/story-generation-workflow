@@ -3,7 +3,7 @@
  * Handles database operations for story generation runs and steps
  */
 
-import { eq, and, sql, gte, lte, gt, or, asc } from 'drizzle-orm';
+import { eq, and, sql, gte, lte, gt, or, asc, isNull, lt } from 'drizzle-orm';
 import { isStoryCreatedEligible } from './story-created-eligibility.js';
 import { getWorkflowsDatabase } from '@/db/workflows-db.js';
 import { storyGenerationRuns, storyGenerationSteps } from '@/db/workflows-db.js';
@@ -117,7 +117,7 @@ export class RunsService {
   }
 
   /** Reserve a queued run before starting an external workflow execution. */
-  async reserveRun(storyId: string, runId: string) {
+  async reserveRun(storyId: string, runId: string, metadata?: Record<string, unknown>) {
     const now = new Date().toISOString();
     const [created] = await this.db
       .insert(storyGenerationRuns)
@@ -125,6 +125,7 @@ export class RunsService {
         runId,
         storyId,
         status: 'queued',
+        ...(metadata ? { metadata } : {}),
         createdAt: now,
         updatedAt: now,
       })
@@ -138,6 +139,34 @@ export class RunsService {
       throw new RunStoryConflictError(runId, existing.storyId, storyId);
     }
     return { reserved: false as const, run: existing };
+  }
+
+  async reclaimSelfPrintDispatch(runId: string) {
+    const now = Date.now();
+    const [lease] = await this.db
+      .update(storyGenerationRuns)
+      .set({ updatedAt: new Date(now).toISOString() })
+      .where(
+        and(
+          eq(storyGenerationRuns.runId, runId),
+          eq(storyGenerationRuns.status, 'queued'),
+          isNull(storyGenerationRuns.gcpWorkflowExecution),
+          lt(storyGenerationRuns.updatedAt, new Date(now - 90_000).toISOString()),
+        ),
+      )
+      .returning({ runId: storyGenerationRuns.runId });
+    return Boolean(lease);
+  }
+
+  async linkSelfPrintExecution(runId: string, executionId: string) {
+    const [linked] = await this.db
+      .update(storyGenerationRuns)
+      .set({ gcpWorkflowExecution: executionId, updatedAt: new Date().toISOString() })
+      .where(
+        and(eq(storyGenerationRuns.runId, runId), isNull(storyGenerationRuns.gcpWorkflowExecution)),
+      )
+      .returning({ executionId: storyGenerationRuns.gcpWorkflowExecution });
+    return linked?.executionId || (await this.getRun(runId))?.gcpWorkflowExecution || executionId;
   }
 
   /** Atomically allow only the first workflow execution to start a run. */

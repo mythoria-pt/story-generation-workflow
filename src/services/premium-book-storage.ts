@@ -1,7 +1,9 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { Storage, type Bucket } from '@google-cloud/storage';
+import sharp from 'sharp';
 import { z } from 'zod';
 import { getEnvironment } from '@/config/environment.js';
+import { premiumGeometry, PREMIUM_READING_PPI } from './premium-book-artwork.js';
 import {
   PremiumBookError,
   premiumManifest,
@@ -150,6 +152,136 @@ export async function readPremiumObject(bucket: Bucket, asset: PremiumAsset) {
     );
   }
   return bytes;
+}
+
+const reviewDraftMaxSide = 1280;
+const reviewDraftMaxBytes = 1_048_576;
+const reviewDraftGeneration = /^[1-9]\d*$/u;
+type PremiumReviewDraft = { generation: string; image?: Buffer; failedChecks?: string[] };
+
+function isPremiumReviewDraftKey(key: string) {
+  const match =
+    /^([^/]+)\/premium\/revisions\/([^/]+)\/review\/spread-(?:[1-9]|1[0-3])-[a-f0-9]{64}\.draft\.jpg$/u.exec(
+      key,
+    );
+  return z.uuid().safeParse(match?.[1]).success && z.uuid().safeParse(match?.[2]).success;
+}
+
+function premiumReviewDraftFile(bucket: Bucket, key: string) {
+  if (!isPremiumReviewDraftKey(key)) {
+    throw new PremiumBookError(
+      409,
+      'premium_review_draft_scope',
+      'Invalid premium review draft key',
+    );
+  }
+  return bucket.file(key);
+}
+
+export async function readPremiumReviewDraft(
+  bucket: Bucket,
+  key: string,
+): Promise<PremiumReviewDraft | undefined> {
+  const file = premiumReviewDraftFile(bucket, key);
+  const [metadata] = await file.getMetadata().catch((error: unknown) => {
+    if (hasCode(error, 404)) return [];
+    throw error;
+  });
+  if (!metadata?.generation) return undefined;
+  const generation = String(metadata.generation);
+  const bytes = Number(metadata.size);
+  const sha256 = metadata.metadata?.sha256;
+  const stored = { generation };
+  if (
+    metadata.contentType !== 'image/jpeg' ||
+    !Number.isSafeInteger(bytes) ||
+    bytes <= 0 ||
+    bytes > reviewDraftMaxBytes ||
+    typeof sha256 !== 'string' ||
+    !/^[a-f0-9]{64}$/u.test(sha256)
+  )
+    return stored;
+
+  try {
+    const image = await readPremiumObject(bucket, { key, generation, bytes, sha256 });
+    const decoded = sharp(image, { limitInputPixels: reviewDraftMaxSide ** 2, failOn: 'warning' });
+    const info = await decoded.metadata();
+    const expected = premiumGeometry(PREMIUM_READING_PPI, true);
+    if (
+      info.format === 'jpeg' &&
+      !info.hasAlpha &&
+      (info.pages ?? 1) === 1 &&
+      info.width >= 320 &&
+      info.width <= reviewDraftMaxSide &&
+      info.height <= reviewDraftMaxSide &&
+      Math.abs(info.width / info.height - expected.width / expected.height) <= 0.03
+    ) {
+      await decoded.stats();
+      const failedChecks = metadata.metadata?.failedChecks;
+      return {
+        generation,
+        image,
+        ...(typeof failedChecks === 'string' &&
+          failedChecks && { failedChecks: failedChecks.split(',') }),
+      };
+    }
+  } catch {
+    // Drafts are repair hints. A missing or damaged image can be replaced on rejection.
+  }
+  return stored;
+}
+
+export async function savePremiumReviewDraft(
+  bucket: Bucket,
+  key: string,
+  source: Buffer,
+  generation = '0',
+  failedChecks: readonly string[] = [],
+) {
+  const file = premiumReviewDraftFile(bucket, key);
+  const image = await sharp(source, { limitInputPixels: 16_000_000, failOn: 'warning' })
+    .resize(reviewDraftMaxSide, reviewDraftMaxSide, { fit: 'inside', withoutEnlargement: true })
+    .toColourspace('srgb')
+    .jpeg({ quality: 84 })
+    .toBuffer();
+  if (image.length > reviewDraftMaxBytes) return;
+  await file.save(image, {
+    contentType: 'image/jpeg',
+    metadata: {
+      cacheControl: 'private,no-store',
+      metadata: { sha256: premiumDigest(image), failedChecks: failedChecks.join(',') },
+    },
+    preconditionOpts: { ifGenerationMatch: generation },
+    resumable: false,
+  });
+}
+
+export async function deletePremiumReviewDraft(bucket: Bucket, key: string, generation: string) {
+  if (!reviewDraftGeneration.test(generation)) {
+    throw new PremiumBookError(
+      409,
+      'premium_review_draft_generation',
+      'Invalid premium review draft generation',
+    );
+  }
+  await premiumReviewDraftFile(bucket, key)
+    .delete({ ifGenerationMatch: generation })
+    .catch((error: unknown) => {
+      if (!hasCode(error, 404) && !hasCode(error, 412)) throw error;
+    });
+}
+
+export async function listPremiumReviewDrafts(bucket: Bucket, storyId: string, revision: string) {
+  const prefix = `${premiumRevisionPrefix(storyId, revision)}/review/`;
+  const [files] = await bucket.getFiles({ prefix });
+  return files.flatMap(({ name, metadata }) => {
+    const generation = String(metadata.generation ?? '');
+    return name.startsWith(prefix) &&
+      isPremiumReviewDraftKey(name) &&
+      reviewDraftGeneration.test(generation)
+      ? [{ key: name, generation }]
+      : [];
+  });
 }
 
 export function verifyPremiumAssetScope(storyId: string, asset: PremiumAsset) {

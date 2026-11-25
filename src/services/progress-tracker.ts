@@ -1,3 +1,4 @@
+import { hasPremiumMarker } from './premium-book-contract.js';
 import { isStoryCreatedEligible } from './story-created-eligibility.js';
 /**
  * Progress Tracker Service
@@ -397,7 +398,8 @@ export class ProgressTrackerService {
       Synopsis: story.synopsis || '',
       readStoryURL,
       shareStoryURL,
-      orderPrintURL,
+      listenURL: `https://mythoria.pt/${baseLocalePath}/stories/listen/${storyId}`,
+      orderPrintURL: hasPremiumMarker(story.features) ? '' : orderPrintURL,
     };
 
     logger.info('Prepared email variables for story-created notification', {

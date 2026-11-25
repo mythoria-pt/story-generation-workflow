@@ -1,13 +1,15 @@
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import OpenAI from 'openai';
-import { generatePremiumImage } from '@/services/premium-book-ai.js';
+import { z } from 'zod';
+import { generatePremiumImage, generatePremiumText } from '@/services/premium-book-ai.js';
 import { premiumManifestFixture } from './fixtures/premium-book.js';
 
 const edit = jest.fn();
 const generate = jest.fn();
+const complete = jest.fn();
 jest.mock('openai', () => ({
   __esModule: true,
-  default: jest.fn(() => ({ images: { edit, generate } })),
+  default: jest.fn(() => ({ images: { edit, generate }, responses: { create: complete } })),
   toFile: jest.fn(async (_bytes: Buffer, name: string) => ({ name })),
 }));
 
@@ -20,6 +22,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   edit.mockResolvedValue(output);
   generate.mockResolvedValue(output);
+  complete.mockResolvedValue({ output_text: '{"answer":"ok"}', output: [] });
 });
 
 describe('premium image adapter', () => {
@@ -64,6 +67,9 @@ describe('premium image adapter', () => {
       async () => {},
     );
     expect(edit).not.toHaveBeenCalled();
+    expect(OpenAI).toHaveBeenCalledWith(
+      expect.objectContaining({ maxRetries: 0, timeout: 240_000 }),
+    );
     expect(generate).toHaveBeenCalledWith(
       expect.objectContaining({
         model: config.model,
@@ -73,4 +79,53 @@ describe('premium image adapter', () => {
       }),
     );
   });
+
+  it('bounds a spread image request without SDK retries', async () => {
+    await generatePremiumImage(
+      scope,
+      config,
+      'spread-1',
+      'A scene.',
+      config.spreadSize,
+      [],
+      async () => {},
+    );
+    expect(OpenAI).toHaveBeenCalledWith(
+      expect.objectContaining({ maxRetries: 0, timeout: 210_000 }),
+    );
+    expect(generate).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['spread-1-lettering-guide', 'spread-1-lettering-right', 'opener-lettering-left'])(
+    'bounds the native lettering request %s within the workflow stage budget',
+    async (phase) => {
+      await generatePremiumImage(scope, config, phase, 'A scene.', '2672x2672', [], async () => {});
+      expect(OpenAI).toHaveBeenCalledWith(
+        expect.objectContaining({ maxRetries: 0, timeout: 195_000 }),
+      );
+      expect(generate).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each([
+    ['shot-plan-spread-1', [], 45_000],
+    ['spread-1', [Buffer.from('image')], 75_000],
+    ['spread-1-lettering-guide-review', [Buffer.from('image')], 30_000],
+    ['opener-lettering-review', [Buffer.from('image')], 75_000],
+    ['storyboard', [], 240_000],
+  ] as const)(
+    'bounds OpenAI %s text requests and disables SDK retries',
+    async (phase, images, timeout) => {
+      await generatePremiumText(
+        scope,
+        { provider: 'openai', model: 'test' },
+        phase,
+        'Prompt',
+        z.object({ answer: z.string() }),
+        [...images],
+      );
+      expect(OpenAI).toHaveBeenCalledWith(expect.objectContaining({ maxRetries: 0, timeout }));
+      expect(complete).toHaveBeenCalledTimes(1);
+    },
+  );
 });

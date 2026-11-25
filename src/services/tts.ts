@@ -21,6 +21,7 @@ import {
   getAudioFilename,
   buildFirstChapterAudioText,
   buildChapterAudioText,
+  getMythoriaCreditMessage,
 } from './tts-utils.js';
 import { getTTSGateway } from '@/ai/tts-gateway.js';
 import { ITTSService, TTSProvider, TTSOptions, TTSResult, TTSUsage } from '@/ai/interfaces.js';
@@ -39,6 +40,7 @@ import {
 } from './voice-registry.js';
 import { composeStyle, directNarration, shouldDirectNarration } from './narration-direction.js';
 import { TTSGenerationError } from './tts-errors.js';
+import { hasPremiumMarker, PremiumBookError } from './premium-book-contract.js';
 
 export interface TTSChapterResult {
   chapterNumber: number;
@@ -149,6 +151,7 @@ export class TTSService {
       isFirstChapter?: boolean;
       includeBackgroundMusic?: boolean;
       chapterTitle?: string;
+      savePremiumPage?: (bytes: Buffer) => Promise<string>;
     },
   ): Promise<TTSChapterResult> {
     try {
@@ -163,6 +166,13 @@ export class TTSService {
       const story = await this.storyService.getStory(storyId);
       if (!story) {
         throw new Error(`Story not found: ${storyId}`);
+      }
+      if (hasPremiumMarker(story.features) && !extraParams?.savePremiumPage) {
+        throw new PremiumBookError(
+          409,
+          'premium_audiobook_required',
+          'Use the premium audiobook workflow',
+        );
       }
 
       // Get TTS configuration
@@ -264,7 +274,18 @@ export class TTSService {
 
       // Prepare chapter text for TTS (pauses come from paragraph breaks, never from tags)
       let chapterText: string;
-      if (extraParams?.isFirstChapter) {
+      if (extraParams?.savePremiumPage) {
+        chapterText = extraParams.isFirstChapter
+          ? [
+              storyTitle,
+              extraParams.dedicatoryMessage,
+              await getMythoriaCreditMessage(storyLanguage, storyAuthor),
+              chapterContent,
+            ]
+              .filter(Boolean)
+              .join('\n\n')
+          : chapterContent;
+      } else if (extraParams?.isFirstChapter) {
         // For first chapter, include story title, dedication, author intro, and chapter content
         chapterText = await buildFirstChapterAudioText(
           storyTitle,
@@ -535,7 +556,9 @@ export class TTSService {
           outputTokens: usageTotals.outputTokens,
           inputPromptJson: {
             chapterNumber,
-            chapterText: chapterText.substring(0, 500) + '...', // Store first 500 chars for reference
+            ...(!extraParams?.savePremiumPage && {
+              chapterText: chapterText.substring(0, 500) + '...',
+            }),
             voice: actualVoice,
             speed: config.speed,
             provider: actualProvider,
@@ -572,16 +595,17 @@ export class TTSService {
         // Don't throw - we don't want to break TTS generation due to tracking failures
       }
 
-      // Upload chapter audio to storage with chapter filename
-      const audioFilename = getAudioFilename(storyId, chapterNumber);
-      const audioUrl = await this.storageService.uploadFile(
-        audioFilename,
-        audioBuffer,
-        'audio/mpeg',
-      );
-
-      // Update chapter audio URI in database
-      await this.chaptersService.updateChapterAudio(storyId, chapterNumber, audioUrl);
+      const savePremiumPage = extraParams?.savePremiumPage;
+      const audioUrl = savePremiumPage
+        ? await savePremiumPage(audioBuffer)
+        : await this.storageService.uploadFile(
+            getAudioFilename(storyId, chapterNumber),
+            audioBuffer,
+            'audio/mpeg',
+          );
+      if (!savePremiumPage) {
+        await this.chaptersService.updateChapterAudio(storyId, chapterNumber, audioUrl);
+      }
 
       const result: TTSChapterResult = {
         chapterNumber,

@@ -4,15 +4,18 @@ import { GoogleGenAITextService } from '@/ai/providers/google-genai/text.js';
 import { reviewPremiumImage } from '@/services/premium-book-ai.js';
 import { z } from 'zod';
 import {
+  createPremiumSpreadScaffold,
   exportPremiumArtwork,
   hasPremiumCentreLine,
   premiumGeometry,
+  premiumSpreadComposition,
   PREMIUM_PRINT_PPI,
   PREMIUM_READING_PPI,
 } from '@/services/premium-book-artwork.js';
 import {
   applyPremiumSpreadText,
   generatedPremiumBoard,
+  PREMIUM_TEXT_BOX,
   premiumBoard,
   premiumManifest,
   readPremiumMarker,
@@ -20,6 +23,7 @@ import {
 import { premiumOpeningPages } from '@/services/premium-book-opening.js';
 import {
   buildPremiumStoryboardPrompt,
+  premiumSpreadScene,
   premiumStoryboardInstructions,
 } from '@/services/premium-book-storyboard.js';
 import {
@@ -60,7 +64,9 @@ describe('premium book generation contract', () => {
     const reviewer = jest.spyOn(GoogleGenAITextService.prototype, 'complete').mockResolvedValue(
       JSON.stringify({
         noLettering: true,
-        safeComposition: true,
+        clearTextArea: true,
+        safeGutter: true,
+        safeTrim: true,
         coherentArtwork: true,
         consistentCharacters: true,
         leftDescriptionAccurate: false,
@@ -130,7 +136,7 @@ describe('premium book generation contract', () => {
     const toddlers = premiumStoryboardInstructions('children_0-2');
     const children = premiumStoryboardInstructions('children_3-6');
     expect(toddlers).toContain('one brief, rhythmic spoken phrase');
-    expect(children).toContain('sequential action, question and answer, or dialogue');
+    expect(children).toContain('sequential narration, question and answer, or dialogue');
     for (const guidance of [toddlers, children]) {
       expect(guidance).toContain('selected language');
       expect(guidance).toContain('normal type size');
@@ -153,12 +159,79 @@ describe('premium book generation contract', () => {
     expect(instructions).toContain('ages 3–6');
     expect(instructions).toContain('both_pages');
     expect(instructions).toContain('right_only');
+    expect(instructions).toContain('one instant in one setting');
+    expect(instructions).toContain('leave out production instructions, measurements');
+    expect(instructions).not.toContain('9–29%');
     expect(instructions).not.toContain('Ignore layout');
     expect(JSON.parse(prompt.slice(separator + 2))).toEqual({
       title: book.opening.title,
       creativeDirection: book.direction,
       characters: book.characters,
     });
+  });
+
+  it.each([
+    'Keep upper 9-29% clear on both pages.',
+    'Keep upper 9–29% on the right page clear.',
+    'Keep upper 9-29% on the right clear.',
+    'Keep upper 9-29% clear.',
+  ])('omits frozen storyboard layout note %s from the painting scene', (layoutNote) => {
+    const scene = 'Bea approaches the golden mirror. Her friends stand beside her.';
+    expect(premiumSpreadScene(`${scene} ${layoutNote}`)).toBe(scene);
+    expect(premiumSpreadScene(scene)).toBe(scene);
+  });
+
+  it('reserves only the narrated areas and maps their trim boxes onto the review master with bleed', () => {
+    const left = 'from 5.7% to 45.1% across and 10.2% to 29.6% down';
+    const right = 'from 54.9% to 94.3% across and 10.2% to 29.6% down';
+    const both = premiumSpreadComposition('both_pages');
+    const silentLeft = premiumSpreadComposition('right_only');
+    expect(premiumSpreadComposition()).toEqual(both);
+    expect(both.review).toContain(left);
+    expect(both.review).toContain(right);
+    expect(silentLeft.review).toContain(right);
+    expect(silentLeft.review).not.toContain(left);
+    expect(silentLeft.generation).toContain('recognizable when the left page is viewed by itself');
+    expect(silentLeft.generation).toContain('A prop can continue to the right');
+    expect(both.generation).not.toContain('left-page description');
+    for (const { generation, review } of [both, silentLeft]) {
+      expect(generation).not.toContain('%');
+      expect(generation).toContain('Show each character once, except for a natural reflection.');
+      expect(generation).toContain('such as a mirror frame, may cross the centre');
+      expect(generation).toContain('reflected face, gesture and story clue fully on one half');
+      expect(generation).toContain('pull the camera back');
+      expect(generation).toContain('below the right-hand text area');
+      expect(review).toContain('gutter band from 45% to 55%');
+      expect(review).toContain('opaque typeset panel');
+      expect(review).toContain('Ordinary background scenery and texture in these areas are fine.');
+    }
+  });
+
+  it('puts only soft placement marks well inside the half-page trim and below narrated areas', async () => {
+    const size = '1920x976';
+    const [both, silentLeft] = await Promise.all(
+      (['both_pages', 'right_only'] as const).map(async (layout) =>
+        sharp(await createPremiumSpreadScaffold(size, layout))
+          .raw()
+          .toBuffer({ resolveWithObject: true }),
+      ),
+    );
+    for (const preview of [both!, silentLeft!]) {
+      expect(preview.info).toMatchObject({ width: 1920, height: 976 });
+    }
+    const sample = ({ info, data }: NonNullable<typeof both>, x: number, y: number) =>
+      data[(Math.floor(y * info.height) * info.width + Math.floor(x * info.width)) * info.channels];
+    const quiet = sample(both!, 0.5, 0.63)!;
+    for (const preview of [both!, silentLeft!]) {
+      expect(sample(preview, 0.75, 0.25)).toBe(quiet);
+      expect(sample(preview, 0.5, 0.63)).toBe(quiet);
+      expect(sample(preview, 0.03, 0.63)).toBe(quiet);
+      expect(sample(preview, 0.97, 0.63)).toBe(quiet);
+      expect(sample(preview, 0.25, 0.63)).toBeLessThan(quiet - 35);
+      expect(sample(preview, 0.75, 0.63)).toBeLessThan(quiet - 35);
+    }
+    expect(sample(both!, 0.25, 0.25)).toBe(quiet);
+    expect(sample(silentLeft!, 0.25, 0.25)).toBeLessThan(quiet - 10);
   });
   it('branches only on missing or valid versioned markers', () => {
     expect(readPremiumMarker({ ebook: true })).toBeUndefined();
@@ -197,6 +270,12 @@ describe('premium book generation contract', () => {
     const right = manifest.pages[6];
     if (!spread || !left || !right) throw new Error('Missing test spread');
     const art = [left.artwork, left.reading, right.artwork, right.reading, spread.master];
+    const lowerBox = { ...PREMIUM_TEXT_BOX, y: 0.71 };
+    left.textBox = lowerBox;
+    right.textBox = lowerBox;
+    applyPremiumSpreadText(spread, left, right, { leftText: 'A Inês ouve a maré.' });
+    expect(left.textBox).toEqual(lowerBox);
+    expect(right.textBox).toEqual(lowerBox);
     expect(() =>
       applyPremiumSpreadText(spread, left, right, {
         textLayout: 'right_only',
@@ -232,7 +311,8 @@ describe('premium book generation contract', () => {
       textLayout: 'both_pages',
       leftText: 'Inês pôs-se à escuta.',
     });
-    expect(left.textBox).toBeDefined();
+    expect(left.textBox).toEqual(PREMIUM_TEXT_BOX);
+    expect(right.textBox).toEqual(lowerBox);
     expect(spread.leftDescription).toBeUndefined();
     expect(premiumManifest.safeParse(manifest).success).toBe(true);
   });

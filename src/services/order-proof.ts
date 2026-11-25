@@ -55,14 +55,14 @@ export const OrderProofRequest = z
       (!v.premiumBook && !v.podPackageId && !v.premiumPageCount) ||
       Boolean(
         v.premiumBook &&
-        v.podPackageId &&
-        v.provider === 'lulu' &&
+        (v.provider === 'manual' || v.podPackageId) &&
         v.binding === 'hardcover' &&
         v.premiumBook.manifest.key ===
           v.storyId + '/premium/revisions/' + v.premiumBook.revision + '/manifest.json',
       ),
     {
-      message: 'Square orders require a published edition and the square hardcover package',
+      message:
+        'Square orders require a published hardcover edition and, for Lulu, a square package',
     },
   )
   .refine((value) => value.provider === 'lulu' || !value.coverDimensions, {
@@ -263,23 +263,26 @@ export async function renderOrderProof(
   loadArtwork: (url: string) => Promise<PrintArtwork>,
   premiumBucket?: Bucket,
 ): Promise<Result> {
-  const prefix = [
-    'print-orders',
-    request.orderId,
-    request.runId,
-    request.provider,
-    request.binding,
-    request.storyId,
-  ].join('/');
+  const orderRun = ['print-orders', request.orderId, request.runId].join('/');
+  const prefix = [orderRun, request.provider, request.binding, request.storyId].join('/');
   const lulu = request.provider === 'lulu';
   if (request.premiumBook) {
     const pin = request.premiumBook;
     if (!premiumBucket) throw new Error('Missing premium storage');
-    const prior = await stage(bucket, prefix + '/premium-source.json', async () => pin);
+    const prior = await stage(bucket, orderRun + '/premium-source.json', async () => {
+      // Before the run-wide pin, square proofs stored the source under the Lulu profile.
+      const priorLulu = await readJson<typeof pin>(
+        bucket,
+        `${orderRun}/lulu/hardcover/${request.storyId}/premium-source.json`,
+      );
+      return priorLulu ?? pin;
+    });
     if (
       prior.revision !== pin.revision ||
       prior.manifest.sha256 !== pin.manifest.sha256 ||
-      prior.manifest.generation !== pin.manifest.generation
+      prior.manifest.generation !== pin.manifest.generation ||
+      prior.manifest.key !== pin.manifest.key ||
+      prior.manifest.bytes !== pin.manifest.bytes
     )
       throw new Error('Another edition is already pinned to this proof version');
     const manifest = validatePremiumManifest(
@@ -311,7 +314,7 @@ export async function renderOrderProof(
       });
       if (interior.pageCount !== pageCount)
         throw new Error('Cached interior has a different page count');
-      if (!request.coverDimensions) return { interior: interior.interior, pageCount };
+      if (lulu && !request.coverDimensions) return { interior: interior.interior, pageCount };
       return await stage<Required<Result>>(bucket, prefix + '/square-final.json', async () => {
         const { bytes, issues: coverIssues } = await render('cover');
         const issues = [...new Set([...interior.imageIssues, ...coverIssues])];

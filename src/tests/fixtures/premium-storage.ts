@@ -15,6 +15,11 @@ export function fixtureBucket() {
     objects,
     failNextSave: (key: string, code: number) => failingSaves.set(key, code),
     bucket: {
+      getFiles: async ({ prefix }: { prefix: string }) => [
+        [...objects]
+          .filter(([name]) => name.startsWith(prefix))
+          .map(([name, { metadata }]) => ({ name, metadata })),
+      ],
       file: (key: string, selection?: { generation?: string }) => ({
         getMetadata: async () => [read(key).metadata],
         download: async () => {
@@ -26,8 +31,9 @@ export function fixtureBucket() {
         save: async (
           data: Buffer | string,
           options: {
-            preconditionOpts: { ifGenerationMatch: string | number };
-            metadata?: { metadata?: unknown };
+            contentType?: string;
+            preconditionOpts?: { ifGenerationMatch: string | number };
+            metadata?: { cacheControl?: string; metadata?: unknown };
           },
         ) => {
           const failure = failingSaves.get(key);
@@ -36,15 +42,18 @@ export function fixtureBucket() {
             throw error(failure);
           }
           const current = String(objects.get(key)?.metadata.generation ?? '0');
-          if (current !== String(options.preconditionOpts.ifGenerationMatch)) throw error(412);
+          const expected = options.preconditionOpts?.ifGenerationMatch;
+          if (expected !== undefined && current !== String(expected)) throw error(412);
           const bytes = Buffer.from(data);
           objects.set(key, {
             bytes,
             metadata: {
               generation: String(++generation),
               size: bytes.length,
+              contentType: options.contentType,
               updated: new Date().toISOString(),
               metadata: options.metadata?.metadata,
+              cacheControl: options.metadata?.cacheControl,
             },
           });
         },

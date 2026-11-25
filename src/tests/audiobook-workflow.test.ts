@@ -50,4 +50,21 @@ describe('Audiobook workflow retry contract', () => {
     expect(workflow).toContain('generatedChapters: ${finalizeResp.body.chaptersProcessed}');
     expect(workflow).toContain('validateAudiobookCompleteness');
   });
+
+  it('routes premium editions to the protected physical-page workflow', () => {
+    expect(workflow).toContain('premiumRevision: ${map.get(payload, "premiumRevision")}');
+    expect(workflow).toContain('/internal/audiobook/premium/');
+    expect(workflow).toContain('in: ${planResponse.body.pageNumbers}');
+    expect(workflow).toContain('x-api-key: ${apiKey}');
+    expect(workflow).toContain('revision: ${revision}');
+    expect(workflow.indexOf('- selectAudiobookSource:')).toBeLessThan(
+      workflow.indexOf('- claimRun:'),
+    );
+    const premiumBranch = workflow.split('\npremiumAudiobook:')[1];
+    expect(premiumBranch).toContain('url: ${endpoint + "plan"}');
+    expect(premiumBranch).toContain('url: ${endpoint + "complete"}');
+    expect(premiumBranch).toContain('url: ${endpoint + "failed"}');
+    expect(premiumBranch).not.toContain('/internal/runs/');
+    expect(premiumBranch).not.toContain('/audiobook-status');
+  });
 });

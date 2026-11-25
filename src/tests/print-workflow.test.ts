@@ -3,6 +3,19 @@ import { join } from 'path';
 import { describe, expect, it } from '@jest/globals';
 
 describe('print-generation workflow', () => {
+  it('uses the square renderer QA result for premium downloads', () => {
+    const workflow = readFileSync(
+      join(process.cwd(), 'workflows', 'print-generation.yaml'),
+      'utf-8',
+    );
+    expect(workflow).toMatch(
+      /- recordPremiumQA:\s+assign:\s+- qaStatus: 'passed'\s+- qaSkip: false\s+next: initializeDeliveryStatus/,
+    );
+    expect(workflow).toMatch(
+      /condition: \$\{map\.get\(activePrintResult, "premiumRevision"\) != null\}\s+next: recordPremiumQA/,
+    );
+  });
+
   it('includes QA review and admin alert steps before self-service notification', () => {
     const workflow = readFileSync(
       join(process.cwd(), 'workflows', 'print-generation.yaml'),

@@ -1,6 +1,7 @@
 import { Router, type Response } from 'express';
 import { z } from 'zod';
 import { apiKeyAuth } from '@/middleware/apiKeyAuth.js';
+import { duplicatePremiumBook } from '@/services/premium-book-copy.js';
 import { logger } from '@/config/logger.js';
 import { PremiumBookError } from '@/services/premium-book-contract.js';
 import {
@@ -106,15 +107,47 @@ premiumBookRouter.post('/runs/:runId/advance', apiKeyAuth, async (req, res) => {
   }
 });
 
-premiumBookRouter.post('/stories/:storyId/corrections', apiKeyAuth, async (req, res) => {
+premiumBookRouter.post(
+  ['/stories/:storyId/corrections', '/stories/:storyId/corrections/prepare'],
+  apiKeyAuth,
+  async (req, res) => {
+    const story = z.uuid().safeParse(req.params.storyId);
+    const correction = premiumCorrectionRequest.safeParse(req.body);
+    if (!story.success || !correction.success) {
+      res.status(400).json({ error: 'Invalid premium story correction' });
+      return;
+    }
+    try {
+      res.json(
+        req.path.endsWith('/prepare')
+          ? await correctPremiumSpread(story.data, correction.data, true)
+          : await correctPremiumSpread(story.data, correction.data),
+      );
+    } catch (error) {
+      errorResponse(res, error, story.data);
+    }
+  },
+);
+
+premiumBookRouter.post('/stories/:storyId/copy', apiKeyAuth, async (req, res) => {
   const story = z.uuid().safeParse(req.params.storyId);
-  const correction = premiumCorrectionRequest.safeParse(req.body);
-  if (!story.success || !correction.success) {
-    res.status(400).json({ error: 'Invalid premium story correction' });
+  const input = z
+    .object({ ownerId: z.uuid(), revision: z.uuid(), intentId: z.uuid() })
+    .strict()
+    .safeParse(req.body);
+  if (!story.success || !input.success) {
+    res.status(400).json({ error: 'Invalid premium copy' });
     return;
   }
   try {
-    res.json(await correctPremiumSpread(story.data, correction.data));
+    res.json(
+      await duplicatePremiumBook(
+        story.data,
+        input.data.ownerId,
+        input.data.revision,
+        input.data.intentId,
+      ),
+    );
   } catch (error) {
     errorResponse(res, error, story.data);
   }

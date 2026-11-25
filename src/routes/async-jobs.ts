@@ -14,7 +14,8 @@ import {
  * RESTful endpoints for managing asynchronous AI editing jobs
  */
 
-import { Router } from 'express';
+import { Router, type Response } from 'express';
+import { hasPremiumMarker } from '@/services/premium-book-contract.js';
 import { z } from 'zod';
 import { logger } from '@/config/logger.js';
 import { jobManager, getEstimatedDuration } from '@/services/job-manager.js';
@@ -107,6 +108,21 @@ function sendErrorResponse(res: any, statusCode: number, message: string, detail
   });
 }
 
+async function getChapterJobStory(storyId: string, res: Response) {
+  const story = await new StoryService().getStory(storyId);
+  if (!story) {
+    res.status(404).json({ success: false, error: 'Story not found' });
+    return null;
+  }
+  if (hasPremiumMarker(story.features)) {
+    res
+      .status(409)
+      .json({ success: false, error: 'This operation requires a chapter-based story' });
+    return null;
+  }
+  return story;
+}
+
 /**
  * POST /jobs/text-edit
  * Create an async text editing job
@@ -114,6 +130,8 @@ function sendErrorResponse(res: any, statusCode: number, message: string, detail
 router.post('/text-edit', async (req, res) => {
   try {
     const { storyId, userRequest, scope, chapterNumber } = TextEditJobSchema.parse(req.body);
+
+    if (!(await getChapterJobStory(storyId, res))) return;
 
     logger.info('Text edit job request received', {
       storyId,
@@ -212,6 +230,8 @@ router.post('/image-edit', async (req, res) => {
       convertToStyle,
     } = ImageEditJobSchema.parse(req.body);
 
+    if (!(await getChapterJobStory(storyId, res))) return;
+
     logger.info('Image edit job request received', {
       storyId,
       imageType,
@@ -293,15 +313,8 @@ router.post('/translate-text', async (req, res) => {
   try {
     const { storyId, targetLocale } = TranslationJobSchema.parse(req.body);
 
-    const storyService = new StoryService();
-    const chaptersService = new ChaptersService();
-
-    // Load story and validate locale
-    const story = await storyService.getStory(storyId);
-    if (!story) {
-      sendErrorResponse(res, 404, 'Story not found', { storyId });
-      return;
-    }
+    const story = await getChapterJobStory(storyId, res);
+    if (!story) return;
     if (story.storyLanguage === targetLocale) {
       sendErrorResponse(res, 400, 'Target locale matches current storyLanguage', {
         storyLanguage: story.storyLanguage,
@@ -311,7 +324,7 @@ router.post('/translate-text', async (req, res) => {
     }
 
     // Determine chapter count for estimation
-    const chapters = await chaptersService.getStoryChapters(storyId);
+    const chapters = await new ChaptersService().getStoryChapters(storyId);
     const chapterCount = chapters.length || 1;
 
     // Estimate duration

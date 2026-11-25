@@ -17,6 +17,7 @@ export interface StoryPrintInstructionsEmailPayload {
   storyId: string;
   storyTitle: string;
   workflowId: string;
+  premiumRevision?: string;
   recipient: { email: string; name?: string; language?: string };
   cc?: Array<{ email: string; name?: string; language?: string }>;
   pdfs: {
@@ -247,7 +248,7 @@ export async function sendStoryPrintInstructionsEmail(
     buildPdfReference(payload.pdfs.interiorCmykPdfUrl, 'Interior (CMYK PDF)', 'interior-cmyk.pdf'),
   ].filter(Boolean) as Array<{ uri: string; label: string; filename?: string; mimeType: string }>;
 
-  if (additionalPdfs.length === 0) {
+  if (!payload.premiumRevision && additionalPdfs.length === 0) {
     logger.error('No printable assets available for story-print email', {
       storyId: payload.storyId,
       workflowId: payload.workflowId,
@@ -283,7 +284,17 @@ export async function sendStoryPrintInstructionsEmail(
     requestBody.origin = origin;
   }
 
-  if (additionalPdfs.length) {
+  if (payload.premiumRevision) {
+    requestBody.premiumDownloads = {
+      revision: payload.premiumRevision,
+      runId: payload.workflowId,
+      cover: payload.pdfs.coverPdfUrl,
+      interior: payload.pdfs.interiorPdfUrl,
+      coverCmyk: payload.pdfs.coverCmykPdfUrl ?? undefined,
+      interiorCmyk: payload.pdfs.interiorCmykPdfUrl ?? undefined,
+    };
+    requestBody.workflowExecutionId = payload.workflowId;
+  } else if (additionalPdfs.length) {
     requestBody.additionalPdfs = additionalPdfs;
   }
 

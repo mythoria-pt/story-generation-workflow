@@ -1,6 +1,6 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import puppeteer from 'puppeteer';
+import puppeteer, { type Page } from 'puppeteer';
 import { logger } from '@/config/logger.js';
 import { getTemplatesPath } from '@/shared/path-utils.js';
 import { getPrintTranslations, formatPublishDate } from '@/utils/print-translations.js';
@@ -276,6 +276,51 @@ export class PrintService {
       outputPath: options.outputPath,
     });
 
+    try {
+      await this.withRenderedPage(html, options.checkTextFit ?? false, async (page) => {
+        logger.debug('Generating PDF', { outputPath: options.outputPath });
+        await page.pdf({
+          path: options.outputPath,
+          printBackground: true,
+          width: `${options.width}mm`,
+          height: `${options.height}mm`,
+          margin: { top: '0mm', right: '0mm', bottom: '0mm', left: '0mm' },
+          preferCSSPageSize: true,
+          displayHeaderFooter: false,
+          omitBackground: false,
+        });
+      });
+      logger.info(`PDF generated successfully: ${options.outputPath}`);
+    } catch (error) {
+      logger.error('PDF generation failed', {
+        error: error instanceof Error ? error.message : String(error),
+        outputPath: options.outputPath,
+      });
+      throw error;
+    }
+  }
+
+  async renderPageImages(html: string, squarePixels: number): Promise<Buffer[]> {
+    return this.withRenderedPage(
+      html,
+      true,
+      async (page) => {
+        const images = [];
+        for (const section of await page.$$('section')) {
+          images.push(Buffer.from(await section.screenshot({ type: 'png' })));
+        }
+        return images;
+      },
+      squarePixels,
+    );
+  }
+
+  private async withRenderedPage<T>(
+    html: string,
+    checkTextFit: boolean,
+    action: (page: Page) => Promise<T>,
+    squarePixels?: number,
+  ): Promise<T> {
     const launchOptions: any = {
       headless: true,
       args: [
@@ -305,6 +350,9 @@ export class PrintService {
 
     try {
       const page = await browser.newPage();
+      if (squarePixels) {
+        await page.setViewport({ width: squarePixels, height: squarePixels, deviceScaleFactor: 1 });
+      }
 
       let failedArtwork = false;
       if (this.resolveArtwork) {
@@ -338,7 +386,6 @@ export class PrintService {
           `<head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https://storage.googleapis.com; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">`,
         );
       }
-      logger.debug('Setting page content for PDF generation');
       await page.setContent(html, { waitUntil: 'load' });
       await page.waitForNetworkIdle({ concurrency: 0, idleTime: 500 });
 
@@ -353,7 +400,7 @@ export class PrintService {
       }
 
       if (
-        options.checkTextFit &&
+        checkTextFit &&
         (await page.evaluate(() =>
           Array.from(document.querySelectorAll<HTMLElement>('.fit')).some(
             (element) =>
@@ -364,25 +411,7 @@ export class PrintService {
       )
         throw new Error('Premium text exceeds its safe area');
 
-      logger.debug('Generating PDF', { outputPath: options.outputPath });
-      await page.pdf({
-        path: options.outputPath,
-        printBackground: true,
-        width: `${options.width}mm`,
-        height: `${options.height}mm`,
-        margin: { top: '0mm', right: '0mm', bottom: '0mm', left: '0mm' },
-        preferCSSPageSize: true,
-        displayHeaderFooter: false,
-        omitBackground: false,
-      });
-
-      logger.info(`PDF generated successfully: ${options.outputPath}`);
-    } catch (error) {
-      logger.error('PDF generation failed', {
-        error: error instanceof Error ? error.message : String(error),
-        outputPath: options.outputPath,
-      });
-      throw error;
+      return await action(page);
     } finally {
       await browser.close();
     }
