@@ -124,6 +124,8 @@ See [Story Whisperer voice and structure contracts](docs/biographer.md) for auth
 
 Paid physical-order proof generation uses the API-key-protected `POST /internal/print/order-proof` contract and private `PRINT_PROOF_BUCKET` described in [print.md](docs/print.md#paid-physical-order-proofs). Keep the square Lulu interior pinned to its actual source page count. Render the cover using the accepted `coverPageCount` and the matching Lulu dimensions.
 
+The A5 Lulu paperback front illustration extends through the bleed. Review embedded lettering against the trim and safe-area guides when validating the final cover.
+
 ## Premium illustrated books
 
 See [premium-books.md](docs/premium-books.md) for the saved book marker, private storage, image configuration, same-run operator recovery and spread correction contract. Keep each spread’s canonical text and artwork derivatives under the same immutable published revision.
