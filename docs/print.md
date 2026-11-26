@@ -2,6 +2,12 @@
 
 SGW produces two PDF sets per story—RGB (screen) and CMYK (print-ready)—and stores them alongside other assets in Google Cloud Storage. This document merges the former implementation notes, CMYK conversion guide, and troubleshooting checklist.
 
+## Premium Admin PDF export
+
+Admin uses `GET` and `POST /internal/print/premium-admin/{storyId}/{revision}` for status and generation, and `GET /internal/print/premium-admin/{storyId}/{revision}/{runId}/{part}` to sign a file. The service checks the SGW API key and the existing Admin API key. It verifies that the story has the requested published revision and reuses a matching completed customer self-print package when one is available. Staff exports create no customer credit record, fulfillment request or email. Completion and retry state stays in the workflows database. A retry reserves the same export run and starts a new attempt only when the previous attempt failed or its lease expired.
+
+The `print-generation` workflow dispatches the staff attempt to its own API-key-protected worker. The renderer stages the pinned edition and content-addressed PDFs in `PREMIUM_BOOK_BUCKET` under `{storyId}/premium/revisions/{revision}/admin-print/{rendererVersion}/{attemptId}/`. Download validation checks the package checkpoint and all referenced object generations. An individual Admin download uses a five-minute V4 link scoped to the selected generation. Deploy SGW and its `print-generation` workflow before enabling the corresponding Admin controls.
+
 ## Components & flow
 
 1. **Print service** (`src/services/print.ts`) renders HTML templates into `interior.pdf` and `cover.pdf` via Puppeteer using trim-size + paper-caliper data from `src/config/paper-caliper.json`. It now inserts soft hyphen opportunities into large-font chapter HTML (`children_0-2`, `children_3-6`, `children_7-10`) before rendering so justified child-reader layouts can break long words cleanly. It post-processes the interior PDF to enforce page ordering rules (see below) before any color work happens.
@@ -154,9 +160,13 @@ New editions have 33 interior pages. Previously published 32-page editions keep 
 
 The renderer checks text fit, complete spread pairs, font embedding and image resolution. These editions share the hardcover spine-width bracket for 24–84 pages. Verify the supplier's dimensions against the 1368 × 738 pt casewrap with an 18 pt spine and 45 pt outer wrap for each proof. [Lulu Book Creation Guide, pp. 13–14](https://assets.lulu.com/media/guides/en/lulu-book-creation-guide.pdf)
 
+For `generationDesignVersion: 1`, the casewrap uses the exact title painted into the front artwork. The panels extend the outermost edge and corner colours into the wrap with a soft blur and place the unblurred square cover art at the centre. The only addition to the back illustration is a lower-left badge within trim, with the frozen style logo and the publication QR. SGW bundles its print-size derivatives of the existing Web App style logos. Stories without a matching style logo select the packaged official Mythoria logo when the generation plan freezes. Page 2 keeps its localized publication details and prints `mythoria.pt` under the publication QR. Previously published editions without the version retain their original title and synopsis overlays and technical-page wording.
+
 The title and dedication repeat either the book's frozen custom motif or its selected fallback drawing. Custom transparent artwork is flattened onto the book's exact pastel for print. Page 33 invites the reader to create their own story and features the official Mythoria logo. A QR code opens the story wizard in the book's language. The five QR codes in `print-assets/premium-invitation` encode the same addresses validated by the published-edition contract. The logo is the Web App's `Logo_transparent_background_1024x683.png`. These assets are packaged with SGW.
 
 Proof preparation creates private files. The Web App sends the frozen pair after payment. The production release on 25 November 2026 approved the square hardcover for manual fulfillment. Staff review the proof and arrange dispatch from the linked ticket. Lulu activation requires separate environment-specific approval and verified package configuration in the Web App. In that path, only the authenticated Admin ticket release can submit a reviewed order to Lulu.
+
+Page 3 of the version 1 edition keeps the frozen dedication text and sets its final author line in 14-point italics alongside the 20-point dedication body. The same template creates the pinned reading preview and every PDF export. Published editions without the design version retain their existing typography.
 
 ## Premium square self-print
 

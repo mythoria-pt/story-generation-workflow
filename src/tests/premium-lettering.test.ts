@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import sharp from 'sharp';
 import { GoogleGenAITextService } from '@/ai/providers/google-genai/text.js';
 import {
+  reviewPremiumDesignCover,
   reviewPremiumLetteredArtwork,
   reviewPremiumLetteredGuide,
 } from '@/services/premium-book-ai.js';
@@ -12,9 +13,11 @@ import {
   exportNativePremiumSpread,
   exportPremiumArtwork,
   PREMIUM_PRINT_PPI,
+  readPremiumPrintPageTrim,
   restoreIndependentPremiumTile,
 } from '@/services/premium-book-artwork.js';
 import {
+  buildPremiumDesignCoverPrompt,
   buildPremiumLetteredPagePrompt,
   buildPremiumLetteredPanoramaPrompt,
   premiumLetteredPageReferences,
@@ -42,6 +45,201 @@ const image = (width: number, height: number, background = '#fadca8') =>
 
 describe('independent premium lettering review', () => {
   afterEach(() => jest.restoreAllMocks());
+
+  it('rejects unsafe bounds, a lost acute accent and the wrong action target on the affected page', async () => {
+    const proofScope = { ...scope, artDirectionVersion: 1 as const };
+    const sample = await image(32, 32);
+    const complete = jest.spyOn(GoogleGenAITextService.prototype, 'complete');
+    const scene =
+      'Visible cast: Bea and her grandfather’s hand. The grandfather offers the tiny monkey at Bea’s nose, the only face. His hand holds a banana.';
+    const narration = 'O macaco era minúsculo.';
+    const accepted = {
+      ...passed,
+      leftTranscription: '',
+      rightTranscription: narration,
+      letteringBounds: {
+        left: null,
+        right: { left: 0.12, top: 0.12, right: 0.88, bottom: 0.54 },
+      },
+      sceneActionAccurate: true,
+    };
+    const artwork = {
+      source: sample,
+      pages: [{ side: 'right' as const, text: narration, trim: sample }],
+      reference: sample,
+      scene,
+    };
+    complete.mockResolvedValueOnce(JSON.stringify(accepted));
+    await expect(
+      reviewPremiumLetteredArtwork(proofScope, config, 'spread-8', artwork),
+    ).resolves.toBeUndefined();
+    expect(complete.mock.calls[0]?.[0]).toContain(
+      'the named actor performs the action on the precise target',
+    );
+    expect(complete.mock.calls[0]?.[0]).not.toContain(narration);
+
+    complete.mockResolvedValueOnce(
+      JSON.stringify({
+        ...accepted,
+        rightTranscription: 'O macaco era minusculo.',
+        sceneActionAccurate: false,
+        letteringBounds: {
+          left: null,
+          right: { ...accepted.letteringBounds.right, top: 0.119 },
+        },
+      }),
+    );
+    await expect(
+      reviewPremiumLetteredArtwork(proofScope, config, 'spread-8', artwork),
+    ).rejects.toMatchObject({
+      failedChecks: ['sceneActionAccurate', 'safeLettering', 'exactLettering'],
+      failedLetteringSides: ['right'],
+    });
+  });
+
+  it('rejects a front-title flourish inside the headroom even when all title words match', async () => {
+    const sample = await image(32, 32);
+    const complete = jest.spyOn(GoogleGenAITextService.prototype, 'complete');
+    complete.mockResolvedValueOnce(
+      JSON.stringify({
+        transcription: 'Bea e o Macaco no Nariz',
+        coherentArtwork: true,
+        safeComposition: true,
+        childlikeArtwork: true,
+        readableLettering: true,
+        sceneActionAccurate: true,
+        letteringBounds: { left: 0.24, top: 0.11, right: 0.82, bottom: 0.42 },
+      }),
+    );
+    await expect(
+      reviewPremiumDesignCover(
+        { ...scope, artDirectionVersion: 1 },
+        config,
+        'front',
+        sample,
+        sample,
+        'Bea holds out a banana.',
+        'Bea e o Macaco no Nariz',
+      ),
+    ).rejects.toMatchObject({ failedChecks: ['safeLettering'] });
+    expect(complete.mock.calls[0]?.[0]).toContain('decorative capital strokes');
+  });
+
+  it('rejects a panorama missing its carried case and asks for a revised scene with room at the fold', async () => {
+    const sample = await image(32, 32);
+    const complete = jest.spyOn(GoogleGenAITextService.prototype, 'complete');
+    const replacementScene =
+      'Keep sky continuous and move the grandfather and his strapped brown case far right.';
+    complete.mockResolvedValueOnce(
+      JSON.stringify({
+        coherentArtwork: true,
+        safeGutter: false,
+        sceneActionAccurate: false,
+        replacementScene,
+      }),
+    );
+    await expect(
+      reviewPremiumLetteredGuide(
+        { ...scope, artDirectionVersion: 1 },
+        config,
+        'spread-6',
+        sample,
+        sample,
+        undefined,
+        {
+          action:
+            'The grandfather parachutes carrying the same brown case attached by his shoulder strap.',
+        },
+      ),
+    ).rejects.toMatchObject({
+      failedChecks: ['safeGutter', 'sceneActionAccurate'],
+      replacementScene,
+    });
+    expect(complete.mock.calls[0]?.[0]).toContain('complete silhouettes of essential figures');
+    expect(complete.mock.calls[0]?.[0]).toContain('brown case attached by his shoulder strap');
+  });
+
+  it('keeps the hippo alone when the shared guide and narration mention a lion', () => {
+    const guide = 'Papercut. The recurring lion has a golden mane and the hippo has lilac skin.';
+    const action = 'One lilac hippo stands alone in the shallow water.';
+    const prompts = [
+      buildPremiumDesignCoverPrompt({
+        side: 'front',
+        title: 'O leão que ouviu o rio',
+        locale: 'pt-PT',
+        guide,
+        scene: action,
+        correction: false,
+      }),
+      buildPremiumLetteredPanoramaPrompt({ action, guide, generationDesignVersion: 1 }),
+      buildPremiumLetteredPagePrompt({
+        side: 'left',
+        action,
+        guide,
+        text: 'Até o leão ouviu o seu chapinhar.',
+        independent: { hasPrior: false, hasNeighbour: true },
+        generationDesignVersion: 1,
+      }),
+    ];
+    for (const prompt of prompts) {
+      expect(prompt).toContain('The recurring lion');
+      expect(prompt).toContain(action);
+      expect(prompt).toContain('If it calls for one character, show that character alone.');
+      expect(prompt).toContain(
+        'A character named or shown only in the title, narration, shared guide or references stays out of the scene.',
+      );
+    }
+  });
+
+  it('preserves the exact accented title on the front and keeps the back art wordless', async () => {
+    const title = 'É o céu, avó!';
+    const scene = 'A child looks through a window at a quiet night sky.';
+    const guide = 'Paper collage with muted blues.';
+    const front = buildPremiumDesignCoverPrompt({
+      side: 'front',
+      title,
+      scene,
+      guide,
+      locale: 'pt-PT',
+      correction: false,
+    });
+    const back = buildPremiumDesignCoverPrompt({
+      side: 'back',
+      title,
+      scene,
+      guide,
+      locale: 'pt-PT',
+      correction: false,
+    });
+    expect(front).toContain(`<title>\n${title}\n</title>`);
+    expect(front).toContain('only the characters, location features and objects called for');
+    expect(back).not.toContain(title);
+    expect(back).toContain('lower-left safe area');
+
+    const sample = await image(32, 32);
+    const checks = {
+      coherentArtwork: true,
+      childlikeArtwork: true,
+      safeComposition: true,
+      readableLettering: true,
+    };
+    const reviewer = jest.spyOn(GoogleGenAITextService.prototype, 'complete');
+    reviewer.mockResolvedValueOnce(
+      JSON.stringify({ ...checks, transcription: 'É o céu,\n  avó!' }),
+    );
+    await expect(
+      reviewPremiumDesignCover(scope, config, 'front', sample, sample, scene, title),
+    ).resolves.toBeUndefined();
+    expect(reviewer.mock.calls[0]?.[0]).not.toContain(title);
+    reviewer.mockResolvedValueOnce(JSON.stringify({ ...checks, transcription: 'É o céu, avo!' }));
+    await expect(
+      reviewPremiumDesignCover(scope, config, 'front', sample, sample, scene, title),
+    ).rejects.toMatchObject({ failedChecks: ['exactLettering'] });
+    reviewer.mockResolvedValueOnce(JSON.stringify({ ...checks, transcription: 'SIGN' }));
+    await expect(
+      reviewPremiumDesignCover(scope, config, 'back', sample, sample, scene, title),
+    ).rejects.toMatchObject({ failedChecks: ['noLettering'] });
+  });
 
   it('checks original panorama continuity and binding before native page rendering', async () => {
     const panorama = await image(204, 104);
@@ -443,6 +641,14 @@ describe('independent premium lettering review', () => {
 });
 
 describe('premium native print export', () => {
+  it('takes the lettering review crop from the print geometry', async () => {
+    const bleed = await image(2660, 2660);
+    const trim = await readPremiumPrintPageTrim(bleed);
+    await expect(sharp(trim).metadata()).resolves.toMatchObject({
+      width: 2584,
+      height: 2584,
+    });
+  });
   it('keeps both native independent tiles full-bleed and a hard join between their trims', async () => {
     const left = await createPremiumBlankTile('#ff0000');
     const right = await createPremiumBlankTile('#0000ff');

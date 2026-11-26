@@ -102,6 +102,36 @@ describe('GoogleGenAITextService Hydrogen requests', () => {
     expect(request.config.tools).toBeUndefined();
   });
 
+  it('uses the explicitly configured Neon model for token counting, output and usage', async () => {
+    expect(
+      () => new GoogleGenAITextService({ apiKey: 'test-key', model: 'gemini-4-neon' }),
+    ).toThrow('Unsupported Gemini text generation model');
+    const service = new GoogleGenAITextService({
+      apiKey: 'test-key',
+      model: 'gemini-4-neon',
+      premiumBook: true,
+    });
+    const usageObserver = jest.fn();
+    mockModelsGenerateContent.mockResolvedValue({
+      ...buildTextResponse('{"answer":"yes"}'),
+      usageMetadata: { promptTokenCount: 17, candidatesTokenCount: 3, thoughtsTokenCount: 2 },
+    });
+    await service.complete('Read the title', {
+      model: 'gemini-4-neon',
+      jsonSchema: { type: 'object' },
+      thinkingLevel: 'low',
+      usageObserver,
+    });
+    expect(mockCountTokens.mock.calls[0][0]).toMatchObject({ model: 'gemini-4-neon' });
+    expect(mockModelsGenerateContent.mock.calls[0][0]).toMatchObject({
+      model: 'gemini-4-neon',
+      config: { thinkingConfig: { thinkingLevel: 'LOW' }, responseMimeType: 'application/json' },
+    });
+    expect(usageObserver).toHaveBeenCalledWith(
+      expect.objectContaining({ model: 'gemini-4-neon', inputTokens: 17, outputTokens: 5 }),
+    );
+  });
+
   it.each([
     ['shot-plan-spread-1', [], 45_000],
     ['spread-1', [Buffer.from('image')], 75_000],

@@ -78,6 +78,7 @@ type MotifInput = {
   prefix: string;
   scope: { storyId: string; ownerId: string; revision: string };
   bookInputHash: string;
+  generationDesignVersion?: 1 | undefined;
   config: PremiumImageConfig;
   brief: string;
   guide: string;
@@ -131,7 +132,7 @@ export async function selectPremiumOpeningMotif(
               .toBuffer();
             const artwork = await generatePremiumImage(
               scope,
-              { ...config, quality: 'low' },
+              input.generationDesignVersion ? config : { ...config, quality: 'low' },
               'opening_motif',
               [
                 'Draw one small, centered, stand-alone book ornament based on the recognizable recurring object in the attached story illustration.',

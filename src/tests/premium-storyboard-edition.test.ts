@@ -2,7 +2,9 @@ import { describe, expect, it } from '@jest/globals';
 import {
   PREMIUM_EMBEDDED_LETTERING_EDITION,
   mixedGeneratedPremiumBoard,
+  narrativeText,
   premiumPageRenderMode,
+  typesetNarration,
 } from '@/services/premium-book-contract.js';
 import {
   buildPremiumStoryboardPrompt,
@@ -56,6 +58,17 @@ describe('mixed spread vocabulary', () => {
     expect(schema.safeParse(pair).success).toBe(true);
     expect(schema.safeParse({ ...pair, rightBrief: '' }).success).toBe(false);
     expect(schema.safeParse({ ...pair, rightDescription: '' }).success).toBe(false);
+  });
+
+  it('keeps the 110-character illustrated limit and the separate 420-character prose limit', () => {
+    const illustrated = `${'Avó, '.repeat(21)}sim!?`;
+    const prose = `${'Avó, '.repeat(83)}sim!?`;
+    expect(illustrated).toHaveLength(110);
+    expect(narrativeText.safeParse(illustrated).success).toBe(true);
+    expect(narrativeText.safeParse(`${illustrated}!`).success).toBe(false);
+    expect(prose).toHaveLength(420);
+    expect(typesetNarration.safeParse(prose).success).toBe(true);
+    expect(typesetNarration.safeParse(`${prose}!`).success).toBe(false);
   });
 });
 

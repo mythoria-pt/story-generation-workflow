@@ -3,6 +3,19 @@ import { join } from 'path';
 import { describe, expect, it } from '@jest/globals';
 
 describe('print-generation workflow', () => {
+  it('uses its own worker and terminal steps for staff PDF exports', () => {
+    const workflow = readFileSync(
+      join(process.cwd(), 'workflows', 'print-generation.yaml'),
+      'utf-8',
+    );
+    expect(workflow).toContain('== true or adminPrintAttempt != null');
+    expect(workflow).toMatch(/adminPrintAttempt != null\}\s+next: renderStaffExport/);
+    expect(workflow).toContain('/internal/print/premium-admin/worker-lost');
+    expect(workflow).toMatch(
+      /next: finishStaffExport\s+- finishStaffExport:\s+return: \$\{runId\}/,
+    );
+  });
+
   it('uses the square renderer QA result for premium downloads', () => {
     const workflow = readFileSync(
       join(process.cwd(), 'workflows', 'print-generation.yaml'),

@@ -185,14 +185,18 @@ export const envManifest: EnvVarDescriptor[] = [
   ...[
     ['PREMIUM_IMAGE_PROVIDER', 'openai'],
     ['PREMIUM_IMAGE_MODEL', 'gpt-image-2.6-sunburst'],
-    ['PREMIUM_IMAGE_QUALITY', 'high'],
+    ['PREMIUM_IMAGE_QUALITY', 'max'],
     ['PREMIUM_IMAGE_SPREAD_SIZE', '3840x1952'],
     ['PREMIUM_IMAGE_SQUARE_SIZE', '1536x1536'],
+    ['PREMIUM_TEXT_MODEL', 'gemini-4-neon'],
   ].map(([name, value]) => ({
     name: name!,
     required: false,
     scopes: ['dev', 'runtime', 'prod'] as EnvScope[],
-    source: 'inline' as const,
+    source:
+      name === 'PREMIUM_TEXT_MODEL' || name === 'PREMIUM_IMAGE_QUALITY'
+        ? ('substitution' as const)
+        : ('inline' as const),
     default: value!,
   })),
   {

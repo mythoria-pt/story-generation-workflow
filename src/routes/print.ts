@@ -25,6 +25,7 @@ import { getDatabase } from '@/db/connection.js';
 import { productGenerationRequests } from '@/db/schema/index.js';
 import { hasPremiumMarker, readPremiumMarker } from '@/services/premium-book-contract.js';
 import { publishedPremium } from '@/services/premium-order-proof.js';
+import { premiumAdminPrintRouter } from './premium-admin-print.js';
 import {
   findPremiumSelfPrintFunding,
   premiumSelfPrintSource,
@@ -35,6 +36,7 @@ import {
 
 export const printRouter = express.Router();
 export const internalPrintRouter = express.Router();
+internalPrintRouter.use('/premium-admin', premiumAdminPrintRouter);
 
 internalPrintRouter.post('/order-proof', apiKeyAuth, async (req, res) => {
   const { OrderProofRequest, prepareOrderProof } = await import('@/services/order-proof.js');

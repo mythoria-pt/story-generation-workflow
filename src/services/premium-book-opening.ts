@@ -46,7 +46,9 @@ const translations = {
   },
 };
 
-export function premiumSpecification(opening: Opening) {
+export const premiumPublicationDomain = 'mythoria.pt';
+
+export function premiumSpecification(opening: Opening, generationDesignVersion?: 1) {
   const t =
     opening.locale === 'en-US' || opening.locale === 'pt-PT'
       ? getPrintTranslations(opening.locale)
@@ -62,19 +64,23 @@ export function premiumSpecification(opening: Opening) {
       { label: t.authorLabel, value: opening.author },
       { label: t.publishDateLabel, value: date },
       { label: t.editingCompanyLabel, value: 'Mythoria' },
-      { label: t.websiteLabel, value: 'mythoria.pt' },
+      { label: t.websiteLabel, value: premiumPublicationDomain },
     ],
     copyright: `${t.copyrightLabel} © ${opening.createdAt.slice(0, 4)} ${opening.author}`,
     rights: t.copyrightText,
-    promotion: t.promotionText.replace(/<\/?strong>/g, ''),
+    promotion:
+      generationDesignVersion === 1
+        ? premiumPublicationDomain
+        : t.promotionText.replace(/<\/?strong>/g, ''),
     synopsisLabel: t.synopsisTitle,
   };
 }
 
 export function premiumOpeningPages(
   opening: Opening,
+  generationDesignVersion?: 1,
 ): [title: PremiumPage, publication: PremiumPage, dedication: PremiumPage, synopsis: PremiumPage] {
-  const specification = premiumSpecification(opening);
+  const specification = premiumSpecification(opening, generationDesignVersion);
   return [
     { number: 1, kind: 'title', text: opening.title },
     {

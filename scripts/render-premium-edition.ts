@@ -6,9 +6,9 @@ import type { PremiumAsset } from '../src/services/premium-book-contract.js';
 
 async function main() {
   const [manifestPath, assetsDir, outputDir, qrPath] = process.argv.slice(2);
-  if (!manifestPath || !assetsDir || !outputDir || !qrPath) {
+  if (!manifestPath || !assetsDir || !outputDir) {
     throw new Error(
-      'Usage: tsx scripts/render-premium-edition.ts <manifest.json> <asset-dir> <new-output-dir> <specification-qr.png>',
+      'Usage: tsx scripts/render-premium-edition.ts <manifest.json> <asset-dir> <new-output-dir> [specification-qr.png]',
     );
   }
 
@@ -25,7 +25,7 @@ async function main() {
     GOOGLE_CLOUD_REGION: 'us-central1',
     STORAGE_BUCKET_NAME: 'unused-local-print-preview',
   });
-  const { renderSquarePdf, validatePremiumManifest } =
+  const { loadPremiumPublicationQr, renderSquarePdf, validatePremiumManifest } =
     await import('../src/services/premium-order-proof.js');
   const { printQrUrl } = await import('../src/services/print.js');
   const value: unknown = JSON.parse(await readFile(manifestPath, 'utf8'));
@@ -42,10 +42,10 @@ async function main() {
     }
     return bytes;
   };
-  const qr = await readFile(qrPath);
+  const qr = qrPath ? await readFile(qrPath) : undefined;
   const loadBrand = async (url: string) => {
     if (url !== printQrUrl) throw new Error('Unknown premium brand asset');
-    return { bytes: qr, contentType: 'image/png' };
+    return qr ? { bytes: qr, contentType: 'image/png' } : loadPremiumPublicationQr(url);
   };
   await mkdir(outputDir);
   const interior = await renderSquarePdf(book, outputDir, 'interior', loadArt, loadBrand);

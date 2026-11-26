@@ -20,10 +20,11 @@ export async function addPremiumPagePreviews(
   const pages = (editedPage ? [editedPage] : book.pages).filter(({ reading }) => !reading);
   if (pages.length === 0) return;
   const checkpoint =
-    book.spreadLayoutVersion || editedPage
+    book.spreadLayoutVersion || book.generationDesignVersion || editedPage
       ? `reading-page-previews-${premiumDigest(
           JSON.stringify({
             spreadLayoutVersion: book.spreadLayoutVersion,
+            generationDesignVersion: book.generationDesignVersion,
             audience: book.audience,
             opening: book.opening,
             openingDesign: book.openingDesign,

@@ -15,6 +15,7 @@ import {
   PREMIUM_EMBEDDED_LETTERING_EDITION,
   PREMIUM_PAGE_COUNT,
   PREMIUM_TEXT_BOX,
+  premiumSceneIds,
   premiumManifest,
   premiumRevisionPrefix,
 } from '@/services/premium-book-contract.js';
@@ -292,13 +293,16 @@ describe('premium accepted run and recovery', () => {
       targetAudience: 'children_0-2',
       dedicationMessage: 'Für alle kleinen Ballfänger.',
       plotDescription: 'Lina rollt ihren Ball durch den Garten.',
+      synopsis: 'A red truck is mentioned only in the author’s source material.',
+      graphicalStyle: 'watercolor',
       createdAt: new Date('2026-11-24T11:00:00Z'),
     });
     cast.push({ character: { authorId: ownerId, name: 'Lina', type: 'human' }, role: 'main' });
     const action = 'Lina kneels in the garden with the red ball beside her.';
     const board = {
       synopsis: 'Lina und ihr Ball entdecken den Garten.',
-      visualGuide: 'Large painted shapes with warm ochre and bright red.',
+      visualGuide:
+        'Lina has a brown bob. Large painted shapes in warm ochre. A red truck is parked in the garden.',
       front: action,
       back: action,
       opener: { text: 'Da ist der Ball!', action },
@@ -309,21 +313,30 @@ describe('premium accepted run and recovery', () => {
       spreads: Array.from({ length: 13 }, (_, index) => ({
         composition:
           index === 1
-            ? 'illustration_facing_text'
+            ? ('illustration_facing_text' as const)
             : index === 2
-              ? 'paired_illustrations'
-              : 'panorama',
+              ? ('paired_illustrations' as const)
+              : ('panorama' as const),
         rationale: 'Follow where the ball goes.',
         leftBrief: index === 1 || index === 2 ? 'The red ball rolls over the grass.' : '',
         rightBrief: index === 2 ? 'Lina catches the red ball.' : '',
         rightDescription: '',
-        textLayout: index % 2 ? 'right_only' : 'both_pages',
+        textLayout: index % 2 ? ('right_only' as const) : ('both_pages' as const),
         leftText: index % 2 ? '' : 'Der Ball rollt.',
         rightText: 'Lina lacht.',
         leftDescription: index % 2 ? 'Der rote Ball liegt im Gras.' : '',
         action,
       })),
     };
+    const sceneDirections = premiumSceneIds(board).map((id) => ({
+      id,
+      visibleCast: ['Lina'],
+      actor: 'Lina',
+      action: id === 'spread-3-right' ? 'catches' : 'watches',
+      target: 'the red ball',
+      props: ['one red ball'],
+      framing: 'Keep her face and the ball inside trim.',
+    }));
     const png = await sharp({ create: { width: 16, height: 16, channels: 3, background: 'red' } })
       .png()
       .toBuffer();
@@ -351,10 +364,30 @@ describe('premium accepted run and recovery', () => {
     const text = jest
       .spyOn(premiumAi, 'generatePremiumText')
       .mockImplementation(async (_scope, _config, phase, _prompt, schema) => {
-        expect(phase).toBe('storyboard-mixed-layout');
-        return schema.parse(board);
+        if (phase === 'storyboard-visual-guide') {
+          expect(_prompt).toContain('red truck');
+          return schema.parse({
+            visualGuide:
+              'Lina has a brown bob. Large painted shapes with warm ochre and bright red.',
+          });
+        }
+        expect(phase).toBe('storyboard-directed');
+        expect(() =>
+          schema.parse({ ...board, sceneDirections: sceneDirections.slice(1) }),
+        ).toThrow();
+        expect(() =>
+          schema.parse({
+            ...board,
+            sceneDirections: [
+              { ...sceneDirections[0], actor: 'Guest' },
+              ...sceneDirections.slice(1),
+            ],
+          }),
+        ).toThrow();
+        return schema.parse({ ...board, sceneDirections });
       });
     const images = jest.spyOn(premiumAi, 'generatePremiumImage').mockResolvedValue(png);
+    const coverReview = jest.spyOn(premiumAi, 'reviewPremiumDesignCover').mockResolvedValue();
     const unletteredReview = jest
       .spyOn(premiumAi, 'reviewPremiumImage')
       .mockResolvedValue(undefined);
@@ -375,6 +408,7 @@ describe('premium accepted run and recovery', () => {
     jest.spyOn(premiumArtwork, 'createPremiumNativeSpreadGuides').mockResolvedValue([jpg, jpg]);
     jest.spyOn(premiumArtwork, 'createPremiumBlankTile').mockResolvedValue(png);
     jest.spyOn(premiumArtwork, 'readPremiumNativeTileTrim').mockResolvedValue(png);
+    jest.spyOn(premiumArtwork, 'readPremiumPrintPageTrim').mockResolvedValue(png);
     jest.spyOn(premiumArtwork, 'exportIndependentPremiumSpread').mockResolvedValue(artwork(true));
     const fit = jest.spyOn(premiumPrint, 'validatePremiumTypesetPages').mockResolvedValue([]);
     const spreads = jest
@@ -386,8 +420,8 @@ describe('premium accepted run and recovery', () => {
       const spreadPhases = board.spreads.map((_, index) => `spread-${index + 1}`);
       const phases = [
         'storyboard',
-        'references',
         'front',
+        'references',
         'back',
         'opener',
         ...spreadPhases,
@@ -420,12 +454,26 @@ describe('premium accepted run and recovery', () => {
       );
       expect(text.mock.calls[0]?.[3]).toContain('For ages 0–2');
       expect(text.mock.calls[0]?.[3]).toContain('de-DE');
-      expect(images.mock.calls.find((call) => call[2] === 'references')?.[3]).toContain('Lina');
-      expect(unletteredReview.mock.calls.map((call) => call[2])).toEqual([
-        'references',
+      expect(text.mock.calls[0]?.[3]).toContain('red truck');
+      expect(images.mock.calls.slice(0, 3).map((call) => call[2])).toEqual([
         'front',
+        'references',
         'back',
       ]);
+      expect(images.mock.calls[0]?.[3]).toContain('<title>\nLina und der rote Ball\n</title>');
+      expect(images.mock.calls[0]?.[3]).toContain('Visible cast (complete list): Lina.');
+      expect(images.mock.calls[0]?.[5]).toEqual([]);
+      expect(images.mock.calls[2]?.[3]).toContain('Keep the artwork entirely wordless');
+      expect(images.mock.calls[2]?.[3]).not.toContain('Lina und der rote Ball');
+      expect(
+        images.mock.calls.find((call) => call[2] === 'spread-3-lettering-right')?.[3],
+      ).toContain('Actor: Lina. Action: catches. Target: the red ball.');
+      expect(images.mock.calls.every((call) => !call[3].includes('red truck'))).toBe(true);
+      expect(images.mock.calls.find((call) => call[2] === 'references')?.[3]).toContain('Lina');
+      expect(unletteredReview.mock.calls.map((call) => call[2])).toEqual(['references']);
+      expect(unletteredReview.mock.calls[0]?.[6]).toContain('single neutral cast lineup');
+      expect(unletteredReview.mock.calls[0]?.[6]).toContain('panels or montage');
+      expect(coverReview.mock.calls.map((call) => call[2])).toEqual(['front', 'back']);
       const panoramicPhases = spreadPhases.filter(
         (phase) => !['spread-2', 'spread-3'].includes(phase),
       );
@@ -451,6 +499,10 @@ describe('premium accepted run and recovery', () => {
         images.mock.calls.filter((call) => call[4] === premiumArtwork.PREMIUM_NATIVE_PAGE_SIZE),
       ).toHaveLength(29);
       expect(manifest.editionLayout).toBe(PREMIUM_EMBEDDED_LETTERING_EDITION);
+      expect(manifest.generationDesignVersion).toBe(1);
+      expect(manifest.artDirectionVersion).toBe(1);
+      expect(manifest.coverBrandLogo).toBe('watercolor.jpg');
+      expect(manifest.visualGuide).not.toContain('red truck');
       expect(manifest.format.pageCount).toBe(33);
       expect([...objects.keys()].filter((key) => key.endsWith('.pdf'))).toEqual([]);
       expect(manifest.pages.every((page) => page.reading)).toBe(true);

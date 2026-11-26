@@ -2,7 +2,10 @@ import type { PremiumManifest } from './premium-book-contract.js';
 import { premiumSpecification } from './premium-book-opening.js';
 import { openingInk } from './premium-opening-design.js';
 
-type Edition = Pick<PremiumManifest, 'opening' | 'openingDesign' | 'specification'>;
+type Edition = Pick<
+  PremiumManifest,
+  'opening' | 'openingDesign' | 'specification' | 'generationDesignVersion'
+>;
 type SpecificationAssets = { logoUrl: string; qrUrl: string };
 
 const specificationLabels = {
@@ -92,10 +95,10 @@ export const premiumSpecificationStyles = `
 `;
 
 export function renderPremiumSpecificationPage(
-  { opening, openingDesign, specification }: Edition,
+  { opening, openingDesign, specification, generationDesignVersion }: Edition,
   { logoUrl, qrUrl }: SpecificationAssets,
 ) {
-  const spec = specification ?? premiumSpecification(opening);
+  const spec = specification ?? premiumSpecification(opening, generationDesignVersion);
   const details = spec.details
     .map(
       ({ label, value }) =>

@@ -31,7 +31,7 @@ steps:
       - '--update-labels'
       - 'git-sha=${_GIT_SHA},cloud-build-id=$BUILD_ID'
       - '--update-env-vars'
-      - 'DEPLOY_GIT_SHA=${_GIT_SHA},DEPLOY_BUILD_ID=$BUILD_ID${_STORY_TEXT_MODE_UPDATE}'
+      - 'DEPLOY_GIT_SHA=${_GIT_SHA},DEPLOY_BUILD_ID=$BUILD_ID,PREMIUM_TEXT_MODEL=${_PREMIUM_TEXT_MODEL},PREMIUM_IMAGE_QUALITY=${_PREMIUM_IMAGE_QUALITY}${_STORY_TEXT_MODE_UPDATE}'
       - '--quiet'
       # Existing Cloud Run environment variables.
       # env-parity-preserved: NODE_ENV,DB_PORT,DB_NAME,WORKFLOWS_DB,GOOGLE_CLOUD_PROJECT_ID,GOOGLE_CLOUD_REGION
@@ -45,7 +45,7 @@ steps:
       # env-parity-preserved: STORY_SEQUENTIAL_MIN_CHAPTERS,STORY_WHOLE_MAX_OUTPUT_TOKENS,STORY_CHAPTER_MAX_OUTPUT_TOKENS
       # Provision the dedicated private bucket before enabling paid order proofs.
       # env-parity-preserved: PRINT_PROOF_BUCKET,APP_BASE_URL
-      # env-parity-preserved: PREMIUM_BOOK_BUCKET,PREMIUM_IMAGE_PROVIDER,PREMIUM_IMAGE_MODEL,PREMIUM_IMAGE_QUALITY,PREMIUM_IMAGE_SPREAD_SIZE,PREMIUM_IMAGE_SQUARE_SIZE
+      # env-parity-preserved: PREMIUM_BOOK_BUCKET,PREMIUM_IMAGE_PROVIDER,PREMIUM_IMAGE_MODEL,PREMIUM_IMAGE_SPREAD_SIZE,PREMIUM_IMAGE_SQUARE_SIZE
       # Existing Secret Manager bindings.
       # env-parity-preserved: DB_HOST,DB_USER,DB_PASSWORD,OPENAI_API_KEY,GOOGLE_GENAI_API_KEY,STORY_GENERATION_WORKFLOW_API_KEY
       # env-parity-preserved: NOTIFICATION_ENGINE_API_KEY,WEBAPP_WEBHOOK_SECRET
@@ -60,6 +60,8 @@ substitutions:
   _REVISION_SUFFIX: 'git-unknown'
   _NODE_VERSION: '24.18.1'
   _STORY_TEXT_MODE_UPDATE: ''
+  _PREMIUM_TEXT_MODEL: 'gemini-4-neon'
+  _PREMIUM_IMAGE_QUALITY: 'max'
 
 options:
   machineType: 'E2_HIGHCPU_8'

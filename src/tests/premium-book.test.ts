@@ -31,7 +31,7 @@ import {
   stagePremiumCheckpoint,
   withPremiumLease,
 } from '@/services/premium-book-storage.js';
-import { premiumManifestFixture } from './fixtures/premium-book.js';
+import { premiumLetteredManifestFixture, premiumManifestFixture } from './fixtures/premium-book.js';
 import { fixtureBucket } from './fixtures/premium-storage.js';
 
 async function scene(lineRows = 0) {
@@ -240,6 +240,39 @@ describe('premium book generation contract', () => {
     ).toEqual({ version: 1, type: 'premium_children', state: 'draft' });
     expect(() => readPremiumMarker({ premiumBook: null })).toThrow('Invalid premium');
     expect(() => readPremiumMarker({ premiumBook: { version: 2 } })).toThrow('Invalid premium');
+  });
+
+  it('accepts measured sub-print artwork only on an explicitly scoped imported reading proof', () => {
+    const book = premiumLetteredManifestFixture();
+    book.spreadLayoutVersion = 1;
+    book.audience = 'children_3-6';
+    for (const page of book.pages) page.reading ??= book.spreads[0]!.master;
+    for (const spread of book.spreads) {
+      spread.composition = 'panorama';
+      spread.rationale = 'A continuous scene crosses the fold.';
+      spread.leftBrief = '';
+      spread.rightBrief = '';
+      book.pages[spread.leftPage - 1]!.renderMode =
+        spread.textLayout === 'right_only' ? 'illustration' : 'embedded_art';
+      book.pages[spread.rightPage - 1]!.renderMode = 'embedded_art';
+    }
+    book.natives.front = { nativeWidth: 1225, nativeHeight: 1225, effectivePpi: 140 };
+    const prefix = book.storyId + '/premium/revisions/' + book.revision + '/reading-proof/';
+    const pin = (name: string) => ({ ...book.covers.front, key: prefix + name });
+    book.readingProof = {
+      version: 1,
+      sourceRevision: book.revision,
+      evidence: pin('sources.json'),
+      cover: pin('cover.pdf'),
+      interior: pin('interior.pdf'),
+    };
+    expect(premiumManifest.safeParse(book).success).toBe(true);
+    expect(premiumManifest.safeParse({ ...book, readingProof: undefined }).success).toBe(false);
+    book.natives.front.effectivePpi = 304;
+    expect(premiumManifest.safeParse(book).success).toBe(false);
+    book.natives.front.effectivePpi = 140;
+    book.readingProof.cover.key = 'unrelated/cover.pdf';
+    expect(premiumManifest.safeParse(book).success).toBe(false);
   });
 
   it('preserves four opening pages and all 13 facing pairs including silent left pages', () => {

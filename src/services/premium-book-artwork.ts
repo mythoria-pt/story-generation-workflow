@@ -401,14 +401,19 @@ export async function restoreIndependentPremiumTile(source: Buffer, side: 'left'
   return restorePremiumNativeTile(tile);
 }
 
-export async function readPremiumNativeTileTrim(tile: Buffer) {
+export function readPremiumPrintPageTrim(page: Buffer) {
+  const [trim] = premiumGeometry(PREMIUM_PRINT_PPI, false).reading;
+  if (!trim) throw new Error('Missing native print trim');
+  return sharp(page, { limitInputPixels: 16_000_000 }).extract(getCrop(trim)).png().toBuffer();
+}
+
+export async function readPremiumNativeTileTrim(tile: Buffer, printResolution = false) {
+  const cropped = await cropPremiumNativeTile(tile);
+  if (printResolution) return readPremiumPrintPageTrim(cropped);
   const { width, height, reading } = premiumGeometry(PREMIUM_READING_PPI, false);
   const [trim] = reading;
   if (!trim) throw new Error('Missing native page trim');
-  const resized = await sharp(await cropPremiumNativeTile(tile))
-    .resize(width, height)
-    .png()
-    .toBuffer();
+  const resized = await sharp(cropped).resize(width, height).png().toBuffer();
   return sharp(resized).extract(getCrop(trim)).png().toBuffer();
 }
 

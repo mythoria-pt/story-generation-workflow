@@ -40,10 +40,11 @@ main:
           - qaWarningCount: 0
           - qaFixesApplied: []
           - currentStage: 'authorization'
+          - adminPrintAttempt: ${map.get(payload, "adminPrintAttempt")}
 
     - prepareAuthentication:
         switch:
-          - condition: ${map.get(payload, "premiumSelfPrint") == true}
+          - condition: ${map.get(payload, "premiumSelfPrint") == true or adminPrintAttempt != null}
             next: fetchPremiumApiKey
         next: setOriginFromInitiatedBy
 
@@ -57,6 +58,48 @@ main:
         assign:
           - workflowHeaders:
               x-api-key: ${text.decode(base64.decode(apiKeySecret.payload.data))}
+
+    - selectPrintMode:
+        switch:
+          - condition: ${adminPrintAttempt != null}
+            next: renderStaffExport
+        next: setOriginFromInitiatedBy
+
+    - renderStaffExport:
+        try:
+          call: http.post
+          args:
+            url: ${baseUrl + "/internal/print/premium-admin/worker"}
+            auth: { type: OIDC }
+            headers: ${workflowHeaders}
+            timeout: 540
+            body:
+              storyId: ${storyId}
+              revision: ${payload.revision}
+              runId: ${runId}
+              attemptId: ${adminPrintAttempt}
+              executionId: ${executionId}
+        except:
+          steps:
+            - markStaffWorkerLost:
+                call: http.post
+                args:
+                  url: ${baseUrl + "/internal/print/premium-admin/worker-lost"}
+                  auth: { type: OIDC }
+                  headers: ${workflowHeaders}
+                  timeout: 15
+                  body:
+                    storyId: ${storyId}
+                    revision: ${payload.revision}
+                    runId: ${runId}
+                    attemptId: ${adminPrintAttempt}
+                    executionId: ${executionId}
+            - failStaffExport:
+                raise: 'Premium Admin PDF export failed'
+        next: finishStaffExport
+
+    - finishStaffExport:
+        return: ${runId}
 
     # Resolve origin in a separate step to avoid YAML/ternary parsing issues
     - setOriginFromInitiatedBy:

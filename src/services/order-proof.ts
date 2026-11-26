@@ -309,6 +309,8 @@ export async function renderOrderProof(
       request.storyId,
       pin.revision,
     );
+    if (manifest.readingProof)
+      throw new Error('Reading proof editions are unavailable for print orders');
     const pageCount = manifest.format.pageCount;
     if (request.premiumPageCount !== undefined && request.premiumPageCount !== pageCount)
       throw new Error('Premium proof page count differs from the paid edition');

@@ -3,6 +3,8 @@ import {
   premiumLetteredManifestFixture,
   premiumManifestFixture,
 } from './fixtures/premium-book.js';
+import { premiumCoverLogoForStyle } from '@/services/premium-cover-brand.js';
+import { premiumOpeningPages } from '@/services/premium-book-opening.js';
 import { PrintService } from '@/services/print.js';
 import { readPremiumObject } from '@/services/premium-book-storage.js';
 import { createHash, randomUUID } from 'node:crypto';
@@ -54,6 +56,42 @@ const input = {
 };
 const manifest = premiumManifestFixture();
 describe('square order proof', () => {
+  it('composes the generated-title cover with a style-matched logo and QR on the back only', async () => {
+    const book = premiumLetteredManifestFixture();
+    book.generationDesignVersion = 1;
+    book.coverBrandLogo = premiumCoverLogoForStyle('watercolor');
+    const stop = new Error('captured HTML');
+    const capture = jest.spyOn(PrintService.prototype, 'renderPDF').mockRejectedValue(stop);
+    const unavailable = jest.fn(async () => {
+      throw new Error('Unexpected image access');
+    });
+    try {
+      await expect(renderSquarePdf(book, '', 'cover', unavailable, unavailable)).rejects.toThrow(
+        stop.message,
+      );
+      const html = capture.mock.calls[0]![0];
+      const front = html.match(/<div class="panel front">.*?<\/div>/)?.[0];
+      const back = html.match(/<div class="panel back">.*?<\/div>/)?.[0];
+      expect(front).toContain(`alt="${book.opening.title}"`);
+      expect(front).not.toContain('cover-badge');
+      expect(back).toContain('brand/watercolor.jpg');
+      expect(back).toContain('alt="mythoria.pt"');
+      expect(back).not.toContain(book.opening.synopsis);
+      expect(html).not.toContain('class="cover-copy fit"');
+      expect(premiumCoverLogoForStyle('pixar_style')).toBe('pixar.jpg');
+      expect(premiumCoverLogoForStyle('oil_painting')).toBe('oil-painting.jpg');
+      expect(premiumCoverLogoForStyle('euro_comic_book')).toBe('mythoria-logo.png');
+
+      book.coverBrandLogo = premiumCoverLogoForStyle(undefined);
+      await expect(renderSquarePdf(book, '', 'cover', unavailable, unavailable)).rejects.toThrow(
+        stop.message,
+      );
+      expect(capture.mock.calls[1]![0]).toContain('brand/mythoria-logo.png');
+    } finally {
+      capture.mockRestore();
+    }
+  });
+
   it('also fits a manually edited synopsis in the back cover', async () => {
     const book = premiumManifestFixture();
     book.opening.synopsis = 'A Inês conta <uma história>.';
@@ -259,6 +297,45 @@ describe('square order proof', () => {
       expect(coverOptions.height).toBeCloseTo(260.35);
     } finally {
       capture.mockRestore();
+    }
+  });
+  it('keeps older dedications and styles only the pinned author line in PDF and page previews', async () => {
+    const book = premiumLetteredManifestFixture();
+    book.opening.author = 'Fátima & Afonso';
+    book.opening.dedication = 'Para ti.\n\nO nosso abraço.';
+    const dedication = premiumOpeningPages(book.opening)[2];
+    book.pages[2] = dedication;
+    const captured = new Error('captured opening HTML');
+    const pdf = jest.spyOn(PrintService.prototype, 'renderPDF').mockRejectedValue(captured);
+    const preview = jest
+      .spyOn(PrintService.prototype, 'renderPageImages')
+      .mockRejectedValue(captured);
+    const unavailable = jest.fn(async () => Buffer.alloc(0));
+    const dedicationPattern = /<div class="fit opening-copy dedication">.*?<\/div>/s;
+    try {
+      await expect(renderSquarePdf(book, '', 'interior', unavailable, unavailable)).rejects.toThrow(
+        captured,
+      );
+      expect(pdf.mock.calls[0]![0].match(dedicationPattern)?.[0]).toContain(
+        'O nosso abraço.\n\n– Fátima &amp; Afonso',
+      );
+      book.generationDesignVersion = 1;
+      await expect(renderSquarePdf(book, '', 'interior', unavailable, unavailable)).rejects.toThrow(
+        captured,
+      );
+      await expect(
+        renderSquarePagePreviews(book, [dedication], unavailable, unavailable),
+      ).rejects.toThrow(captured);
+      const html = pdf.mock.calls[1]![0];
+      const markup = html.match(dedicationPattern)?.[0];
+      expect(html).toContain('.dedication-signature{font-size:14pt;font-style:italic}');
+      expect(markup).toContain(
+        'O nosso abraço.\n\n<span class="dedication-signature">– Fátima &amp; Afonso</span>',
+      );
+      expect(preview.mock.calls[0]![0].match(dedicationPattern)?.[0]).toBe(markup);
+    } finally {
+      pdf.mockRestore();
+      preview.mockRestore();
     }
   });
   it('uses the same selectable typeset markup for square PDFs and reading previews', async () => {

@@ -7,6 +7,7 @@ interface ModelLimits {
 // Request defaults; the Hydrogen adapter separately enforces its unified context limit.
 const LIMITS: Record<string, ModelLimits> = {
   'gemini-4-hydrogen': { maxOutputTokens: 65536 },
+  'gemini-4-neon': { maxOutputTokens: 65536 },
   // Image preview model still returns textual prompt refinements / JSON; use same cap
   'gemini-2.5-flash-image-preview': { maxOutputTokens: 32768 },
   'gemini-3.1-flash-image': { maxOutputTokens: 32768 },

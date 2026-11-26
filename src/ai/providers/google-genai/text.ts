@@ -16,11 +16,13 @@ import { contextManager } from '../../context-manager.js';
 import { logger } from '@/config/logger.js';
 
 export const HYDROGEN_MODEL = 'gemini-4-hydrogen';
+export const NEON_MODEL = 'gemini-4-neon';
 export const HYDROGEN_CONTEXT_TOKENS = 1_048_576;
 export const HYDROGEN_HEADROOM_TOKENS = 8192;
 export interface GoogleGenAITextConfig {
   apiKey: string;
   model?: string;
+  premiumBook?: boolean;
 }
 export interface HydrogenRequest {
   model: string;
@@ -34,14 +36,14 @@ export interface HydrogenSegment {
   usage: TextGenerationUsage;
 }
 
-export function hydrogenUsage(response: GenerateContentResponse): TextGenerationUsage {
+function googleTextUsage(response: GenerateContentResponse, model: string): TextGenerationUsage {
   const raw = response as GenerateContentResponse & { response?: GenerateContentResponse };
   const usage = raw.usageMetadata ?? raw.response?.usageMetadata;
   const output = usage?.candidatesTokenCount;
   const thinking = usage?.thoughtsTokenCount ?? 0;
   return {
     provider: 'google-genai',
-    model: HYDROGEN_MODEL,
+    model,
     ...(usage && {
       inputTokens: usage.promptTokenCount,
       outputTokens:
@@ -59,18 +61,23 @@ export function hydrogenUsage(response: GenerateContentResponse): TextGeneration
 
 export class GoogleGenAITextService implements ITextGenerationService {
   private genAI: GoogleGenAI;
+  private readonly model: typeof HYDROGEN_MODEL | typeof NEON_MODEL;
+
   constructor(config: GoogleGenAITextConfig) {
-    this.assertModel(config.model);
+    const model = config.model ?? HYDROGEN_MODEL;
+    if (model !== HYDROGEN_MODEL && !(config.premiumBook && model === NEON_MODEL))
+      throw new Error('Unsupported Gemini text generation model');
+    this.model = model;
     this.genAI = new GoogleGenAI({ apiKey: config.apiKey, apiVersion: 'v1beta' });
     logger.info('Google GenAI text service initialized', {
       provider: 'google-genai',
-      model: HYDROGEN_MODEL,
+      model: this.model,
       apiVersion: 'v1beta',
     });
   }
   private assertModel(model?: string) {
-    if (model && model !== HYDROGEN_MODEL)
-      throw new Error('Only gemini-4-hydrogen is supported for Gemini text generation');
+    if (model && model !== this.model)
+      throw new Error('Request model differs from the configured Gemini text generation model');
   }
   async prepareRequest(
     prompt: string,
@@ -123,7 +130,7 @@ export class GoogleGenAITextService implements ITextGenerationService {
       .map((value) => (typeof value === 'string' ? value : JSON.stringify(value)))
       .join('\n');
     const count = await this.genAI.models.countTokens({
-      model: HYDROGEN_MODEL,
+      model: this.model,
       contents: [...(prefix ? [{ role: 'user', parts: [{ text: prefix }] }] : []), ...contents],
       config: {
         ...(options.signal && { abortSignal: options.signal }),
@@ -134,7 +141,7 @@ export class GoogleGenAITextService implements ITextGenerationService {
     const available = HYDROGEN_CONTEXT_TOKENS - count.totalTokens - HYDROGEN_HEADROOM_TOKENS;
     if (available < 1) throw new Error('Story context exceeds Hydrogen capacity');
     config.maxOutputTokens = Math.min(requestedOutput, available);
-    return { model: HYDROGEN_MODEL, contents, config };
+    return { model: this.model, contents, config };
   }
   async generateSegment(
     request: HydrogenRequest,
@@ -160,7 +167,7 @@ export class GoogleGenAITextService implements ITextGenerationService {
     const segment: HydrogenSegment = {
       parts: candidate?.content?.parts ?? [],
       finishReason: candidate?.finishReason ?? (raw.text ? 'STOP' : 'UNKNOWN'),
-      usage: hydrogenUsage(response),
+      usage: googleTextUsage(response, this.model),
       ...(candidate?.continuationToken && { continuationToken: candidate.continuationToken }),
     };
     if (!candidate && raw.text) segment.parts = [{ text: raw.text }];
@@ -237,7 +244,7 @@ export class GoogleGenAITextService implements ITextGenerationService {
       if (failure.usage) options.usageObserver?.(failure.usage);
       logger.error('Google text generation failed', {
         provider: 'google-genai',
-        model: HYDROGEN_MODEL,
+        model: this.model,
         contextId: options.contextId,
         code: failure.code,
         status: failure.status,

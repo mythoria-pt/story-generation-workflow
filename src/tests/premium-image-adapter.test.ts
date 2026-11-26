@@ -70,29 +70,32 @@ describe('premium image adapter', () => {
     expect(reportUsage).toHaveBeenCalledTimes(1);
   });
 
-  it('still requests opaque full-color story artwork', async () => {
-    await generatePremiumImage(
-      scope,
-      config,
-      'front',
-      'A scene.',
-      config.squareSize,
-      [],
-      async () => {},
-    );
-    expect(edit).not.toHaveBeenCalled();
-    expect(OpenAI).toHaveBeenCalledWith(
-      expect.objectContaining({ maxRetries: 0, timeout: 240_000 }),
-    );
-    expect(generate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        model: config.model,
-        size: config.squareSize,
-        quality: config.quality,
-        background: 'opaque',
-      }),
-    );
-  });
+  it.each(['max', 'low'] as const)(
+    'requests opaque full-color story artwork at %s quality',
+    async (quality) => {
+      await generatePremiumImage(
+        scope,
+        { ...config, quality },
+        'front',
+        'A scene.',
+        config.squareSize,
+        [],
+        async () => {},
+      );
+      expect(edit).not.toHaveBeenCalled();
+      expect(OpenAI).toHaveBeenCalledWith(
+        expect.objectContaining({ maxRetries: 0, timeout: 240_000 }),
+      );
+      expect(generate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          model: config.model,
+          size: config.squareSize,
+          quality,
+          background: 'opaque',
+        }),
+      );
+    },
+  );
 
   it('bounds a spread image request without SDK retries', async () => {
     await generatePremiumImage(

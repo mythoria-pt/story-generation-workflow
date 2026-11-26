@@ -131,3 +131,7 @@ The A5 Lulu paperback front illustration extends through the bleed. Review embed
 See [premium-books.md](docs/premium-books.md) for the saved book marker, private storage, image configuration, same-run operator recovery and spread correction contract. Keep each spread’s canonical text and artwork derivatives under the same immutable published revision.
 
 The frozen `editionLayout` selects the generation and print renderer. Embedded-lettering editions require verified native-resolution artwork and a separately typeset publication page. A retry must preserve the frozen layout, manuscript and any accepted page artwork.
+
+The optional frozen `generationDesignVersion` selects cover treatment and stage order. Version 1 starts with the lettered front cover after planning and verifies the exact trimmed title. The back art is wordless and reserves the lower-left badge area. Keep episodic objects and locations local to each scene. `PREMIUM_TEXT_MODEL` configures new premium runs independently of standard story text.
+
+`artDirectionVersion: 1` freezes one visible-cast, actor, action, target, prop and framing assignment per illustration. Keep props with the action and scene where they belong. Exact visual transcription and measured trim clearance are required for new lettering. Prior versions continue to use their existing review contract.

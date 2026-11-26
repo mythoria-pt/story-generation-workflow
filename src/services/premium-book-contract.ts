@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { SUPPORTED_LOCALES } from '@/config/locales.js';
 import { premiumOpeningColors, premiumOpeningMotifs } from './premium-opening-design.js';
+import { premiumCoverLogo } from './premium-cover-brand.js';
 import {
   premiumInvitationHref,
   PREMIUM_INVITATION_PAGE_NUMBER,
@@ -11,6 +12,8 @@ export const LEGACY_PREMIUM_PAGE_COUNT = 32;
 export const PREMIUM_PAGE_COUNT = PREMIUM_INVITATION_PAGE_NUMBER;
 export const PREMIUM_SPREAD_COUNT = 13;
 export const PREMIUM_EMBEDDED_LETTERING_EDITION = 'embedded-lettering-v2';
+export const PREMIUM_GENERATION_DESIGN_VERSION = 1;
+export const PREMIUM_ART_DIRECTION_VERSION = 1;
 export const PREMIUM_PRINT_PPI = 304;
 export const PREMIUM_TEXT_BOX = { x: 0.1, y: 0.09, width: 0.8, height: 0.2 };
 export const PREMIUM_FORMAT = {
@@ -42,7 +45,11 @@ const queued = marker.extend({
 export const premiumMarker = z.discriminatedUnion('state', [
   marker.extend({ state: z.literal('draft') }),
   queued,
-  queued.extend({ state: z.literal('published'), manifest: premiumAsset }),
+  queued.extend({
+    state: z.literal('published'),
+    manifest: premiumAsset,
+    readingProof: z.literal(true).optional(),
+  }),
 ]);
 
 export function hasPremiumMarker(features: unknown): boolean {
@@ -106,10 +113,11 @@ export function premiumSpecificationText(specification: z.infer<typeof premiumSp
   ].join('\n');
 }
 
+export const PREMIUM_LETTERED_CHARACTER_LIMIT = 110;
 export const narrativeText = z
   .string()
   .min(1)
-  .max(110)
+  .max(PREMIUM_LETTERED_CHARACTER_LIMIT)
   .refine(
     (value) =>
       !/[<>]/u.test(value) &&
@@ -117,6 +125,7 @@ export const narrativeText = z
       [...value].every((character) => character.charCodeAt(0) >= 32),
   )
   .refine((value) => value.split(/\s+/u).every((word) => word.length <= 32));
+
 const panoramaTextLayout = z.enum(['both_pages', 'right_only']);
 export const premiumTextLayout = z.enum(['both_pages', 'right_only', 'left_only', 'wordless']);
 export const premiumComposition = z.enum([
@@ -254,6 +263,24 @@ const savedSpread = mixedBoardSpread
       : boardSpread.refine(validLeftNarration).safeParse(spread).success,
   );
 
+const premiumSceneDirection = z
+  .object({
+    id: z.string().regex(/^(?:front|back|opener|ending|spread-(?:[1-9]|1[0-3])(?:-left|-right)?)$/),
+    visibleCast: z.array(z.string().trim().min(1).max(80)).max(24),
+    actor: z.string().trim().max(80),
+    action: z.string().trim().min(1).max(220),
+    target: z.string().trim().max(160),
+    props: z.array(z.string().trim().min(1).max(140)).max(12),
+    framing: z.string().trim().min(1).max(240),
+  })
+  .refine(
+    ({ visibleCast, actor }) =>
+      new Set(visibleCast).size === visibleCast.length && (!actor || visibleCast.includes(actor)),
+    'The actor must belong to the local visible cast',
+  );
+export type PremiumSceneDirection = z.infer<typeof premiumSceneDirection>;
+const premiumSceneDirections = z.array(premiumSceneDirection).min(17).max(30);
+
 export const premiumBoard = z.object({
   openingDesign: premiumOpeningDesign.optional(),
   motifBrief: premiumMotifBrief.optional(),
@@ -265,10 +292,11 @@ export const premiumBoard = z.object({
   opener: z.object({ text: narrativeText, action: z.string().min(1).max(900) }),
   spreads: z.array(savedSpread).length(PREMIUM_SPREAD_COUNT),
   ending: z.object({ text: narrativeText, action: z.string().min(1).max(900) }),
+  sceneDirections: premiumSceneDirections.optional(),
 });
 // Provider structured output requires every key. An empty description means a narrated left page.
 export const historicalGeneratedPremiumBoard = premiumBoard
-  .omit({ motifBrief: true, motifSpread: true })
+  .omit({ motifBrief: true, motifSpread: true, sceneDirections: true })
   .extend({
     openingDesign: premiumOpeningDesign,
     spreads: z
@@ -291,7 +319,33 @@ export const generatedPremiumBoard = historicalGeneratedPremiumBoard.extend({
 export const mixedGeneratedPremiumBoard = generatedPremiumBoard.extend({
   spreads: z.array(mixedSpread).length(PREMIUM_SPREAD_COUNT),
 });
+
 export type PremiumBoard = z.infer<typeof premiumBoard>;
+
+export function premiumSceneIds(board: Pick<PremiumBoard, 'spreads'>): string[] {
+  return [
+    'front',
+    'back',
+    'opener',
+    ...board.spreads.flatMap((spread, index) => {
+      const id = `spread-${index + 1}`;
+      const { composition } = spread;
+      if (!composition || composition === 'panorama') return [id];
+      return (['left', 'right'] as const)
+        .filter((side) => premiumPageRenderMode(composition, spread.textLayout, side) !== 'typeset')
+        .map((side) => `${id}-${side}`);
+    }),
+    'ending',
+  ];
+}
+
+export const directedGeneratedPremiumBoard = mixedGeneratedPremiumBoard
+  .extend({ sceneDirections: premiumSceneDirections })
+  .refine(({ spreads, sceneDirections }) => {
+    const expected = premiumSceneIds({ spreads });
+    const actual = new Set(sceneDirections.map(({ id }) => id));
+    return sceneDirections.length === expected.length && expected.every((id) => actual.has(id));
+  }, 'Scene direction must cover each illustrated composition exactly once');
 
 const rect = z.object({ x: z.number(), y: z.number(), width: z.number(), height: z.number() });
 export const premiumTextBox = rect.refine(
@@ -334,12 +388,16 @@ const native = z.object({
   effectivePpi: z.number().positive(),
 });
 
-export function isPremiumNativePrintArtwork(art: z.infer<typeof native>, facing: boolean) {
+function validNativeArtwork(art: z.infer<typeof native>, facing: boolean, minPpi: number) {
   const { trimPoints, bleedPoints } = PREMIUM_FORMAT;
   const width = (trimPoints * (facing ? 2 : 1) + 2 * bleedPoints) / 72;
   const height = (trimPoints + 2 * bleedPoints) / 72;
   const effectivePpi = Math.min(art.nativeWidth / width, art.nativeHeight / height);
-  return effectivePpi >= PREMIUM_PRINT_PPI && Math.abs(art.effectivePpi - effectivePpi) < 0.01;
+  return effectivePpi >= minPpi && Math.abs(art.effectivePpi - effectivePpi) < 0.01;
+}
+
+export function isPremiumNativePrintArtwork(art: z.infer<typeof native>, facing: boolean) {
+  return validNativeArtwork(art, facing, PREMIUM_PRINT_PPI);
 }
 export const premiumSpread = native.extend({
   composition: premiumComposition.optional(),
@@ -375,8 +433,20 @@ export const premiumManifestBeforePreviews = z
     ownerId: z.uuid(),
     revision: z.uuid(),
     previousRevision: z.uuid().optional(),
+    readingProof: z
+      .object({
+        version: z.literal(1),
+        sourceRevision: z.uuid(),
+        evidence: premiumAsset,
+        interior: premiumAsset,
+        cover: premiumAsset,
+      })
+      .optional(),
     editionLayout: z.literal(PREMIUM_EMBEDDED_LETTERING_EDITION).optional(),
     spreadLayoutVersion: z.literal(1).optional(),
+    generationDesignVersion: z.literal(PREMIUM_GENERATION_DESIGN_VERSION).optional(),
+    artDirectionVersion: z.literal(PREMIUM_ART_DIRECTION_VERSION).optional(),
+    coverBrandLogo: premiumCoverLogo.optional(),
     audience: premiumAudience.optional(),
     format: z.object({
       trimPoints: z.literal(612),
@@ -403,6 +473,36 @@ export const premiumManifestBeforePreviews = z
   })
   .superRefine((value, ctx) => {
     const embeddedLettering = value.editionLayout === PREMIUM_EMBEDDED_LETTERING_EDITION;
+    const proof = value.readingProof;
+    if (proof) {
+      const prefix = premiumRevisionPrefix(value.storyId, proof.sourceRevision) + '/reading-proof/';
+      if (
+        !value.spreadLayoutVersion ||
+        proof.evidence.key !== prefix + 'sources.json' ||
+        proof.interior.key !== prefix + 'interior.pdf' ||
+        proof.cover.key !== prefix + 'cover.pdf'
+      ) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['readingProof'],
+          message: 'Invalid imported proof scope',
+        });
+      }
+    }
+    if (
+      Boolean(value.generationDesignVersion) !== Boolean(value.coverBrandLogo) ||
+      (value.artDirectionVersion && !value.generationDesignVersion) ||
+      (value.generationDesignVersion &&
+        (!embeddedLettering ||
+          !value.spreadLayoutVersion ||
+          value.specification?.promotion !== 'mythoria.pt'))
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['generationDesignVersion'],
+        message: 'Invalid front and back cover treatment',
+      });
+    }
     if (
       embeddedLettering &&
       (!value.specification ||
@@ -572,7 +672,7 @@ export const premiumManifestBeforePreviews = z
         value.pages[left - 1]?.spreadId !== spread.id ||
         value.pages[left]?.spreadId !== spread.id ||
         (embeddedLettering &&
-          (!isPremiumNativePrintArtwork(spread, true) ||
+          (!validNativeArtwork(spread, true, proof ? 0 : PREMIUM_PRINT_PPI) ||
             spread.nativeWidth !== value.natives[spread.id]?.nativeWidth ||
             spread.nativeHeight !== value.natives[spread.id]?.nativeHeight ||
             spread.effectivePpi !== value.natives[spread.id]?.effectivePpi))
@@ -593,7 +693,10 @@ export const premiumManifestBeforePreviews = z
         ...value.spreads.map(({ id }) => id),
       ]) {
         const info = value.natives[phase];
-        if (!info || !isPremiumNativePrintArtwork(info, phase.startsWith('spread-'))) {
+        if (
+          !info ||
+          !validNativeArtwork(info, phase.startsWith('spread-'), proof ? 0 : PREMIUM_PRINT_PPI)
+        ) {
           ctx.addIssue({
             code: 'custom',
             path: ['natives', phase],

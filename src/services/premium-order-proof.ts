@@ -22,6 +22,8 @@ import {
 import { PREMIUM_READING_PPI } from './premium-book-artwork.js';
 import { verifyPremiumAssetScope } from './premium-book-storage.js';
 import { openingMotifPaths, openingInk, motifInk, motifAccent } from './premium-opening-design.js';
+import { premiumCoverFallbackLogo } from './premium-cover-brand.js';
+import { extendPremiumCasewrapArtwork } from './premium-casewrap-artwork.js';
 import {
   escapePremiumHtml as escape,
   premiumSpecificationStyles,
@@ -95,7 +97,11 @@ export function assertSquareCasewrap(d: { width: number; height: number }, pageC
 
 function renderOpeningPage(
   page: PremiumPrintManifest['pages'][number],
-  design: PremiumPrintManifest['openingDesign'],
+  {
+    opening,
+    openingDesign: design,
+    generationDesignVersion,
+  }: Pick<PremiumPrintManifest, 'opening' | 'openingDesign' | 'generationDesignVersion'>,
   motifUrl: string | undefined,
 ) {
   const colors = design ? ` style="background:${design.background};color:${openingInk}"` : '';
@@ -107,7 +113,15 @@ function renderOpeningPage(
       : `<svg class="opening-motif" aria-hidden="true" viewBox="0 0 64 52" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="${main}" stroke="${motifInk}" stroke-width="1.65"/><path d="${accent}" stroke="${motifAccent}" stroke-width="1.2"/></svg>`;
   }
   const qr = page.kind === 'copyright' ? `<img class="qr" src="${printQrUrl}">` : '';
-  return `<section class="opening"${colors}><div class="fit opening-copy ${page.kind}">${escape(page.text)}${qr}${ornament}</div></section>`;
+  const signature = `– ${opening.author}`;
+  const signatureSuffix = `\n\n${signature}`;
+  const text =
+    page.kind === 'dedication' &&
+    generationDesignVersion === 1 &&
+    page.text.endsWith(signatureSuffix)
+      ? `${escape(page.text.slice(0, -signatureSuffix.length))}\n\n<span class="dedication-signature">${escape(signature)}</span>`
+      : escape(page.text);
+  return `<section class="opening"${colors}><div class="fit opening-copy ${page.kind}">${text}${qr}${ornament}</div></section>`;
 }
 
 function squarePageDocument(
@@ -150,6 +164,7 @@ async function squareLayout(
 ) {
   const cover = part === 'cover';
   const embeddedLettering = book.editionLayout === PREMIUM_EMBEDDED_LETTERING_EDITION;
+  const brandedCover = cover && book.generationDesignVersion === 1;
   const showClassicSpecification = !cover && embeddedLettering;
   const dimensions = cover ? (coverDimensions ?? casewrap) : interiorPage;
   const spine = cover ? luluSpinePoints('hardcover', coverPageCount, dimensions.width) : 0;
@@ -164,14 +179,19 @@ async function squareLayout(
     sources.set(url, ref);
     return url;
   }
-  const panel = (side: 'front' | 'back') =>
-    '<div class="panel ' +
-    side +
-    '"><img src="' +
-    artUrl(book.covers[side]) +
-    '"><div class="cover-copy fit">' +
-    escape(side === 'front' ? book.opening.title : book.opening.synopsis) +
-    '</div></div>';
+  const coverLogo = brandedCover ? (book.coverBrandLogo ?? premiumCoverFallbackLogo) : undefined;
+  const panel = (side: 'front' | 'back') => {
+    const image = artUrl(book.covers[side]);
+    if (brandedCover) {
+      const title = side === 'front' ? escape(book.opening.title) : '';
+      const badge =
+        side === 'back'
+          ? `<div class="cover-badge"><img src="${invitationArtwork}${coverLogo}" alt="Mythoria"><img src="${printQrUrl}" alt="mythoria.pt"></div>`
+          : '';
+      return `<div class="panel ${side}"><img src="${image}" alt="${title}">${badge}</div>`;
+    }
+    return `<div class="panel ${side}"><img src="${image}"><div class="cover-copy fit">${escape(side === 'front' ? book.opening.title : book.opening.synopsis)}</div></div>`;
+  };
   const invitationQr = book.opening.locale + '.png';
   const motifUrl =
     !cover && book.openingDesign && book.motifArtwork
@@ -197,7 +217,7 @@ async function squareLayout(
             if (!book.audience) throw new Error('Missing premium typesetting audience');
             return renderPremiumTypesetPage(p, book.audience, book.openingDesign?.background);
           }
-          if (!p.artwork) return renderOpeningPage(p, book.openingDesign, motifUrl);
+          if (!p.artwork) return renderOpeningPage(p, book, motifUrl);
           const illustration = '<img class="art" src="' + artUrl(p.artwork) + '">';
           if (embeddedLettering || !p.text) return '<section>' + illustration + '</section>';
           const b = p.textBox ?? { x: 0.1, y: 0.09, width: 0.8, height: 0.2 };
@@ -225,13 +245,23 @@ async function squareLayout(
   const styles =
     '.art{position:absolute;width:630pt;height:630pt}.line,.cover-copy{position:absolute;white-space:pre-line;overflow-wrap:anywhere;background:#fbf5e6;padding:7pt 11pt;font-size:22pt;line-height:1.24}' +
     '.opening{display:grid;place-items:center}.opening-copy{width:490pt;max-height:510pt;white-space:pre-line;overflow-wrap:anywhere;font-size:20pt;line-height:1.38}.title,.dedication{text-align:center}.title{font-size:30pt}.qr{display:block;width:60pt;height:60pt;margin:20pt auto 0}.opening-motif{display:block;width:80pt;height:65pt;margin:20pt auto 0}' +
+    '.dedication-signature{font-size:14pt;font-style:italic}' +
     '.opening-motif.bespoke{height:80pt}.invitation{display:grid;place-items:center;background:#fefbf6;text-align:center}.invitation-copy{width:450pt;max-height:490pt;color:#243735}.invitation .brand{width:168pt;height:auto}.invitation h1{margin:20pt 0 8pt;font-size:27pt;line-height:1.2}.invitation p{margin:0;font-size:18pt;line-height:1.35}.invitation .invitation-label{margin:22pt 0 7pt;font-weight:bold}.invite-qr{display:block;width:72pt;height:72pt;margin:auto}.invitation .address{font-size:13pt;margin-top:4pt}' +
-    `.panel{position:absolute;width:${panelPts.width}pt;height:${panelPts.height}pt;overflow:hidden}.panel img{width:100%;height:100%}.back{left:0}.front{right:0}.cover-copy{top:100pt;left:96pt;right:96pt;max-height:465pt;font-size:18pt}.front .cover-copy{font-size:36pt;text-align:center}` +
+    `.panel{position:absolute;width:${panelPts.width}pt;height:${panelPts.height}pt;overflow:hidden}.panel>img{width:100%;height:100%}.back{left:0}.front{right:0}.cover-copy{top:100pt;left:96pt;right:96pt;max-height:465pt;font-size:18pt}.front .cover-copy{font-size:36pt;text-align:center}` +
+    (brandedCover
+      ? '.cover-badge{position:absolute;left:calc(50% - 251pt);bottom:calc(50% - 251pt);width:220pt;height:92pt;padding:14pt;display:grid;grid-template-columns:minmax(0,1fr) 62pt;gap:12pt;align-items:center;background:#f5e6d3}.cover-badge img{width:100%;height:64pt;object-fit:contain}'
+      : '') +
     (showClassicSpecification ? premiumSpecificationStyles : '') +
     typesetStyles;
   const html = squarePageDocument(book.opening.locale, dimensions, styles, content);
   const print = new PrintService('hardcover', async (url) => {
     if (url === printQrUrl) return loadBrand(url);
+    if (coverLogo?.endsWith('.jpg') && url === invitationArtwork + coverLogo) {
+      return {
+        bytes: await readFile(join('print-assets', 'premium-cover-logos', coverLogo)),
+        contentType: 'image/jpeg',
+      };
+    }
     if (url === motifUrl && book.motifArtwork && book.openingDesign) {
       const background = book.openingDesign.background;
       const bytes = await sharp(await load(book.motifArtwork), { limitInputPixels: 4_194_304 })
@@ -267,6 +297,12 @@ async function squareLayout(
     const panelWidth = pixelsAt(panelPts.width, casewrapPpi);
     const panelHeight = pixelsAt(panelPts.height, casewrapPpi);
     const size = pixelsAt(interiorPage.width, casewrapPpi);
+    if (brandedCover) {
+      return {
+        bytes: await extendPremiumCasewrapArtwork(bytes, size, panelWidth, panelHeight),
+        contentType: 'image/png',
+      };
+    }
     const dx = Math.max(0, panelWidth - size),
       dy = Math.max(0, panelHeight - size);
     const panelBytes = await sharp(bytes)
@@ -292,7 +328,7 @@ export async function premiumManualTextFits(
 ) {
   const interior = await squareLayout(book, 'interior', load, loadPremiumPublicationQr, [page]);
   if ((await interior.print.findTextOverflow(interior.html)).length) return false;
-  if (page.kind !== 'synopsis') return true;
+  if (page.kind !== 'synopsis' || book.generationDesignVersion === 1) return true;
   const cover = await squareLayout(book, 'cover', load, loadPremiumPublicationQr);
   return (await cover.print.findTextOverflow(cover.html)).length === 0;
 }
@@ -333,7 +369,7 @@ export async function renderSquarePdf(
     await new CMYKConversionService().flattenForLulu(path, flatPath, casewrapPpi);
     pdfBytes = await readFile(flatPath);
   }
-  // All content is opaque JPEG, solid CSS colours and embedded vector text.
+  // Artwork and CSS backgrounds are opaque. Opening and typeset pages retain vector text.
   const output = await finishLuluPdf(pdfBytes, dimensions, !cover, await loadSrgbProfile());
   if ((await PDFDocument.load(output)).getPageCount() !== (cover ? 1 : book.format.pageCount))
     throw new Error('Unexpected premium PDF pagination');

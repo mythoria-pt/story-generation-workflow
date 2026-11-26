@@ -94,4 +94,21 @@ describe('premium square specification page', () => {
       render.mockRestore();
     }
   });
+
+  it.each(['en-US', 'pt-PT', 'es-ES', 'fr-FR', 'de-DE'] as const)(
+    'freezes the exact printed QR caption in the %s edition',
+    (locale) => {
+      const book = premiumLetteredManifestFixture();
+      const opening = { ...book.opening, locale };
+      const old = premiumSpecification(opening);
+      const specification = premiumSpecification(opening, 1);
+      expect(specification).toEqual({ ...old, promotion: 'mythoria.pt' });
+      expect(premiumOpeningPages(opening, 1)[1].text.endsWith('\nmythoria.pt')).toBe(true);
+      const document = renderPremiumSpecificationDocument(
+        { ...book, opening, specification, generationDesignVersion: 1 },
+        { logoUrl: 'spec-logo.png', qrUrl: 'spec-qr.png' },
+      );
+      expect(document).toContain('src="spec-qr.png" alt="mythoria.pt"><p>mythoria.pt</p>');
+    },
+  );
 });

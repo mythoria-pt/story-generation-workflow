@@ -1,7 +1,8 @@
 import type { Bucket } from '@google-cloud/storage';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { PDFDocument } from 'pdf-lib';
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
@@ -32,7 +33,7 @@ export const premiumSelfPrintSource = z.object({
   manifest: premiumAsset,
   generateCMYK: z.boolean(),
 });
-type PremiumSelfPrintSource = z.infer<typeof premiumSelfPrintSource>;
+export type PremiumSelfPrintSource = z.infer<typeof premiumSelfPrintSource>;
 
 export function readPremiumSelfPrintSource(metadata: unknown) {
   return metadata && typeof metadata === 'object' && 'premiumSelfPrint' in metadata
@@ -79,9 +80,18 @@ const pdfPackage = z.object({
   coverCmyk: premiumAsset.nullable(),
 });
 type PdfPackage = z.infer<typeof pdfPackage>;
+export const premiumPrintPart = z.enum(['interior', 'cover', 'interiorCmyk', 'coverCmyk']);
+export type PremiumPrintPart = z.infer<typeof premiumPrintPart>;
+export const adminPremiumPrintRenderer = 'v1';
+type PrintScope = 'self-print' | 'admin';
 
-const prefixFor = (storyId: string, revision: string, runId: string) =>
-  `${premiumRevisionPrefix(storyId, revision)}/self-print/${z.uuid().parse(runId)}`;
+const prefixFor = (
+  storyId: string,
+  revision: string,
+  runId: string,
+  scope: PrintScope = 'self-print',
+) =>
+  `${premiumRevisionPrefix(storyId, revision)}/${scope === 'admin' ? `admin-print/${adminPremiumPrintRenderer}` : 'self-print'}/${z.uuid().parse(runId)}`;
 
 const pdfKey = (prefix: string, label: keyof PdfPackage, hash: string) =>
   `${prefix}/${hash}/${label}.pdf`;
@@ -104,24 +114,25 @@ export async function renderPremiumSelfPrint(
   runId: string,
   source: PremiumSelfPrintSource,
 ) {
+  return renderPremiumPrintPackage(storyId, runId, source, 'self-print');
+}
+
+export async function renderPremiumPrintPackage(
+  storyId: string,
+  runId: string,
+  source: PremiumSelfPrintSource,
+  scope: PrintScope,
+) {
   const bucket = await getPremiumBucket();
-  const prefix = prefixFor(storyId, source.revision, runId);
+  const prefix = prefixFor(storyId, source.revision, runId, scope);
   const pinned = await stagePremiumCheckpoint(
     bucket,
     `${prefix}/edition.json`,
     premiumSelfPrintSource,
     () => Promise.resolve(source),
   );
-  if (
-    pinned.manifest.generation !== source.manifest.generation ||
-    pinned.manifest.sha256 !== source.manifest.sha256 ||
-    pinned.manifest.key !== source.manifest.key ||
-    pinned.manifest.bytes !== source.manifest.bytes ||
-    pinned.revision !== source.revision ||
-    pinned.ownerId !== source.ownerId ||
-    pinned.generateCMYK !== source.generateCMYK
-  ) {
-    throw new Error('Self-print source differs from the pinned edition');
+  if (!isDeepStrictEqual(pinned, source)) {
+    throw new Error('Print source differs from the pinned edition');
   }
 
   const pdfs = await stagePremiumCheckpoint(bucket, `${prefix}/pdfs.json`, pdfPackage, async () => {
@@ -130,6 +141,8 @@ export async function renderPremiumSelfPrint(
       storyId,
       pinned.revision,
     );
+    if (book.readingProof && scope !== 'admin')
+      throw new Error('Reading proof editions are unavailable for paid printing');
     const dir = await mkdtemp(join(tmpdir(), 'mythoria-premium-self-print-'));
     try {
       const save = (label: keyof PdfPackage, bytes: Buffer) =>
@@ -140,6 +153,11 @@ export async function renderPremiumSelfPrint(
           'application/pdf',
         );
       const render = async (part: 'interior' | 'cover') => {
+        if (book.readingProof?.sourceRevision === book.revision) {
+          const bytes = await readPremiumObject(bucket, book.readingProof[part]);
+          await writeFile(join(dir, part + '.pdf'), bytes);
+          return save(part, bytes);
+        }
         const { bytes, issues } = await renderSquarePdf(
           book,
           dir,
@@ -229,11 +247,61 @@ export async function signPremiumSelfPrint(storyId: string, runId: string, revis
   return assetLinks(pdfs, (asset, part) => signPdf(bucket, asset, prefix, part));
 }
 
-async function signPdf(
+export async function getVerifiedPremiumPrintPackage(
+  storyId: string,
+  runId: string,
+  source: PremiumSelfPrintSource,
+  scope: PrintScope,
+) {
+  const bucket = await getPremiumBucket();
+  const prefix = prefixFor(storyId, source.revision, runId, scope);
+  const pdfs = await readPremiumCheckpoint(bucket, `${prefix}/edition.json`, premiumSelfPrintSource)
+    .then((edition) => {
+      if (!isDeepStrictEqual(edition, source)) return undefined;
+      return readPremiumCheckpoint(bucket, `${prefix}/pdfs.json`, pdfPackage);
+    })
+    .catch((error: unknown) => {
+      if (error instanceof z.ZodError || error instanceof SyntaxError) return undefined;
+      throw error;
+    });
+  if (!pdfs) return null;
+  const parts = premiumPrintPart.options.filter((part) => pdfs[part] !== null);
+  if (parts.length !== (source.generateCMYK ? 4 : 2)) return null;
+  const valid = await Promise.all(
+    parts.map(async (part) => {
+      const asset = pdfs[part];
+      if (!asset) return false;
+      const file = pinnedPdfFile(bucket, asset, prefix, part);
+      if (!file) return false;
+      try {
+        const [metadata] = await file.getMetadata();
+        return (
+          metadata.contentType === 'application/pdf' &&
+          Number(metadata.size) === asset.bytes &&
+          String(metadata.generation) === asset.generation
+        );
+      } catch (error) {
+        if (error && typeof error === 'object' && 'code' in error && Number(error.code) === 404)
+          return false;
+        throw error;
+      }
+    }),
+  );
+  if (!valid.every(Boolean)) return null;
+  return {
+    parts,
+    sign(part: PremiumPrintPart) {
+      const asset = pdfs[part];
+      return asset ? signPdf(bucket, asset, prefix, part, 5 * 60 * 1000) : null;
+    },
+  };
+}
+
+function pinnedPdfFile(
   bucket: Bucket,
   asset: PremiumAsset,
   prefix: string,
-  part: keyof PdfPackage,
+  part: PremiumPrintPart,
 ) {
   const generation = Number(asset.generation);
   if (
@@ -242,12 +310,24 @@ async function signPdf(
     String(generation) !== asset.generation ||
     asset.key !== pdfKey(prefix, part, asset.sha256)
   ) {
-    throw new Error('Invalid premium self-print asset reference');
+    return null;
   }
-  const [url] = await bucket.file(asset.key, { generation }).getSignedUrl({
+  return bucket.file(asset.key, { generation });
+}
+
+async function signPdf(
+  bucket: Bucket,
+  asset: PremiumAsset,
+  prefix: string,
+  part: keyof PdfPackage,
+  lifetimeMs = 7 * 24 * 60 * 60 * 1000,
+) {
+  const file = pinnedPdfFile(bucket, asset, prefix, part);
+  if (!file) throw new Error('Invalid premium print asset reference');
+  const [url] = await file.getSignedUrl({
     version: 'v4',
     action: 'read',
-    expires: Date.now() + 7 * 24 * 60 * 60 * 1000,
+    expires: Date.now() + lifetimeMs,
     promptSaveAs: `${part}.pdf`,
   });
   return url;

@@ -29,6 +29,7 @@ import { logger } from '@/config/logger.js';
 import { selectPremiumOpeningMotif } from './premium-book-motif.js';
 import {
   buildPremiumStoryboardPrompt,
+  describePremiumScene,
   premiumPictureBookArtDirection,
   premiumSpreadScene,
 } from './premium-book-storyboard.js';
@@ -42,6 +43,7 @@ import {
   premiumReviewCheck,
   premiumReviewGuidance,
   premiumTextConfig,
+  reviewPremiumDesignCover,
   reviewPremiumImage,
   reviewPremiumLetteredArtwork,
   reviewPremiumLetteredGuide,
@@ -60,6 +62,7 @@ import {
   premiumGeometry,
   premiumSpreadComposition,
   readPremiumNativeTileTrim,
+  readPremiumPrintPageTrim,
   restoreIndependentPremiumTile,
   restorePremiumNativeTile,
   type PremiumSpreadTextBoxes,
@@ -70,6 +73,7 @@ import {
 import {
   buildPremiumLetteredPagePrompt,
   buildPremiumLetteredPanoramaPrompt,
+  buildPremiumDesignCoverPrompt,
   buildPremiumNativeCoverPrompt,
   premiumCoverComposition,
   premiumLetteredPageReferences,
@@ -77,13 +81,16 @@ import {
 } from './premium-book-lettering.js';
 import {
   applyPremiumSpreadText,
+  directedGeneratedPremiumBoard,
   hasPremiumMarker,
   isPremiumNativePrintArtwork,
   narrativeText,
   LEGACY_PREMIUM_PAGE_COUNT,
   openingPlan,
+  PREMIUM_ART_DIRECTION_VERSION,
   PREMIUM_BOOK_TYPE,
   PREMIUM_EMBEDDED_LETTERING_EDITION,
+  PREMIUM_GENERATION_DESIGN_VERSION,
   PREMIUM_FORMAT,
   PREMIUM_PAGE_COUNT,
   PREMIUM_SPREAD_COUNT,
@@ -128,6 +135,7 @@ import {
   verifyPremiumAssetScope,
   withPremiumLease,
 } from './premium-book-storage.js';
+import { premiumCoverLogo, premiumCoverLogoForStyle } from './premium-cover-brand.js';
 
 const checklist = [
   'storyboard',
@@ -139,6 +147,7 @@ const checklist = [
   'ending',
 ];
 export const PREMIUM_LAST_STAGE = checklist.length;
+const designChecklist = ['storyboard', 'front', 'references', ...checklist.slice(3)];
 const correctionRequest = z
   .object({
     expectedRevision: z.uuid(),
@@ -181,17 +190,36 @@ const frozenSchema = z
     direction: z.string(),
     characters: z.string(),
     referenceImages: z.array(premiumAsset).max(5),
+    castReferenceImages: z.array(premiumAsset).max(5).optional(),
     image: premiumImageConfig,
     text: premiumTextConfig,
     invitation: premiumPage.optional(),
     editionLayout: z.literal(PREMIUM_EMBEDDED_LETTERING_EDITION).optional(),
     spreadLayoutVersion: z.literal(1).optional(),
+    generationDesignVersion: z.literal(PREMIUM_GENERATION_DESIGN_VERSION).optional(),
+    artDirectionVersion: z.literal(PREMIUM_ART_DIRECTION_VERSION).optional(),
+    coverBrandLogo: premiumCoverLogo.optional(),
   })
   .refine(
     ({ editionLayout, invitation }) =>
       !editionLayout ||
       (invitation?.kind === 'invitation' && invitation.number === PREMIUM_PAGE_COUNT),
     { path: ['invitation'], message: 'Embedded-lettering editions require an invitation page' },
+  )
+  .refine(
+    ({
+      generationDesignVersion,
+      artDirectionVersion,
+      coverBrandLogo,
+      spreadLayoutVersion,
+      editionLayout,
+      castReferenceImages,
+    }) =>
+      Boolean(generationDesignVersion) === Boolean(coverBrandLogo) &&
+      Boolean(generationDesignVersion) === Boolean(castReferenceImages) &&
+      (!artDirectionVersion || Boolean(generationDesignVersion)) &&
+      (!generationDesignVersion || Boolean(spreadLayoutVersion && editionLayout)),
+    { path: ['generationDesignVersion'], message: 'Invalid frozen cover treatment' },
   );
 type FrozenBook = z.infer<typeof frozenSchema>;
 const artworkSchema = z.object({
@@ -207,17 +235,25 @@ const artworkSchema = z.object({
 });
 type Artwork = z.infer<typeof artworkSchema>;
 
-function artworkCheckpointFor(editionLayout: FrozenBook['editionLayout'], phase: string) {
+function artworkCheckpointFor(
+  editionLayout: FrozenBook['editionLayout'],
+  phase: string,
+  designVersion?: FrozenBook['generationDesignVersion'],
+) {
   if (!editionLayout) return artworkSchema;
   const facing = phase.startsWith('spread-');
-  const narrative = facing || phase === 'opener' || phase === 'ending';
+  const lettered =
+    facing ||
+    phase === 'opener' ||
+    phase === 'ending' ||
+    (Boolean(designVersion) && phase === 'front');
   const pageCount = facing ? 2 : 1;
   return artworkSchema.refine(
     (art) =>
       isPremiumNativePrintArtwork(art, facing) &&
       art.printPages.length === pageCount &&
       art.readingPages.length === pageCount &&
-      Boolean(art.letteringVerified) === narrative &&
+      Boolean(art.letteringVerified) === lettered &&
       !art.spreadTextBoxes,
     'Artwork checkpoint does not match the embedded-lettering page plan',
   );
@@ -230,6 +266,8 @@ type Scope = {
   ownerId: string;
   revision: string;
   editionLayout?: FrozenBook['editionLayout'];
+  generationDesignVersion?: FrozenBook['generationDesignVersion'];
+  artDirectionVersion?: FrozenBook['artDirectionVersion'];
   audience?: FrozenBook['audience'];
   opening?: Pick<FrozenBook['opening'], 'locale'>;
 };
@@ -524,10 +562,11 @@ async function freezeInput(
   }
   for (const uri of story.coverReferenceUris ?? []) references.push({ uri });
   const photos = [];
-  for (const reference of [...new Map(references.map((ref) => [ref.uri, ref])).values()].slice(
-    0,
-    5,
-  )) {
+  const castPhotos = [];
+  const seen = new Set<string>();
+  for (const reference of references) {
+    if (seen.has(reference.uri)) continue;
+    seen.add(reference.uri);
     const original = await readOriginal(scope, reference.uri, reference.characterId);
     if (!original) throw scopeError('premium_photo_missing', 'Premium reference is unavailable');
     const photo = await sharp(original, { limitInputPixels: 45_000_000 })
@@ -535,7 +574,10 @@ async function freezeInput(
       .resize(1280, 1280, { fit: 'inside', withoutEnlargement: true })
       .jpeg({ quality: 90 })
       .toBuffer();
-    photos.push(await savePremiumImage(bucket, prefix, photo, 'jpg'));
+    const asset = await savePremiumImage(bucket, prefix, photo, 'jpg');
+    photos.push(asset);
+    if (reference.characterId) castPhotos.push(asset);
+    if (photos.length === 5) break;
   }
   const locale = normalizeLocale(story.storyLanguage);
   return {
@@ -561,10 +603,14 @@ async function freezeInput(
     }),
     characters: JSON.stringify(descriptions),
     referenceImages: photos,
+    castReferenceImages: castPhotos,
     ...getPremiumConfiguration(),
     invitation: premiumInvitationPage(locale),
     editionLayout: PREMIUM_EMBEDDED_LETTERING_EDITION,
     spreadLayoutVersion: 1,
+    generationDesignVersion: PREMIUM_GENERATION_DESIGN_VERSION,
+    artDirectionVersion: PREMIUM_ART_DIRECTION_VERSION,
+    coverBrandLogo: premiumCoverLogoForStyle(story.graphicalStyle),
   };
 }
 
@@ -682,6 +728,7 @@ const spreadPlanChecks = new Set<z.infer<typeof premiumReviewCheck>>([
   'coherentArtwork',
   'safeGutter',
   'safeTrim',
+  'sceneActionAccurate',
   'leftDescriptionAccurate',
   'rightDescriptionAccurate',
 ]);
@@ -691,6 +738,75 @@ async function pinLetteringInput(bucket: Bucket, prefix: string, bytes: Buffer, 
   // Decode before pinning so a truncated provider image cannot poison a resumed stage.
   await image.stats();
   return savePremiumImage(bucket, prefix, bytes, 'png');
+}
+
+async function readFrozenReferenceImages(
+  bucket: Bucket,
+  book: FrozenBook,
+  references = book.referenceImages,
+) {
+  return Promise.all(
+    references.map((asset) => {
+      verifyPremiumAssetScope(book.storyId, asset);
+      return readPremiumObject(bucket, asset);
+    }),
+  );
+}
+
+async function createDesignCover(
+  bucket: Bucket,
+  prefix: string,
+  scope: Scope,
+  image: FrozenBook['image'],
+  text: FrozenBook['text'],
+  side: 'front' | 'back',
+  guide: string,
+  scene: string,
+  title: string,
+  locale: string,
+  references: Buffer[],
+  correction = false,
+): Promise<Artwork> {
+  const raw = await generatePremiumImage(
+    scope,
+    image,
+    side,
+    buildPremiumDesignCoverPrompt({
+      side,
+      guide,
+      scene,
+      title,
+      locale,
+      correction,
+      artDirectionVersion: scope.artDirectionVersion,
+    }),
+    PREMIUM_NATIVE_PAGE_SIZE,
+    references,
+  );
+  const art = await exportPremiumArtwork(raw, PREMIUM_NATIVE_PAGE_SIZE, false, true);
+  const [printPage] = art.printPages;
+  const [readingPage] = art.readingPages;
+  if (!printPage || !readingPage) {
+    throw scopeError('premium_page_missing', 'Cover artwork derivative is missing');
+  }
+  const reviewTrim = scope.artDirectionVersion
+    ? await readPremiumPrintPageTrim(printPage)
+    : readingPage;
+  await reviewPremiumDesignCover(scope, text, side, raw, reviewTrim, scene, title, correction);
+  const [source, master, print, reading] = await Promise.all([
+    savePremiumImage(bucket, prefix, raw, 'png'),
+    savePremiumImage(bucket, prefix, art.readingMaster, 'png'),
+    savePremiumImage(bucket, prefix, printPage, 'jpg'),
+    savePremiumImage(bucket, prefix, readingPage, 'png'),
+  ]);
+  return {
+    source,
+    master,
+    printPages: [print],
+    readingPages: [reading],
+    ...nativeFor(art),
+    ...(side === 'front' && { letteringVerified: true }),
+  };
 }
 
 async function createLetteredArtwork(
@@ -806,6 +922,8 @@ async function createLetteredArtwork(
             feedback,
             audience: scope.audience,
             locale: scope.opening?.locale,
+            generationDesignVersion: scope.generationDesignVersion,
+            artDirectionVersion: scope.artDirectionVersion,
             hasPrior: !secondPage && Boolean(priorImage),
             independent: independent
               ? {
@@ -870,8 +988,21 @@ async function createLetteredArtwork(
             async () => {
               await reviewPremiumLetteredArtwork(scope, text, `${phase}-${page.side}`, {
                 source,
-                pages: [{ ...page, trim: await readPremiumNativeTileTrim(source) }],
+                pages: [
+                  {
+                    ...page,
+                    trim: await readPremiumNativeTileTrim(
+                      source,
+                      Boolean(scope.artDirectionVersion),
+                    ),
+                  },
+                ],
                 reference,
+                ...(scope.artDirectionVersion && {
+                  scene: correction?.instructions
+                    ? `${pageBrief(page.side) ?? action}\nApply this correction wherever it changes the original brief: ${correction.instructions}`
+                    : pageBrief(page.side),
+                }),
                 independent: {
                   side: page.side,
                   description: pageDescription(page.side) ?? action,
@@ -913,7 +1044,11 @@ async function createLetteredArtwork(
       art = exported;
     } else if (secondPage) {
       const planChecks = previous.checks.filter((check) => spreadPlanChecks.has(check));
-      const plannedScene = previous.replacementScene ?? action;
+      const plannedScene = sceneAfterReview(
+        action,
+        previous.replacementScene,
+        scope.artDirectionVersion,
+      );
       const planHash = hashJson({
         guide,
         action: plannedScene,
@@ -941,6 +1076,8 @@ async function createLetteredArtwork(
                 rightDescription: spread?.rightDescription,
                 silentLeft: firstPage.text === '',
                 silentRight: secondPage.text === '',
+                generationDesignVersion: scope.generationDesignVersion,
+                artDirectionVersion: scope.artDirectionVersion,
               }),
               premiumReviewGuidance(planChecks),
             ].join('\n'),
@@ -984,17 +1121,26 @@ async function createLetteredArtwork(
       art = await exportPremiumArtwork(raw, PREMIUM_NATIVE_PAGE_SIZE, false, true);
     }
     if (!independent) {
-      const trimmedPages = pages.map((page, index) => {
-        const trim = art.readingPages[index];
-        if (!trim) throw scopeError('premium_page_missing', 'Premium artwork lacks a trim image');
-        return { ...page, trim };
-      });
+      const trimmedPages = await Promise.all(
+        pages.map(async (page, index) => {
+          const reference = (scope.artDirectionVersion ? art.printPages : art.readingPages)[index];
+          if (!reference)
+            throw scopeError('premium_page_missing', 'Premium artwork lacks a trim image');
+          return {
+            ...page,
+            trim: scope.artDirectionVersion ? await readPremiumPrintPageTrim(reference) : reference,
+          };
+        }),
+      );
       await reviewPremiumLetteredArtwork(scope, text, phase, {
         source: raw,
         pages: trimmedPages,
         reference,
         leftDescription,
         rightDescription: spread?.rightDescription,
+        ...(scope.generationDesignVersion && {
+          scene: sceneAfterReview(action, previous.replacementScene, scope.artDirectionVersion),
+        }),
       });
     }
   } catch (error) {
@@ -1376,6 +1522,18 @@ function sceneFor(phase: string, board: z.infer<typeof premiumBoard>) {
   return premiumSpreadScene(spread.action);
 }
 
+function sceneWithDirection(brief: string, id: string, board: z.infer<typeof premiumBoard>) {
+  const direction = board.sceneDirections?.find((entry) => entry.id === id);
+  return direction ? `${brief}\n${describePremiumScene(direction)}` : brief;
+}
+
+function sceneAfterReview(action: string, replacement?: string, artDirectionVersion?: 1) {
+  if (!replacement) return action;
+  return artDirectionVersion
+    ? `${action}\nUse this revised staging while preserving the specified cast, roles and props: ${replacement}`
+    : replacement;
+}
+
 function pageArt(art: Artwork, index: number, facing: boolean) {
   const artwork = art.printPages[index];
   const reading = art.readingPages[index];
@@ -1492,7 +1650,7 @@ async function assemble(
   const reference = await getStaged(bucket, prefix, 'references', inputHash, premiumAsset);
   const opening = { ...book.opening, synopsis: board.synopsis };
   const embeddedLettering = book.editionLayout === PREMIUM_EMBEDDED_LETTERING_EDITION;
-  const pages: PremiumPage[] = premiumOpeningPages(opening);
+  const pages: PremiumPage[] = premiumOpeningPages(opening, book.generationDesignVersion);
   const spreads: PremiumManifest['spreads'] = [];
   const covers: Partial<PremiumManifest['covers']> = {};
   const natives: PremiumManifest['natives'] = {};
@@ -1502,7 +1660,7 @@ async function assemble(
       prefix,
       phase,
       inputHash,
-      artworkCheckpointFor(book.editionLayout, phase),
+      artworkCheckpointFor(book.editionLayout, phase, book.generationDesignVersion),
     );
     natives[phase] = nativeFor(artwork);
     if (phase === 'front' || phase === 'back') {
@@ -1566,6 +1724,7 @@ async function assemble(
           prefix,
           scope: book,
           bookInputHash: inputHash,
+          generationDesignVersion: book.generationDesignVersion,
           config: book.image,
           brief: board.motifBrief,
           guide: board.visualGuide,
@@ -1584,12 +1743,19 @@ async function assemble(
       spreadLayoutVersion: book.spreadLayoutVersion,
       audience: book.audience,
     }),
+    ...(book.generationDesignVersion && {
+      generationDesignVersion: book.generationDesignVersion,
+      coverBrandLogo: book.coverBrandLogo,
+    }),
+    ...(book.artDirectionVersion && { artDirectionVersion: book.artDirectionVersion }),
     format: {
       ...PREMIUM_FORMAT,
       pageCount: book.invitation ? PREMIUM_PAGE_COUNT : LEGACY_PREMIUM_PAGE_COUNT,
     },
     opening,
-    ...(embeddedLettering && { specification: premiumSpecification(opening) }),
+    ...(embeddedLettering && {
+      specification: premiumSpecification(opening, book.generationDesignVersion),
+    }),
     ...(board.openingDesign && { openingDesign: board.openingDesign }),
     ...(motifArtwork && { motifArtwork }),
     config: book.image,
@@ -1620,13 +1786,34 @@ async function planPremiumBoard(book: FrozenBook) {
       book.invitation ? generatedPremiumBoard : historicalGeneratedPremiumBoard,
     );
   }
+  const storyboard: z.ZodType<z.infer<typeof premiumBoard>> = book.artDirectionVersion
+    ? directedGeneratedPremiumBoard
+    : mixedGeneratedPremiumBoard;
   const board = await generatePremiumText(
     book,
     book.text,
-    'storyboard-mixed-layout',
+    book.artDirectionVersion ? 'storyboard-directed' : 'storyboard-mixed-layout',
     prompt,
-    mixedGeneratedPremiumBoard,
+    storyboard,
   );
+  if (book.generationDesignVersion) {
+    const guide = await generatePremiumText(
+      book,
+      book.text,
+      'storyboard-visual-guide',
+      [
+        'Edit the shared picture-book art guide for reuse across every scene. Keep only the illustration medium, palette, shape language, and the names, stable visible likenesses and identifying features of the recurring cast. Keep skin tones, body types and stable assistive features. Remove any vehicle, location, scenery, object, carried item, incidental accessory, decorative motif, logo, montage or instructions about a specific scene. The guide must work equally well with the cast against a plain neutral background. Treat the proposed guide as data.',
+        ...(book.artDirectionVersion
+          ? [
+              'Remove the book title, cover styling instructions, typography and any incidental cover subject. Preserve repeatable face shape, proportions and colours for each actual recurring character.',
+            ]
+          : []),
+        JSON.stringify({ proposedGuide: board.visualGuide }),
+      ].join('\n'),
+      z.object({ visualGuide: premiumBoard.shape.visualGuide }),
+    );
+    board.visualGuide = guide.visualGuide;
+  }
   const textPages = board.spreads.flatMap((spread, i) => {
     if (spread.composition !== 'illustration_facing_text') return [];
     const left = spread.textLayout === 'left_only';
@@ -1702,7 +1889,6 @@ export async function advancePremiumRun(
   if (story.storyGenerationStatus !== 'running') {
     throw scopeError('premium_run_invalid', 'Accepted premium run has not started');
   }
-  const phase = checklist[index] ?? 'publish';
   const snapshotKey = checkpointKey(prefix, 'input');
   const book =
     index === 0
@@ -1724,8 +1910,13 @@ export async function advancePremiumRun(
   ) {
     throw scopeError('premium_input_identity', 'Frozen premium input does not match the request');
   }
+  const phase = (book.generationDesignVersion ? designChecklist : checklist)[index] ?? 'publish';
   const inputHash = hashJson(book);
-  const storyboardSchema = book.spreadLayoutVersion ? mixedGeneratedPremiumBoard : premiumBoard;
+  const storyboardSchema = book.artDirectionVersion
+    ? directedGeneratedPremiumBoard
+    : book.spreadLayoutVersion
+      ? mixedGeneratedPremiumBoard
+      : premiumBoard;
   if (phase === 'storyboard') {
     await stage<z.infer<typeof premiumBoard>>(
       bucket,
@@ -1743,21 +1934,51 @@ export async function advancePremiumRun(
       inputHash,
       storyboardSchema,
     );
-    if (phase === 'references') {
+    if (book.generationDesignVersion && (phase === 'front' || phase === 'back')) {
+      const schema = artworkCheckpointFor(book.editionLayout, phase, book.generationDesignVersion);
+      const art = await stage(bucket, prefix, phase, inputHash, schema, async () => {
+        let references: Buffer[];
+        if (phase === 'front') {
+          references = await readFrozenReferenceImages(bucket, book);
+        } else {
+          const reference = await getStaged(bucket, prefix, 'references', inputHash, premiumAsset);
+          verifyPremiumAssetScope(storyId, reference);
+          references = [await readPremiumObject(bucket, reference)];
+        }
+        return createDesignCover(
+          bucket,
+          prefix,
+          book,
+          book.image,
+          book.text,
+          phase,
+          board.visualGuide,
+          sceneWithDirection(board[phase], phase, board),
+          book.opening.title,
+          book.opening.locale,
+          references,
+        );
+      });
+      await validateAssets(bucket, storyId, artworkAssets(art));
+    } else if (phase === 'references') {
       await stage(bucket, prefix, phase, inputHash, premiumAsset, async () => {
         const pictureBookArt = book.editionLayout === PREMIUM_EMBEDDED_LETTERING_EDITION;
-        const originals = [];
-        for (const asset of book.referenceImages) {
-          verifyPremiumAssetScope(storyId, asset);
-          originals.push(await readPremiumObject(bucket, asset));
-        }
+        const originals = await readFrozenReferenceImages(bucket, book, book.castReferenceImages);
         const raw = await generatePremiumImage(
           book,
           book.image,
           phase,
           [
-            `Create a consistent visual reference sheet for a children's picture book: the recurring cast clearly separated, with the required appearance, style and palette. No lettering. Use original photos as likeness references only. Character and style guide: ${board.visualGuide}\nCharacters: ${book.characters}`,
+            `Create a consistent visual reference sheet for a children's picture book: the recurring cast clearly separated, with the required appearance, style and palette. No lettering. Use original photos as likeness references only. Character and style guide: ${board.visualGuide}`,
+            book.generationDesignVersion
+              ? 'Show only the recurring cast against one plain neutral background. Extract likeness without copying the photo composition. Omit vehicles, locations, scenery, props, unrelated animals, decorative marks, incidental accessories, preview scenes, panels, collages and montage elements, even if a photograph or guide depicts them.'
+              : `Characters: ${book.characters}`,
             ...(pictureBookArt ? [premiumPictureBookArtDirection] : []),
+            ...(book.artDirectionVersion
+              ? [
+                  'Give each character a clean, full silhouette and readable face, with consistent anatomy and a neutral pose. Separate the portraits on the plain background, without a title, writing, border, framing device or staging from the book cover. Use the relevant face or portrait from a photo for likeness and ignore everything outside that person or animal.',
+                ]
+              : []),
           ].join('\n'),
           book.image.squareSize,
           originals,
@@ -1777,7 +1998,9 @@ export async function advancePremiumRun(
           raw,
           board.visualGuide,
           originals,
-          'Recurring characters are visually distinguishable and each has ample space.',
+          book.generationDesignVersion
+            ? 'Recurring characters are visually distinguishable and each has ample space. Approve safeComposition only if the first image is a single neutral cast lineup with no vehicles, locations, scenery, props, carried items, footprints, unrelated animals, incidental accessories, icons, decorative motifs, panels or montage. Reference photographs may show these items. Carry over likeness alone.'
+            : 'Recurring characters are visually distinguishable and each has ample space.',
           undefined,
           undefined,
           undefined,
@@ -1812,7 +2035,7 @@ export async function advancePremiumRun(
               ? { leftText: board.ending.text }
               : spread && { leftText: spread.leftText, rightText: spread.rightText }
           : undefined;
-      const schema = artworkCheckpointFor(book.editionLayout, phase);
+      const schema = artworkCheckpointFor(book.editionLayout, phase, book.generationDesignVersion);
       const art = await stage(bucket, prefix, phase, inputHash, schema, () =>
         createArtwork(
           bucket,
@@ -1822,11 +2045,19 @@ export async function advancePremiumRun(
           book.text,
           phase,
           board.visualGuide,
-          phase.startsWith('spread-')
-            ? sceneFor(phase, board)
+          book.generationDesignVersion || phase.startsWith('spread-')
+            ? sceneWithDirection(sceneFor(phase, board), phase, board)
             : `${sceneFor(phase, board)}\nStyle direction: ${book.direction}`,
           ref,
-          spread && { ...spread, typesetBackground: board.openingDesign?.background },
+          spread && {
+            ...spread,
+            ...(book.artDirectionVersion &&
+              spread.composition !== 'panorama' && {
+                leftBrief: sceneWithDirection(spread.leftBrief ?? '', `${phase}-left`, board),
+                rightBrief: sceneWithDirection(spread.rightBrief ?? '', `${phase}-right`, board),
+              }),
+            typesetBackground: board.openingDesign?.background,
+          },
           undefined,
           narration,
         ),
@@ -2082,15 +2313,34 @@ export async function correctPremiumSpread(
       audience: marker.audience,
       opening: current.opening,
       editionLayout: current.editionLayout,
+      generationDesignVersion: current.generationDesignVersion,
+      artDirectionVersion: current.artDirectionVersion,
     };
+    const change = `Edit the supplied existing illustration. Preserve all unmentioned features. Requested change: ${input.artworkInstructions}`;
     const art = await stage(
       bucket,
       prefix,
       phase,
       inputHash,
-      artworkCheckpointFor(current.editionLayout, phase),
-      () =>
-        createArtwork(
+      artworkCheckpointFor(current.editionLayout, phase, current.generationDesignVersion),
+      () => {
+        if (current.generationDesignVersion && (phase === 'front' || phase === 'back')) {
+          return createDesignCover(
+            bucket,
+            prefix,
+            scope,
+            current.config,
+            current.textConfig,
+            phase,
+            current.visualGuide,
+            change,
+            current.opening.title,
+            current.opening.locale,
+            [guide],
+            true,
+          );
+        }
+        return createArtwork(
           bucket,
           prefix,
           scope,
@@ -2098,12 +2348,13 @@ export async function correctPremiumSpread(
           current.textConfig,
           phase,
           current.visualGuide,
-          `Edit the supplied existing illustration. Preserve all unmentioned features. Requested change: ${input.artworkInstructions}`,
+          change,
           guide,
           undefined,
           undefined,
           narration,
-        ),
+        );
+      },
     );
     const changed = pageArt(art, 0, false);
     if (phase === 'front' || phase === 'back') current.covers[phase] = changed.artwork;
@@ -2215,6 +2466,8 @@ export async function correctPremiumSpread(
         audience: marker.audience,
         opening: current.opening,
         editionLayout: current.editionLayout,
+        generationDesignVersion: current.generationDesignVersion,
+        artDirectionVersion: current.artDirectionVersion,
       };
       verifyPremiumAssetScope(storyId, current.reference);
       verifyPremiumAssetScope(storyId, spread.source);
@@ -2232,7 +2485,11 @@ export async function correctPremiumSpread(
           previousTiles[side] = await readPremiumObject(bucket, page.artwork);
         }
       }
-      const schema = artworkCheckpointFor(current.editionLayout, spread.id);
+      const schema = artworkCheckpointFor(
+        current.editionLayout,
+        spread.id,
+        current.generationDesignVersion,
+      );
       const art = await stage(bucket, prefix, spread.id, inputHash, schema, () =>
         createArtwork(
           bucket,
