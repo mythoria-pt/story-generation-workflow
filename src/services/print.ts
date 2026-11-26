@@ -548,23 +548,28 @@ export class PrintService {
     const { coverSpreadWMM, coverSpreadHMM, spineWidthMM } = dimensions;
     const { bleedMM } = this.paperConfig;
 
-    // The cover illustration often includes the title. Keep the complete art
-    // inside the live front panel, including clearance from the casewrap hinge.
     const frontArt = storyData.coverUri
       ? `url("${convertToAbsoluteImagePath(storyData.coverUri)}")`
       : 'none';
     const outerInset = this.luluBinding === 'hardcover' ? 38.1 : 15.875;
-    const innerInset = this.luluBinding === 'hardcover' ? 25.4 : 12.7;
+    // The paperback artwork fills the bleed, with any vertical crop taken from
+    // the bottom to give the title more room. Casewrap keeps its hinge clearance.
+    const frontStyles =
+      this.luluBinding === 'paperback'
+        ? '.front-cover { background-size: cover; background-position: center top; }'
+        : `
+        .front-cover { position: relative; background: #333; }
+        .front-cover::before { content: ''; position: absolute;
+          inset: ${outerInset}mm ${outerInset}mm ${outerInset}mm 25.4mm;
+          background: ${frontArt} center / contain no-repeat; }
+      `;
     const variables = {
       title: storyData.title || '',
       colourProfile: this.luluBinding ? 'sRGB' : 'CMYK',
       cssBleed: this.luluBinding ? '0' : `${bleedMM.cover}mm`,
       bindingStyles: this.luluBinding
         ? `
-        .front-cover { position: relative; background: #333; }
-        .front-cover::before { content: ''; position: absolute;
-          inset: ${outerInset}mm ${outerInset}mm ${outerInset}mm ${innerInset}mm;
-          background: ${frontArt} center / contain no-repeat; }
+        ${frontStyles}
         .back-cover { background-size: cover; }
         .info-rectangle { bottom: ${outerInset}mm; width: 46%; }
       `
