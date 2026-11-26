@@ -8,9 +8,11 @@ import {
   advancePremiumRun,
   claimPremiumResume,
   correctPremiumSpread,
+  editPremiumPageText,
   identifyPremiumRun,
   PREMIUM_LAST_STAGE,
   premiumCorrectionRequest,
+  premiumTextEditRequest,
   resumePremiumRun,
 } from '@/services/premium-book.js';
 
@@ -128,6 +130,20 @@ premiumBookRouter.post(
     }
   },
 );
+
+premiumBookRouter.post('/stories/:storyId/text-edits', apiKeyAuth, async (req, res) => {
+  const story = z.uuid().safeParse(req.params.storyId);
+  const input = premiumTextEditRequest.safeParse(req.body);
+  if (!story.success || !input.success) {
+    res.status(400).json({ code: 'invalid_edit', error: 'Invalid premium page text edit' });
+    return;
+  }
+  try {
+    res.json(await editPremiumPageText(story.data, input.data));
+  } catch (error) {
+    errorResponse(res, error, story.data);
+  }
+});
 
 premiumBookRouter.post('/stories/:storyId/copy', apiKeyAuth, async (req, res) => {
   const story = z.uuid().safeParse(req.params.storyId);

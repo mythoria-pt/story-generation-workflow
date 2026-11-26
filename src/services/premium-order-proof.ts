@@ -285,6 +285,18 @@ async function squareLayout(
   return { print, html, dimensions };
 }
 
+export async function premiumManualTextFits(
+  book: PremiumPrintManifest,
+  page: PremiumPrintManifest['pages'][number],
+  load: (ref: Ref) => Promise<Buffer>,
+) {
+  const interior = await squareLayout(book, 'interior', load, loadPremiumPublicationQr, [page]);
+  if ((await interior.print.findTextOverflow(interior.html)).length) return false;
+  if (page.kind !== 'synopsis') return true;
+  const cover = await squareLayout(book, 'cover', load, loadPremiumPublicationQr);
+  return (await cover.print.findTextOverflow(cover.html)).length === 0;
+}
+
 export async function renderSquarePdf(
   book: PremiumPrintManifest,
   dir: string,

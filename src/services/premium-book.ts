@@ -23,7 +23,7 @@ import {
 import { RunsService } from './runs.js';
 import { premiumOpeningPages, premiumSpecification } from './premium-book-opening.js';
 import { addPremiumPagePreviews } from './premium-book-previews.js';
-import { validatePremiumTypesetPages } from './premium-order-proof.js';
+import { premiumManualTextFits, validatePremiumTypesetPages } from './premium-order-proof.js';
 import { premiumInvitationPage } from './premium-book-invitation.js';
 import { logger } from '@/config/logger.js';
 import { selectPremiumOpeningMotif } from './premium-book-motif.js';
@@ -159,6 +159,17 @@ const correctionRequest = z
         Boolean(value.rightText || value.leftDescription || value.artworkInstructions)),
   );
 export { correctionRequest as premiumCorrectionRequest };
+
+export const premiumTextEditRequest = z
+  .object({
+    ownerId: z.uuid(),
+    expectedRevision: z.uuid(),
+    correctionId: z.uuid(),
+    pageNumber: z.number().int().min(1).max(PREMIUM_PAGE_COUNT),
+    text: z.string().max(2000),
+  })
+  .strict()
+  .refine((input) => input.expectedRevision !== input.correctionId);
 
 const frozenSchema = z
   .object({
@@ -1398,6 +1409,7 @@ async function publishManifest(
   prefix: string,
   manifest: PremiumManifest,
   prior: Queued | Published,
+  updateDedication = false,
 ) {
   const checked = premiumManifest.parse(manifest);
   const asset = await writeManifest(bucket, prefix, checked);
@@ -1426,7 +1438,8 @@ async function publishManifest(
       story.status !== (prior.state === 'queued' ? 'writing' : 'published') ||
       (prior.state === 'published' &&
         marker.state === 'published' &&
-        marker.manifest.generation !== prior.manifest.generation)
+        (marker.manifest.generation !== prior.manifest.generation ||
+          marker.manifest.sha256 !== prior.manifest.sha256))
     ) {
       throw scopeError(
         'premium_publish_conflict',
@@ -1444,6 +1457,7 @@ async function publishManifest(
       .set({
         features: { ...(story.features as Record<string, unknown>), premiumBook: updated },
         synopsis: checked.opening.synopsis,
+        ...(updateDedication && { dedicationMessage: checked.opening.dedication || null }),
         ...(prior.state === 'queued' && {
           status: 'published',
           storyGenerationStatus: 'completed',
@@ -1913,6 +1927,84 @@ export async function cleanPremiumTerminalDrafts(
   await Promise.all(
     drafts.map(({ key, generation }) => deletePremiumReviewDraft(bucket, key, generation)),
   );
+}
+
+export async function editPremiumPageText(
+  storyId: string,
+  input: z.infer<typeof premiumTextEditRequest>,
+) {
+  const story = await readStory(storyId);
+  if (story.authorId !== input.ownerId || story.status !== 'published') {
+    throw new PremiumBookError(404, 'premium_story_missing', 'Published premium story unavailable');
+  }
+  const marker = readPremiumMarker(story.features);
+  if (
+    marker?.state !== 'published' ||
+    marker.ownerId !== input.ownerId ||
+    ![input.expectedRevision, input.correctionId].includes(marker.revision)
+  ) {
+    throw scopeError('premium_correction_conflict', 'Premium edition changed');
+  }
+  const bucket = await getPremiumBucket();
+  const book = await readPremiumManifest(
+    bucket,
+    storyId,
+    input.ownerId,
+    marker.revision,
+    marker.manifest,
+  );
+  const text = input.text.replace(/\r\n?/g, '\n').trim();
+  const inputHash = hashJson({ ...input, text });
+  if (book.revision === input.correctionId) {
+    if (book.supersedes !== inputHash) {
+      throw scopeError('premium_correction_conflict', 'Premium correction ID is already bound');
+    }
+    return { revision: book.revision };
+  }
+
+  const page = book.pages[input.pageNumber - 1];
+  const openingField =
+    page?.kind === 'dedication' || page?.kind === 'synopsis' ? page.kind : undefined;
+  const typeset = page?.renderMode === 'typeset';
+  const overlay =
+    !book.editionLayout && page?.renderMode === undefined && page?.textBox && page.text;
+  if (!page || !(openingField || typeset || overlay)) {
+    throw new PremiumBookError(422, 'text_not_editable', 'This page has no editable text');
+  }
+  const valid =
+    ![...text].some((character) => character !== '\n' && character.charCodeAt(0) < 32) &&
+    (openingField
+      ? openingPlan.shape[openingField].safeParse(text).success
+      : (typeset ? typesetNarration : narrativeText).safeParse(text).success);
+  if (!valid) throw new PremiumBookError(400, 'invalid_edit', 'Invalid premium page text');
+  if ((openingField ? book.opening[openingField] : page.text) === text) {
+    return { revision: book.revision };
+  }
+
+  if (openingField) {
+    book.opening[openingField] = text;
+    const [, , dedication, synopsis] = premiumOpeningPages(book.opening);
+    page.text = openingField === 'dedication' ? dedication.text : synopsis.text;
+  } else {
+    page.text = text;
+  }
+  if (!(await premiumManualTextFits(book, page, (asset) => readPremiumObject(bucket, asset)))) {
+    throw new PremiumBookError(422, 'text_does_not_fit', 'Edited text exceeds the page area');
+  }
+  // Opening and typeset previews are composites. Legacy reading art carries no manuscript layer.
+  const revised: PremiumManifest = {
+    ...book,
+    previousRevision: book.revision,
+    revision: input.correctionId,
+    supersedes: inputHash,
+  };
+  const prefix = premiumRevisionPrefix(storyId, revised.revision);
+  if (openingField || typeset) {
+    delete page.reading;
+    await addPremiumPagePreviews(bucket, prefix, revised, page);
+  }
+  await publishManifest(bucket, prefix, revised, marker, openingField === 'dedication');
+  return { revision: revised.revision };
 }
 
 export async function correctPremiumSpread(

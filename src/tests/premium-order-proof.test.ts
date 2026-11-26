@@ -17,6 +17,7 @@ import {
 import {
   assertSquareCasewrap,
   legacySquarePackage,
+  premiumManualTextFits,
   renderSquarePagePreviews,
   renderSquarePdf,
   squarePackage,
@@ -53,6 +54,31 @@ const input = {
 };
 const manifest = premiumManifestFixture();
 describe('square order proof', () => {
+  it('also fits a manually edited synopsis in the back cover', async () => {
+    const book = premiumManifestFixture();
+    book.opening.synopsis = 'A Inês conta <uma história>.';
+    const synopsis = { ...book.pages[3]!, text: `Sinopse\n\n${book.opening.synopsis}` };
+    const fit = jest
+      .spyOn(PrintService.prototype, 'findTextOverflow')
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce(['']);
+    try {
+      await expect(
+        premiumManualTextFits(book, synopsis, async () => Buffer.alloc(0)),
+      ).resolves.toBe(false);
+      expect(fit).toHaveBeenNthCalledWith(
+        1,
+        expect.stringContaining('Sinopse\n\nA Inês conta &lt;uma história&gt;.'),
+      );
+      expect(fit).toHaveBeenNthCalledWith(
+        2,
+        expect.stringContaining('cover-copy fit">A Inês conta &lt;uma história&gt;.'),
+      );
+    } finally {
+      fit.mockRestore();
+    }
+  });
+
   it('requires the pinned hardcover edition and a package only for Lulu', () => {
     expect(OrderProofRequest.parse(input)).toMatchObject(input);
     expect(OrderProofRequest.parse({ ...input, premiumPageCount: 33 }).premiumPageCount).toBe(33);

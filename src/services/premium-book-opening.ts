@@ -71,7 +71,9 @@ export function premiumSpecification(opening: Opening) {
   };
 }
 
-export function premiumOpeningPages(opening: Opening): PremiumPage[] {
+export function premiumOpeningPages(
+  opening: Opening,
+): [title: PremiumPage, publication: PremiumPage, dedication: PremiumPage, synopsis: PremiumPage] {
   const specification = premiumSpecification(opening);
   return [
     { number: 1, kind: 'title', text: opening.title },

@@ -15,22 +15,24 @@ export async function addPremiumPagePreviews(
   bucket: Bucket,
   prefix: string,
   book: PremiumManifest,
+  editedPage?: PremiumManifest['pages'][number],
 ) {
-  const pages = book.pages.filter(({ reading }) => !reading);
+  const pages = (editedPage ? [editedPage] : book.pages).filter(({ reading }) => !reading);
   if (pages.length === 0) return;
-  const checkpoint = book.spreadLayoutVersion
-    ? `reading-page-previews-${premiumDigest(
-        JSON.stringify({
-          spreadLayoutVersion: book.spreadLayoutVersion,
-          audience: book.audience,
-          opening: book.opening,
-          openingDesign: book.openingDesign,
-          specification: book.specification,
-          motifArtwork: book.motifArtwork,
-          pages,
-        }),
-      )}.json`
-    : 'reading-page-previews.json';
+  const checkpoint =
+    book.spreadLayoutVersion || editedPage
+      ? `reading-page-previews-${premiumDigest(
+          JSON.stringify({
+            spreadLayoutVersion: book.spreadLayoutVersion,
+            audience: book.audience,
+            opening: book.opening,
+            openingDesign: book.openingDesign,
+            specification: book.specification,
+            motifArtwork: book.motifArtwork,
+            pages,
+          }),
+        )}.json`
+      : 'reading-page-previews.json';
   const previews = await stagePremiumCheckpoint(
     bucket,
     `${prefix}/checkpoints/${checkpoint}`,

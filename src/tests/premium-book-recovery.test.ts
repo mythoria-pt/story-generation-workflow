@@ -23,6 +23,7 @@ import {
   claimPremiumResume,
   cleanPremiumTerminalDrafts,
   correctPremiumSpread,
+  editPremiumPageText,
   identifyPremiumRun,
   markPremiumTerminalFailure,
   PREMIUM_LAST_STAGE,
@@ -32,6 +33,7 @@ import {
 import { premiumInvitationPage } from '@/services/premium-book-invitation.js';
 import { premiumLetteredManifestFixture, premiumManifestFixture } from './fixtures/premium-book.js';
 import { fixtureBucket } from './fixtures/premium-storage.js';
+import { premiumOpeningPages } from '@/services/premium-book-opening.js';
 
 jest.mock('@/db/connection.js', () => ({ getDatabase: jest.fn() }));
 jest.mock('@/services/runs.js', () => ({ RunsService: jest.fn() }));
@@ -128,6 +130,128 @@ beforeEach(async () => {
   jest
     .spyOn(PrintService.prototype, 'renderPageImages')
     .mockImplementation(async (html) => Array.from(html.matchAll(/<section\b/g), () => capture));
+});
+
+describe('manual premium text edits', () => {
+  async function publishedEdition(book = premiumManifestFixture()) {
+    const { story, storyWrites } = setup();
+    const { bucket, objects } = fixtureBucket();
+    const prefix = premiumRevisionPrefix(storyId, runId);
+    const asset = await premiumStorage.savePremiumObject(
+      bucket,
+      `${prefix}/manifest.json`,
+      Buffer.from(JSON.stringify(book)),
+      'application/json',
+    );
+    story.status = 'published';
+    Object.assign(story.features, {
+      premiumBook: { ...queued, state: 'published', manifest: asset },
+      anotherFeature: true,
+    });
+    const getBucket = jest.spyOn(premiumStorage, 'getPremiumBucket').mockResolvedValue(bucket);
+    const fit = jest.spyOn(premiumPrint, 'premiumManualTextFits').mockResolvedValue(true);
+    const input = { ownerId, expectedRevision: runId, correctionId: randomUUID() };
+    const newManifest = `${premiumRevisionPrefix(storyId, input.correctionId)}/manifest.json`;
+    return { story, storyWrites, bucket, asset, objects, getBucket, fit, input, newManifest };
+  }
+
+  it.each([
+    [3, 'dedication', '', 'dedicationMessage', null],
+    [4, 'synopsis', 'O barco chegou ao mar.', 'synopsis', 'O barco chegou ao mar.'],
+  ] as const)(
+    'validates, renders and publishes the page %s %s body without changing the book art',
+    async (pageNumber, field, text, storyField, storyValue) => {
+      const book = premiumManifestFixture(true, 'Para a família.');
+      const { story, storyWrites, objects, getBucket, fit, input, asset, newManifest } =
+        await publishedEdition(book);
+      const edit = { ...input, pageNumber, text };
+      try {
+        await expect(editPremiumPageText(storyId, edit)).resolves.toEqual({
+          revision: input.correctionId,
+        });
+        const saved = premiumManifest.parse(JSON.parse(objects.get(newManifest)!.bytes.toString()));
+        expect(saved.previousRevision).toBe(runId);
+        expect(saved.opening).toEqual({ ...book.opening, [field]: text });
+        expect(saved.pages[pageNumber - 1]).toMatchObject({
+          text: premiumOpeningPages(saved.opening)[pageNumber - 1].text,
+          reading: { key: expect.stringContaining(input.correctionId) },
+        });
+        expect(saved.pages.filter((page) => page.number !== pageNumber)).toEqual(
+          book.pages.filter((page) => page.number !== pageNumber),
+        );
+        expect(saved.covers).toEqual(book.covers);
+        expect(saved.spreads).toEqual(book.spreads);
+        expect(JSON.parse(objects.get(asset.key)!.bytes.toString())).toEqual(book);
+        expect(storyWrites).toHaveLength(1);
+        expect(storyWrites[0]).toMatchObject({
+          [storyField]: storyValue,
+          features: {
+            anotherFeature: true,
+            premiumBook: { revision: input.correctionId, manifest: { key: newManifest } },
+          },
+        });
+
+        Object.assign(story, { features: storyWrites[0].features });
+        await expect(editPremiumPageText(storyId, edit)).resolves.toEqual({
+          revision: input.correctionId,
+        });
+        await expect(
+          editPremiumPageText(storyId, { ...edit, text: 'Alterado' }),
+        ).rejects.toMatchObject({
+          code: 'premium_correction_conflict',
+        });
+        expect(storyWrites).toHaveLength(1);
+        expect(fit).toHaveBeenCalledTimes(1);
+      } finally {
+        getBucket.mockRestore();
+        fit.mockRestore();
+      }
+    },
+  );
+
+  it('keeps embedded lettering and frozen publication pages ineligible', async () => {
+    const { fit, getBucket, input, storyWrites } = await publishedEdition(
+      premiumLetteredManifestFixture(),
+    );
+    try {
+      for (const pageNumber of [1, 2, 5, 6, 32, 33]) {
+        await expect(
+          editPremiumPageText(storyId, { ...input, pageNumber, text: 'Nova frase.' }),
+        ).rejects.toMatchObject({ status: 422, code: 'text_not_editable' });
+      }
+      expect(storyWrites).toHaveLength(0);
+      expect(fit).not.toHaveBeenCalled();
+    } finally {
+      getBucket.mockRestore();
+      fit.mockRestore();
+    }
+  });
+
+  it('validates legacy overlay fit before publishing and reuses its existing image objects', async () => {
+    const book = premiumManifestFixture();
+    const { fit, getBucket, input, objects, newManifest, storyWrites } =
+      await publishedEdition(book);
+    try {
+      const edit = { ...input, pageNumber: 5, text: 'A Inês viu o mar.' };
+      fit.mockResolvedValueOnce(false);
+      await expect(editPremiumPageText(storyId, edit)).rejects.toMatchObject({
+        status: 422,
+        code: 'text_does_not_fit',
+      });
+      expect(objects.has(newManifest)).toBe(false);
+      expect(storyWrites).toHaveLength(0);
+
+      await expect(editPremiumPageText(storyId, edit)).resolves.toEqual({
+        revision: input.correctionId,
+      });
+      const saved = premiumManifest.parse(JSON.parse(objects.get(newManifest)!.bytes.toString()));
+      expect(saved.pages[4]).toEqual({ ...book.pages[4], text: edit.text });
+      expect(objects.size).toBe(2);
+    } finally {
+      getBucket.mockRestore();
+      fit.mockRestore();
+    }
+  });
 });
 
 describe('premium accepted run and recovery', () => {
@@ -367,6 +491,69 @@ describe('premium accepted run and recovery', () => {
         text: board.spreads[1]?.rightText,
       });
       expect(manifest.pages[32]).toMatchObject(premiumInvitationPage('de-DE'));
+
+      const publication = [...storyWrites].reverse().find(({ features }) => features);
+      Object.assign(story, { status: 'published', features: publication?.features });
+      const edit = {
+        ownerId,
+        expectedRevision: revision,
+        correctionId: randomUUID(),
+        pageNumber: 9,
+        text: 'Lina hält den Ball.\r\n\r\nDann wirft sie ihn.',
+      };
+      const fitEditedPage = jest
+        .spyOn(PrintService.prototype, 'findTextOverflow')
+        .mockResolvedValue([]);
+      images.mockClear();
+      await expect(editPremiumPageText(storyId, edit)).resolves.toEqual({
+        revision: edit.correctionId,
+      });
+      const editedPath = `${premiumRevisionPrefix(storyId, edit.correctionId)}/manifest.json`;
+      const edited = premiumManifest.parse(JSON.parse(objects.get(editedPath)!.bytes.toString()));
+      const editedWords = 'Lina hält den Ball.\n\nDann wirft sie ihn.';
+      expect(fitEditedPage).toHaveBeenCalledWith(expect.stringContaining(editedWords));
+      expect(edited.pages[8]).toMatchObject({ text: editedWords, renderMode: 'typeset' });
+      expect(edited.pages[8]?.reading?.key).toContain(edit.correctionId);
+      expect(edited.pages[7]).toEqual(manifest.pages[7]);
+      expect(edited.spreads).toEqual(manifest.spreads);
+      expect(images).not.toHaveBeenCalled();
+
+      const generationConfig = manifest.config;
+      const cases = [
+        { spreadId: 'front', phases: ['front'] },
+        { spreadId: 'back', phases: ['back'] },
+        {
+          spreadId: 'spread-1',
+          phases: [
+            'spread-1-lettering-guide',
+            'spread-1-lettering-left',
+            'spread-1-lettering-right',
+          ],
+        },
+        { spreadId: 'spread-3', targetSide: 'left', phases: ['spread-3-lettering-left'] },
+        { spreadId: 'spread-3', targetSide: 'right', phases: ['spread-3-lettering-right'] },
+      ] as const;
+      jest.spyOn(premiumArtwork, 'restoreIndependentPremiumTile').mockResolvedValue(png);
+      for (const { phases, ...target } of cases) {
+        images.mockClear();
+        const correctionId = randomUUID();
+        const correction = await correctPremiumSpread(
+          storyId,
+          {
+            ...target,
+            expectedRevision: revision,
+            correctionId,
+            artworkInstructions: 'Brighten the scene.',
+          },
+          true,
+        );
+        expect(correction.revision).toBe(correctionId);
+        expect(images.mock.calls.map(([, , phase]) => phase).sort()).toEqual([...phases].sort());
+        for (const [, config, , , , references] of images.mock.calls) {
+          expect(config).toEqual(generationConfig);
+          expect(references.length).toBeGreaterThan(0);
+        }
+      }
     } finally {
       jest.restoreAllMocks();
     }
