@@ -554,9 +554,14 @@ export class PrintService {
     const outerInset = this.luluBinding === 'hardcover' ? 38.1 : 15.875;
     // The paperback artwork fills the bleed, with any vertical crop taken from
     // the bottom to give the title more room. Casewrap keeps its hinge clearance.
-    const frontStyles =
+    const paperbackLogoInset = outerInset + 0.5; // Allow for PDF rounding at the safe edge.
+    const coverStyles =
       this.luluBinding === 'paperback'
-        ? '.front-cover { background-size: cover; background-position: center top; }'
+        ? `
+        .front-cover { background-size: cover; background-position: center top; }
+        .info-rectangle { left: 0; justify-content: flex-start; padding-left: ${paperbackLogoInset}mm; }
+        .logo-img { margin-left: 0; }
+      `
         : `
         .front-cover { position: relative; background: #333; }
         .front-cover::before { content: ''; position: absolute;
@@ -569,7 +574,7 @@ export class PrintService {
       cssBleed: this.luluBinding ? '0' : `${bleedMM.cover}mm`,
       bindingStyles: this.luluBinding
         ? `
-        ${frontStyles}
+        ${coverStyles}
         .back-cover { background-size: cover; }
         .info-rectangle { bottom: ${outerInset}mm; width: 46%; }
       `

@@ -20,6 +20,16 @@ describe('print cover layout', () => {
     expect(html).toContain('.back-cover { background-size: cover; }');
   });
 
+  it('starts the back-cover panel at the bleed edge and insets its contents', () => {
+    const print = new PrintService('paperback');
+    const html = print.generateCoverHTML(story, print.calculateDimensions(37));
+
+    expect(html).toContain(
+      '.info-rectangle { left: 0; justify-content: flex-start; padding-left: 16.375mm; }',
+    );
+    expect(html).toContain('.logo-img { margin-left: 0; }');
+  });
+
   it('retains the casewrap hinge clearance', () => {
     const print = new PrintService('hardcover');
     const html = print.generateCoverHTML(story, print.calculateDimensions(37));
